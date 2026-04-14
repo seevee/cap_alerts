@@ -91,7 +91,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        return CAPAlertsOptionsFlowHandler(config_entry)
+        return CAPAlertsOptionsFlowHandler()
 
     # ── Initial setup ──
 
@@ -390,9 +390,6 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
 class CAPAlertsOptionsFlowHandler(OptionsFlow):
     """Handle options flow for CAP Alerts."""
-
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
