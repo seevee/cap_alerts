@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
@@ -51,6 +51,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._store = AlertStore(hass, entry.entry_id)
         self._user_agent = user_agent
         self._timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+        self.last_update_success_time: datetime | None = None
 
         super().__init__(
             hass,
@@ -122,5 +123,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         alerts = filter_active_alerts(alerts)
         # Diff against previous poll
         alerts = self._store.process(alerts)
+        # Track successful update time (not all HA versions expose this)
+        self.last_update_success_time = datetime.now(timezone.utc)
         # Index by ID for O(1) lookup
         return {a.id: a for a in alerts}
