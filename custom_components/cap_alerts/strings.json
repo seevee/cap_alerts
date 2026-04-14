@@ -1,0 +1,170 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "CAP Alerts",
+        "menu_options": {
+          "nws": "National Weather Service (US)",
+          "eccc": "Environment Canada"
+        }
+      },
+      "nws": {
+        "title": "NWS Location Type",
+        "menu_options": {
+          "nws_zone": "Zone ID",
+          "nws_gps_loc": "GPS Coordinates",
+          "nws_gps_tracker": "GPS Tracker Entity"
+        }
+      },
+      "nws_zone": {
+        "title": "NWS Zone",
+        "data": {
+          "zone_id": "Zone ID(s)"
+        },
+        "data_description": {
+          "zone_id": "Comma-separated UGC zone codes (e.g. OHC049,OHC035)"
+        }
+      },
+      "nws_gps_loc": {
+        "title": "NWS GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 40.1234,-83.5678)"
+        }
+      },
+      "nws_gps_tracker": {
+        "title": "NWS GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
+        }
+      },
+      "eccc": {
+        "title": "ECCC Location Type",
+        "menu_options": {
+          "eccc_province": "Province",
+          "eccc_gps_loc": "GPS Coordinates"
+        }
+      },
+      "eccc_province": {
+        "title": "ECCC Province",
+        "data": {
+          "province": "Province Code"
+        },
+        "data_description": {
+          "province": "2-letter province code (e.g. ON, BC, AB)"
+        }
+      },
+      "eccc_gps_loc": {
+        "title": "ECCC GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 43.6532,-79.3832)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure CAP Alerts",
+        "menu_options": {
+          "reconfigure_nws": "National Weather Service (US)",
+          "reconfigure_eccc": "Environment Canada"
+        }
+      },
+      "reconfigure_nws": {
+        "title": "NWS Location Type",
+        "menu_options": {
+          "reconfigure_nws_zone": "Zone ID",
+          "reconfigure_nws_gps_loc": "GPS Coordinates",
+          "reconfigure_nws_gps_tracker": "GPS Tracker Entity"
+        }
+      },
+      "reconfigure_nws_zone": {
+        "title": "NWS Zone",
+        "data": {
+          "zone_id": "Zone ID(s)"
+        },
+        "data_description": {
+          "zone_id": "Comma-separated UGC zone codes (e.g. OHC049,OHC035)"
+        }
+      },
+      "reconfigure_nws_gps_loc": {
+        "title": "NWS GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 40.1234,-83.5678)"
+        }
+      },
+      "reconfigure_nws_gps_tracker": {
+        "title": "NWS GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
+        }
+      },
+      "reconfigure_eccc": {
+        "title": "ECCC Location Type",
+        "menu_options": {
+          "reconfigure_eccc_province": "Province",
+          "reconfigure_eccc_gps_loc": "GPS Coordinates"
+        }
+      },
+      "reconfigure_eccc_province": {
+        "title": "ECCC Province",
+        "data": {
+          "province": "Province Code"
+        },
+        "data_description": {
+          "province": "2-letter province code (e.g. ON, BC, AB)"
+        }
+      },
+      "reconfigure_eccc_gps_loc": {
+        "title": "ECCC GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 43.6532,-79.3832)"
+        }
+      }
+    },
+    "error": {
+      "invalid_gps": "Invalid GPS coordinates. Enter as latitude,longitude.",
+      "invalid_zone": "Invalid zone ID format.",
+      "invalid_province": "Invalid province code.",
+      "cannot_connect": "Could not connect to the weather service."
+    },
+    "abort": {
+      "reconfigure_successful": "Configuration updated successfully."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Polling interval (seconds)",
+          "timeout": "API timeout (seconds)",
+          "include_geometry": "Include GeoJSON geometry in attributes",
+          "language": "Language"
+        },
+        "data_description": {
+          "scan_interval": "How often to check for new alerts (60\u20133600)",
+          "timeout": "Per-request API timeout (5\u2013120)",
+          "language": "ECCC alert language (auto, en-CA, or fr-CA)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "alert_count": {
+        "name": "Alert count"
+      },
+      "last_updated": {
+        "name": "Last updated"
+      }
+    }
+  }
+}
