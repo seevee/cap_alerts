@@ -170,9 +170,21 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
         return alerts.get(self._alert_id)
 
     @property
-    def native_value(self) -> str | None:
+    def name(self) -> str | None:
         a = self._alert
         return a.event if a else None
+
+    @property
+    def suggested_object_id(self) -> str | None:
+        a = self._alert
+        if not a or not a.event:
+            return None
+        return f"cap_alert_{a.event.lower().replace(' ', '_')}"
+
+    @property
+    def native_value(self) -> str | None:
+        a = self._alert
+        return a.severity_normalized if a else None
 
     @property
     def extra_state_attributes(self) -> dict:
