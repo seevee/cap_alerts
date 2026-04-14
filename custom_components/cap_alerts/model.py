@@ -72,6 +72,13 @@ class CAPAlert:
     # -- NWS Parameters (catch-all) --
     parameters: dict | None = None
 
+    # -- Alternate language content (populated when available) --
+    headline_alt: str = ""
+    description_alt: str = ""
+    instruction_alt: str | None = None
+    language: str = ""       # BCP-47 of primary content (e.g. "en-CA")
+    language_alt: str = ""   # BCP-47 of alternate content (e.g. "fr-CA")
+
     # -- Provider --
     provider: str = "nws"
 

@@ -8,10 +8,26 @@ from .model import CAPAlert
 
 MAX_STATE_LENGTH = 255
 
+# VTEC significance → severity tier
+_VTEC_SIG_SEVERITY = {
+    "W": "severe",    # Warning
+    "A": "moderate",  # Watch
+    "Y": "minor",     # Advisory
+    "S": "unknown",   # Statement
+}
+
+# Phenomena codes that escalate a Warning to "extreme"
+_VTEC_EXTREME_PHENOMENA = {"TO", "EW"}  # Tornado, Extreme Wind
+
 
 def normalize_alerts(alerts: list[CAPAlert]) -> list[CAPAlert]:
     """Apply shared normalization to a list of provider-parsed alerts."""
     return [_normalize(a) for a in alerts]
+
+
+def filter_active_alerts(alerts: list[CAPAlert]) -> list[CAPAlert]:
+    """Remove cancelled alerts. Applied after normalization."""
+    return [a for a in alerts if a.phase != "Cancel"]
 
 
 def _normalize(alert: CAPAlert) -> CAPAlert:
@@ -19,20 +35,32 @@ def _normalize(alert: CAPAlert) -> CAPAlert:
     return replace(
         alert,
         event=_truncate_state(alert.event),
-        severity_normalized=_normalize_severity(alert.severity, alert.provider),
+        severity_normalized=_normalize_severity(alert),
         phase=_normalize_phase(alert.msg_type),
     )
 
 
-def _normalize_severity(severity: str, provider: str) -> str:
+def _normalize_severity(alert: CAPAlert) -> str:
     """Map provider-native severity to lowercase CAP canonical value.
 
     CAP canonical: extreme, severe, moderate, minor, unknown.
+    For NWS, VTEC significance/phenomena codes are authoritative.
     """
-    if not severity:
-        return "unknown"
-    # CAP-native providers (NWS, ECCC, MeteoAlarm) — already CAP values
-    return severity.lower()
+    if alert.provider == "nws":
+        return _nws_severity(alert)
+    # Default: trust CAP severity field
+    return alert.severity.lower() if alert.severity else "unknown"
+
+
+def _nws_severity(alert: CAPAlert) -> str:
+    """Derive severity from VTEC codes (authoritative for NWS)."""
+    sig = alert.vtec_significance
+    if not sig:
+        return alert.severity.lower() if alert.severity else "unknown"
+    # Tornado/Extreme Wind warnings are "extreme", not just "severe"
+    if sig == "W" and alert.vtec_phenomena in _VTEC_EXTREME_PHENOMENA:
+        return "extreme"
+    return _VTEC_SIG_SEVERITY.get(sig, "unknown")
 
 
 def _normalize_phase(msg_type: str) -> str:

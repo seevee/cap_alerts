@@ -28,7 +28,7 @@ from .const import (
     DOMAIN,
 )
 from .model import CAPAlert
-from .normalize import normalize_alerts
+from .normalize import filter_active_alerts, normalize_alerts
 from .providers import AlertProvider
 from .store import AlertStore
 
@@ -118,6 +118,8 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
 
         # Shared normalization
         alerts = normalize_alerts(alerts)
+        # Remove cancelled/expired alerts (centralized, not per-provider)
+        alerts = filter_active_alerts(alerts)
         # Diff against previous poll
         alerts = self._store.process(alerts)
         # Index by ID for O(1) lookup
