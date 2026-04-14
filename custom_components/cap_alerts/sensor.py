@@ -36,13 +36,18 @@ async def async_setup_entry(
     tracked: dict[str, AlertEntity] = {}
     ent_reg = er.async_get(hass)
 
-    # Hydrate tracked set from entity registry on startup
+    # Hydrate tracked set from entity registry on startup and re-add them
+    # to the platform so they can write state. Without this, hydrated
+    # entities block creation of new entities for the same alert ID but
+    # never become platform-registered, leaving them unavailable.
     provider = entry.data.get(CONF_PROVIDER, "nws")
     alert_prefix = f"{entry.entry_id}_{provider}_"
     for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
         if ent.unique_id.startswith(alert_prefix):
             alert_id = ent.unique_id.removeprefix(alert_prefix)
             tracked[alert_id] = AlertEntity(coordinator, entry, alert_id)
+    if tracked:
+        async_add_entities(list(tracked.values()))
 
     @callback
     def _sync_alert_entities() -> None:
