@@ -1,0 +1,46 @@
+name: Bug Report
+description: Report a problem with the CAP Alerts integration
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Integration Version
+      description: e.g. 1.0.0 (from manifest.json)
+    validations:
+      required: true
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant Version
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - NWS (United States)
+        - ECCC (Canada)
+        - Other / not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Integration Configuration
+      description: Config entry data (redact zone/location codes if desired)
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Home Assistant Logs
+      description: Relevant lines from `home-assistant.log` (enable debug logging for `custom_components.cap_alerts` if possible)
+      render: text

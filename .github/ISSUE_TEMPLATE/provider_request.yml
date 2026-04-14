@@ -1,0 +1,34 @@
+name: New Provider Request
+description: Request support for a new CAP alert source (e.g. BoM, MeteoAlarm, DWD, WMO)
+labels: [enhancement, provider]
+body:
+  - type: input
+    id: provider-name
+    attributes:
+      label: Provider Name
+      description: e.g. MeteoAlarm, BoM, DWD
+    validations:
+      required: true
+  - type: input
+    id: region
+    attributes:
+      label: Region / Country
+    validations:
+      required: true
+  - type: input
+    id: feed-url
+    attributes:
+      label: Feed or API URL
+      description: Link to the CAP feed, Atom feed, or JSON API
+    validations:
+      required: true
+  - type: textarea
+    id: format
+    attributes:
+      label: Format & Authentication
+      description: Data format (CAP XML, Atom, GeoJSON, etc.) and any auth requirements
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional Notes
+      description: Sample payloads, quirks, rate limits, licensing

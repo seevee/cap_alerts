@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 7 1-28/7 * *"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    name: HACS & Hassfest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hacs/action@main
+        with:
+          category: integration
+      - uses: home-assistant/actions/hassfest@master
+
+  lint:
+    runs-on: ubuntu-latest
+    name: Lint
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install ruff
+      - run: ruff format --diff custom_components/
+      - run: ruff check custom_components/
+
+  typecheck:
+    runs-on: ubuntu-latest
+    name: Type check
+    if: hashFiles('requirements_test.txt') != ''
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements_test.txt
+      - run: mypy custom_components/cap_alerts
+
+  test:
+    runs-on: ubuntu-latest
+    name: Test
+    if: hashFiles('tests/**/*.py') != ''
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements_test.txt
+      - run: pytest tests

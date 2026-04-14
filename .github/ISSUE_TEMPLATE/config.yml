@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Home Assistant Community
+    url: https://community.home-assistant.io/
+    about: For general Home Assistant questions not specific to this integration.
+  - name: Companion Frontend Card
+    url: https://github.com/seevee/weather_alerts_card
+    about: Report card/frontend issues in the weather_alerts_card repository.
