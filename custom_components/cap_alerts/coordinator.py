@@ -27,6 +27,7 @@ from .const import (
     DEFAULT_TIMEOUT,
     DOMAIN,
 )
+from .geometry_store import GeometryStore
 from .model import CAPAlert
 from .normalize import filter_active_alerts, normalize_alerts
 from .providers import AlertProvider
@@ -46,9 +47,11 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         entry: ConfigEntry,
         provider: AlertProvider,
         user_agent: str,
+        geometry_store: GeometryStore,
     ) -> None:
         self._provider = provider
         self._store = AlertStore(hass, entry.entry_id, provider.name)
+        self._geometry_store = geometry_store
         self._user_agent = user_agent
         self._timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
         self.last_update_success_time: datetime | None = None
@@ -121,6 +124,17 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         alerts = normalize_alerts(alerts)
         # Remove cancelled/expired alerts (centralized, not per-provider)
         alerts = filter_active_alerts(alerts)
+        # Externalize geometry: write full polygons to disk keyed by geometry_ref.
+        # Done before store.process() so any consumer reacting to created/updated
+        # events can fetch the geometry immediately.
+        active_refs: set[str] = set()
+        for a in alerts:
+            if a.geometry_ref and a.geometry:
+                await self._geometry_store.put(a.geometry_ref, a.geometry)
+                active_refs.add(a.geometry_ref)
+        await self._geometry_store.purge_missing(
+            active_refs, prefix=f"{self._provider.name}:"
+        )
         # Diff against previous poll
         alerts = self._store.process(alerts)
         # Track successful update time (not all HA versions expose this)

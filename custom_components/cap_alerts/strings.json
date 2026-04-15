@@ -146,7 +146,6 @@
         "data": {
           "scan_interval": "Polling interval (seconds)",
           "timeout": "API timeout (seconds)",
-          "include_geometry": "Include GeoJSON geometry in attributes",
           "language": "Language"
         },
         "data_description": {

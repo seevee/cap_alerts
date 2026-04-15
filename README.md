@@ -42,8 +42,16 @@ Pick a provider, then a location mode:
 
 - **Scan interval** — 60–3600 s, default 300
 - **Timeout** — 5–120 s, default 30
-- **Include geometry** — emit the CAP `geometry` polygon as an attribute (off by default; can be large)
 - **Language** (ECCC only) — `auto` / `en-CA` / `fr-CA`
+
+Polygons are **never** emitted in entity attributes — instead, each alert
+carries a `geometry_ref` handle plus a `bbox`. Fetch the full GeoJSON via:
+
+- REST: `GET /api/cap_alerts/geometry/{geometry_ref}` (HA auth required)
+- Websocket: `{type: "cap_alerts/geometry", geometry_ref: "<ref>"}`
+
+Both return a GeoJSON `FeatureCollection`. See
+[`docs/frontend_hints.md`](docs/frontend_hints.md) for a card-side snippet.
 
 Both **reconfigure** (identity/location/provider) and **options** (behavior) flows are supported.
 

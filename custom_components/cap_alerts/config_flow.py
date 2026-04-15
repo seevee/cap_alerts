@@ -18,7 +18,6 @@ from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
 
 from .const import (
     CONF_GPS_LOC,
-    CONF_INCLUDE_GEOMETRY,
     CONF_LANGUAGE,
     CONF_PROVIDER,
     CONF_PROVINCE,
@@ -409,10 +408,6 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                 CONF_TIMEOUT,
                 default=self.config_entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
             ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
-            vol.Optional(
-                CONF_INCLUDE_GEOMETRY,
-                default=self.config_entry.options.get(CONF_INCLUDE_GEOMETRY, False),
-            ): bool,
         }
 
         if provider == "eccc":

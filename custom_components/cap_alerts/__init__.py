@@ -19,7 +19,10 @@ from .const import (
     USER_AGENT,
 )
 from .coordinator import AlertsDataUpdateCoordinator
+from .geometry_store import GeometryStore
 from .providers import get_provider
+from .views import CapAlertsGeometryView
+from .websocket import async_register as async_register_ws
 
 type CAPAlertsConfigEntry = ConfigEntry[AlertsDataUpdateCoordinator]
 
@@ -29,8 +32,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) ->
     instance_id = await async_get_instance_id(hass)
     user_agent = USER_AGENT.format(instance_id)
 
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if "geometry_store" not in domain_data:
+        store = GeometryStore(hass)
+        await store.load_once()
+        domain_data["geometry_store"] = store
+    if not domain_data.get("registered"):
+        hass.http.register_view(CapAlertsGeometryView(domain_data["geometry_store"]))
+        async_register_ws(hass)
+        domain_data["registered"] = True
+
     provider = get_provider(entry.data[CONF_PROVIDER])
-    coordinator = AlertsDataUpdateCoordinator(hass, entry, provider, user_agent)
+    coordinator = AlertsDataUpdateCoordinator(
+        hass, entry, provider, user_agent, domain_data["geometry_store"]
+    )
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator

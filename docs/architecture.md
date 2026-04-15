@@ -34,6 +34,30 @@ The `/alerts/active` endpoint only returns current alerts. The failure mode is: 
 
 ---
 
+## Entity Identity & Registry Discipline
+
+Implements RFC §2.2.1 (stable entity_id derivation) and §2.5 (registry cleanup).
+
+### entity_id shape
+
+```
+sensor.cap_alert_<slug(event)>_<8-hex>
+```
+
+where `<8-hex>` is `sha1(unique_id)[:8]`. The hash disambiguates alerts that share an event name (e.g. two concurrent "Severe Thunderstorm Warning" entries from different offices) without relying on Home Assistant's `_2`/`_3` numeric-suffix fallback, which can outlive its source and break history when the originally-suffixed entity is removed.
+
+`unique_id` is unchanged (`{entry_id}_{provider}_{alert_id}`), so the recorder links survive any entity_id rename.
+
+### Batched sync
+
+Each coordinator callback computes full `to_add` / `to_remove` sets from `set(coordinator.data)` vs. the tracked dict and then issues a single `async_add_entities(...)` followed by idempotent `async_remove` calls (gated on `ent_reg.async_get(entity_id)` so double-removal is a no-op). This avoids the per-entity churn RFC §2.5 flags as the anti-pattern.
+
+### Restart grace
+
+Registry entries hydrated at startup are seeded into a `_grace_ids` set. On the first sync, any grace ID not yet present in `coordinator.data` is exempted from removal. After that first sync, `_grace_ids` is cleared unconditionally — on the next poll, any still-absent alert is removed through the normal path. This tolerates the RFC §2.5 scenario where HA restarts in the window between an upstream cancellation and the coordinator observing it, at a cost of up to one extra `scan_interval` of lingering entities in genuinely-cleared cases.
+
+---
+
 ## Shared Normalization (`normalize.py`)
 
 Providers map API fields to `CAPAlert` as directly as possible — they do not normalize. All cross-provider normalization lives in `normalize.py`, called by the coordinator after fetching. Single source of truth for how raw provider values map to the integration's semantic fields.
@@ -189,7 +213,7 @@ Holds the previous poll's alerts in memory and diffs incoming alerts to detect n
 Split into two concerns, both wired in `config_flow.py`:
 
 - **Reconfigure flow** — identity (provider, zone / GPS / tracker / province). Triggers full reload via `async_update_reload_and_abort`. Shows the same top-level provider menu as initial setup, so NWS ↔ ECCC switch works without remove/re-add.
-- **Options flow** — behavior (scan interval, timeout, include_geometry, language). Applied live via an update listener: updates `coordinator.update_interval` and timeout in place and calls `async_request_refresh()`. No reload, no coordinator teardown.
+- **Options flow** — behavior (scan interval, timeout, language). Applied live via an update listener: updates `coordinator.update_interval` and timeout in place and calls `async_request_refresh()`. No reload, no coordinator teardown.
 
 Entry title is derived programmatically from config data (`_compute_device_title`) — no `CONF_NAME` field. Shared by initial setup and reconfigure so the device name stays in sync.
 
@@ -253,7 +277,22 @@ Every alert entity exposes `icon: mdi:…` derived from the event type. The taxo
 
 ### bbox
 
-When alert geometry is present, every alert entity exposes a 4-element `bbox: [min_lon, min_lat, max_lon, max_lat]` attribute (derived from Point / LineString / Polygon / MultiPolygon). Full geometry remains gated by `CONF_INCLUDE_GEOMETRY`.
+When alert geometry is present, every alert entity exposes a 4-element `bbox: [min_lon, min_lat, max_lon, max_lat]` attribute (derived from Point / LineString / Polygon / MultiPolygon).
+
+### Geometry externalization (§2.4)
+
+Full GeoJSON polygons are **not** entity attributes. The coordinator writes them
+to `.storage/cap_alerts_geometry` (an LRU-bounded `Store`, soft cap 5 MB, keyed
+by `geometry_ref = "{provider}:{alert_id}"`) and entities expose only the opaque
+`geometry_ref` handle. Consumers fetch polygons out-of-band:
+
+- REST: `GET /api/cap_alerts/geometry/{geometry_ref}` → `FeatureCollection`
+- Websocket: `{type: "cap_alerts/geometry", geometry_ref}` → `FeatureCollection`
+
+Both require HA auth. The coordinator purges refs for expired/cancelled alerts
+in the same cycle that drops the entity — storage reflects live state. The old
+`CONF_INCLUDE_GEOMETRY` option is gone; its recorder-ceiling footgun no longer
+exists because geometry never touches attributes.
 
 ### Soft-cap on long text
 

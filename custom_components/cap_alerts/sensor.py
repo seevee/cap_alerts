@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 
 from homeassistant.components.sensor import (
@@ -15,10 +16,37 @@ from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import slugify
 
-from .const import CONF_INCLUDE_GEOMETRY, CONF_PROVIDER, DOMAIN, PLATFORM_VERSION
+from .const import CONF_PROVIDER, DOMAIN, PLATFORM_VERSION
 from .coordinator import AlertsDataUpdateCoordinator
 from .model import CAPAlert
+
+
+def _short_hash(unique_id: str) -> str:
+    """Return the 8-char SHA-1 prefix used to disambiguate entity IDs (RFC §2.2.1)."""
+    return hashlib.sha1(unique_id.encode()).hexdigest()[:8]
+
+
+def _alert_object_id(unique_id: str, event: str) -> str:
+    """Build the collision-proof object_id for an alert entity."""
+    return f"cap_alert_{slugify(event)}_{_short_hash(unique_id)}"
+
+
+def _classify_sync(
+    current_ids: set[str],
+    tracked_ids: set[str],
+    grace_ids: set[str],
+) -> tuple[set[str], set[str]]:
+    """Compute (to_add, to_remove) sets for one coordinator cycle.
+
+    `grace_ids` are tracked IDs hydrated from the registry that have not yet
+    appeared in coordinator data; they are exempted from removal on this cycle.
+    Caller is responsible for clearing `grace_ids` after this cycle.
+    """
+    to_add = current_ids - tracked_ids
+    to_remove = (tracked_ids - current_ids) - grace_ids
+    return to_add, to_remove
 
 
 async def async_setup_entry(
@@ -34,6 +62,7 @@ async def async_setup_entry(
 
     # Dynamic alert entities
     tracked: dict[str, AlertEntity] = {}
+    grace_ids: set[str] = set()
     ent_reg = er.async_get(hass)
 
     # Hydrate tracked set from entity registry on startup and re-add them
@@ -43,32 +72,46 @@ async def async_setup_entry(
     provider = entry.data.get(CONF_PROVIDER, "nws")
     alert_prefix = f"{entry.entry_id}_{provider}_"
     for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
-        if ent.unique_id.startswith(alert_prefix):
-            alert_id = ent.unique_id.removeprefix(alert_prefix)
-            tracked[alert_id] = AlertEntity(coordinator, entry, alert_id)
+        if not ent.unique_id.startswith(alert_prefix):
+            continue
+        alert_id = ent.unique_id.removeprefix(alert_prefix)
+        tracked[alert_id] = AlertEntity(coordinator, entry, alert_id)
+        grace_ids.add(alert_id)
     if tracked:
         async_add_entities(list(tracked.values()))
 
+    first_sync = True
+
     @callback
     def _sync_alert_entities() -> None:
+        nonlocal first_sync
         alerts_by_id = coordinator.data or {}
         current_ids = set(alerts_by_id)
         tracked_ids = set(tracked)
 
-        # Add new alerts
-        new_entities: list[AlertEntity] = []
-        for alert_id in current_ids - tracked_ids:
-            entity = AlertEntity(coordinator, entry, alert_id)
-            tracked[alert_id] = entity
-            new_entities.append(entity)
-        if new_entities:
+        active_grace = grace_ids if first_sync else set()
+        to_add, to_remove = _classify_sync(current_ids, tracked_ids, active_grace)
+
+        # Additions: batched single call
+        if to_add:
+            new_entities: list[AlertEntity] = []
+            for alert_id in to_add:
+                entity = AlertEntity(coordinator, entry, alert_id)
+                tracked[alert_id] = entity
+                new_entities.append(entity)
             async_add_entities(new_entities)
 
-        # Remove expired alerts
-        for alert_id in tracked_ids - current_ids:
-            entity = tracked.pop(alert_id)
-            if entity.registry_entry:
+        # Removals: idempotent — check the registry before calling async_remove
+        for alert_id in to_remove:
+            entity = tracked.pop(alert_id, None)
+            if entity is None:
+                continue
+            if ent_reg.async_get(entity.entity_id):
                 ent_reg.async_remove(entity.entity_id)
+
+        if first_sync:
+            grace_ids.clear()
+            first_sync = False
 
     unsub = coordinator.async_add_listener(_sync_alert_entities)
     entry.async_on_unload(unsub)
@@ -179,7 +222,7 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
         a = self._alert
         if not a or not a.event:
             return None
-        return f"cap_alert_{a.event.lower().replace(' ', '_')}"
+        return _alert_object_id(self.unique_id, a.event)
 
     @property
     def native_value(self) -> str | None:
@@ -197,7 +240,5 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
         if not a:
             return {}
         attrs = a.to_attributes()
-        if not self._entry.options.get(CONF_INCLUDE_GEOMETRY, False):
-            attrs.pop("geometry", None)
         attrs["incident_platform_version"] = PLATFORM_VERSION
         return attrs

@@ -47,6 +47,7 @@ class CAPAlert:
     geocode_ugc: tuple[str, ...] = ()
     geocode_same: tuple[str, ...] = ()
     geometry: dict | None = None
+    geometry_ref: str = ""
     bbox: tuple[float, float, float, float] | None = None
 
     # -- Event Codes --
@@ -93,9 +94,16 @@ class CAPAlert:
     phase_changed: bool = False
 
     def to_attributes(self) -> dict[str, Any]:
-        """Flat attribute dict. Omits empty/None/False values (except id)."""
+        """Flat attribute dict. Omits empty/None/False values (except id).
+
+        Full ``geometry`` is never included — consumers fetch polygons out-of-band
+        via the ``geometry_ref`` handle (see websocket command ``cap_alerts/geometry``
+        and REST endpoint ``/api/cap_alerts/geometry/{geometry_ref}``).
+        """
         attrs: dict[str, Any] = {}
         for f in fields(self):
+            if f.name == "geometry":
+                continue
             val = getattr(self, f.name)
             if val is None or val == "" or val == ():
                 continue

@@ -19,7 +19,6 @@ CONF_TRACKER_ENTITY = "tracker_entity"
 CONF_PROVINCE = "province"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_TIMEOUT = "timeout"
-CONF_INCLUDE_GEOMETRY = "include_geometry"
 CONF_LANGUAGE = "language"
 
 # Defaults

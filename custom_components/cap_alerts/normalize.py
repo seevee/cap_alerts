@@ -43,6 +43,7 @@ def _normalize(alert: CAPAlert, now: datetime) -> CAPAlert:
         phase=_compute_phase(alert, now),
         icon=icon_for(alert),
         bbox=_bbox_from_geometry(alert.geometry),
+        geometry_ref=f"{alert.provider}:{alert.id}" if alert.geometry else "",
         description=_soft_cap(alert.description),
         instruction=_soft_cap(alert.instruction) if alert.instruction else alert.instruction,
     )
