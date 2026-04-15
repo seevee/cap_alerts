@@ -47,6 +47,7 @@ class CAPAlert:
     geocode_ugc: tuple[str, ...] = ()
     geocode_same: tuple[str, ...] = ()
     geometry: dict | None = None
+    bbox: tuple[float, float, float, float] | None = None
 
     # -- Event Codes --
     event_code_nws: str = ""
@@ -85,6 +86,7 @@ class CAPAlert:
     # -- Normalization metadata (set by integration, not providers) --
     severity_normalized: str = ""
     phase: str = ""
+    icon: str = ""
 
     # -- State transition metadata (set by alert store) --
     previous_phase: str = ""

@@ -16,7 +16,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_INCLUDE_GEOMETRY, CONF_PROVIDER, DOMAIN
+from .const import CONF_INCLUDE_GEOMETRY, CONF_PROVIDER, DOMAIN, PLATFORM_VERSION
 from .coordinator import AlertsDataUpdateCoordinator
 from .model import CAPAlert
 
@@ -187,6 +187,11 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
         return a.severity_normalized if a else None
 
     @property
+    def icon(self) -> str | None:
+        a = self._alert
+        return a.icon or None if a else None
+
+    @property
     def extra_state_attributes(self) -> dict:
         a = self._alert
         if not a:
@@ -194,4 +199,5 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
         attrs = a.to_attributes()
         if not self._entry.options.get(CONF_INCLUDE_GEOMETRY, False):
             attrs.pop("geometry", None)
+        attrs["incident_platform_version"] = PLATFORM_VERSION
         return attrs

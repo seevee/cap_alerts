@@ -232,3 +232,48 @@ These are documented for architecture planning; the provider protocol accommodat
 - Two-step fetch: RSS list → individual CAP XML documents for full details and polygon geometry.
 - Source IDs follow `{country}-{agency}-{lang}` (e.g. `ca-msc-xx`, `mx-smn-es`).
 - Config flow: source selector → GPS or area filter.
+
+---
+
+## RFC Schema Alignment (platform v1.0)
+
+The integration implements the `IncidentEntity` contract from `rfc.md` §2.2, §2.2.2, §2.4, §2.6, §2.7.
+
+### Phase vocabulary
+
+`phase` attribute values are **lowercase**: `new`, `update`, `cancel`, `expired`. `expired` is computed in `normalize.py` by comparing the `expires` timestamp against the current time; cancelled and expired alerts are dropped by `filter_active_alerts`. Automations that string-matched the previous title-case (`"New"` / `"Update"` / `"Cancel"`) must be updated.
+
+### Icon policy
+
+Every alert entity exposes `icon: mdi:…` derived from the event type. The taxonomy lives in `icons.py` — NWS entries match full event names; ECCC entries match substrings. Unknown events fall back to `mdi:alert`. Severity still drives entity state; the icon indicates hazard.
+
+### Platform version
+
+`PLATFORM_VERSION = "1.0"` is exposed on every alert entity as the `incident_platform_version` attribute. Card consumers can branch on this when the contract evolves.
+
+### bbox
+
+When alert geometry is present, every alert entity exposes a 4-element `bbox: [min_lon, min_lat, max_lon, max_lat]` attribute (derived from Point / LineString / Polygon / MultiPolygon). Full geometry remains gated by `CONF_INCLUDE_GEOMETRY`.
+
+### Soft-cap on long text
+
+`description` and `instruction` are truncated to 4096 UTF-8 bytes with a trailing `…`, at a UTF-8 character boundary. The full text remains available on the underlying `CAPAlert` dataclass for future out-of-band retrieval.
+
+### Event payload schema (§2.2.2)
+
+`cap_alert_created` / `cap_alert_updated` / `cap_alert_removed` fire with:
+
+| Key | Type | Notes |
+| :-- | :-- | :-- |
+| `entry_id` | str | Config entry id. |
+| `incident_id` | str | Stable lifecycle-aware alert id. |
+| `alert_id` | str | Deprecated alias of `incident_id`. |
+| `entity_id` | str | Omitted on very first sighting (entity not yet registered). |
+| `event` | str | Human-readable event name. |
+| `severity` | str | Normalized (`extreme`/`severe`/`moderate`/`minor`/`unknown`). |
+| `phase` | str | Current phase (lowercase vocabulary). |
+| `phase_changed` | bool | True on creation or when `phase` differs from previous poll. |
+| `changed_fields` | list[str] | Allowlisted fields that changed since last poll (`headline`, `description`, `instruction`, `severity_normalized`, `phase`, `expires`, `area_desc`). Empty on creation/removal. |
+| `area_desc` | str | Convenience extension. |
+
+`previous_phase` has been removed from the event payload; consumers can reconstruct it from `changed_fields` containing `phase` plus the current `phase`.

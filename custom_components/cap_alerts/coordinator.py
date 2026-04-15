@@ -48,7 +48,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         user_agent: str,
     ) -> None:
         self._provider = provider
-        self._store = AlertStore(hass, entry.entry_id)
+        self._store = AlertStore(hass, entry.entry_id, provider.name)
         self._user_agent = user_agent
         self._timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
         self.last_update_success_time: datetime | None = None
