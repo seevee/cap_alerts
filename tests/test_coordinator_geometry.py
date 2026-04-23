@@ -33,7 +33,7 @@ async def _apply_cycle(store, alerts, provider_name: str) -> None:
 
 @pytest.mark.asyncio
 async def test_add_then_clear_lifecycle():
-    store = GeometryStore(hass=None)
+    store = GeometryStore()
     geom_a = {"type": "Point", "coordinates": [0, 0]}
     geom_b = {"type": "Point", "coordinates": [1, 1]}
 
@@ -66,7 +66,7 @@ async def test_add_then_clear_lifecycle():
 @pytest.mark.asyncio
 async def test_cross_provider_isolation():
     """One provider's empty poll must not wipe another provider's refs."""
-    store = GeometryStore(hass=None)
+    store = GeometryStore()
     geom = {"type": "Point", "coordinates": [0, 0]}
 
     await _apply_cycle(
@@ -79,7 +79,7 @@ async def test_cross_provider_isolation():
 
 @pytest.mark.asyncio
 async def test_update_same_ref_overwrites():
-    store = GeometryStore(hass=None)
+    store = GeometryStore()
     g1 = {"type": "Point", "coordinates": [0, 0]}
     g2 = {"type": "Point", "coordinates": [9, 9]}
 

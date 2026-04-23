@@ -161,11 +161,6 @@ def _load(name: str):
         full = f"cap_alerts.{mod_name}"
         if full in sys.modules:
             continue
-        # geometry_store needs storage stub
-        if mod_name == "geometry_store":
-            from tests.test_geometry_store import _stub_ha_storage  # type: ignore
-
-            _stub_ha_storage()
         spec = importlib.util.spec_from_file_location(full, _PKG_DIR / f"{mod_name}.py")
         mod = importlib.util.module_from_spec(spec)
         sys.modules[full] = mod
@@ -180,7 +175,7 @@ gs_mod = _load("geometry_store")
 
 @pytest.mark.asyncio
 async def test_rest_view_returns_feature_collection():
-    store = gs_mod.GeometryStore(hass=None)
+    store = gs_mod.GeometryStore()
     geom = {"type": "Point", "coordinates": [-75.0, 35.0]}
     await store.put("nws:a", geom)
 
@@ -195,7 +190,7 @@ async def test_rest_view_returns_feature_collection():
 
 @pytest.mark.asyncio
 async def test_rest_view_404_on_unknown_ref():
-    store = gs_mod.GeometryStore(hass=None)
+    store = gs_mod.GeometryStore()
     view = views_mod.CapAlertsGeometryView(store)
     resp = await view.get(request=None, geometry_ref="nws:missing")
     assert resp.status == 404
@@ -203,7 +198,7 @@ async def test_rest_view_404_on_unknown_ref():
 
 @pytest.mark.asyncio
 async def test_ws_command_returns_feature_collection():
-    store = gs_mod.GeometryStore(hass=None)
+    store = gs_mod.GeometryStore()
     geom = {"type": "Point", "coordinates": [-75.0, 35.0]}
     await store.put("nws:a", geom)
 
@@ -226,7 +221,7 @@ async def test_ws_command_returns_feature_collection():
 
 @pytest.mark.asyncio
 async def test_ws_command_sends_error_on_unknown_ref():
-    store = gs_mod.GeometryStore(hass=None)
+    store = gs_mod.GeometryStore()
 
     hass = MagicMock()
     hass.data = {"cap_alerts": {"geometry_store": store}}

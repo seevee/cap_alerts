@@ -124,7 +124,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         alerts = normalize_alerts(alerts)
         # Remove cancelled/expired alerts (centralized, not per-provider)
         alerts = filter_active_alerts(alerts)
-        # Externalize geometry: write full polygons to disk keyed by geometry_ref.
+        # Externalize geometry: cache full polygons keyed by geometry_ref.
         # Done before store.process() so any consumer reacting to created/updated
         # events can fetch the geometry immediately.
         active_refs: set[str] = set()
