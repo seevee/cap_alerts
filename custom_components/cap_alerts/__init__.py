@@ -34,9 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) ->
 
     domain_data = hass.data.setdefault(DOMAIN, {})
     if "geometry_store" not in domain_data:
-        store = GeometryStore(hass)
-        await store.load_once()
-        domain_data["geometry_store"] = store
+        domain_data["geometry_store"] = GeometryStore()
     if not domain_data.get("registered"):
         hass.http.register_view(CapAlertsGeometryView(domain_data["geometry_store"]))
         async_register_ws(hass)

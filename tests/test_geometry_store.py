@@ -13,37 +13,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PKG_DIR = _REPO_ROOT / "custom_components" / "cap_alerts"
 
 
-class _FakeStore:
-    """Stand-in for ``homeassistant.helpers.storage.Store``."""
-
-    def __init__(self, *args, **kwargs) -> None:
-        self._data: dict | None = None
-        self.saved: dict | None = None
-
-    async def async_load(self) -> dict | None:
-        return self._data
-
-    def async_delay_save(self, snapshot_fn, delay: int) -> None:  # noqa: ARG002
-        self.saved = snapshot_fn()
-
-
-def _stub_ha_storage() -> None:
-    if "homeassistant.helpers.storage" in sys.modules:
-        return
-    for name in ("homeassistant", "homeassistant.core", "homeassistant.helpers"):
-        if name not in sys.modules:
-            mod = types.ModuleType(name)
-            if name in ("homeassistant", "homeassistant.helpers"):
-                mod.__path__ = []
-            sys.modules[name] = mod
-    sys.modules["homeassistant.core"].HomeAssistant = object
-    storage_mod = types.ModuleType("homeassistant.helpers.storage")
-    storage_mod.Store = _FakeStore
-    sys.modules["homeassistant.helpers.storage"] = storage_mod
-
-
 def _load_geometry_store():
-    _stub_ha_storage()
     if "cap_alerts" not in sys.modules:
         parent = types.ModuleType("cap_alerts")
         parent.__path__ = [str(_PKG_DIR)]
@@ -70,7 +40,7 @@ def _poly(n_coords: int = 100) -> dict:
 
 @pytest.mark.asyncio
 async def test_put_get_roundtrip():
-    store = GeometryStore(hass=None)
+    store = GeometryStore()
     geom = {"type": "Point", "coordinates": [-75.0, 35.0]}
     await store.put("nws:a", geom)
     assert await store.get("nws:a") == geom
@@ -78,19 +48,19 @@ async def test_put_get_roundtrip():
 
 @pytest.mark.asyncio
 async def test_get_missing_returns_none():
-    store = GeometryStore(hass=None)
+    store = GeometryStore()
     assert await store.get("nws:missing") is None
 
 
 @pytest.mark.asyncio
 async def test_delete_noop_on_missing():
-    store = GeometryStore(hass=None)
+    store = GeometryStore()
     await store.delete("nws:missing")  # should not raise
 
 
 @pytest.mark.asyncio
 async def test_delete_removes_entry():
-    store = GeometryStore(hass=None)
+    store = GeometryStore()
     await store.put("nws:a", {"type": "Point", "coordinates": [0, 0]})
     await store.delete("nws:a")
     assert await store.get("nws:a") is None
@@ -98,7 +68,7 @@ async def test_delete_removes_entry():
 
 @pytest.mark.asyncio
 async def test_purge_missing_scoped_to_prefix():
-    store = GeometryStore(hass=None)
+    store = GeometryStore()
     await store.put("nws:a", {"type": "Point", "coordinates": [0, 0]})
     await store.put("nws:b", {"type": "Point", "coordinates": [1, 1]})
     await store.put("eccc:x", {"type": "Point", "coordinates": [2, 2]})
@@ -114,7 +84,7 @@ async def test_purge_missing_scoped_to_prefix():
 @pytest.mark.asyncio
 async def test_eviction_under_byte_cap(monkeypatch):
     monkeypatch.setattr(gs_mod, "MAX_BYTES", 2_000)
-    store = GeometryStore(hass=None)
+    store = GeometryStore()
     for i in range(10):
         await store.put(f"nws:{i}", _poly(100))
     # Oldest entries should have been evicted.
@@ -126,9 +96,25 @@ async def test_eviction_under_byte_cap(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_put_update_overwrites_same_key():
-    store = GeometryStore(hass=None)
+    store = GeometryStore()
     g1 = {"type": "Point", "coordinates": [0, 0]}
     g2 = {"type": "Point", "coordinates": [9, 9]}
     await store.put("nws:a", g1)
     await store.put("nws:a", g2)
     assert await store.get("nws:a") == g2
+
+
+def test_store_does_not_import_homeassistant_storage():
+    """Regression guard: the in-memory store must not pull in Store."""
+    # Drop any cached import so we exercise a fresh load.
+    sys.modules.pop("cap_alerts.geometry_store", None)
+    sys.modules.pop("homeassistant.helpers.storage", None)
+
+    spec = importlib.util.spec_from_file_location(
+        "cap_alerts.geometry_store", _PKG_DIR / "geometry_store.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["cap_alerts.geometry_store"] = mod
+    spec.loader.exec_module(mod)
+
+    assert "homeassistant.helpers.storage" not in sys.modules
