@@ -8,6 +8,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
+from xml.etree.ElementTree import Element
 
 import aiohttp
 from defusedxml import ElementTree as ET
@@ -26,7 +27,7 @@ NS_ATOM = "http://www.w3.org/2005/Atom"
 NS_GEORSS = "http://www.georss.org/georss"
 
 
-def _parse_categories(entry: ET.Element) -> dict[str, str]:
+def _parse_categories(entry: Element) -> dict[str, str]:
     """Extract category term key=value pairs from an Atom entry."""
     cats: dict[str, str] = {}
     for cat in entry.findall(f"{{{NS_ATOM}}}category"):
@@ -37,7 +38,7 @@ def _parse_categories(entry: ET.Element) -> dict[str, str]:
     return cats
 
 
-def _parse_georss_polygon(entry: ET.Element) -> list[list[float]] | None:
+def _parse_georss_polygon(entry: Element) -> list[list[float]] | None:
     """Parse <georss:polygon> into a list of [lon, lat] coordinate pairs."""
     poly_el = entry.find(f"{{{NS_GEORSS}}}polygon")
     if poly_el is None or not poly_el.text:
@@ -56,9 +57,7 @@ def _parse_georss_polygon(entry: ET.Element) -> list[list[float]] | None:
     return coords
 
 
-def _point_in_polygon(
-    lat: float, lon: float, polygon: list[list[float]]
-) -> bool:
+def _point_in_polygon(lat: float, lon: float, polygon: list[list[float]]) -> bool:
     """Ray-casting point-in-polygon test. Polygon is [[lon, lat], ...]."""
     n = len(polygon)
     inside = False
@@ -97,9 +96,7 @@ def _matches_province(area_desc: str, geocode: str, province: str) -> bool:
     return False
 
 
-def _entry_to_alert(
-    entry: ET.Element, cats: dict[str, str]
-) -> CAPAlert:
+def _entry_to_alert(entry: Element, cats: dict[str, str]) -> CAPAlert:
     """Convert an Atom entry + parsed categories to CAPAlert."""
     entry_id = entry.findtext(f"{{{NS_ATOM}}}id", "")
     updated = entry.findtext(f"{{{NS_ATOM}}}updated", "")
@@ -166,9 +163,7 @@ class ECCCProvider:
 
         async with session.get(NAAD_FEED_URL) as resp:
             if resp.status != 200:
-                raise UpdateFailed(
-                    f"ECCC NAAD feed returned {resp.status}"
-                )
+                raise UpdateFailed(f"ECCC NAAD feed returned {resp.status}")
             text = await resp.text()
 
         try:
@@ -210,8 +205,7 @@ class ECCCProvider:
 
         # Merge language variants: preferred language is primary
         return [
-            _merge_languages(variants, preferred_lang)
-            for variants in groups.values()
+            _merge_languages(variants, preferred_lang) for variants in groups.values()
         ]
 
     @staticmethod
@@ -229,9 +223,7 @@ class ECCCProvider:
             return None, None
 
 
-def _merge_languages(
-    variants: list[CAPAlert], preferred_lang: str
-) -> CAPAlert:
+def _merge_languages(variants: list[CAPAlert], preferred_lang: str) -> CAPAlert:
     """Merge bilingual variants into one alert with primary + alt content."""
     if len(variants) == 1:
         return variants[0]

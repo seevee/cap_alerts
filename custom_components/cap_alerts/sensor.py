@@ -58,7 +58,9 @@ async def async_setup_entry(
     coordinator: AlertsDataUpdateCoordinator = entry.runtime_data
 
     # Static diagnostic sensors
-    async_add_entities([CountSensor(coordinator, entry), LastUpdatedSensor(coordinator, entry)])
+    async_add_entities(
+        [CountSensor(coordinator, entry), LastUpdatedSensor(coordinator, entry)]
+    )
 
     # Dynamic alert entities
     tracked: dict[str, AlertEntity] = {}
@@ -103,11 +105,11 @@ async def async_setup_entry(
 
         # Removals: idempotent — check the registry before calling async_remove
         for alert_id in to_remove:
-            entity = tracked.pop(alert_id, None)
-            if entity is None:
+            removed: AlertEntity | None = tracked.pop(alert_id, None)
+            if removed is None:
                 continue
-            if ent_reg.async_get(entity.entity_id):
-                ent_reg.async_remove(entity.entity_id)
+            if ent_reg.async_get(removed.entity_id):
+                ent_reg.async_remove(removed.entity_id)
 
         if first_sync:
             grace_ids.clear()
@@ -220,9 +222,10 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
     @property
     def suggested_object_id(self) -> str | None:
         a = self._alert
-        if not a or not a.event:
+        uid = self.unique_id
+        if not a or not a.event or not uid:
             return None
-        return _alert_object_id(self.unique_id, a.event)
+        return _alert_object_id(uid, a.event)
 
     @property
     def native_value(self) -> str | None:

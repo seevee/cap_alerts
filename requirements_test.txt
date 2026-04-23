@@ -1,0 +1,12 @@
+# Test, lint, and type-check dependencies. Referenced by .github/workflows/ci.yml
+# and by local tooling (see CLAUDE.md "Build & Test Commands").
+
+homeassistant==2026.4.3
+
+pytest>=8.0,<10
+pytest-asyncio>=1.0,<2
+aiohttp>=3.10,<4
+
+ruff==0.15.11
+mypy==1.20.2
+types-defusedxml>=0.7

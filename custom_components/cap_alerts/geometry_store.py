@@ -121,7 +121,6 @@ class GeometryStore:
     def _snapshot(self) -> dict[str, Any]:
         return {
             "entries": [
-                {"ref": ref, "geometry": geom}
-                for ref, geom in self._entries.items()
+                {"ref": ref, "geometry": geom} for ref, geom in self._entries.items()
             ]
         }

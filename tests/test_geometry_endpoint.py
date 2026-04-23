@@ -6,7 +6,7 @@ import importlib.util
 import sys
 import types
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -88,7 +88,9 @@ def _stub_http() -> None:
     # (already handled via local import path)
 
     # core stub
-    core = sys.modules.setdefault("homeassistant.core", types.ModuleType("homeassistant.core"))
+    core = sys.modules.setdefault(
+        "homeassistant.core", types.ModuleType("homeassistant.core")
+    )
     core.HomeAssistant = object
     core.callback = lambda f: f
 
@@ -96,9 +98,13 @@ def _stub_http() -> None:
     # harmless to install, keeps collection-order independent.
     if "homeassistant.components.sensor" not in sys.modules:
         sensor_mod = types.ModuleType("homeassistant.components.sensor")
-        sensor_mod.SensorDeviceClass = type("SensorDeviceClass", (), {"TIMESTAMP": "timestamp"})
+        sensor_mod.SensorDeviceClass = type(
+            "SensorDeviceClass", (), {"TIMESTAMP": "timestamp"}
+        )
         sensor_mod.SensorEntity = type("SensorEntity", (), {})
-        sensor_mod.SensorStateClass = type("SensorStateClass", (), {"MEASUREMENT": "measurement"})
+        sensor_mod.SensorStateClass = type(
+            "SensorStateClass", (), {"MEASUREMENT": "measurement"}
+        )
         sys.modules["homeassistant.components.sensor"] = sensor_mod
     if "homeassistant.config_entries" not in sys.modules:
         ce = types.ModuleType("homeassistant.config_entries")
@@ -126,7 +132,9 @@ def _stub_http() -> None:
         util = types.ModuleType("homeassistant.util")
 
         def _slugify(s: str) -> str:
-            return "_".join("".join(c.lower() if c.isalnum() else " " for c in s).split())
+            return "_".join(
+                "".join(c.lower() if c.isalnum() else " " for c in s).split()
+            )
 
         util.slugify = _slugify
         sys.modules["homeassistant.util"] = util

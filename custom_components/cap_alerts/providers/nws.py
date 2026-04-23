@@ -10,7 +10,6 @@ from typing import Any
 
 import aiohttp
 
-from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import CONF_GPS_LOC, CONF_ZONE_ID
@@ -220,17 +219,13 @@ class NWSProvider:
         headers = {"Accept": "application/geo+json"}
         async with session.get(url, headers=headers) as resp:
             if resp.status != 200:
-                raise UpdateFailed(
-                    f"NWS API returned {resp.status} for {url}"
-                )
+                raise UpdateFailed(f"NWS API returned {resp.status} for {url}")
             data = await resp.json()
 
         # NWS sometimes returns error objects with 200 status
         if data.get("type") != "FeatureCollection":
             problem_type = data.get("type", "unknown")
             detail = data.get("detail", "")
-            raise UpdateFailed(
-                f"NWS API returned {problem_type}: {detail}"
-            )
+            raise UpdateFailed(f"NWS API returned {problem_type}: {detail}")
 
         return data

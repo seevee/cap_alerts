@@ -13,10 +13,10 @@ SOFT_CAP_BYTES = 4096
 
 # VTEC significance → severity tier
 _VTEC_SIG_SEVERITY = {
-    "W": "severe",    # Warning
+    "W": "severe",  # Warning
     "A": "moderate",  # Watch
-    "Y": "minor",     # Advisory
-    "S": "unknown",   # Statement
+    "Y": "minor",  # Advisory
+    "S": "unknown",  # Statement
 }
 
 # Phenomena codes that escalate a Warning to "extreme"
@@ -45,7 +45,9 @@ def _normalize(alert: CAPAlert, now: datetime) -> CAPAlert:
         bbox=_bbox_from_geometry(alert.geometry),
         geometry_ref=f"{alert.provider}:{alert.id}" if alert.geometry else "",
         description=_soft_cap(alert.description),
-        instruction=_soft_cap(alert.instruction) if alert.instruction else alert.instruction,
+        instruction=_soft_cap(alert.instruction)
+        if alert.instruction
+        else alert.instruction,
     )
 
 

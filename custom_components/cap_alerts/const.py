@@ -27,5 +27,17 @@ DEFAULT_TIMEOUT = 30  # seconds
 
 # ECCC valid province codes
 ECCC_PROVINCES = {
-    "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT",
+    "AB",
+    "BC",
+    "MB",
+    "NB",
+    "NL",
+    "NS",
+    "NT",
+    "NU",
+    "ON",
+    "PE",
+    "QC",
+    "SK",
+    "YT",
 }

@@ -10,10 +10,10 @@ import voluptuous as vol
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
+    ConfigFlowResult,
     OptionsFlow,
 )
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
 
 from .const import (
@@ -96,7 +96,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Provider selection menu."""
         return self.async_show_menu(
             step_id="user",
@@ -107,7 +107,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_nws(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """NWS location type menu."""
         return self.async_show_menu(
             step_id="nws",
@@ -116,7 +116,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_nws_zone(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             zone_id, err = _validate_zone(user_input[CONF_ZONE_ID])
@@ -135,7 +135,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_nws_gps_loc(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             gps, err = _validate_gps(user_input[CONF_GPS_LOC])
@@ -154,16 +154,14 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_nws_gps_tracker(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             data = {
                 CONF_PROVIDER: "nws",
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_create_entry(
-                title=_compute_device_title(data), data=data
-            )
+            return self.async_create_entry(title=_compute_device_title(data), data=data)
         return self.async_show_form(
             step_id="nws_gps_tracker",
             data_schema=vol.Schema(
@@ -180,7 +178,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_eccc(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """ECCC location type menu."""
         return self.async_show_menu(
             step_id="eccc",
@@ -189,7 +187,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_eccc_province(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             province, err = _validate_province(user_input[CONF_PROVINCE])
@@ -208,7 +206,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_eccc_gps_loc(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             gps, err = _validate_gps(user_input[CONF_GPS_LOC])
@@ -229,7 +227,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Allow full reconfiguration including provider change."""
         return self.async_show_menu(
             step_id="reconfigure",
@@ -238,7 +236,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure_nws(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="reconfigure_nws",
             menu_options=[
@@ -250,7 +248,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure_nws_zone(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         entry = self._get_reconfigure_entry()
         if user_input is not None:
@@ -276,7 +274,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure_nws_gps_loc(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         entry = self._get_reconfigure_entry()
         if user_input is not None:
@@ -302,7 +300,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure_nws_gps_tracker(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         entry = self._get_reconfigure_entry()
         if user_input is not None:
             new_data = {
@@ -319,16 +317,14 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                     vol.Required(
                         CONF_TRACKER_ENTITY,
                         default=entry.data.get(CONF_TRACKER_ENTITY, ""),
-                    ): EntitySelector(
-                        EntitySelectorConfig(domain="device_tracker")
-                    ),
+                    ): EntitySelector(EntitySelectorConfig(domain="device_tracker")),
                 }
             ),
         )
 
     async def async_step_reconfigure_eccc(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="reconfigure_eccc",
             menu_options=["reconfigure_eccc_province", "reconfigure_eccc_gps_loc"],
@@ -336,7 +332,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure_eccc_province(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         entry = self._get_reconfigure_entry()
         if user_input is not None:
@@ -362,7 +358,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure_eccc_gps_loc(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         entry = self._get_reconfigure_entry()
         if user_input is not None:
@@ -392,7 +388,7 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 

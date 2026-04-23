@@ -8,7 +8,9 @@ from custom_components.cap_alerts.normalize import _bbox_from_geometry
 def test_bbox_from_polygon():
     geom = {
         "type": "Polygon",
-        "coordinates": [[[-80.0, 30.0], [-70.0, 30.0], [-70.0, 40.0], [-80.0, 40.0], [-80.0, 30.0]]],
+        "coordinates": [
+            [[-80.0, 30.0], [-70.0, 30.0], [-70.0, 40.0], [-80.0, 40.0], [-80.0, 30.0]]
+        ],
     }
     assert _bbox_from_geometry(geom) == (-80.0, 30.0, -70.0, 40.0)
 

@@ -27,14 +27,14 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - run: pip install ruff
-      - run: ruff format --diff custom_components/
-      - run: ruff check custom_components/
+      - name: Install ruff (pinned)
+        run: pip install "$(grep '^ruff==' requirements_test.txt)"
+      - run: ruff format --diff custom_components/ tests/
+      - run: ruff check custom_components/ tests/
 
   typecheck:
     runs-on: ubuntu-latest
     name: Type check
-    if: hashFiles('requirements_test.txt') != ''
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -47,7 +47,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     name: Test
-    if: hashFiles('tests/**/*.py') != ''
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -55,4 +54,4 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: pip install -r requirements_test.txt
-      - run: pytest tests
+      - run: pytest tests -q

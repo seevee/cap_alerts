@@ -33,7 +33,9 @@ async def _ws_get_geometry(
     ref = msg["geometry_ref"]
     geom = await store.get(ref)
     if geom is None:
-        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "Unknown geometry_ref")
+        connection.send_error(
+            msg["id"], websocket_api.ERR_NOT_FOUND, "Unknown geometry_ref"
+        )
         return
     connection.send_result(
         msg["id"],
