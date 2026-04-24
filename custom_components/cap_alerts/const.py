@@ -8,6 +8,11 @@ PLATFORMS = ["sensor"]
 # RFC §2.7 — bumped on breaking attribute/event payload changes
 PLATFORM_VERSION = "1.0"
 
+# RFC §2.3 event names — forward-compatible with an upstream `incident.*` domain.
+EVENT_INCIDENT_CREATED = "incident_created"
+EVENT_INCIDENT_UPDATED = "incident_updated"
+EVENT_INCIDENT_REMOVED = "incident_removed"
+
 # User-Agent for API requests — {0} is replaced with the HA instance ID
 USER_AGENT = "HomeAssistant-CAPAlerts/{0}"
 

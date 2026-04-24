@@ -70,6 +70,10 @@ class CAPAlert:
     references: tuple[str, ...] = ()
     replaced_by: str = ""
     replaced_at: str = ""
+    # Reserved for sub-incident relationships (RFC §6.3). Never populated in
+    # v1; ``to_attributes()`` skips empty strings so the attribute stays
+    # absent until a future provider sets it.
+    parent_id: str = ""
 
     # -- NWS Parameters (catch-all) --
     parameters: dict | None = None

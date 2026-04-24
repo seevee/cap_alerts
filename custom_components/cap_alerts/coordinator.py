@@ -29,7 +29,7 @@ from .const import (
 )
 from .geometry_store import GeometryStore
 from .model import CAPAlert
-from .normalize import filter_active_alerts, normalize_alerts
+from .normalize import normalize_alerts
 from .providers import AlertProvider
 from .store import AlertStore
 
@@ -120,22 +120,24 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         except aiohttp.ClientError as err:
             raise UpdateFailed(f"{self._provider.name}: {err}") from err
 
-        # Shared normalization
+        # Shared normalization. The full normalized list — including
+        # cancelled/expired alerts — is handed to store.process so it can
+        # fire cap_alert_removed with the true terminal phase before
+        # dropping them from the active set (RFC §2.3).
         alerts = normalize_alerts(alerts)
-        # Remove cancelled/expired alerts (centralized, not per-provider)
-        alerts = filter_active_alerts(alerts)
-        # Externalize geometry: cache full polygons keyed by geometry_ref.
-        # Done before store.process() so any consumer reacting to created/updated
-        # events can fetch the geometry immediately.
+        # Externalize geometry for alerts that will remain active. Skipping
+        # terminal-phase alerts avoids caching polygons we're about to drop.
         active_refs: set[str] = set()
         for a in alerts:
+            if a.phase in ("cancel", "expired"):
+                continue
             if a.geometry_ref and a.geometry:
                 await self._geometry_store.put(a.geometry_ref, a.geometry)
                 active_refs.add(a.geometry_ref)
         await self._geometry_store.purge_missing(
             active_refs, prefix=f"{self._provider.name}:"
         )
-        # Diff against previous poll
+        # Diff against previous poll — returns only active alerts.
         alerts = self._store.process(alerts)
         # Track successful update time (not all HA versions expose this)
         self.last_update_success_time = datetime.now(timezone.utc)

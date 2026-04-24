@@ -11,6 +11,9 @@ from .model import CAPAlert
 MAX_STATE_LENGTH = 255
 SOFT_CAP_BYTES = 4096
 
+# CAP canonical severity set (RFC §2.1). Anything outside clamps to "unknown".
+_CANONICAL_SEVERITIES = frozenset({"extreme", "severe", "moderate", "minor", "unknown"})
+
 # VTEC significance → severity tier
 _VTEC_SIG_SEVERITY = {
     "W": "severe",  # Warning
@@ -27,11 +30,6 @@ def normalize_alerts(alerts: list[CAPAlert]) -> list[CAPAlert]:
     """Apply shared normalization to a list of provider-parsed alerts."""
     now = datetime.now(timezone.utc)
     return [_normalize(a, now) for a in alerts]
-
-
-def filter_active_alerts(alerts: list[CAPAlert]) -> list[CAPAlert]:
-    """Remove cancelled and expired alerts. Applied after normalization."""
-    return [a for a in alerts if a.phase not in ("cancel", "expired")]
 
 
 def _normalize(alert: CAPAlert, now: datetime) -> CAPAlert:
@@ -54,13 +52,18 @@ def _normalize(alert: CAPAlert, now: datetime) -> CAPAlert:
 def _normalize_severity(alert: CAPAlert) -> str:
     """Map provider-native severity to lowercase CAP canonical value.
 
-    CAP canonical: extreme, severe, moderate, minor, unknown.
-    For NWS, VTEC significance/phenomena codes are authoritative.
+    CAP canonical: extreme, severe, moderate, minor, unknown. Any value
+    outside that set — including provider-specific strings — clamps to
+    "unknown" so the entity state stays on the five-value axis that the
+    frontend styles against (RFC §2.1).
     """
     if alert.provider == "nws":
-        return _nws_severity(alert)
-    # Default: trust CAP severity field
-    return alert.severity.lower() if alert.severity else "unknown"
+        raw = _nws_severity(alert)
+    elif alert.severity:
+        raw = alert.severity.lower()
+    else:
+        raw = "unknown"
+    return raw if raw in _CANONICAL_SEVERITIES else "unknown"
 
 
 def _nws_severity(alert: CAPAlert) -> str:
@@ -83,12 +86,19 @@ def _compute_phase(alert: CAPAlert, now: datetime) -> str:
 
 
 def _normalize_phase(msg_type: str) -> str:
-    """Map msg_type to lowercase lifecycle phase."""
+    """Map msg_type to lowercase lifecycle phase.
+
+    Known CAP msg_types map: ``Alert → new``, ``Update → update``,
+    ``Cancel → cancel``. Any other value (provider-specific vocabulary such
+    as ECCC's ``Actual``, or a missing field) defaults to ``"new"`` so the
+    RFC §2.1 guarantee that ``phase`` is always one of
+    ``{new, update, cancel, expired}`` is never broken.
+    """
     return {
         "Alert": "new",
         "Update": "update",
         "Cancel": "cancel",
-    }.get(msg_type, "")
+    }.get(msg_type, "new")
 
 
 def _parse_iso(value: str) -> datetime | None:
