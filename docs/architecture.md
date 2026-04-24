@@ -201,10 +201,10 @@ Holds the previous poll's alerts in memory and diffs incoming alerts to detect n
 
 ### Design notes
 
-- **In-memory only.** No disk persistence. After a restart, `_previous` is empty and the first poll treats every alert as new (`cap_alert_created` for each). This is semantically correct — a restart is a cold start and these alerts are new to us.
-- **Events are lightweight.** Payload contains only `entry_id`, `alert_id`, `event`, `phase`, `previous_phase`, `severity`, `area_desc`. Automations that need full details read the entity attributes — avoids duplicating the CAP payload on the bus.
+- **In-memory only.** No disk persistence. After a restart, `_previous` is empty and the first poll treats every alert as new (`incident_created` for each). This is semantically correct — a restart is a cold start and these alerts are new to us.
+- **Events are lightweight.** Payload contains only the RFC §2.3 schema plus two project extensions (`entry_id`, `area_desc`). Automations that need full details read the entity attributes — avoids duplicating the CAP payload on the bus. See [`events.md`](events.md) for the full schema.
 - **Runs after normalization.** `phase` must be set before diffing.
-- **`cap_alert_removed` fires on disappearance** — covers both explicit cancels (where a Cancel briefly appears) and silent expirations. Consumers can distinguish via last-seen `phase`.
+- **Filter is internal to `store.process`.** The coordinator hands in the full normalized list (including `cancel`/`expired`). The store fires `incident_removed` with the true terminal phase and then drops those alerts from the returned active set — so the event payload's `phase` distinguishes cancel from expired directly. Alerts that vanish silently between polls are inferred as `expired` when past their `expires` timestamp, otherwise `cancel`.
 
 ---
 
@@ -298,21 +298,18 @@ exists because geometry never touches attributes.
 
 `description` and `instruction` are truncated to 4096 UTF-8 bytes with a trailing `…`, at a UTF-8 character boundary. The full text remains available on the underlying `CAPAlert` dataclass for future out-of-band retrieval.
 
-### Event payload schema (§2.2.2)
+### Event payload schema (§2.3)
 
-`cap_alert_created` / `cap_alert_updated` / `cap_alert_removed` fire with:
+See [`events.md`](events.md) for the full schema, including the project
+extensions (`entry_id`, `area_desc`) and the rationale for the
+`{entry_id}_{provider}_{alert_id}` `unique_id` shape vs. the RFC's bare
+lifecycle hash.
 
-| Key | Type | Notes |
-| :-- | :-- | :-- |
-| `entry_id` | str | Config entry id. |
-| `incident_id` | str | Stable lifecycle-aware alert id. |
-| `alert_id` | str | Deprecated alias of `incident_id`. |
-| `entity_id` | str | Omitted on very first sighting (entity not yet registered). |
-| `event` | str | Human-readable event name. |
-| `severity` | str | Normalized (`extreme`/`severe`/`moderate`/`minor`/`unknown`). |
-| `phase` | str | Current phase (lowercase vocabulary). |
-| `phase_changed` | bool | True on creation or when `phase` differs from previous poll. |
-| `changed_fields` | list[str] | Allowlisted fields that changed since last poll (`headline`, `description`, `instruction`, `severity_normalized`, `phase`, `expires`, `area_desc`). Empty on creation/removal. |
-| `area_desc` | str | Convenience extension. |
+### Sub-incident relationships (§6.3)
 
-`previous_phase` has been removed from the event payload; consumers can reconstruct it from `changed_fields` containing `phase` plus the current `phase`.
+`CAPAlert.parent_id` is reserved for linking a sub-incident to its parent
+event (the RFC calls out aftershocks-of-earthquake and
+evacuation-zone-of-wildfire as motivating cases). The field is present
+but never populated in v1; `to_attributes()` skips empty strings so the
+attribute stays absent until a future provider sets it. Adding the hook
+now means no schema migration when support lands.

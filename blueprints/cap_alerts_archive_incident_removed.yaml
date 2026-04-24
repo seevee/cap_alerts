@@ -1,0 +1,39 @@
+blueprint:
+  name: CAP Alerts — Archive removed incidents
+  description: >
+    Forward every ``incident_removed`` event from CAP Alerts to a notify
+    service of your choice, so a record of the alert survives the entity
+    being removed from the registry. The event payload is JSON-encoded in
+    the notification message for easy ingestion by log sinks, archival
+    databases, or webhook receivers.
+
+
+    RFC §6.4 reference blueprint. See `docs/events.md` for the payload
+    schema.
+  domain: automation
+  source_url: https://github.com/seevee/cap_alerts/blob/main/blueprints/cap_alerts_archive_incident_removed.yaml
+  input:
+    notify_target:
+      name: Notify service
+      description: >
+        The ``notify.*`` service to receive each archived event. Any
+        service that accepts ``message`` + ``title`` works — for
+        persistent storage, point this at a webhook / file notifier / log
+        integration rather than a mobile notification.
+      selector:
+        text:
+
+trigger:
+  - platform: event
+    event_type: incident_removed
+
+action:
+  - service: "{{ notify_target }}"
+    data:
+      title: >-
+        CAP Alert archived: {{ trigger.event.data.event }}
+        ({{ trigger.event.data.phase }})
+      message: "{{ trigger.event.data | to_json }}"
+
+mode: queued
+max: 100

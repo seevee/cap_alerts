@@ -73,7 +73,7 @@ Alert entity `extra_state_attributes` is a sparse dict of CAP fields — only po
 
 This trips up new HA users, so worth stating explicitly:
 
-- **Integration domain** (`cap_alerts`) — identifies the integration itself, used in `hass.data`, config entries, device identifiers, fired event types (`cap_alert_created`, etc.).
+- **Integration domain** (`cap_alerts`) — identifies the integration itself, used in `hass.data`, config entries, device identifiers, fired event types (`incident_created`, etc.).
 - **Entity platform domain** (`sensor`) — every entity this integration produces is a *sensor*, so its `entity_id` starts with `sensor.`, never `cap_alerts.`.
 
 So the integration is `cap_alerts`, but you refer to its entities as `sensor.cap_alert_<slug>`, `sensor.cap_alerts_count`, `sensor.cap_alerts_last_updated` in automations, templates, and the frontend.
@@ -88,11 +88,26 @@ For automation use, the integration fires three event types on the HA bus:
 
 | Event | When |
 |---|---|
-| `cap_alert_created` | A new alert ID appears. |
-| `cap_alert_updated` | An existing alert's lifecycle **phase** changed. |
-| `cap_alert_removed` | An alert disappears from the feed. |
+| `incident_created` | A new alert ID appears. |
+| `incident_updated` | An existing alert's lifecycle **phase** or other tracked fields changed. |
+| `incident_removed` | An alert moved to a terminal phase (`cancel` / `expired`) or disappeared from the feed. |
 
-Event payload includes `entry_id`, `alert_id`, `event`, and phase fields. Subscribe in automations via the `event` trigger platform.
+Full payload schema and semantics are documented in [`docs/events.md`](docs/events.md).
+`incident_removed` payloads carry the terminal `phase` (`cancel` or `expired`)
+so automations can distinguish an upstream cancel from a natural expiry
+without re-deriving it from timestamps.
+
+### History UI tradeoff
+
+Once an alert ends, its entity is removed from the entity registry. This
+means Home Assistant's **History** dashboard renders past alerts with only
+a slugified `entity_id` rather than a friendly name. Recorder rows are
+preserved at the database level, but the UI has no friendly-name context
+to paint. Wire up an automation that listens for `incident_removed` and
+forwards the payload to your archival store of choice (InfluxDB,
+Postgres, a notify service) — see
+[`blueprints/cap_alerts_archive_incident_removed.yaml`](blueprints/cap_alerts_archive_incident_removed.yaml)
+for a reference blueprint.
 
 ---
 
