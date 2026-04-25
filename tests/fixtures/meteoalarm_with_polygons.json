@@ -1,0 +1,106 @@
+{
+  "warnings": [
+    {
+      "uuid": "uuid-poly-a",
+      "alert": {
+        "identifier": "POLY-A-001",
+        "sender": "test@example.com",
+        "sent": "2026-04-24T08:00:00Z",
+        "status": "Actual",
+        "msgType": "Alert",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "en",
+            "category": ["Met"],
+            "event": "Test Triangle",
+            "severity": "Moderate",
+            "urgency": "Immediate",
+            "certainty": "Likely",
+            "expires": "2026-04-24T20:00:00Z",
+            "headline": "Triangle warning around 50N 10E",
+            "area": [
+              {
+                "areaDesc": "Triangle Region",
+                "polygon": "49.0,9.0 51.0,9.0 50.0,11.0 49.0,9.0",
+                "geocode": [
+                  {"valueName": "EMMA_ID", "value": "TR-100"}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "uuid": "uuid-poly-b",
+      "alert": {
+        "identifier": "POLY-B-001",
+        "sender": "test@example.com",
+        "sent": "2026-04-24T08:00:00Z",
+        "status": "Actual",
+        "msgType": "Alert",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "en",
+            "category": ["Met"],
+            "event": "Two Areas",
+            "severity": "Severe",
+            "urgency": "Expected",
+            "certainty": "Likely",
+            "expires": "2026-04-25T00:00:00Z",
+            "headline": "Two-area warning (Italy + Austria)",
+            "area": [
+              {
+                "areaDesc": "Italy Region",
+                "polygon": "41.0,12.0 42.0,12.0 41.5,13.0 41.0,12.0",
+                "geocode": [
+                  {"valueName": "EMMA_ID", "value": "IT-200"}
+                ]
+              },
+              {
+                "areaDesc": "Austria Region",
+                "polygon": "48.0,16.0 49.0,16.0 48.5,17.0 48.0,16.0",
+                "geocode": [
+                  {"valueName": "EMMA_ID", "value": "AT-300"}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "uuid": "uuid-poly-c",
+      "alert": {
+        "identifier": "POLY-C-001",
+        "sender": "test@example.com",
+        "sent": "2026-04-24T08:00:00Z",
+        "status": "Actual",
+        "msgType": "Alert",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "en",
+            "category": ["Met"],
+            "event": "No Polygon",
+            "severity": "Minor",
+            "urgency": "Future",
+            "certainty": "Possible",
+            "expires": "2026-04-25T00:00:00Z",
+            "headline": "Polygon-less warning",
+            "area": [
+              {
+                "areaDesc": "Codes Only",
+                "geocode": [
+                  {"valueName": "EMMA_ID", "value": "NP-400"}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

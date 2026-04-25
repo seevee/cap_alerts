@@ -69,26 +69,36 @@
       "meteoalarm_country": {
         "title": "MeteoAlarm Country",
         "data": {
-          "country": "Country Code"
+          "country": "Country"
         },
         "data_description": {
-          "country": "ISO 3166-1 alpha-2 country code (e.g. DE, FR, IT)"
+          "country": "Select your country"
         }
       },
       "meteoalarm_filter": {
         "title": "MeteoAlarm Location Filter",
         "menu_options": {
           "meteoalarm_country_only": "Country-wide",
-          "meteoalarm_gps_loc": "GPS Coordinates"
+          "meteoalarm_gps_polygon": "GPS Coordinates",
+          "meteoalarm_region_picker": "Region picker"
         }
       },
-      "meteoalarm_gps_loc": {
+      "meteoalarm_gps_polygon": {
         "title": "MeteoAlarm GPS Location",
         "data": {
           "gps_loc": "GPS Coordinates"
         },
         "data_description": {
-          "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050)"
+          "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050). Filters by per-warning polygons; fails loud if the country does not publish geometry."
+        }
+      },
+      "meteoalarm_region_picker": {
+        "title": "MeteoAlarm Regions",
+        "data": {
+          "regions": "Regions"
+        },
+        "data_description": {
+          "regions": "Select one or more EMMA_ID regions to filter alerts."
         }
       },
       "reconfigure": {
@@ -159,26 +169,36 @@
       "reconfigure_meteoalarm_country": {
         "title": "MeteoAlarm Country",
         "data": {
-          "country": "Country Code"
+          "country": "Country"
         },
         "data_description": {
-          "country": "ISO 3166-1 alpha-2 country code (e.g. DE, FR, IT)"
+          "country": "Select your country"
         }
       },
       "reconfigure_meteoalarm_filter": {
         "title": "MeteoAlarm Location Filter",
         "menu_options": {
           "reconfigure_meteoalarm_country_only": "Country-wide",
-          "reconfigure_meteoalarm_gps_loc": "GPS Coordinates"
+          "reconfigure_meteoalarm_gps_polygon": "GPS Coordinates",
+          "reconfigure_meteoalarm_region_picker": "Region picker"
         }
       },
-      "reconfigure_meteoalarm_gps_loc": {
+      "reconfigure_meteoalarm_gps_polygon": {
         "title": "MeteoAlarm GPS Location",
         "data": {
           "gps_loc": "GPS Coordinates"
         },
         "data_description": {
-          "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050)"
+          "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050). Filters by per-warning polygons; fails loud if the country does not publish geometry."
+        }
+      },
+      "reconfigure_meteoalarm_region_picker": {
+        "title": "MeteoAlarm Regions",
+        "data": {
+          "regions": "Regions"
+        },
+        "data_description": {
+          "regions": "Select one or more EMMA_ID regions to filter alerts."
         }
       }
     },
@@ -187,7 +207,9 @@
       "invalid_zone": "Invalid zone ID format.",
       "invalid_province": "Invalid province code.",
       "invalid_country": "Invalid country code. Use a MeteoAlarm-supported ISO 3166-1 alpha-2 code.",
-      "cannot_connect": "Could not connect to the weather service."
+      "cannot_connect": "Could not connect to the weather service.",
+      "cannot_fetch_regions": "Could not load regions for this country. Try again or pick a different filter mode.",
+      "no_regions_selected": "Select at least one region."
     },
     "abort": {
       "reconfigure_successful": "Configuration updated successfully."

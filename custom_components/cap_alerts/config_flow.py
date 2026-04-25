@@ -14,7 +14,16 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.core import callback
-from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
     CONF_COUNTRY,
@@ -22,6 +31,7 @@ from .const import (
     CONF_LANGUAGE,
     CONF_PROVIDER,
     CONF_PROVINCE,
+    CONF_REGIONS,
     CONF_SCAN_INTERVAL,
     CONF_TIMEOUT,
     CONF_TRACKER_ENTITY,
@@ -31,7 +41,9 @@ from .const import (
     DOMAIN,
     ECCC_PROVINCES,
     METEOALARM_COUNTRIES,
+    METEOALARM_COUNTRY_NAMES,
 )
+from .providers.meteoalarm import fetch_regions_for_country
 
 # Languages exposed in the options-flow dropdown for MeteoAlarm entries.
 # Covers the locales the MeteoAlarm member feeds typically ship plus
@@ -89,6 +101,8 @@ def _compute_device_title(data: dict[str, Any]) -> str:
     elif CONF_PROVINCE in data:
         location = data[CONF_PROVINCE]
     elif CONF_COUNTRY in data:
+        # Region picker entries use country name in the title — region IDs
+        # like ``DE100`` aren't user-meaningful enough to surface there.
         location = data[CONF_COUNTRY]
     else:
         location = "Unknown"
@@ -132,6 +146,34 @@ def _validate_country(value: str) -> tuple[str, str | None]:
     if not cleaned or cleaned not in METEOALARM_COUNTRIES:
         return value, "invalid_country"
     return cleaned, None
+
+
+def _country_selector() -> SelectSelector:
+    """Dropdown selector backed by ``METEOALARM_COUNTRY_NAMES``."""
+    options = [
+        SelectOptionDict(value=iso, label=METEOALARM_COUNTRY_NAMES[iso])
+        for iso in METEOALARM_COUNTRY_NAMES
+    ]
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=options,
+            mode=SelectSelectorMode.DROPDOWN,
+            sort=True,
+        )
+    )
+
+
+def _region_selector(regions: list[tuple[str, str]]) -> SelectSelector:
+    """Multi-select dropdown for ``EMMA_ID`` codes."""
+    options = [SelectOptionDict(value=code, label=label) for code, label in regions]
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=options,
+            mode=SelectSelectorMode.DROPDOWN,
+            multiple=True,
+            sort=True,
+        )
+    )
 
 
 class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
@@ -296,7 +338,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_meteoalarm_filter()
         return self.async_show_form(
             step_id="meteoalarm_country",
-            data_schema=vol.Schema({vol.Required(CONF_COUNTRY): str}),
+            data_schema=vol.Schema({vol.Required(CONF_COUNTRY): _country_selector()}),
             errors=errors,
         )
 
@@ -305,7 +347,11 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="meteoalarm_filter",
-            menu_options=["meteoalarm_country_only", "meteoalarm_gps_loc"],
+            menu_options=[
+                "meteoalarm_country_only",
+                "meteoalarm_gps_polygon",
+                "meteoalarm_region_picker",
+            ],
         )
 
     async def async_step_meteoalarm_country_only(
@@ -315,7 +361,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
         data = {CONF_PROVIDER: "meteoalarm", CONF_COUNTRY: country}
         return self.async_create_entry(title=_compute_device_title(data), data=data)
 
-    async def async_step_meteoalarm_gps_loc(
+    async def async_step_meteoalarm_gps_polygon(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -335,8 +381,48 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                     title=_compute_device_title(data), data=data
                 )
         return self.async_show_form(
-            step_id="meteoalarm_gps_loc",
+            step_id="meteoalarm_gps_polygon",
             data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
+            errors=errors,
+        )
+
+    async def async_step_meteoalarm_region_picker(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        country = getattr(self, "_meteoalarm_country", "")
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            selected = user_input.get(CONF_REGIONS) or []
+            if not selected:
+                errors["base"] = "no_regions_selected"
+            else:
+                data = {
+                    CONF_PROVIDER: "meteoalarm",
+                    CONF_COUNTRY: country,
+                    CONF_REGIONS: list(selected),
+                }
+                return self.async_create_entry(
+                    title=_compute_device_title(data), data=data
+                )
+
+        try:
+            regions = await fetch_regions_for_country(
+                async_get_clientsession(self.hass), country
+            )
+        except UpdateFailed:
+            return self.async_show_form(
+                step_id="meteoalarm_region_picker",
+                data_schema=vol.Schema({}),
+                errors={"base": "cannot_fetch_regions"},
+            )
+
+        return self.async_show_form(
+            step_id="meteoalarm_region_picker",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_REGIONS, default=[]): _region_selector(regions),
+                }
+            ),
             errors=errors,
         )
 
@@ -520,13 +606,15 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             else:
                 self._meteoalarm_country = country
                 return await self.async_step_reconfigure_meteoalarm_filter()
+        existing = entry.data.get(CONF_COUNTRY, "")
+        country_kwargs: dict[str, Any] = {}
+        if existing in METEOALARM_COUNTRIES:
+            country_kwargs["default"] = existing
         return self.async_show_form(
             step_id="reconfigure_meteoalarm_country",
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_COUNTRY, default=entry.data.get(CONF_COUNTRY, "")
-                    ): str,
+                    vol.Required(CONF_COUNTRY, **country_kwargs): _country_selector(),
                 }
             ),
             errors=errors,
@@ -539,7 +627,8 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             step_id="reconfigure_meteoalarm_filter",
             menu_options=[
                 "reconfigure_meteoalarm_country_only",
-                "reconfigure_meteoalarm_gps_loc",
+                "reconfigure_meteoalarm_gps_polygon",
+                "reconfigure_meteoalarm_region_picker",
             ],
         )
 
@@ -553,7 +642,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             entry, data=new_data, title=_compute_device_title(new_data)
         )
 
-    async def async_step_reconfigure_meteoalarm_gps_loc(
+    async def async_step_reconfigure_meteoalarm_gps_polygon(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -573,12 +662,59 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                     entry, data=new_data, title=_compute_device_title(new_data)
                 )
         return self.async_show_form(
-            step_id="reconfigure_meteoalarm_gps_loc",
+            step_id="reconfigure_meteoalarm_gps_polygon",
             data_schema=vol.Schema(
                 {
                     vol.Required(
                         CONF_GPS_LOC, default=entry.data.get(CONF_GPS_LOC, "")
                     ): str,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure_meteoalarm_region_picker(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        entry = self._get_reconfigure_entry()
+        country = getattr(self, "_meteoalarm_country", "")
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            selected = user_input.get(CONF_REGIONS) or []
+            if not selected:
+                errors["base"] = "no_regions_selected"
+            else:
+                new_data = {
+                    CONF_PROVIDER: "meteoalarm",
+                    CONF_COUNTRY: country,
+                    CONF_REGIONS: list(selected),
+                }
+                return self.async_update_reload_and_abort(
+                    entry, data=new_data, title=_compute_device_title(new_data)
+                )
+
+        try:
+            regions = await fetch_regions_for_country(
+                async_get_clientsession(self.hass), country
+            )
+        except UpdateFailed:
+            return self.async_show_form(
+                step_id="reconfigure_meteoalarm_region_picker",
+                data_schema=vol.Schema({}),
+                errors={"base": "cannot_fetch_regions"},
+            )
+
+        existing = entry.data.get(CONF_REGIONS, []) or []
+        # Only carry forward selections that still exist in the fetched set.
+        valid_codes = {code for code, _label in regions}
+        default = [code for code in existing if code in valid_codes]
+        return self.async_show_form(
+            step_id="reconfigure_meteoalarm_region_picker",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_REGIONS, default=default): _region_selector(
+                        regions
+                    ),
                 }
             ),
             errors=errors,

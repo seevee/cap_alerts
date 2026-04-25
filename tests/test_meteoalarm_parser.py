@@ -95,6 +95,13 @@ def feed_de() -> dict:
     return json.loads((_FIXTURE_DIR / "meteoalarm_de.json").read_text(encoding="utf-8"))
 
 
+@pytest.fixture
+def feed_with_polygons() -> dict:
+    return json.loads(
+        (_FIXTURE_DIR / "meteoalarm_with_polygons.json").read_text(encoding="utf-8")
+    )
+
+
 def _parse(feed: dict, preferred_prefix: str = "de"):
     """Run the provider's per-warning conversion across a JSON payload."""
     alerts = []
@@ -147,10 +154,29 @@ def test_language_merge_en_primary_when_preferred_missing(feed_de):
     assert gusts.language.startswith("en")
 
 
-def test_no_geometry_from_json_feed(feed_de):
-    # MeteoAlarm warnings never carry polygons in the JSON feed.
+def test_no_geometry_when_polygon_absent(feed_de):
+    # The DE fixture's warnings carry geocodes only — no polygons.
     for a in _parse(feed_de):
         assert a.geometry is None
+
+
+def test_geometry_populated_when_polygon_present(feed_with_polygons):
+    alerts = _parse(feed_with_polygons, preferred_prefix="en")
+    by_event = {a.event: a for a in alerts}
+    triangle = by_event["Test Triangle"]
+    assert triangle.geometry is not None
+    assert triangle.geometry["type"] == "Polygon"
+    # Single ring with 4 coordinate pairs (closed triangle).
+    assert len(triangle.geometry["coordinates"]) == 1
+    assert len(triangle.geometry["coordinates"][0]) == 4
+
+    multi = by_event["Two Areas"]
+    assert multi.geometry is not None
+    assert multi.geometry["type"] == "MultiPolygon"
+    assert len(multi.geometry["coordinates"]) == 2
+
+    nopoly = by_event["No Polygon"]
+    assert nopoly.geometry is None
 
 
 def test_emma_geocodes_collected(feed_de):

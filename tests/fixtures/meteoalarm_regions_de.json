@@ -1,0 +1,9 @@
+{
+  "regions": [
+    {"code": "DE100", "name": "Schleswig-Holstein"},
+    {"code": "DE200", "name": "Hamburg"},
+    {"code": "DE300", "name": "Niedersachsen"},
+    {"code": "DE400", "name": "Bremen"},
+    {"code": "DE500", "name": "Nordrhein-Westfalen"}
+  ]
+}

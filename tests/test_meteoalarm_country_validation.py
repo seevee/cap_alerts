@@ -84,3 +84,12 @@ def test_country_set_is_immutable_and_nonempty():
     # Spot-check a few representative codes.
     for code in ("DE", "FR", "IT", "ES", "PL"):
         assert code in METEOALARM_COUNTRIES
+
+
+def test_country_names_match_slugs():
+    from cap_alerts.const import METEOALARM_COUNTRY_NAMES, METEOALARM_COUNTRY_SLUGS
+
+    assert set(METEOALARM_COUNTRY_NAMES) == set(METEOALARM_COUNTRY_SLUGS)
+    for code, label in METEOALARM_COUNTRY_NAMES.items():
+        assert isinstance(label, str)
+        assert label.strip(), f"empty label for {code}"

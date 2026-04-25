@@ -23,6 +23,7 @@ CONF_GPS_LOC = "gps_loc"
 CONF_TRACKER_ENTITY = "tracker_entity"
 CONF_PROVINCE = "province"
 CONF_COUNTRY = "country"
+CONF_REGIONS = "regions"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_TIMEOUT = "timeout"
 CONF_LANGUAGE = "language"
@@ -93,3 +94,47 @@ METEOALARM_COUNTRY_SLUGS: dict[str, str] = {
 }
 
 METEOALARM_COUNTRIES = frozenset(METEOALARM_COUNTRY_SLUGS)
+
+# Display labels for the country dropdown. Slugs like
+# ``bosnia-herzegovina`` and ``republic-of-north-macedonia`` don't
+# title-case correctly, so an explicit mapping is used.
+METEOALARM_COUNTRY_NAMES: dict[str, str] = {
+    "AT": "Austria",
+    "BE": "Belgium",
+    "BA": "Bosnia and Herzegovina",
+    "BG": "Bulgaria",
+    "HR": "Croatia",
+    "CY": "Cyprus",
+    "CZ": "Czechia",
+    "DK": "Denmark",
+    "EE": "Estonia",
+    "FI": "Finland",
+    "FR": "France",
+    "DE": "Germany",
+    "GR": "Greece",
+    "HU": "Hungary",
+    "IS": "Iceland",
+    "IE": "Ireland",
+    "IL": "Israel",
+    "IT": "Italy",
+    "LV": "Latvia",
+    "LT": "Lithuania",
+    "LU": "Luxembourg",
+    "MT": "Malta",
+    "MD": "Moldova",
+    "ME": "Montenegro",
+    "NL": "Netherlands",
+    "MK": "Republic of North Macedonia",
+    "NO": "Norway",
+    "PL": "Poland",
+    "PT": "Portugal",
+    "RO": "Romania",
+    "RS": "Serbia",
+    "SK": "Slovakia",
+    "SI": "Slovenia",
+    "ES": "Spain",
+    "SE": "Sweden",
+    "CH": "Switzerland",
+    "UA": "Ukraine",
+    "UK": "United Kingdom",
+}
