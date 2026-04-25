@@ -31,6 +31,7 @@ from .const import (
     CONF_LANGUAGE,
     CONF_PROVIDER,
     CONF_PROVINCE,
+    CONF_REGION_LABELS,
     CONF_REGIONS,
     CONF_SCAN_INTERVAL,
     CONF_TIMEOUT,
@@ -100,10 +101,21 @@ def _compute_device_title(data: dict[str, Any]) -> str:
         location = data[CONF_TRACKER_ENTITY].split(".")[-1]
     elif CONF_PROVINCE in data:
         location = data[CONF_PROVINCE]
+    elif CONF_REGIONS in data:
+        country_code = data.get(CONF_COUNTRY, "")
+        country_name = METEOALARM_COUNTRY_NAMES.get(country_code, country_code)
+        labels = data.get(CONF_REGION_LABELS) or {}
+        if labels:
+            sorted_labels = sorted(labels.values())
+            extra = len(sorted_labels) - 1
+            suffix = f" +{extra}" if extra > 0 else ""
+            location = f"{country_code} — {sorted_labels[0]}{suffix}"
+        else:
+            count = len(data[CONF_REGIONS])
+            location = f"{country_name} — {count} regions"
     elif CONF_COUNTRY in data:
-        # Region picker entries use country name in the title — region IDs
-        # like ``DE100`` aren't user-meaningful enough to surface there.
-        location = data[CONF_COUNTRY]
+        code = data[CONF_COUNTRY]
+        location = METEOALARM_COUNTRY_NAMES.get(code, code)
     else:
         location = "Unknown"
     return f"CAP Alerts {provider} ({location})"
@@ -391,19 +403,6 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         country = getattr(self, "_meteoalarm_country", "")
         errors: dict[str, str] = {}
-        if user_input is not None:
-            selected = user_input.get(CONF_REGIONS) or []
-            if not selected:
-                errors["base"] = "no_regions_selected"
-            else:
-                data = {
-                    CONF_PROVIDER: "meteoalarm",
-                    CONF_COUNTRY: country,
-                    CONF_REGIONS: list(selected),
-                }
-                return self.async_create_entry(
-                    title=_compute_device_title(data), data=data
-                )
 
         try:
             regions = await fetch_regions_for_country(
@@ -415,6 +414,25 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 data_schema=vol.Schema({}),
                 errors={"base": "cannot_fetch_regions"},
             )
+
+        if user_input is not None:
+            selected = user_input.get(CONF_REGIONS) or []
+            if not selected:
+                errors["base"] = "no_regions_selected"
+            else:
+                selected_set = set(selected)
+                labels = {
+                    code: label for code, label in regions if code in selected_set
+                }
+                data = {
+                    CONF_PROVIDER: "meteoalarm",
+                    CONF_COUNTRY: country,
+                    CONF_REGIONS: list(selected),
+                    CONF_REGION_LABELS: labels,
+                }
+                return self.async_create_entry(
+                    title=_compute_device_title(data), data=data
+                )
 
         return self.async_show_form(
             step_id="meteoalarm_region_picker",
@@ -679,19 +697,6 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
         country = getattr(self, "_meteoalarm_country", "")
         errors: dict[str, str] = {}
-        if user_input is not None:
-            selected = user_input.get(CONF_REGIONS) or []
-            if not selected:
-                errors["base"] = "no_regions_selected"
-            else:
-                new_data = {
-                    CONF_PROVIDER: "meteoalarm",
-                    CONF_COUNTRY: country,
-                    CONF_REGIONS: list(selected),
-                }
-                return self.async_update_reload_and_abort(
-                    entry, data=new_data, title=_compute_device_title(new_data)
-                )
 
         try:
             regions = await fetch_regions_for_country(
@@ -703,6 +708,25 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 data_schema=vol.Schema({}),
                 errors={"base": "cannot_fetch_regions"},
             )
+
+        if user_input is not None:
+            selected = user_input.get(CONF_REGIONS) or []
+            if not selected:
+                errors["base"] = "no_regions_selected"
+            else:
+                selected_set = set(selected)
+                labels = {
+                    code: label for code, label in regions if code in selected_set
+                }
+                new_data = {
+                    CONF_PROVIDER: "meteoalarm",
+                    CONF_COUNTRY: country,
+                    CONF_REGIONS: list(selected),
+                    CONF_REGION_LABELS: labels,
+                }
+                return self.async_update_reload_and_abort(
+                    entry, data=new_data, title=_compute_device_title(new_data)
+                )
 
         existing = entry.data.get(CONF_REGIONS, []) or []
         # Only carry forward selections that still exist in the fetched set.
