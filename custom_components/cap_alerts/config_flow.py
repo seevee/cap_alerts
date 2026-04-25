@@ -293,17 +293,19 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 errors["base"] = err
             else:
                 self._meteoalarm_country = country
-                return self.async_show_menu(
-                    step_id="meteoalarm_filter",
-                    menu_options=[
-                        "meteoalarm_country_only",
-                        "meteoalarm_gps_loc",
-                    ],
-                )
+                return await self.async_step_meteoalarm_filter()
         return self.async_show_form(
             step_id="meteoalarm_country",
             data_schema=vol.Schema({vol.Required(CONF_COUNTRY): str}),
             errors=errors,
+        )
+
+    async def async_step_meteoalarm_filter(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return self.async_show_menu(
+            step_id="meteoalarm_filter",
+            menu_options=["meteoalarm_country_only", "meteoalarm_gps_loc"],
         )
 
     async def async_step_meteoalarm_country_only(
@@ -517,13 +519,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 errors["base"] = err
             else:
                 self._meteoalarm_country = country
-                return self.async_show_menu(
-                    step_id="reconfigure_meteoalarm_filter",
-                    menu_options=[
-                        "reconfigure_meteoalarm_country_only",
-                        "reconfigure_meteoalarm_gps_loc",
-                    ],
-                )
+                return await self.async_step_reconfigure_meteoalarm_filter()
         return self.async_show_form(
             step_id="reconfigure_meteoalarm_country",
             data_schema=vol.Schema(
@@ -534,6 +530,17 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+        )
+
+    async def async_step_reconfigure_meteoalarm_filter(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return self.async_show_menu(
+            step_id="reconfigure_meteoalarm_filter",
+            menu_options=[
+                "reconfigure_meteoalarm_country_only",
+                "reconfigure_meteoalarm_gps_loc",
+            ],
         )
 
     async def async_step_reconfigure_meteoalarm_country_only(

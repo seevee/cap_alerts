@@ -1,4 +1,15 @@
-"""MeteoAlarm (EUMETNET) per-country CAP Atom feed provider."""
+"""MeteoAlarm (EUMETNET) per-country JSON warnings feed provider.
+
+Uses the aggregate JSON endpoint
+(``feeds.meteoalarm.org/api/v1/warnings/feeds-{country-slug}``) which ships
+proper CAP-1.2 ``info`` blocks (multi-language) and per-area geocodes
+(EMMA_ID/WARNCELLID). The legacy Atom feed under the same domain is a flat
+per-region summary without info blocks and is unsuitable.
+
+GPS filtering is unavailable: MeteoAlarm warnings carry geocodes only, no
+``polygon`` coordinates. When ``gps_loc`` is configured the provider logs
+a warning and falls back to country-wide behavior.
+"""
 
 from __future__ import annotations
 
@@ -6,71 +17,28 @@ import hashlib
 import logging
 from collections.abc import Mapping
 from typing import Any
-from xml.etree.ElementTree import Element
 
 import aiohttp
-from defusedxml import ElementTree as ET
 
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from ..const import CONF_COUNTRY, CONF_GPS_LOC, CONF_LANGUAGE
+from ..const import (
+    CONF_COUNTRY,
+    CONF_GPS_LOC,
+    CONF_LANGUAGE,
+    METEOALARM_COUNTRY_SLUGS,
+)
 from ..model import CAPAlert
 
 _LOGGER = logging.getLogger(__name__)
 
-METEOALARM_FEED_URL = (
-    "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-{country}"
-)
-
-NS_ATOM = "http://www.w3.org/2005/Atom"
-NS_CAP = "urn:oasis:names:tc:emergency:cap:1.2"
+METEOALARM_FEED_URL = "https://feeds.meteoalarm.org/api/v1/warnings/feeds-{country}"
 
 
-def _compute_id(identifier: str, fallback_url: str) -> str:
-    """Hash a CAP identifier (or fallback URL) to a 12-hex stable ID."""
-    key = identifier or fallback_url
+def _compute_id(identifier: str, fallback: str) -> str:
+    """Hash a CAP identifier (or fallback) to a 12-hex stable ID."""
+    key = identifier or fallback
     return hashlib.sha256(key.encode()).hexdigest()[:12]
-
-
-def _parse_polygon_text(text: str) -> list[list[float]] | None:
-    """Parse a CAP/GeoRSS-style ``lat,lon lat,lon …`` polygon string.
-
-    Returns a list of ``[lon, lat]`` coordinate pairs (GeoJSON order) or
-    ``None`` if the polygon is malformed.
-    """
-    if not text:
-        return None
-    pairs = text.strip().split()
-    if len(pairs) < 4:
-        return None
-    coords: list[list[float]] = []
-    for pair in pairs:
-        if "," not in pair:
-            return None
-        lat_s, _, lon_s = pair.partition(",")
-        try:
-            lat = float(lat_s)
-            lon = float(lon_s)
-        except ValueError:
-            return None
-        coords.append([lon, lat])
-    return coords
-
-
-def _point_in_polygon(lat: float, lon: float, polygon: list[list[float]]) -> bool:
-    """Ray-casting point-in-polygon test. Polygon is ``[[lon, lat], …]``."""
-    n = len(polygon)
-    inside = False
-    j = n - 1
-    for i in range(n):
-        xi, yi = polygon[i][0], polygon[i][1]
-        xj, yj = polygon[j][0], polygon[j][1]
-        if ((yi > lat) != (yj > lat)) and (
-            lon < (xj - xi) * (lat - yi) / (yj - yi) + xi
-        ):
-            inside = not inside
-        j = i
-    return inside
 
 
 def _lang_prefix(value: str) -> str:
@@ -81,12 +49,12 @@ def _lang_prefix(value: str) -> str:
 
 
 def _pick_info_blocks(
-    infos: list[Element], preferred_prefix: str
-) -> tuple[Element, Element | None]:
+    infos: list[dict[str, Any]], preferred_prefix: str
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Pick the primary info block by language and an alternate if any.
 
     Preference order:
-    1. info with a ``<cap:language>`` whose 2-letter prefix matches
+    1. info with a ``language`` whose 2-letter prefix matches
        ``preferred_prefix``;
     2. info whose language prefix is ``en`` (generic fallback);
     3. first info block in document order.
@@ -96,8 +64,7 @@ def _pick_info_blocks(
     primary_idx: int | None = None
     en_idx: int | None = None
     for idx, info in enumerate(infos):
-        lang = info.findtext(f"{{{NS_CAP}}}language", "")
-        prefix = _lang_prefix(lang)
+        prefix = _lang_prefix(info.get("language", ""))
         if preferred_prefix and prefix == preferred_prefix and primary_idx is None:
             primary_idx = idx
         if prefix == "en" and en_idx is None:
@@ -107,7 +74,7 @@ def _pick_info_blocks(
         primary_idx = en_idx if en_idx is not None else 0
 
     primary = infos[primary_idx]
-    alt: Element | None = None
+    alt: dict[str, Any] | None = None
     for idx, info in enumerate(infos):
         if idx == primary_idx:
             continue
@@ -116,109 +83,122 @@ def _pick_info_blocks(
     return primary, alt
 
 
-def _parse_parameters(info: Element) -> dict[str, str]:
-    """Collect ``<cap:parameter>`` valueName/value pairs into a flat dict."""
+def _flatten_parameters(info: Mapping[str, Any]) -> dict[str, str]:
+    """Collect ``parameter`` valueName/value pairs into a flat dict.
+
+    When the same ``valueName`` repeats, values are joined with ``"; "``.
+    """
     params: dict[str, str] = {}
-    for param in info.findall(f"{{{NS_CAP}}}parameter"):
-        name = param.findtext(f"{{{NS_CAP}}}valueName", "")
-        value = param.findtext(f"{{{NS_CAP}}}value", "")
-        if name:
-            params[name] = value
+    for entry in info.get("parameter") or []:
+        name = entry.get("valueName") or ""
+        value = entry.get("value") or ""
+        if not name:
+            continue
+        existing = params.get(name)
+        params[name] = f"{existing}; {value}" if existing else value
     return params
 
 
-def _info_text(info: Element, tag: str) -> str:
-    return info.findtext(f"{{{NS_CAP}}}{tag}", "") or ""
+def _join_areas(info: Mapping[str, Any]) -> str:
+    """Concatenate ``areaDesc`` from every area block in document order."""
+    descs: list[str] = []
+    for area in info.get("area") or []:
+        desc = area.get("areaDesc") or ""
+        if desc and desc not in descs:
+            descs.append(desc)
+    return ", ".join(descs)
 
 
-def _first_area_polygon(info: Element) -> list[list[float]] | None:
-    """Return the first ``<cap:polygon>`` text under any ``<cap:area>``."""
-    for area in info.findall(f"{{{NS_CAP}}}area"):
-        poly_text = area.findtext(f"{{{NS_CAP}}}polygon", "") or ""
-        coords = _parse_polygon_text(poly_text)
-        if coords:
-            return coords
-    return None
+def _emma_geocodes(info: Mapping[str, Any]) -> tuple[str, ...]:
+    """All ``EMMA_ID`` geocode values across the info's area blocks."""
+    out: list[str] = []
+    for area in info.get("area") or []:
+        for code in area.get("geocode") or []:
+            if code.get("valueName") == "EMMA_ID":
+                value = code.get("value") or ""
+                if value and value not in out:
+                    out.append(value)
+    return tuple(out)
 
 
-def _first_area_desc(info: Element) -> str:
-    for area in info.findall(f"{{{NS_CAP}}}area"):
-        desc = area.findtext(f"{{{NS_CAP}}}areaDesc", "") or ""
-        if desc:
-            return desc
-    return ""
+def _first(value: Any) -> str:
+    """Return the first element of a list-or-string value as a string.
+
+    The JSON feed wraps several CAP fields (``category``, ``responseType``)
+    in single-element lists; this normalizes them back to a scalar.
+    """
+    if isinstance(value, list):
+        return str(value[0]) if value else ""
+    return str(value or "")
 
 
-def _entry_to_alert(
-    entry: Element,
-    primary: Element,
-    alt: Element | None,
-) -> CAPAlert:
-    """Build a CAPAlert from an entry's primary (and optional alt) info block."""
-    identifier = entry.findtext(f"{{{NS_CAP}}}identifier", "") or ""
-    sender = entry.findtext(f"{{{NS_CAP}}}sender", "") or ""
-    sent = entry.findtext(f"{{{NS_CAP}}}sent", "") or ""
-    status = entry.findtext(f"{{{NS_CAP}}}status", "") or ""
-    msg_type = entry.findtext(f"{{{NS_CAP}}}msgType", "") or ""
-    scope = entry.findtext(f"{{{NS_CAP}}}scope", "") or ""
-    references = entry.findtext(f"{{{NS_CAP}}}references", "") or ""
+def _info_text(info: Mapping[str, Any] | None, key: str) -> str:
+    if info is None:
+        return ""
+    return str(info.get(key) or "")
 
-    entry_url = entry.findtext(f"{{{NS_ATOM}}}id", "") or ""
-    link_el = entry.find(f"{{{NS_ATOM}}}link")
-    link = link_el.get("href", "") if link_el is not None else ""
 
-    coords = _first_area_polygon(primary)
-    geometry: dict | None = None
-    if coords:
-        # Close the ring if the feed didn't.
-        if coords[0] != coords[-1]:
-            coords = [*coords, coords[0]]
-        geometry = {"type": "Polygon", "coordinates": [coords]}
+def _warning_to_alert(
+    warning: Mapping[str, Any], preferred_prefix: str
+) -> CAPAlert | None:
+    """Convert one ``{"alert": ..., "uuid": ...}`` warning to a ``CAPAlert``.
 
-    parameters = _parse_parameters(primary)
+    Returns ``None`` for warnings filtered out (non-Actual status, missing
+    info blocks).
+    """
+    alert = warning.get("alert") or {}
+    status = alert.get("status") or ""
+    if status and status != "Actual":
+        return None
 
-    references_tuple = tuple(r for r in references.split() if r) if references else ()
+    infos = alert.get("info") or []
+    if not infos:
+        return None
+
+    primary, alt = _pick_info_blocks(infos, preferred_prefix)
+    identifier = alert.get("identifier") or ""
+    uuid = warning.get("uuid") or ""
+    parameters = _flatten_parameters(primary)
+    geocodes = _emma_geocodes(primary)
 
     return CAPAlert(
-        id=_compute_id(identifier, entry_url),
-        url=entry_url,
+        id=_compute_id(identifier, uuid),
+        url="",
         identifier=identifier,
         event=_info_text(primary, "event"),
-        msg_type=msg_type,
+        msg_type=alert.get("msgType") or "",
         status=status,
-        scope=scope,
-        category=_info_text(primary, "category"),
+        scope=alert.get("scope") or "",
+        category=_first(primary.get("category")),
         urgency=_info_text(primary, "urgency"),
         severity=_info_text(primary, "severity"),
         certainty=_info_text(primary, "certainty"),
-        response_type=_info_text(primary, "responseType"),
-        sent=sent,
-        effective=_info_text(primary, "effective"),
+        response_type=_first(primary.get("responseType")),
+        sent=alert.get("sent") or "",
+        effective="",
         onset=_info_text(primary, "onset"),
         expires=_info_text(primary, "expires"),
         headline=_info_text(primary, "headline"),
         description=_info_text(primary, "description"),
         instruction=_info_text(primary, "instruction") or None,
-        web=_info_text(primary, "web") or link,
-        area_desc=_first_area_desc(primary),
-        geometry=geometry,
-        sender=sender,
+        web=_info_text(primary, "web"),
+        area_desc=_join_areas(primary),
+        geocode_same=geocodes,
+        geometry=None,
+        sender=alert.get("sender") or "",
         sender_name=_info_text(primary, "senderName"),
-        references=references_tuple,
         parameters=parameters or None,
         language=_info_text(primary, "language"),
-        headline_alt=_info_text(alt, "headline") if alt is not None else "",
-        description_alt=_info_text(alt, "description") if alt is not None else "",
-        instruction_alt=(
-            _info_text(alt, "instruction") or None if alt is not None else None
-        ),
-        language_alt=_info_text(alt, "language") if alt is not None else "",
+        headline_alt=_info_text(alt, "headline"),
+        description_alt=_info_text(alt, "description"),
+        instruction_alt=_info_text(alt, "instruction") or None,
+        language_alt=_info_text(alt, "language"),
         provider="meteoalarm",
     )
 
 
 class MeteoAlarmProvider:
-    """Per-country MeteoAlarm CAP Atom feed provider."""
+    """Per-country MeteoAlarm JSON warnings provider."""
 
     @property
     def name(self) -> str:
@@ -230,63 +210,42 @@ class MeteoAlarmProvider:
         config: Mapping[str, Any],
         options: Mapping[str, Any],
     ) -> list[CAPAlert]:
-        """Fetch the country feed and return ``CAPAlert`` per entry.
-
-        Country mode: returns every active entry. GPS mode: filters by
-        point-in-polygon against the entry's primary ``<cap:polygon>``;
-        entries without polygons are excluded.
-        """
-        country = (config.get(CONF_COUNTRY, "") or "").lower()
+        """Fetch the country feed and return a ``CAPAlert`` per warning."""
+        country = (config.get(CONF_COUNTRY, "") or "").upper()
         if not country:
             raise UpdateFailed("MeteoAlarm: country not configured")
+        slug = METEOALARM_COUNTRY_SLUGS.get(country)
+        if slug is None:
+            raise UpdateFailed(f"MeteoAlarm: unsupported country {country}")
 
-        url = METEOALARM_FEED_URL.format(country=country)
+        if config.get(CONF_GPS_LOC):
+            _LOGGER.warning(
+                "MeteoAlarm GPS filter is unavailable (warnings carry no "
+                "polygons); falling back to country-wide for %s",
+                country,
+            )
+
+        url = METEOALARM_FEED_URL.format(country=slug)
 
         async with session.get(url) as resp:
             if resp.status != 200:
                 raise UpdateFailed(f"MeteoAlarm {country}: HTTP {resp.status}")
-            text = await resp.text()
+            try:
+                payload = await resp.json(content_type=None)
+            except (aiohttp.ContentTypeError, ValueError) as err:
+                raise UpdateFailed(f"MeteoAlarm: invalid JSON: {err}") from err
 
-        try:
-            root = ET.fromstring(text)
-        except ET.ParseError as err:
-            raise UpdateFailed(f"MeteoAlarm: failed to parse feed: {err}") from err
+        warnings = payload.get("warnings") if isinstance(payload, dict) else None
+        if not isinstance(warnings, list):
+            raise UpdateFailed("MeteoAlarm: feed missing 'warnings' array")
 
         preferred_prefix = _lang_prefix(options.get(CONF_LANGUAGE, "")) or "en"
-        gps_lat, gps_lon = self._parse_gps(config)
 
         alerts: list[CAPAlert] = []
-        for entry in root.findall(f"{{{NS_ATOM}}}entry"):
-            status = entry.findtext(f"{{{NS_CAP}}}status", "") or ""
-            if status and status != "Actual":
+        for warning in warnings:
+            if not isinstance(warning, dict):
                 continue
-
-            infos = entry.findall(f"{{{NS_CAP}}}info")
-            if not infos:
-                continue
-
-            primary, alt = _pick_info_blocks(infos, preferred_prefix)
-            alert = _entry_to_alert(entry, primary, alt)
-
-            if gps_lat is not None and gps_lon is not None:
-                coords = _first_area_polygon(primary)
-                if coords is None or not _point_in_polygon(gps_lat, gps_lon, coords):
-                    continue
-
-            alerts.append(alert)
-
+            alert = _warning_to_alert(warning, preferred_prefix)
+            if alert is not None:
+                alerts.append(alert)
         return alerts
-
-    @staticmethod
-    def _parse_gps(
-        config: Mapping[str, Any],
-    ) -> tuple[float | None, float | None]:
-        """Extract GPS coordinates from config; ``(None, None)`` in country mode."""
-        gps_loc = config.get(CONF_GPS_LOC, "")
-        if not gps_loc:
-            return None, None
-        try:
-            parts = gps_loc.split(",")
-            return float(parts[0].strip()), float(parts[1].strip())
-        except (ValueError, IndexError):
-            return None, None

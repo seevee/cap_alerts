@@ -1,8 +1,10 @@
-"""MeteoAlarm GPS-mode point-in-polygon filtering."""
+"""MeteoAlarm fetch behavior: country slug, GPS no-op, status filter."""
 
 from __future__ import annotations
 
 import importlib.util
+import json
+import logging
 import sys
 import types
 from pathlib import Path
@@ -68,66 +70,47 @@ def _load_meteoalarm():
 meteoalarm = _load_meteoalarm()
 
 
-# Square covering Berlin: roughly lat 52..53, lon 13..14.
-BERLIN_SQUARE = [[13.0, 52.0], [14.0, 52.0], [14.0, 53.0], [13.0, 53.0], [13.0, 52.0]]
-
-
-def test_point_inside_polygon():
-    # Berlin (52.52, 13.40) is inside.
-    assert meteoalarm._point_in_polygon(52.52, 13.40, BERLIN_SQUARE)
-
-
-def test_point_outside_polygon():
-    # Madrid (40.41, -3.70) is outside.
-    assert not meteoalarm._point_in_polygon(40.41, -3.70, BERLIN_SQUARE)
-
-
-def test_polygon_text_round_trip():
-    # CAP polygon order: lat,lon. Provider returns [lon, lat].
-    text = "52.0,13.0 53.0,13.0 53.0,14.0 52.0,14.0 52.0,13.0"
-    coords = meteoalarm._parse_polygon_text(text)
-    assert coords is not None
-    # First point is [13.0, 52.0]
-    assert coords[0] == [13.0, 52.0]
-
-
-def test_malformed_polygon_text_returns_none():
-    assert meteoalarm._parse_polygon_text("") is None
-    assert meteoalarm._parse_polygon_text("52.0") is None
-    assert meteoalarm._parse_polygon_text("not,a,number") is None
-
-
-def _make_entry_xml(*, with_polygon: bool, status: str = "Actual") -> str:
-    poly = (
-        "<cap:polygon>52.0,13.0 53.0,13.0 53.0,14.0 52.0,14.0 52.0,13.0</cap:polygon>"
-        if with_polygon
-        else ""
-    )
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom"
-      xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
-  <entry>
-    <id>urn:test:1</id>
-    <updated>2026-04-24T08:00:00Z</updated>
-    <cap:identifier>id-1</cap:identifier>
-    <cap:status>{status}</cap:status>
-    <cap:msgType>Alert</cap:msgType>
-    <cap:info>
-      <cap:language>en-GB</cap:language>
-      <cap:event>Wind</cap:event>
-      <cap:severity>Moderate</cap:severity>
-      <cap:area>
-        <cap:areaDesc>Test</cap:areaDesc>
-        {poly}
-      </cap:area>
-    </cap:info>
-  </entry>
-</feed>"""
+def _make_payload(*, status: str = "Actual") -> dict:
+    return {
+        "warnings": [
+            {
+                "uuid": "uuid-1",
+                "alert": {
+                    "identifier": "id-1",
+                    "sender": "test@example.com",
+                    "sent": "2026-04-24T08:00:00Z",
+                    "status": status,
+                    "msgType": "Alert",
+                    "scope": "Public",
+                    "info": [
+                        {
+                            "language": "en",
+                            "category": ["Met"],
+                            "event": "Wind",
+                            "severity": "Moderate",
+                            "urgency": "Immediate",
+                            "certainty": "Likely",
+                            "expires": "2026-04-24T20:00:00Z",
+                            "headline": "Test wind warning",
+                            "area": [
+                                {
+                                    "areaDesc": "Test",
+                                    "geocode": [
+                                        {"valueName": "EMMA_ID", "value": "DE100"},
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+            }
+        ]
+    }
 
 
 class _FakeResponse:
-    def __init__(self, text: str, status: int = 200):
-        self._text = text
+    def __init__(self, body: str, status: int = 200):
+        self._body = body
         self.status = status
 
     async def __aenter__(self):
@@ -136,13 +119,13 @@ class _FakeResponse:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
-    async def text(self):
-        return self._text
+    async def json(self, content_type=None):
+        return json.loads(self._body)
 
 
 class _FakeSession:
-    def __init__(self, body: str, status: int = 200):
-        self._body = body
+    def __init__(self, payload: dict, status: int = 200):
+        self._body = json.dumps(payload)
         self._status = status
         self.last_url: str | None = None
 
@@ -152,61 +135,51 @@ class _FakeSession:
 
 
 @pytest.mark.asyncio
-async def test_gps_inside_polygon_includes_alert():
-    body = _make_entry_xml(with_polygon=True)
-    session = _FakeSession(body)
+async def test_country_mode_returns_alert():
+    session = _FakeSession(_make_payload())
     provider = meteoalarm.MeteoAlarmProvider()
     alerts = await provider.async_fetch(
         session,
-        config={"country": "DE", "gps_loc": "52.52,13.40"},
+        config={"country": "DE"},
         options={"language": "en"},
     )
     assert len(alerts) == 1
+    assert alerts[0].event == "Wind"
 
 
 @pytest.mark.asyncio
-async def test_gps_outside_polygon_excludes_alert():
-    body = _make_entry_xml(with_polygon=True)
-    session = _FakeSession(body)
+async def test_test_status_filtered_out():
+    session = _FakeSession(_make_payload(status="Test"))
     provider = meteoalarm.MeteoAlarmProvider()
     alerts = await provider.async_fetch(
         session,
-        config={"country": "DE", "gps_loc": "40.41,-3.70"},
+        config={"country": "DE"},
         options={"language": "en"},
     )
     assert alerts == []
 
 
 @pytest.mark.asyncio
-async def test_gps_mode_excludes_entry_without_polygon():
-    body = _make_entry_xml(with_polygon=False)
-    session = _FakeSession(body)
+async def test_gps_loc_does_not_filter_and_logs_warning(caplog):
+    # MeteoAlarm warnings have no polygons; GPS mode degrades to country
+    # mode and emits a warning so users know filtering didn't apply.
+    session = _FakeSession(_make_payload())
     provider = meteoalarm.MeteoAlarmProvider()
-    alerts = await provider.async_fetch(
-        session,
-        config={"country": "DE", "gps_loc": "52.52,13.40"},
-        options={"language": "en"},
-    )
-    assert alerts == []
-
-
-@pytest.mark.asyncio
-async def test_country_mode_includes_entry_without_polygon():
-    body = _make_entry_xml(with_polygon=False)
-    session = _FakeSession(body)
-    provider = meteoalarm.MeteoAlarmProvider()
-    alerts = await provider.async_fetch(
-        session,
-        config={"country": "DE"},  # no gps_loc → country mode
-        options={"language": "en"},
-    )
+    with caplog.at_level(
+        logging.WARNING, logger="custom_components.cap_alerts.providers.meteoalarm"
+    ):
+        alerts = await provider.async_fetch(
+            session,
+            config={"country": "DE", "gps_loc": "10.0,10.0"},
+            options={"language": "en"},
+        )
     assert len(alerts) == 1
+    assert any("GPS filter is unavailable" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio
-async def test_feed_url_contains_lowercase_country():
-    body = _make_entry_xml(with_polygon=True)
-    session = _FakeSession(body)
+async def test_feed_url_uses_country_name_slug():
+    session = _FakeSession(_make_payload())
     provider = meteoalarm.MeteoAlarmProvider()
     await provider.async_fetch(
         session,
@@ -214,4 +187,17 @@ async def test_feed_url_contains_lowercase_country():
         options={"language": "en"},
     )
     assert session.last_url is not None
-    assert session.last_url.endswith("meteoalarm-legacy-atom-de")
+    assert session.last_url.endswith("/api/v1/warnings/feeds-germany")
+
+
+@pytest.mark.asyncio
+async def test_unsupported_country_raises():
+    session = _FakeSession(_make_payload())
+    provider = meteoalarm.MeteoAlarmProvider()
+    with pytest.raises(Exception) as excinfo:
+        await provider.async_fetch(
+            session,
+            config={"country": "ZZ"},
+            options={},
+        )
+    assert "unsupported country" in str(excinfo.value).lower()
