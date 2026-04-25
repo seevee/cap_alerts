@@ -17,6 +17,25 @@ def test_cap_native_provider_lowercases_canonical_value(alert_factory, value):
     assert out.severity_normalized == value.lower()
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("Extreme", "extreme"),
+        ("Severe", "severe"),
+        ("Moderate", "moderate"),
+        ("Minor", "minor"),
+        ("Unknown", "unknown"),
+        ("orange", "unknown"),  # foreign string clamps to canonical "unknown"
+        ("", "unknown"),
+    ],
+)
+def test_meteoalarm_severity_clamps_to_canonical(alert_factory, value, expected):
+    (out,) = normalize_alerts(
+        [alert_factory(provider="meteoalarm", severity=value, msg_type="Alert")]
+    )
+    assert out.severity_normalized == expected
+
+
 def test_normalize_severity_unknown_clamps_non_cap(alert_factory):
     # A provider that returns a non-canonical string like "foo" must not
     # leak that value out as the entity state (RFC §2.1).

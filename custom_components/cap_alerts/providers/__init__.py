@@ -31,11 +31,13 @@ class AlertProvider(Protocol):
 def get_provider(provider_id: str) -> AlertProvider:
     """Return a provider instance by ID."""
     from .eccc import ECCCProvider
+    from .meteoalarm import MeteoAlarmProvider
     from .nws import NWSProvider
 
     providers: dict[str, type] = {
         "nws": NWSProvider,
         "eccc": ECCCProvider,
+        "meteoalarm": MeteoAlarmProvider,
     }
     cls = providers.get(provider_id)
     if cls is None:

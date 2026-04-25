@@ -22,6 +22,7 @@ CONF_ZONE_ID = "zone_id"
 CONF_GPS_LOC = "gps_loc"
 CONF_TRACKER_ENTITY = "tracker_entity"
 CONF_PROVINCE = "province"
+CONF_COUNTRY = "country"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_TIMEOUT = "timeout"
 CONF_LANGUAGE = "language"
@@ -46,3 +47,47 @@ ECCC_PROVINCES = {
     "SK",
     "YT",
 }
+
+# MeteoAlarm-supported ISO 3166-1 alpha-2 country codes (per
+# https://feeds.meteoalarm.org/). One Atom feed per code.
+METEOALARM_COUNTRIES = frozenset(
+    {
+        "AT",
+        "BE",
+        "BA",
+        "BG",
+        "HR",
+        "CY",
+        "CZ",
+        "DK",
+        "EE",
+        "FI",
+        "FR",
+        "DE",
+        "GR",
+        "HU",
+        "IS",
+        "IE",
+        "IL",
+        "IT",
+        "LV",
+        "LT",
+        "LU",
+        "MT",
+        "MD",
+        "ME",
+        "NL",
+        "MK",
+        "NO",
+        "PL",
+        "PT",
+        "RO",
+        "RS",
+        "SK",
+        "SI",
+        "ES",
+        "SE",
+        "CH",
+        "UK",
+    }
+)

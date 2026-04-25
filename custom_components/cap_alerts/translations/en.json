@@ -5,7 +5,8 @@
         "title": "CAP Alerts",
         "menu_options": {
           "nws": "National Weather Service (US)",
-          "eccc": "Environment Canada"
+          "eccc": "Environment Canada",
+          "meteoalarm": "MeteoAlarm (Europe)"
         }
       },
       "nws": {
@@ -65,11 +66,37 @@
           "gps_loc": "Latitude,Longitude (e.g. 43.6532,-79.3832)"
         }
       },
+      "meteoalarm_country": {
+        "title": "MeteoAlarm Country",
+        "data": {
+          "country": "Country Code"
+        },
+        "data_description": {
+          "country": "ISO 3166-1 alpha-2 country code (e.g. DE, FR, IT)"
+        }
+      },
+      "meteoalarm_filter": {
+        "title": "MeteoAlarm Location Filter",
+        "menu_options": {
+          "meteoalarm_country_only": "Country-wide",
+          "meteoalarm_gps_loc": "GPS Coordinates"
+        }
+      },
+      "meteoalarm_gps_loc": {
+        "title": "MeteoAlarm GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050)"
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure CAP Alerts",
         "menu_options": {
           "reconfigure_nws": "National Weather Service (US)",
-          "reconfigure_eccc": "Environment Canada"
+          "reconfigure_eccc": "Environment Canada",
+          "reconfigure_meteoalarm": "MeteoAlarm (Europe)"
         }
       },
       "reconfigure_nws": {
@@ -128,12 +155,38 @@
         "data_description": {
           "gps_loc": "Latitude,Longitude (e.g. 43.6532,-79.3832)"
         }
+      },
+      "reconfigure_meteoalarm_country": {
+        "title": "MeteoAlarm Country",
+        "data": {
+          "country": "Country Code"
+        },
+        "data_description": {
+          "country": "ISO 3166-1 alpha-2 country code (e.g. DE, FR, IT)"
+        }
+      },
+      "reconfigure_meteoalarm_filter": {
+        "title": "MeteoAlarm Location Filter",
+        "menu_options": {
+          "reconfigure_meteoalarm_country_only": "Country-wide",
+          "reconfigure_meteoalarm_gps_loc": "GPS Coordinates"
+        }
+      },
+      "reconfigure_meteoalarm_gps_loc": {
+        "title": "MeteoAlarm GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050)"
+        }
       }
     },
     "error": {
       "invalid_gps": "Invalid GPS coordinates. Enter as latitude,longitude.",
       "invalid_zone": "Invalid zone ID format.",
       "invalid_province": "Invalid province code.",
+      "invalid_country": "Invalid country code. Use a MeteoAlarm-supported ISO 3166-1 alpha-2 code.",
       "cannot_connect": "Could not connect to the weather service."
     },
     "abort": {
@@ -151,7 +204,7 @@
         "data_description": {
           "scan_interval": "How often to check for new alerts (60\u20133600)",
           "timeout": "Per-request API timeout (5\u2013120)",
-          "language": "ECCC alert language (auto, en-CA, or fr-CA)"
+          "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes."
         }
       }
     }

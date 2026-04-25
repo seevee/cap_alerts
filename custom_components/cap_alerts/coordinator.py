@@ -20,6 +20,7 @@ from homeassistant.helpers.update_coordinator import (
 from .const import (
     CONF_GPS_LOC,
     CONF_LANGUAGE,
+    CONF_PROVIDER,
     CONF_SCAN_INTERVAL,
     CONF_TIMEOUT,
     CONF_TRACKER_ENTITY,
@@ -95,12 +96,21 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             else:
                 config[CONF_GPS_LOC] = ""
 
-        # Resolve language "auto" -> concrete code
+        # Resolve language "auto" -> concrete code. ECCC is bilingual EN/FR;
+        # MeteoAlarm spans ~35 locales — pass the 2-letter prefix of
+        # hass.config.language so the provider's language-prefix matcher
+        # finds the closest <cap:info> block.
         lang = options.get(CONF_LANGUAGE, "auto")
         if lang == "auto":
-            options[CONF_LANGUAGE] = (
-                "fr-CA" if self.hass.config.language.startswith("fr") else "en-CA"
-            )
+            provider = config.get(CONF_PROVIDER, "")
+            if provider == "meteoalarm":
+                options[CONF_LANGUAGE] = (
+                    self.hass.config.language.split("-", 1)[0].lower() or "en"
+                )
+            else:
+                options[CONF_LANGUAGE] = (
+                    "fr-CA" if self.hass.config.language.startswith("fr") else "en-CA"
+                )
 
         return config, options
 
