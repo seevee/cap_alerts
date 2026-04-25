@@ -88,6 +88,7 @@ METEOALARM_COUNTRY_SLUGS: dict[str, str] = {
     "ES": "spain",
     "SE": "sweden",
     "CH": "switzerland",
+    "UA": "ukraine",
     "UK": "united-kingdom",
 }
 

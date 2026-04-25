@@ -55,6 +55,14 @@ def test_eccc_events(alert_factory, event, expected):
         ("Rain-Flood", "mdi:home-flood"),
         ("Extreme high temperature", "mdi:weather-sunny-alert"),
         ("Extreme low temperature", "mdi:snowflake-thermometer"),
+        ("EXTREME HIGH TEMP", "mdi:weather-sunny-alert"),
+        ("EXTREME LOW TEMP", "mdi:snowflake-thermometer"),
+        ("FORESTFIRE", "mdi:fire"),
+        ("Wave height warning", "mdi:waves"),
+        ("Green high_temperature warning", "mdi:weather-sunny-alert"),
+        ("Green low_temperature warning", "mdi:snowflake-thermometer"),
+        ("Minor high-temperature warning", "mdi:weather-sunny-alert"),
+        ("Minor low-temperature warning", "mdi:snowflake-thermometer"),
     ],
 )
 def test_meteoalarm_events(alert_factory, event, expected):
