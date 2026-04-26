@@ -6,8 +6,9 @@ Alert data is modeled using [CAP (Common Alerting Protocol) 1.2](https://docs.oa
 
 - **NWS** — U.S. National Weather Service (GeoJSON API)
 - **ECCC** — Environment and Climate Change Canada (NAAD Atom feed)
+- **MeteoAlarm** — EUMETNET European aggregator (per-country CAP JSON, ~37 member services)
 
-Additional providers (BoM, MeteoAlarm, DWD, WMO CAP, …) can be added behind the same `AlertProvider` protocol.
+Additional providers (BoM, DWD, WMO CAP, …) can be added behind the same `AlertProvider` protocol.
 
 A companion Lovelace card lives at [`weather_alerts_card`](../weather_alerts_card); its `cap.ts` adapter is a thin passthrough because normalization happens here.
 
@@ -35,14 +36,15 @@ Pick a provider, then a location mode:
 
 | Provider | Modes |
 |---|---|
-| NWS   | Zone ID (e.g. `ILZ014`, or comma-separated), GPS (`lat,lon`), `device_tracker` entity |
-| ECCC  | Province code (`AB`, `BC`, `ON`, …), GPS (`lat,lon`) |
+| NWS         | Zone ID (e.g. `ILZ014`, or comma-separated), GPS (`lat,lon`), `device_tracker` entity |
+| ECCC        | Province code (`AB`, `BC`, `ON`, …), GPS (`lat,lon`) |
+| MeteoAlarm  | Country (ISO 3166-1 alpha-2, e.g. `DE`), with optional GPS polygon filter or `EMMA_ID` region multi-select |
 
 ### Options (per entry)
 
 - **Scan interval** — 60–3600 s, default 300
 - **Timeout** — 5–120 s, default 30
-- **Language** (ECCC only) — `auto` / `en-CA` / `fr-CA`
+- **Language** — ECCC: `auto` / `en-CA` / `fr-CA`. MeteoAlarm: 2-letter prefix (`en`, `de`, `fr`, …) used to pick the primary `<cap:info>` block.
 
 Polygons are **never** emitted in entity attributes — instead, each alert
 carries a `geometry_ref` handle plus a `bbox`. Fetch the full GeoJSON via:

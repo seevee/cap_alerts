@@ -51,12 +51,6 @@ Selective extraction of `<parameter>` fields with size budgeting. WMO feeds can 
 
 ---
 
-## MeteoAlarm EMMA_ID region selector
-
-MeteoAlarm v1 supports country-wide and GPS-mode filtering. Each `<cap:area>` carries an `EMMA_ID` geocode (e.g. `DE006` for Bavaria) that names a stable sub-country region. A future enhancement adds a per-country region selector populated from a static `EMMA_ID → label` mapping so users can subscribe to "Bavaria only" without specifying GPS coordinates. Out of scope for v1 because each member country ships its own `EMMA_ID` table — maintaining 35+ tables is the scaling concern, not the parsing.
-
----
-
 ## Integration-level language selection
 
 Promote `CONF_LANGUAGE` from an options-flow setting to a more prominent concept — possibly to the config flow (identity-level) since language affects *which alerts you see* for bilingual providers, not just how they're presented.
