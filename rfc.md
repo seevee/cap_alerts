@@ -195,9 +195,9 @@ Alert2 significantly extends the built-in `alert` with expressive conditions, th
 - Limitations: operates on user-configured rules over existing HA entities, templates, or events. Provides no standardized schema for external sources, no CAP normalization, and no stable event-level identity across provider updates.
 
 ### 3.3 Legacy Weather Alert Sensors
-Most weather integrations expose alerts as a single sensor with items packed into attributes.
+Most weather integrations expose alerts as a single sensor with items packed into attributes. A handful go further and expose alerts as a single `binary_sensor` that can hold only one alert at a time, which drops concurrent alerts entirely rather than truncating them.
 
-- Common failures: 16 KB truncation under load; fragmented history when providers re-issue URIs; complex Jinja2 required for even basic automation; inconsistent UX across providers.
+- Common failures: 16 KB truncation under load on packed-attribute sensors; concurrent-alert dropout on single-slot binary sensors (the MeteoAlarm community has been raising this since at least 2022 across multiple European countries — see §8.2 for thread links); fragmented history when providers re-issue URIs; complex Jinja2 required for even basic automation; inconsistent UX across providers.
 
 `cap_alerts` was developed specifically to overcome these limits and serves as the reference implementation for this RFC.
 
@@ -292,7 +292,7 @@ Core test suites for this platform must cover:
 
 ### 6.1 Fallback: Static Entity Pool
 
-If the AWG rejects dynamic entity creation and destruction in favor of a "entities are stable, permanent registry objects" philosophy, the fallback is a static entity pool.
+If the AWG rejects dynamic entity creation and destruction in favor of a stable-entity, "permanent registry objects" philosophy, the fallback is a static entity pool.
 
 Under this model, each config entry pre-allocates N incident slots (`incident.<config_slug>_slot_1` through `incident.<config_slug>_slot_N`). Slots are filled and drained rather than entities created and destroyed:
 
@@ -313,6 +313,8 @@ What it costs:
 
 We prefer the dynamic model and consider the static pool a fallback rather than a co-equal option, but it is a complete architecture if the AWG declines dynamic lifecycle. The entity schema, event contract, geometry API, and severity normalization are unchanged between the two models; only the lifecycle management differs.
 
+Approach demonstrated by @pyspilf: https://community.home-assistant.io/t/getting-all-active-meteoalarm-alerts-weather-alerts-card-integration/1006597
+
 ### 6.2 Cross-integration Geometry Store
 
 v1 holds geometry in memory (§2.4). A future core-managed geometry store, analogous to `image` or `media_source`, would offer:
@@ -327,7 +329,7 @@ This is out of scope for v1. The HTTP view in §2.4 is backend-agnostic, so a st
 
 Some CAP-adjacent workflows produce hierarchical incidents. A parent "Severe Weather Event" might have child advisories — Tornado Warning, Severe Thunderstorm Warning, Flash Flood Warning — each with its own lifecycle but sharing a root event.
 
-The reserved `parent_id` attribute (§2.1) is the hook for this. No v1 provider produces such relationships directly (NWS and ECCC both flatten in their public feeds), so the feature is deferred until a concrete source demands it. The expected shape, when it lands: children carry `parent_id` set to the parent's `incident_id`; parents do not enumerate children, since reverse lookup is a frontend concern and keeping it out of the payload avoids attribute bloat on the parent.
+The reserved `parent_id` attribute (§2.1) is the hook for this. No v1 provider produces such relationships directly (NWS and ECCC both flatten in their public feeds), so the feature is deferred until a concrete source demands it. The expected shape, when it lands: children carry `parent_id` set to the parent's `incident_id`; parents do not enumerate children since reverse lookup is a frontend concern and keeping it out of the payload avoids attribute bloat on the parent.
 
 ### 6.4 Long-term Archival Hook
 
@@ -440,9 +442,9 @@ This RFC builds on substantial prior work inside and outside the Home Assistant 
 
 ### 8.2 Reference Integrations
 
-- `nws_alerts` (custom integration): the canonical example of the 16 KB failure mode under severe-weather load, and the original motivation for the `cap_alerts` project.
+- `nws_alerts` (custom integration, @finity69x2, @firstof9): the canonical example of the 16 KB failure mode under severe-weather load, and the original motivation for the `cap_alerts` project.
 - Environment Canada core integration (@michaeldavie et al.): demonstrates lifecycle-aware handling of a CAP-adjacent Atom/WFS feed, and supplied much of the field vocabulary adopted by the ECCC provider in `cap_alerts`.
-- MeteoAlarm, BoM, and DWD community integrations: independent confirmation that a shared CAP-based model is needed across providers.
+- MeteoAlarm, BoM, and DWD community integrations: independent confirmation that a shared CAP-based model is needed across providers. The MeteoAlarm community has filed long-running issues about concurrent-alert dropout on the single-slot `binary_sensor` representation — see [Multiple alerts](https://community.home-assistant.io/t/meteoalarm-multiple-alerts/393707) (open since 2022, still active in 2026) and [Integration not working](https://community.home-assistant.io/t/meteoalarm-integration-not-working/120069) (reports across France, Denmark, Switzerland, Austria, Slovakia, Italy, Belgium, and the UK from 2019 onward). Both are addressed structurally by the one-entity-per-incident model in this RFC, rather than by patches to the legacy sensor.
 
 ### 8.3 Complementary Projects
 
@@ -468,4 +470,4 @@ Structured external notifications are central to Home Assistant's role in emerge
 
 A dedicated `incident` domain with a lifecycle-aware, CAP-based `IncidentEntity`, paired with out-of-band geometry, registry cleanup on termination, and a clear boundary against `binary_sensor`, would give external incidents the same robust, scalable, and consistent handling that other first-class domains enjoy. That foundation serves today's weather systems and opens the door to public-safety, utility, and infrastructure feeds as they come online.
 
-We recommend adopting this model and invite collaboration on the detailed entity specification, event schema, and migration strategy.
+We invite collaboration on any and all parts of this proposal.
