@@ -67,7 +67,8 @@ Providers map API fields to `CAPAlert` as directly as possible — they do not n
 CAP canonical values: `extreme`, `severe`, `moderate`, `minor`, `unknown`. Provider-aware dispatch because the right signal differs:
 
 - **NWS** — CAP `<severity>` is unreliable. VTEC significance is authoritative: `W` (Warning) → severe, `A` (Watch) → moderate, `Y` (Advisory) → minor, `S` (Statement) → unknown. Specific phenomena override the significance-tier default (e.g. Tornado Warning, Extreme Wind Warning → extreme).
-- **ECCC / other CAP-native providers** — CAP `<severity>` is trustworthy; lowercase it.
+- **ECCC and other CAP-native providers** — CAP `<severity>` is trustworthy; lowercase it. Values outside the canonical set clamp to `unknown`.
+- **MeteoAlarm** — when the `awareness_level` parameter (`"N; color; Label"`) is present, the color token drives the canonical severity (`yellow` → moderate, `orange` → severe, `red` → extreme, `green` → unknown). EUMETNET members publish color consistently while CAP `<severity>` is sometimes blank or off-axis, so color is the authoritative signal. Falls back to lower-cased CAP `<severity>` when the parameter is missing or malformed.
 - **Future non-CAP providers** (DWD level codes, BoM title inference) — register a new branch in `_normalize_severity` keyed on `provider`.
 
 ### Lifecycle filtering is centralized
@@ -195,6 +196,87 @@ Keeps providers testable without a running HA instance.
 
 ---
 
+## MeteoAlarm — CAP JSON mapping
+
+**API**: per-country aggregate JSON at
+`https://feeds.meteoalarm.org/api/v1/warnings/feeds-{country-slug}` plus a
+companion region index at
+`https://feeds.meteoalarm.org/api/v1/regions/feeds-{country-slug}` (one
+pair per ISO 3166-1 alpha-2 code, slug table in
+`const.py::METEOALARM_COUNTRY_SLUGS`). Currently ~37 European member
+services covered by the EUMETNET aggregator. One config entry per
+country; users who want multiple countries add multiple entries.
+
+**Feed shape**: the warnings endpoint returns
+`{"warnings": [{"alert": {...}, "uuid": "..."}, ...]}` where each `alert`
+is a CAP-1.2 document containing one or more `info` blocks — typically
+the local language and English. The provider picks the `info` whose
+`language` 2-letter prefix matches the configured language (falls back to
+`en`, then to the first block in document order) and stores the next
+remaining block in `headline_alt` / `description_alt` /
+`instruction_alt` / `language_alt`. Warnings whose `status` is set and
+not `Actual` are skipped at parse time.
+
+**Location matching** (mutually exclusive, picked in the config flow):
+- **Country-wide** — return every `Actual` warning for the country.
+- **GPS polygon** — parses each warning's `area.polygon` (CAP whitespace-
+  separated `lat,lon` pairs) into a GeoJSON ring and keeps warnings whose
+  ring contains the configured point. Fails loud with `UpdateFailed` when
+  the page has warnings but none carry polygons (the country does not
+  publish per-warning geometry); matches the ECCC GPS-mode contract.
+- **Region picker** — multi-select of `EMMA_ID` codes (e.g. `DE006` for
+  Bavaria). The config flow populates the picker by calling the regions
+  endpoint, falling back to deriving the list from the warnings feed
+  itself when the regions endpoint is unavailable. At fetch time the
+  provider keeps warnings whose `EMMA_ID` set intersects the configured
+  selection. Selected `EMMA_ID → label` pairs are persisted as
+  `CONF_REGION_LABELS` so the device title can show readable region names
+  (e.g. `MeteoAlarm DE — Bavaria +2`) without re-fetching.
+
+**Severity**: when an `info` block carries an `awareness_level` parameter
+(format `"N; color; Label"`, e.g. `"3; orange; Severe"`), the color token
+is mapped to canonical severity (`yellow` → moderate, `orange` → severe,
+`red` → extreme, `green` → unknown). EUMETNET members publish color
+reliably while CAP `<severity>` is often blank or inconsistent, so color
+is the authoritative signal here. When `awareness_level` is missing or
+malformed, falls back to lower-cased CAP `severity` via the standard
+non-NWS branch. The full `awareness_level` string is preserved verbatim
+in `parameters` for cards that want the numeric tier or label.
+
+**Identity**: `sha256(cap.identifier)[:12]`. MeteoAlarm identifiers are
+sender-scoped and stable across `Update`/`Cancel` re-issues for one
+logical event. Falls back to hashing the warning `uuid` when the
+identifier is missing.
+
+**Field mapping**:
+
+| MeteoAlarm JSON path | CAPAlert field |
+|---|---|
+| `warnings[].uuid` | identifier-fallback source for `id` |
+| `warnings[].alert.identifier` | `identifier`, primary source for `id` |
+| `warnings[].alert.sender` | `sender` |
+| `warnings[].alert.sent` | `sent` |
+| `warnings[].alert.status` | `status` (warnings with status ≠ `Actual` skipped) |
+| `warnings[].alert.msgType` | `msg_type` |
+| `warnings[].alert.scope` | `scope` |
+| `alert.info[].language` | `language` (primary), `language_alt` (alt block) |
+| `alert.info[].event` | `event` |
+| `alert.info[].category[0]` | `category` |
+| `alert.info[].urgency` | `urgency` |
+| `alert.info[].severity` | `severity` |
+| `alert.info[].certainty` | `certainty` |
+| `alert.info[].responseType[0]` | `response_type` |
+| `alert.info[].onset` / `expires` | same-named fields |
+| `alert.info[].senderName` | `sender_name` |
+| `alert.info[].headline` / `description` / `instruction` / `web` | same-named fields |
+| `alert.info[].parameter[]` (valueName/value pairs) | `parameters` dict |
+| `alert.info[].area[].areaDesc` | `area_desc` (joined across area blocks) |
+| `alert.info[].area[].geocode[]` where `valueName == "EMMA_ID"` | `geocode_same` (also drives the region-picker filter) |
+| `alert.info[].area[].polygon` | `geometry` (GeoJSON Polygon or MultiPolygon, lon/lat) |
+| `sha256(identifier)[:12]` (or `sha256(uuid)[:12]` fallback) | `id` |
+
+---
+
 ## Alert Store (`store.py`)
 
 Holds the previous poll's alerts in memory and diffs incoming alerts to detect new / phase-change / removed transitions. Only stateful component between polls — providers and the coordinator remain stateless.
@@ -212,7 +294,7 @@ Holds the previous poll's alerts in memory and diffs incoming alerts to detect n
 
 Split into two concerns, both wired in `config_flow.py`:
 
-- **Reconfigure flow** — identity (provider, zone / GPS / tracker / province). Triggers full reload via `async_update_reload_and_abort`. Shows the same top-level provider menu as initial setup, so NWS ↔ ECCC switch works without remove/re-add.
+- **Reconfigure flow** — identity (provider, zone / GPS / tracker / province / country / regions). Triggers full reload via `async_update_reload_and_abort`. Shows the same top-level provider menu as initial setup, so NWS / ECCC / MeteoAlarm switches work without remove/re-add.
 - **Options flow** — behavior (scan interval, timeout, language). Applied live via an update listener: updates `coordinator.update_interval` and timeout in place and calls `async_request_refresh()`. No reload, no coordinator teardown.
 
 Entry title is derived programmatically from config data (`_compute_device_title`) — no `CONF_NAME` field. Shared by initial setup and reconfigure so the device name stays in sync.
@@ -232,14 +314,6 @@ These are documented for architecture planning; the provider protocol accommodat
 - Phase values: `new`, `update`, `renewal`, `upgrade`, `downgrade`, `final`, `cancelled`.
 - No geometry — zone is `area_id` (e.g. `NSW_FL049`). Location search via `/v1/locations?search=…`.
 - Config flow: state selector or GPS.
-
-### MeteoAlarm — EUMETNET, Europe
-
-- **API**: Per-country Atom feeds at `https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-{country}`.
-- ~35 countries, one feed each. CAP extensions (`<cap:severity>`, `<cap:urgency>`, …).
-- `awareness_level` (e.g. `"2; yellow; Moderate"`) more granular than CAP severity.
-- No zone codes — `<cap:areaDesc>` is free text per country.
-- Config flow: country selector → province selector (populated from feed).
 
 ### DWD — Deutscher Wetterdienst, Germany
 
@@ -269,7 +343,7 @@ The integration implements the `IncidentEntity` contract from `rfc.md` §2.2, §
 
 ### Icon policy
 
-Every alert entity exposes `icon: mdi:…` derived from the event type. The taxonomy lives in `icons.py` — NWS entries match full event names; ECCC entries match substrings. Unknown events fall back to `mdi:alert`. Severity still drives entity state; the icon indicates hazard.
+Every alert entity exposes `icon: mdi:…` derived from the event type. The taxonomy lives in `icons.py` — NWS entries match full event names; ECCC and MeteoAlarm entries match substrings against their respective hazard vocabularies. Unknown events fall back to `mdi:alert`. Severity still drives entity state; the icon indicates hazard.
 
 ### Platform version
 

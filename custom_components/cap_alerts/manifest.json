@@ -8,6 +8,6 @@
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/TODO/cap_alerts/issues",
-  "requirements": [],
+  "requirements": ["defusedxml"],
   "version": "1.0.0"
 }

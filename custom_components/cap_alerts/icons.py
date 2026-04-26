@@ -73,6 +73,32 @@ _ECCC_EVENT_SUBSTRINGS: tuple[tuple[str, str], ...] = (
     ("flood", "mdi:home-flood"),
 )
 
+# MeteoAlarm event vocabulary is open across ~35 national services. Match on
+# CAP-event substrings; the MeteoAlarm canonical set documents the keywords
+# below as the EUMETNET hazard taxonomy.
+_METEOALARM_EVENT_SUBSTRINGS: tuple[tuple[str, str], ...] = (
+    ("avalanche", "mdi:snowflake-alert"),
+    ("fire", "mdi:fire"),
+    ("thunderstorm", "mdi:weather-lightning"),
+    ("snow/ice", "mdi:snowflake"),
+    ("snow", "mdi:snowflake"),
+    ("ice", "mdi:snowflake-melt"),
+    ("frost", "mdi:snowflake-thermometer"),
+    ("rain flood", "mdi:home-flood"),
+    ("flood", "mdi:home-flood"),
+    ("rain", "mdi:weather-pouring"),
+    ("wind", "mdi:weather-windy"),
+    ("gale", "mdi:weather-windy"),
+    ("fog", "mdi:weather-fog"),
+    ("extreme high temp", "mdi:weather-sunny-alert"),
+    ("extreme low temp", "mdi:snowflake-thermometer"),
+    ("high temperature", "mdi:weather-sunny-alert"),
+    ("low temperature", "mdi:snowflake-thermometer"),
+    ("coastal event", "mdi:waves"),
+    ("coastal", "mdi:waves"),
+    ("wave", "mdi:waves"),
+)
+
 
 def icon_for(alert: CAPAlert) -> str:
     """Return an ``mdi:*`` icon for ``alert`` based on provider + event."""
@@ -83,6 +109,16 @@ def icon_for(alert: CAPAlert) -> str:
     if alert.provider == "nws":
         if (icon := _NWS_EVENT_ICONS.get(event)) is not None:
             return icon
+
+    if alert.provider == "meteoalarm":
+        # MeteoAlarm services emit hyphenated/underscored compound terms
+        # (e.g. ``high-temperature``, ``snow_ice``); fold separators to
+        # spaces so substring needles match across naming styles.
+        normalized = event.replace("-", " ").replace("_", " ")
+        for needle, icon in _METEOALARM_EVENT_SUBSTRINGS:
+            if needle in normalized:
+                return icon
+        return FALLBACK_ICON
 
     for needle, icon in _ECCC_EVENT_SUBSTRINGS:
         if needle in event:

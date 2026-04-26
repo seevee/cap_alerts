@@ -5,7 +5,8 @@
         "title": "CAP Alerts",
         "menu_options": {
           "nws": "National Weather Service (US)",
-          "eccc": "Environment Canada"
+          "eccc": "Environment Canada",
+          "meteoalarm": "MeteoAlarm (Europe)"
         }
       },
       "nws": {
@@ -65,11 +66,47 @@
           "gps_loc": "Latitude,Longitude (e.g. 43.6532,-79.3832)"
         }
       },
+      "meteoalarm_country": {
+        "title": "MeteoAlarm Country",
+        "data": {
+          "country": "Country"
+        },
+        "data_description": {
+          "country": "Select your country"
+        }
+      },
+      "meteoalarm_filter": {
+        "title": "MeteoAlarm Location Filter",
+        "menu_options": {
+          "meteoalarm_country_only": "Country-wide",
+          "meteoalarm_gps_polygon": "GPS Coordinates",
+          "meteoalarm_region_picker": "Region picker"
+        }
+      },
+      "meteoalarm_gps_polygon": {
+        "title": "MeteoAlarm GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050). Filters by per-warning polygons; fails loud if the country does not publish geometry."
+        }
+      },
+      "meteoalarm_region_picker": {
+        "title": "MeteoAlarm Regions",
+        "data": {
+          "regions": "Regions"
+        },
+        "data_description": {
+          "regions": "Select one or more EMMA_ID regions to filter alerts."
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure CAP Alerts",
         "menu_options": {
           "reconfigure_nws": "National Weather Service (US)",
-          "reconfigure_eccc": "Environment Canada"
+          "reconfigure_eccc": "Environment Canada",
+          "reconfigure_meteoalarm": "MeteoAlarm (Europe)"
         }
       },
       "reconfigure_nws": {
@@ -128,13 +165,51 @@
         "data_description": {
           "gps_loc": "Latitude,Longitude (e.g. 43.6532,-79.3832)"
         }
+      },
+      "reconfigure_meteoalarm_country": {
+        "title": "MeteoAlarm Country",
+        "data": {
+          "country": "Country"
+        },
+        "data_description": {
+          "country": "Select your country"
+        }
+      },
+      "reconfigure_meteoalarm_filter": {
+        "title": "MeteoAlarm Location Filter",
+        "menu_options": {
+          "reconfigure_meteoalarm_country_only": "Country-wide",
+          "reconfigure_meteoalarm_gps_polygon": "GPS Coordinates",
+          "reconfigure_meteoalarm_region_picker": "Region picker"
+        }
+      },
+      "reconfigure_meteoalarm_gps_polygon": {
+        "title": "MeteoAlarm GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050). Filters by per-warning polygons; fails loud if the country does not publish geometry."
+        }
+      },
+      "reconfigure_meteoalarm_region_picker": {
+        "title": "MeteoAlarm Regions",
+        "data": {
+          "regions": "Regions"
+        },
+        "data_description": {
+          "regions": "Select one or more EMMA_ID regions to filter alerts."
+        }
       }
     },
     "error": {
       "invalid_gps": "Invalid GPS coordinates. Enter as latitude,longitude.",
       "invalid_zone": "Invalid zone ID format.",
       "invalid_province": "Invalid province code.",
-      "cannot_connect": "Could not connect to the weather service."
+      "invalid_country": "Invalid country code. Use a MeteoAlarm-supported ISO 3166-1 alpha-2 code.",
+      "cannot_connect": "Could not connect to the weather service.",
+      "cannot_fetch_regions": "Could not load regions for this country. Try again or pick a different filter mode.",
+      "no_regions_selected": "Select at least one region."
     },
     "abort": {
       "reconfigure_successful": "Configuration updated successfully."
@@ -149,9 +224,9 @@
           "language": "Language"
         },
         "data_description": {
-          "scan_interval": "How often to check for new alerts (60\u20133600)",
-          "timeout": "Per-request API timeout (5\u2013120)",
-          "language": "ECCC alert language (auto, en-CA, or fr-CA)"
+          "scan_interval": "How often to check for new alerts (60–3600)",
+          "timeout": "Per-request API timeout (5–120)",
+          "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes."
         }
       }
     }

@@ -25,6 +25,16 @@ _VTEC_SIG_SEVERITY = {
 # Phenomena codes that escalate a Warning to "extreme"
 _VTEC_EXTREME_PHENOMENA = {"TO", "EW"}  # Tornado, Extreme Wind
 
+# MeteoAlarm awareness color → CAP canonical tier. Green has no analogue on
+# the canonical axis (no "none" tier), so it lands on the neutral "unknown"
+# rather than the misleading "minor".
+_METEOALARM_AWARENESS_TO_SEVERITY = {
+    "green": "unknown",
+    "yellow": "moderate",
+    "orange": "severe",
+    "red": "extreme",
+}
+
 
 def normalize_alerts(alerts: list[CAPAlert]) -> list[CAPAlert]:
     """Apply shared normalization to a list of provider-parsed alerts."""
@@ -59,11 +69,36 @@ def _normalize_severity(alert: CAPAlert) -> str:
     """
     if alert.provider == "nws":
         raw = _nws_severity(alert)
+    elif alert.provider == "meteoalarm" and (
+        awareness := _meteoalarm_awareness_severity(alert)
+    ):
+        raw = awareness
     elif alert.severity:
         raw = alert.severity.lower()
     else:
         raw = "unknown"
     return raw if raw in _CANONICAL_SEVERITIES else "unknown"
+
+
+def _meteoalarm_awareness_severity(alert: CAPAlert) -> str | None:
+    """Map MeteoAlarm ``awareness_level`` to a canonical severity, or None.
+
+    The parameter format published by EUMETNET members is ``"N; color; Label"``
+    (e.g. ``"3; orange; Severe"``). The color token is the contract; the
+    numeric prefix and trailing label are ignored. Returns ``None`` for
+    missing, malformed, or unrecognized values so the caller falls back to
+    CAP ``severity``.
+    """
+    if alert.parameters is None:
+        return None
+    raw = alert.parameters.get("awareness_level")
+    if not raw:
+        return None
+    parts = raw.split(";")
+    if len(parts) < 2:
+        return None
+    color = parts[1].strip().lower()
+    return _METEOALARM_AWARENESS_TO_SEVERITY.get(color)
 
 
 def _nws_severity(alert: CAPAlert) -> str:

@@ -1,0 +1,749 @@
+{
+  "warnings": [
+    {
+      "alert": {
+        "code": [
+          "id:2.49.0.0.276.0.DWD.PVW.1776668100000.cdf81e0a-b6f1-45c3-808e-9d729efb2aa0",
+          "MCP:v2.0"
+        ],
+        "identifier": "2.49.0.0.276.0.DWD.PVW.1776668100000.cdf81e0a-b6f1-45c3-808e-9d729efb2aa0.MUL",
+        "incidents": "Alert",
+        "info": [
+          {
+            "area": [
+              {
+                "altitude": 3280.8399,
+                "areaDesc": "Erzgebirgskreis",
+                "ceiling": 9842.5197,
+                "geocode": [
+                  {
+                    "value": "DE343",
+                    "valueName": "EMMA_ID"
+                  },
+                  {
+                    "value": "114521000",
+                    "valueName": "WARNCELLID"
+                  }
+                ]
+              }
+            ],
+            "category": [
+              "Met"
+            ],
+            "certainty": "Likely",
+            "contact": "Deutscher Wetterdienst",
+            "description": "Es treten oberhalb 1000 m Sturmböen mit Geschwindigkeiten zwischen 60 km/h (17 m/s, 33 kn, Bft 7) und 75 km/h (21 m/s, 41 kn, Bft 9) aus nordwestlicher Richtung auf.",
+            "event": "STURMBÖEN",
+            "eventCode": [
+              {
+                "value": "2.1.14",
+                "valueName": "PROFILE_VERSION"
+              },
+              {
+                "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)",
+                "valueName": "LICENSE"
+              },
+              {
+                "value": "52",
+                "valueName": "II"
+              },
+              {
+                "value": "WIND",
+                "valueName": "GROUP"
+              },
+              {
+                "value": "251 140 0",
+                "valueName": "AREA_COLOR"
+              }
+            ],
+            "expires": "2026-04-20T18:00:00+02:00",
+            "headline": "Amtliche WARNUNG vor STURMBÖEN",
+            "instruction": "Gefahr durch: einzelne herabstürzende Äste; umherfliegende Gegenstände. \nHandlungsempfehlungen: \nfrei stehende Objekte sichern (z.B. Leinwände und Möbel); z.B. Zelte und Abdeckungen befestigen; im Freien auf herabfallende Gegenstände (z.B. Äste) achten",
+            "language": "de-DE",
+            "onset": "2026-04-20T09:00:00+02:00",
+            "parameter": [
+              {
+                "value": "60-75 [km/h]",
+                "valueName": "gusts"
+              },
+              {
+                "value": "north-west",
+                "valueName": "wind direction"
+              },
+              {
+                "value": "einzelne herabstürzende Äste",
+                "valueName": "impacts"
+              },
+              {
+                "value": "umherfliegende Gegenstände",
+                "valueName": "impacts"
+              },
+              {
+                "value": "3; orange; Severe",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "1; Wind",
+                "valueName": "awareness_type"
+              }
+            ],
+            "responseType": [
+              "Prepare"
+            ],
+            "senderName": "Deutscher Wetterdienst",
+            "severity": "Moderate",
+            "urgency": "Immediate",
+            "web": "https://dwd.de/warnungen"
+          },
+          {
+            "area": [
+              {
+                "altitude": 3280.8399,
+                "areaDesc": "Erzgebirgskreis",
+                "ceiling": 9842.5197,
+                "geocode": [
+                  {
+                    "value": "DE343",
+                    "valueName": "EMMA_ID"
+                  },
+                  {
+                    "value": "114521000",
+                    "valueName": "WARNCELLID"
+                  }
+                ]
+              }
+            ],
+            "category": [
+              "Met"
+            ],
+            "certainty": "Likely",
+            "contact": "Deutscher Wetterdienst",
+            "description": "There is a risk of gale-force gusts (level 2 of 4).\nHeight range: > 1000 m; Max. gusts: 60-75 km/h; Wind direction: north-west",
+            "event": "gale-force gusts",
+            "eventCode": [
+              {
+                "value": "2.1.14",
+                "valueName": "PROFILE_VERSION"
+              },
+              {
+                "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)",
+                "valueName": "LICENSE"
+              },
+              {
+                "value": "52",
+                "valueName": "II"
+              },
+              {
+                "value": "WIND",
+                "valueName": "GROUP"
+              },
+              {
+                "value": "251 140 0",
+                "valueName": "AREA_COLOR"
+              }
+            ],
+            "expires": "2026-04-20T18:00:00+02:00",
+            "headline": "Official WARNING of GALE-FORCE GUSTS",
+            "instruction": "Hazard(s) caused by: single branches falling; objects flying through the air. \nRecommendations for what to do: \nSecure free-standing objects (e.g. screens and furniture). For example, fasten tents and coverings. Watch out for falling objects outdoors (e.g. branches).",
+            "language": "en",
+            "onset": "2026-04-20T09:00:00+02:00",
+            "parameter": [
+              {
+                "value": "60-75 [km/h]",
+                "valueName": "gusts"
+              },
+              {
+                "value": "north-west",
+                "valueName": "wind direction"
+              },
+              {
+                "value": "single branches falling",
+                "valueName": "impacts"
+              },
+              {
+                "value": "objects flying through the air",
+                "valueName": "impacts"
+              },
+              {
+                "value": "3; orange; Severe",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "1; Wind",
+                "valueName": "awareness_type"
+              }
+            ],
+            "responseType": [
+              "Prepare"
+            ],
+            "senderName": "Deutscher Wetterdienst",
+            "severity": "Moderate",
+            "urgency": "Immediate",
+            "web": "https://dwd.de/warnungen"
+          }
+        ],
+        "msgType": "Alert",
+        "scope": "Public",
+        "sender": "opendata@dwd.de",
+        "sent": "2026-04-20T08:55:00+02:00",
+        "source": "PVW",
+        "status": "Actual"
+      },
+      "uuid": "a4b8c8a6-1d1e-4f98-b3c2-fe671343d1aa"
+    },
+    {
+      "alert": {
+        "code": [
+          "id:2.49.0.0.276.0.DWD.PVW.1776681300000.a43e3802-c848-4594-a9ec-e390609e0c0b",
+          "MCP:v2.0"
+        ],
+        "identifier": "2.49.0.0.276.0.DWD.PVW.1776681300000.a43e3802-c848-4594-a9ec-e390609e0c0b.MUL",
+        "incidents": "Alert",
+        "info": [
+          {
+            "area": [
+              {
+                "altitude": 0.0,
+                "areaDesc": "Kreis Ludwigsburg",
+                "ceiling": 9842.5197,
+                "geocode": [
+                  {
+                    "value": "DE241",
+                    "valueName": "EMMA_ID"
+                  },
+                  {
+                    "value": "108118000",
+                    "valueName": "WARNCELLID"
+                  }
+                ]
+              },
+              {
+                "altitude": 0.0,
+                "areaDesc": "Schwarzwald-Baar-Kreis",
+                "ceiling": 9842.5197,
+                "geocode": [
+                  {
+                    "value": "DE408",
+                    "valueName": "EMMA_ID"
+                  },
+                  {
+                    "value": "108326000",
+                    "valueName": "WARNCELLID"
+                  }
+                ]
+              }
+            ],
+            "category": [
+              "Met"
+            ],
+            "certainty": "Likely",
+            "contact": "Deutscher Wetterdienst",
+            "description": "Es tritt leichter Frost zwischen 0 °C und -2 °C auf.",
+            "event": "FROST",
+            "eventCode": [
+              {
+                "value": "2.1.14",
+                "valueName": "PROFILE_VERSION"
+              },
+              {
+                "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)",
+                "valueName": "LICENSE"
+              },
+              {
+                "value": "22",
+                "valueName": "II"
+              },
+              {
+                "value": "FROST",
+                "valueName": "GROUP"
+              },
+              {
+                "value": "255 235 59",
+                "valueName": "AREA_COLOR"
+              }
+            ],
+            "expires": "2026-04-21T07:00:00+02:00",
+            "headline": "Amtliche WARNUNG vor FROST",
+            "instruction": "Hinweis auf: mögliche Frostschäden. \nHandlungsempfehlungen: \nggf. Frostschutzmaßnahmen ergreifen",
+            "language": "de-DE",
+            "onset": "2026-04-21T00:00:00+02:00",
+            "parameter": [
+              {
+                "value": "0 - -2 [°C]",
+                "valueName": "minimum temperature"
+              },
+              {
+                "value": "mögliche Frostschäden",
+                "valueName": "impacts"
+              },
+              {
+                "value": "2; yellow; Moderate",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "6; low-temperature",
+                "valueName": "awareness_type"
+              }
+            ],
+            "responseType": [
+              "Prepare"
+            ],
+            "senderName": "Deutscher Wetterdienst",
+            "severity": "Minor",
+            "urgency": "Immediate",
+            "web": "https://dwd.de/warnungen"
+          },
+          {
+            "area": [
+              {
+                "altitude": 0.0,
+                "areaDesc": "Kreis Ludwigsburg",
+                "ceiling": 9842.5197,
+                "geocode": [
+                  {
+                    "value": "DE241",
+                    "valueName": "EMMA_ID"
+                  },
+                  {
+                    "value": "108118000",
+                    "valueName": "WARNCELLID"
+                  }
+                ]
+              },
+              {
+                "altitude": 0.0,
+                "areaDesc": "Schwarzwald-Baar-Kreis",
+                "ceiling": 9842.5197,
+                "geocode": [
+                  {
+                    "value": "DE408",
+                    "valueName": "EMMA_ID"
+                  },
+                  {
+                    "value": "108326000",
+                    "valueName": "WARNCELLID"
+                  }
+                ]
+              }
+            ],
+            "category": [
+              "Met"
+            ],
+            "certainty": "Likely",
+            "contact": "Deutscher Wetterdienst",
+            "description": "There is a risk of frost (level 1 of 2).\nMinimum temperature: 0 - -2 °C",
+            "event": "frost",
+            "eventCode": [
+              {
+                "value": "2.1.14",
+                "valueName": "PROFILE_VERSION"
+              },
+              {
+                "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)",
+                "valueName": "LICENSE"
+              },
+              {
+                "value": "22",
+                "valueName": "II"
+              },
+              {
+                "value": "FROST",
+                "valueName": "GROUP"
+              },
+              {
+                "value": "255 235 59",
+                "valueName": "AREA_COLOR"
+              }
+            ],
+            "expires": "2026-04-21T07:00:00+02:00",
+            "headline": "Official WARNING of FROST",
+            "instruction": "Hazard(s) to expect: possible frost damage. \nRecommendations for what to do: \nIf necessary, take precautions against frost.",
+            "language": "en",
+            "onset": "2026-04-21T00:00:00+02:00",
+            "parameter": [
+              {
+                "value": "0 - -2 [°C]",
+                "valueName": "minimum temperature"
+              },
+              {
+                "value": "possible frost damage",
+                "valueName": "impacts"
+              },
+              {
+                "value": "2; yellow; Moderate",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "6; low-temperature",
+                "valueName": "awareness_type"
+              }
+            ],
+            "responseType": [
+              "Prepare"
+            ],
+            "senderName": "Deutscher Wetterdienst",
+            "severity": "Minor",
+            "urgency": "Immediate",
+            "web": "https://dwd.de/warnungen"
+          }
+        ],
+        "msgType": "Alert",
+        "scope": "Public",
+        "sender": "opendata@dwd.de",
+        "sent": "2026-04-20T12:35:00+02:00",
+        "source": "PVW",
+        "status": "Actual"
+      },
+      "uuid": "621c15e7-78bf-4664-a405-baf43b093348"
+    },
+    {
+      "alert": {
+        "code": [
+          "id:2.49.0.0.276.0.DWD.PVW.1776719760000.41581055-631c-4f00-81f1-6e0fe7071e8b",
+          "MCP:v2.0"
+        ],
+        "identifier": "2.49.0.0.276.0.DWD.PVW.1776719760000.41581055-631c-4f00-81f1-6e0fe7071e8b.MUL",
+        "incidents": "Update",
+        "info": [
+          {
+            "area": [
+              {
+                "altitude": 0.0,
+                "areaDesc": "Flensburg bis Fehmarn",
+                "ceiling": 9842.5197,
+                "geocode": [
+                  {
+                    "value": "DE808",
+                    "valueName": "EMMA_ID"
+                  },
+                  {
+                    "value": "501000006",
+                    "valueName": "WARNCELLID"
+                  }
+                ]
+              }
+            ],
+            "category": [
+              "Met"
+            ],
+            "certainty": "Likely",
+            "contact": "Deutscher Wetterdienst",
+            "description": "AUFHEBUNG des Seewetterdienstes Hamburg.",
+            "event": "BÖEN",
+            "eventCode": [
+              {
+                "value": "2.1.14",
+                "valueName": "PROFILE_VERSION"
+              },
+              {
+                "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)",
+                "valueName": "LICENSE"
+              },
+              {
+                "value": "11",
+                "valueName": "II"
+              },
+              {
+                "value": "WIND",
+                "valueName": "GROUP"
+              },
+              {
+                "value": "255 235 59",
+                "valueName": "AREA_COLOR"
+              }
+            ],
+            "expires": "2026-04-20T23:16:00+02:00",
+            "headline": "AUFHEBUNG der WARNUNG vor STARKWIND (Küste)",
+            "language": "de-DE",
+            "onset": "2026-04-20T10:27:00+02:00",
+            "parameter": [
+              {
+                "value": "2; yellow; Moderate",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "7; coastalevent",
+                "valueName": "awareness_type"
+              }
+            ],
+            "responseType": [
+              "AllClear"
+            ],
+            "senderName": "DWD / Seewetterdienst Hamburg",
+            "severity": "Minor",
+            "urgency": "Immediate",
+            "web": "https://dwd.de/warnungen"
+          },
+          {
+            "area": [
+              {
+                "altitude": 0.0,
+                "areaDesc": "Flensburg bis Fehmarn",
+                "ceiling": 9842.5197,
+                "geocode": [
+                  {
+                    "value": "DE808",
+                    "valueName": "EMMA_ID"
+                  },
+                  {
+                    "value": "501000006",
+                    "valueName": "WARNCELLID"
+                  }
+                ]
+              }
+            ],
+            "category": [
+              "Met"
+            ],
+            "certainty": "Likely",
+            "contact": "Deutscher Wetterdienst",
+            "description": "This event no longer poses a threat.",
+            "event": "near gale",
+            "eventCode": [
+              {
+                "value": "2.1.14",
+                "valueName": "PROFILE_VERSION"
+              },
+              {
+                "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)",
+                "valueName": "LICENSE"
+              },
+              {
+                "value": "11",
+                "valueName": "II"
+              },
+              {
+                "value": "WIND",
+                "valueName": "GROUP"
+              },
+              {
+                "value": "255 235 59",
+                "valueName": "AREA_COLOR"
+              }
+            ],
+            "expires": "2026-04-20T23:16:00+02:00",
+            "headline": "Cancellation of Official NEAR GALE WARNING",
+            "language": "en",
+            "onset": "2026-04-20T10:27:00+02:00",
+            "parameter": [
+              {
+                "value": "2; yellow; Moderate",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "7; coastalevent",
+                "valueName": "awareness_type"
+              }
+            ],
+            "responseType": [
+              "AllClear"
+            ],
+            "senderName": "DWD / Seewetterdienst Hamburg",
+            "severity": "Minor",
+            "urgency": "Immediate",
+            "web": "https://dwd.de/warnungen"
+          }
+        ],
+        "msgType": "Update",
+        "references": "opendata@dwd.de,2.49.0.0.276.0.DWD.PVW.1776673620000.e839a672-1b60-44ae-bfe5-a53f369c1e98.MUL,2026-04-20T10:27:00+02:00",
+        "scope": "Public",
+        "sender": "opendata@dwd.de",
+        "sent": "2026-04-20T23:16:00+02:00",
+        "source": "PVW",
+        "status": "Actual"
+      },
+      "uuid": "0ea8b643-5fe8-4f72-8de6-2a80ec152b59"
+    },
+    {
+      "alert": {
+        "code": [
+          "id:2.49.0.0.276.0.DWD.PVW.1776668100000.cdf81e0a-b6f1-45c3-808e-9d729efb2aa0",
+          "MCP:v2.0"
+        ],
+        "identifier": "TEST-IDENTIFIER-XYZ",
+        "incidents": "Alert",
+        "info": [
+          {
+            "area": [
+              {
+                "altitude": 3280.8399,
+                "areaDesc": "Erzgebirgskreis",
+                "ceiling": 9842.5197,
+                "geocode": [
+                  {
+                    "value": "DE343",
+                    "valueName": "EMMA_ID"
+                  },
+                  {
+                    "value": "114521000",
+                    "valueName": "WARNCELLID"
+                  }
+                ]
+              }
+            ],
+            "category": [
+              "Met"
+            ],
+            "certainty": "Likely",
+            "contact": "Deutscher Wetterdienst",
+            "description": "Es treten oberhalb 1000 m Sturmböen mit Geschwindigkeiten zwischen 60 km/h (17 m/s, 33 kn, Bft 7) und 75 km/h (21 m/s, 41 kn, Bft 9) aus nordwestlicher Richtung auf.",
+            "event": "Test Hazard",
+            "eventCode": [
+              {
+                "value": "2.1.14",
+                "valueName": "PROFILE_VERSION"
+              },
+              {
+                "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)",
+                "valueName": "LICENSE"
+              },
+              {
+                "value": "52",
+                "valueName": "II"
+              },
+              {
+                "value": "WIND",
+                "valueName": "GROUP"
+              },
+              {
+                "value": "251 140 0",
+                "valueName": "AREA_COLOR"
+              }
+            ],
+            "expires": "2026-04-20T18:00:00+02:00",
+            "headline": "Amtliche WARNUNG vor STURMBÖEN",
+            "instruction": "Gefahr durch: einzelne herabstürzende Äste; umherfliegende Gegenstände. \nHandlungsempfehlungen: \nfrei stehende Objekte sichern (z.B. Leinwände und Möbel); z.B. Zelte und Abdeckungen befestigen; im Freien auf herabfallende Gegenstände (z.B. Äste) achten",
+            "language": "de-DE",
+            "onset": "2026-04-20T09:00:00+02:00",
+            "parameter": [
+              {
+                "value": "60-75 [km/h]",
+                "valueName": "gusts"
+              },
+              {
+                "value": "north-west",
+                "valueName": "wind direction"
+              },
+              {
+                "value": "einzelne herabstürzende Äste",
+                "valueName": "impacts"
+              },
+              {
+                "value": "umherfliegende Gegenstände",
+                "valueName": "impacts"
+              },
+              {
+                "value": "3; orange; Severe",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "1; Wind",
+                "valueName": "awareness_type"
+              }
+            ],
+            "responseType": [
+              "Prepare"
+            ],
+            "senderName": "Deutscher Wetterdienst",
+            "severity": "Moderate",
+            "urgency": "Immediate",
+            "web": "https://dwd.de/warnungen"
+          },
+          {
+            "area": [
+              {
+                "altitude": 3280.8399,
+                "areaDesc": "Erzgebirgskreis",
+                "ceiling": 9842.5197,
+                "geocode": [
+                  {
+                    "value": "DE343",
+                    "valueName": "EMMA_ID"
+                  },
+                  {
+                    "value": "114521000",
+                    "valueName": "WARNCELLID"
+                  }
+                ]
+              }
+            ],
+            "category": [
+              "Met"
+            ],
+            "certainty": "Likely",
+            "contact": "Deutscher Wetterdienst",
+            "description": "There is a risk of gale-force gusts (level 2 of 4).\nHeight range: > 1000 m; Max. gusts: 60-75 km/h; Wind direction: north-west",
+            "event": "gale-force gusts",
+            "eventCode": [
+              {
+                "value": "2.1.14",
+                "valueName": "PROFILE_VERSION"
+              },
+              {
+                "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)",
+                "valueName": "LICENSE"
+              },
+              {
+                "value": "52",
+                "valueName": "II"
+              },
+              {
+                "value": "WIND",
+                "valueName": "GROUP"
+              },
+              {
+                "value": "251 140 0",
+                "valueName": "AREA_COLOR"
+              }
+            ],
+            "expires": "2026-04-20T18:00:00+02:00",
+            "headline": "Official WARNING of GALE-FORCE GUSTS",
+            "instruction": "Hazard(s) caused by: single branches falling; objects flying through the air. \nRecommendations for what to do: \nSecure free-standing objects (e.g. screens and furniture). For example, fasten tents and coverings. Watch out for falling objects outdoors (e.g. branches).",
+            "language": "en",
+            "onset": "2026-04-20T09:00:00+02:00",
+            "parameter": [
+              {
+                "value": "60-75 [km/h]",
+                "valueName": "gusts"
+              },
+              {
+                "value": "north-west",
+                "valueName": "wind direction"
+              },
+              {
+                "value": "single branches falling",
+                "valueName": "impacts"
+              },
+              {
+                "value": "objects flying through the air",
+                "valueName": "impacts"
+              },
+              {
+                "value": "3; orange; Severe",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "1; Wind",
+                "valueName": "awareness_type"
+              }
+            ],
+            "responseType": [
+              "Prepare"
+            ],
+            "senderName": "Deutscher Wetterdienst",
+            "severity": "Moderate",
+            "urgency": "Immediate",
+            "web": "https://dwd.de/warnungen"
+          }
+        ],
+        "msgType": "Alert",
+        "scope": "Public",
+        "sender": "opendata@dwd.de",
+        "sent": "2026-04-20T08:55:00+02:00",
+        "source": "PVW",
+        "status": "Test"
+      },
+      "uuid": "test-uuid"
+    }
+  ]
+}

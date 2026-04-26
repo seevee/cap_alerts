@@ -42,6 +42,40 @@ def test_eccc_events(alert_factory, event, expected):
     assert icon_for(alert_factory(event=event, provider="eccc")) == expected
 
 
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        ("Wind", "mdi:weather-windy"),
+        ("Forest fire", "mdi:fire"),
+        ("Avalanches", "mdi:snowflake-alert"),
+        ("Snow/Ice", "mdi:snowflake"),
+        ("Thunderstorm", "mdi:weather-lightning"),
+        ("Fog", "mdi:weather-fog"),
+        ("Coastal Event", "mdi:waves"),
+        ("Rain-Flood", "mdi:home-flood"),
+        ("Extreme high temperature", "mdi:weather-sunny-alert"),
+        ("Extreme low temperature", "mdi:snowflake-thermometer"),
+        ("EXTREME HIGH TEMP", "mdi:weather-sunny-alert"),
+        ("EXTREME LOW TEMP", "mdi:snowflake-thermometer"),
+        ("FORESTFIRE", "mdi:fire"),
+        ("Wave height warning", "mdi:waves"),
+        ("Green high_temperature warning", "mdi:weather-sunny-alert"),
+        ("Green low_temperature warning", "mdi:snowflake-thermometer"),
+        ("Minor high-temperature warning", "mdi:weather-sunny-alert"),
+        ("Minor low-temperature warning", "mdi:snowflake-thermometer"),
+    ],
+)
+def test_meteoalarm_events(alert_factory, event, expected):
+    assert icon_for(alert_factory(event=event, provider="meteoalarm")) == expected
+
+
+def test_meteoalarm_unknown_event_falls_back(alert_factory):
+    assert (
+        icon_for(alert_factory(event="Volcanic ash plume", provider="meteoalarm"))
+        == FALLBACK_ICON
+    )
+
+
 def test_unknown_event_falls_back(alert_factory):
     assert (
         icon_for(alert_factory(event="Completely Made Up Hazard", provider="nws"))
