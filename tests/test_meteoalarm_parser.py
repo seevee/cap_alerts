@@ -133,8 +133,10 @@ def test_severity_passthrough_for_normalization(feed_de):
     alerts = _parse(feed_de)
     gusts = next(a for a in alerts if a.event == "STURMBÖEN")
     assert gusts.severity == "Moderate"
+    # CAP severity reaches normalize, but the awareness_level color (orange)
+    # is the canonical signal and wins over CAP "Moderate".
     (out,) = normalize_alerts([gusts])
-    assert out.severity_normalized == "moderate"
+    assert out.severity_normalized == "severe"
 
 
 def test_language_merge_de_primary_en_alt(feed_de):
