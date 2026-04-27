@@ -444,7 +444,7 @@ This RFC builds on substantial prior work inside and outside the Home Assistant 
 
 - `nws_alerts` (custom integration, @finity69x2, @firstof9): the canonical example of the 16 KB failure mode under severe-weather load, and the original motivation for the `cap_alerts` project.
 - Environment Canada core integration (@michaeldavie et al.): demonstrates lifecycle-aware handling of a CAP-adjacent Atom/WFS feed, and supplied much of the field vocabulary adopted by the ECCC provider in `cap_alerts`.
-- MeteoAlarm, BoM, and DWD community integrations: independent confirmation that a shared CAP-based model is needed across providers. The MeteoAlarm community has filed long-running issues about concurrent-alert dropout on the single-slot `binary_sensor` representation — see [Multiple alerts](https://community.home-assistant.io/t/meteoalarm-multiple-alerts/393707) (open since 2022, still active in 2026) and [Integration not working](https://community.home-assistant.io/t/meteoalarm-integration-not-working/120069) (reports across France, Denmark, Switzerland, Austria, Slovakia, Italy, Belgium, and the UK from 2019 onward). Both are addressed structurally by the one-entity-per-incident model in this RFC, rather than by patches to the legacy sensor.
+- MeteoAlarm, BoM, and DWD integrations: independent confirmation that a shared CAP-based model is needed across providers. The MeteoAlarm community has filed long-running issues about concurrent-alert dropout on the single-slot `binary_sensor` representation — see [Multiple alerts](https://community.home-assistant.io/t/meteoalarm-multiple-alerts/393707) (open since 2022, still active in 2026) and [Integration not working](https://community.home-assistant.io/t/meteoalarm-integration-not-working/120069) (reports across France, Denmark, Switzerland, Austria, Slovakia, Italy, Belgium, and the UK from 2019 onward). Both are addressed structurally by the one-entity-per-incident model in this RFC, rather than by patches to the legacy sensor.
 
 ### 8.3 Complementary Projects
 
@@ -460,7 +460,7 @@ This RFC builds on substantial prior work inside and outside the Home Assistant 
 
 ### 8.5 Acknowledgements
 
-Thanks to the maintainer of `nws_alerts`, the Environment Canada core integration maintainers, Alert2, and MeteoAlarm community integrations for years of field-testing the problem space, and to the Home Assistant Architecture Working Group for the conventions this RFC builds on.
+Thanks to the maintainer of `nws_alerts`, the Environment Canada core integration maintainers, Alert2, MeteoAlarm, and DWD integrations for years of field-testing the problem space, and to the Home Assistant Architecture Working Group for the conventions this RFC builds on.
 
 ---
 
