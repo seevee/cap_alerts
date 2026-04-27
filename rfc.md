@@ -265,9 +265,11 @@ Without it, `incident` starts absorbing `binary_sensor` responsibilities and the
 4. Phase migration and deprecation of alert-handling code in `weather` and affected custom integrations. Opt-in, non-breaking (see §5.1).
 5. Add native Lovelace support for `incident` entities, building on the existing `weather_alerts_card`, including on-demand geometry fetch.
 
-The `cap_alerts` custom integration already implements most of the required behaviors (lifecycle hashing, sparse attributes, dynamic entity spawn and remove) and serves as a working blueprint. Geometry externalization and registry-purge-on-terminate are the main incremental additions for core adoption.
+The `cap_alerts` custom integration already implements most of the required core behaviors (lifecycle hashing, sparse attributes, dynamic entity spawn and remove) and serves as a working blueprint. Geometry externalization and registry-purge-on-terminate are the main incremental additions for core adoption.
 
-The presentation layer is already built. The companion `weather_alerts_card` is a working Lovelace card that consumes the exact entity model proposed here — severity-driven theming, phase-transition badging, on-demand geometry fetch — against live NWS and ECCC feeds. Because the card and the integration are co-developed by the same author, the entity contract has been shaped by a real UI rather than designed in isolation. The reference UI exists as public code today, which lowers the "backend without a UI" risk for core reviewers.
+Provider-specific quirks remain the integration layer's responsibility under this design. CAP authorities interpret the protocol differently across jurisdictions, and core and custom integrations already absorb those differences today. The `incident` domain narrows what an integration author has to build by lifting state management out of their concern, so they can focus on feed semantics. The multi-provider layout in `cap_alerts` exists for prototyping and cross-feed investigation; in practice we recommend one focused integration per upstream service.
+
+The presentation layer also exists in working form. The companion `weather_alerts_card` is a Lovelace card that consumes the entity model exposed by `cap_alerts` — severity-driven theming, phase-transition badging — against live NWS, ECCC, and MeteoAlarm feeds, and additionally adapts the attribute shapes of existing NWS, MeteoAlarm, BoM, and DWD integrations. Because the card and the integration are co-developed by the same author, the entity contract has been shaped by a real UI rather than designed in isolation. The reference UI exists as public code today, which lowers the "backend without a UI" risk for core reviewers.
 
 ### 5.1 Migration Strategy for Legacy Consumers
 
