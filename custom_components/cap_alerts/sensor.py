@@ -137,7 +137,7 @@ class _CAPAlertsEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEnt
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
-            name=self._entry.title,
+            name=f"CAP Alerts {self.coordinator.provider.name.upper()}",
             manufacturer="CAP Alerts",
             model=self.coordinator.provider.name.upper(),
         )
@@ -204,7 +204,7 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
-            name=self._entry.title,
+            name=f"CAP Alerts {self.coordinator.provider.name.upper()}",
             manufacturer="CAP Alerts",
             model=self.coordinator.provider.name.upper(),
         )

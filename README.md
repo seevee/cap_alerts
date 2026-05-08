@@ -61,13 +61,15 @@ Both **reconfigure** (identity/location/provider) and **options** (behavior) flo
 
 ## Entities
 
-Every config entry produces one **device** that groups these entities:
+Every config entry produces one **device** (named `CAP Alerts <PROVIDER>`, e.g. `CAP Alerts ECCC`) that groups these entities:
 
 | Entity | Purpose | State |
 |---|---|---|
-| `sensor.cap_alerts_count` | Diagnostic. Number of active alerts. | integer |
-| `sensor.cap_alerts_last_updated` | Diagnostic. Last successful poll. | ISO timestamp |
-| `sensor.cap_alert_<event_slug>` | One per active alert; created/removed dynamically each poll. | normalized severity (`minor` \| `moderate` \| `severe` \| `extreme` \| `unknown`) |
+| `sensor.cap_alerts_<provider>_alert_count` | Diagnostic. Number of active alerts. | integer |
+| `sensor.cap_alerts_<provider>_last_updated` | Diagnostic. Last successful poll. | ISO timestamp |
+| `sensor.cap_alert_<event_slug>_<hash>` | One per active alert; created/removed dynamically each poll. | normalized severity (`minor` \| `moderate` \| `severe` \| `extreme` \| `unknown`) |
+
+The device name is intentionally stable across reconfigures so entity_ids don't drift when you change GPS, zone, or region. The per-entry friendly label (with location detail) remains visible in the integrations list as the entry title; users running multiple entries of the same provider can set `name_by_user` on the device for a personalized label.
 
 Alert entity `extra_state_attributes` is a sparse dict of CAP fields — only populated fields are included. See `model.py::CAPAlert` for the full schema.
 

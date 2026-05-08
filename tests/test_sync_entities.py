@@ -227,3 +227,36 @@ def test_restart_grace_two_cycle_sequence():
     active = grace if first_sync else set()
     _, to_remove = sensor._classify_sync(set(), tracked, active)
     assert to_remove == {"a", "b", "c"}
+
+
+# --- device_info.name decoupling --------------------------------------------
+
+
+def test_device_info_name_is_stable_across_entry_title():
+    """device.name derives from coordinator.provider.name, not entry.title.
+
+    Pinning device.name to a stable value keeps HA's slug composition (which
+    uses device.name + entity.name at first registration) from baking
+    volatile reconfigure data — lat/long, zone codes — into entity_ids.
+    """
+
+    class FakeEntry:
+        entry_id = "01KP7B41CFK72KRHSG16DBJ1E1"
+        title = "CAP Alerts ECCC (67.787607,-115.166)"
+
+    class FakeProvider:
+        name = "eccc"
+
+    class FakeCoord:
+        provider = FakeProvider()
+
+    class FakeSelf:
+        _entry = FakeEntry()
+        coordinator = FakeCoord()
+
+    base_info = sensor._CAPAlertsEntity.device_info.fget(FakeSelf)
+    alert_info = sensor.AlertEntity.device_info.fget(FakeSelf)
+
+    assert base_info["name"] == "CAP Alerts ECCC"
+    assert alert_info["name"] == "CAP Alerts ECCC"
+    assert base_info["identifiers"] == {("cap_alerts", FakeEntry.entry_id)}
