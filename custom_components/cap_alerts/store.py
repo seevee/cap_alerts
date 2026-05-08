@@ -56,27 +56,66 @@ class AlertStore:
         active: dict[str, CAPAlert] = {}
         result: list[CAPAlert] = []
 
+        # Build a lookup of previous-poll alerts by CAP <identifier> so that
+        # cross-revision supersession can be detected via alert.references.
+        prev_by_identifier: dict[str, CAPAlert] = {
+            prev.identifier: prev for prev in self._previous.values() if prev.identifier
+        }
+
         for alert_id, alert in incoming.items():
             prev = self._previous.get(alert_id)
             terminal = alert.phase in ("cancel", "expired")
 
             if prev is None:
-                updated = replace(alert, phase_changed=True)
-                if terminal:
-                    # First sight is already terminal — emit removed only.
+                # Check for cross-poll supersession: this alert's <references>
+                # may contain the CAP identifier of a previous-poll alert whose
+                # bilingual key differed (e.g. polygon expanded between revisions).
+                superseded_prev = next(
+                    (
+                        prev_by_identifier[ref_id]
+                        for ref_id in (alert.references or ())
+                        if ref_id in prev_by_identifier
+                    ),
+                    None,
+                )
+                if superseded_prev is not None:
+                    phase_changed = superseded_prev.phase != alert.phase
+                    updated = replace(
+                        alert,
+                        previous_phase=superseded_prev.phase,
+                        phase_changed=phase_changed,
+                    )
+                    if terminal:
+                        self._fire_event(
+                            EVENT_INCIDENT_REMOVED,
+                            updated,
+                            phase_changed=phase_changed,
+                            changed_fields=[],
+                        )
+                        continue
                     self._fire_event(
-                        EVENT_INCIDENT_REMOVED,
+                        EVENT_INCIDENT_UPDATED,
+                        updated,
+                        phase_changed=phase_changed,
+                        changed_fields=[],
+                    )
+                else:
+                    updated = replace(alert, phase_changed=True)
+                    if terminal:
+                        # First sight is already terminal — emit removed only.
+                        self._fire_event(
+                            EVENT_INCIDENT_REMOVED,
+                            updated,
+                            phase_changed=True,
+                            changed_fields=[],
+                        )
+                        continue
+                    self._fire_event(
+                        EVENT_INCIDENT_CREATED,
                         updated,
                         phase_changed=True,
                         changed_fields=[],
                     )
-                    continue
-                self._fire_event(
-                    EVENT_INCIDENT_CREATED,
-                    updated,
-                    phase_changed=True,
-                    changed_fields=[],
-                )
             else:
                 changed = _diff_fields(prev, alert)
                 phase_changed = prev.phase != alert.phase
@@ -103,11 +142,22 @@ class AlertStore:
             active[alert_id] = updated
             result.append(updated)
 
+        # Set of all CAP identifiers referenced by incoming alerts. Used to
+        # detect cross-poll supersession in the silent-disappearance loop.
+        referenced_identifiers: set[str] = {
+            ref_id for alert in incoming.values() for ref_id in (alert.references or ())
+        }
+
         # Silent disappearance: provider dropped the alert without a Cancel
         # message. Infer the terminal phase from the expires timestamp.
         now = datetime.now(timezone.utc)
         for alert_id, prev in self._previous.items():
             if alert_id in incoming:
+                continue
+            # If this alert's identifier appears in a current-poll alert's
+            # references, it was superseded — skip incident_removed since
+            # incident_updated was already fired for the superseding alert.
+            if prev.identifier and prev.identifier in referenced_identifiers:
                 continue
             inferred = _infer_terminal_phase(prev, now)
             terminal_alert = replace(

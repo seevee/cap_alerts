@@ -32,6 +32,7 @@ from .geometry_store import GeometryStore
 from .model import CAPAlert
 from .normalize import normalize_alerts
 from .providers import AlertProvider
+from .providers.cap_content_cache import CAPContentCache
 from .store import AlertStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,11 +50,13 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         provider: AlertProvider,
         user_agent: str,
         geometry_store: GeometryStore,
+        cap_content_cache: CAPContentCache | None = None,
     ) -> None:
         self._provider = provider
         self._store = AlertStore(hass, entry.entry_id, provider.name)
         self._geometry_store = geometry_store
         self._user_agent = user_agent
+        self._cap_content_cache = cap_content_cache
         self._timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
         self.last_update_success_time: datetime | None = None
 
@@ -122,6 +125,8 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
                     async_get_clientsession(self.hass),
                     config,
                     options,
+                    cap_content_cache=self._cap_content_cache,
+                    user_agent=self._user_agent,
                 )
         except TimeoutError as err:
             raise UpdateFailed(

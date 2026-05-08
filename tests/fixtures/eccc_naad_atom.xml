@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:georss="http://www.georss.org/georss">
+  <title>NAAD Alert Feed</title>
+  <id>https://rss.naad-adna.pelmorex.com/</id>
+  <updated>2026-01-15T17:05:00Z</updated>
+
+  <!-- EN NEW — survives province=ON filter -->
+  <entry>
+    <id>https://www.naad-adna.pelmorex.com/uuid-en-new-1</id>
+    <updated>2026-01-15T13:02:00Z</updated>
+    <title>Freezing Drizzle Advisory in effect</title>
+    <author><name>ECCC</name></author>
+    <link rel="alternate" type="application/cap+xml"
+          href="https://cap.naad-adna.pelmorex.com/alerts/en_new_1.cap"/>
+    <link rel="alternate" type="text/html"
+          href="https://www.weather.gc.ca/warnings/alert_en.html"/>
+    <category term="event=freezing drizzle advisory"/>
+    <category term="status=Actual"/>
+    <category term="msgType=Alert"/>
+    <category term="language=en-CA"/>
+    <category term="urgency=Future"/>
+    <category term="severity=Minor"/>
+    <category term="certainty=Likely"/>
+    <category term="geocode=ON131100"/>
+    <category term="areaDesc=Ottawa and vicinity"/>
+    <georss:polygon>45.0 -76.0 45.0 -75.5 45.5 -75.5 45.5 -76.0 45.0 -76.0</georss:polygon>
+    <summary>Area: Ottawa and vicinity</summary>
+  </entry>
+
+  <!-- FR NEW — survives province=ON filter -->
+  <entry>
+    <id>https://www.naad-adna.pelmorex.com/uuid-fr-new-1</id>
+    <updated>2026-01-15T13:02:00Z</updated>
+    <title>Avis de bruine verglaçante en vigueur</title>
+    <author><name>ECCC</name></author>
+    <link rel="alternate" type="application/cap+xml"
+          href="https://cap.naad-adna.pelmorex.com/alerts/fr_new_1.cap"/>
+    <link rel="alternate" type="text/html"
+          href="https://www.weather.gc.ca/warnings/alert_fr.html"/>
+    <category term="event=avis de bruine verglaçante"/>
+    <category term="status=Actual"/>
+    <category term="msgType=Alert"/>
+    <category term="language=fr-CA"/>
+    <category term="urgency=Future"/>
+    <category term="severity=Minor"/>
+    <category term="certainty=Likely"/>
+    <category term="geocode=ON131100"/>
+    <category term="areaDesc=Ottawa et les environs"/>
+    <georss:polygon>45.0 -76.0 45.0 -75.5 45.5 -75.5 45.5 -76.0 45.0 -76.0</georss:polygon>
+    <summary>Area: Ottawa et les environs</summary>
+  </entry>
+
+  <!-- EN UPDATE — survives province=ON filter -->
+  <entry>
+    <id>https://www.naad-adna.pelmorex.com/uuid-en-update-1</id>
+    <updated>2026-01-15T17:03:00Z</updated>
+    <title>Freezing Drizzle Advisory continued</title>
+    <author><name>ECCC</name></author>
+    <link rel="alternate" type="application/cap+xml"
+          href="https://cap.naad-adna.pelmorex.com/alerts/en_update_1.cap"/>
+    <link rel="alternate" type="text/html"
+          href="https://www.weather.gc.ca/warnings/alert_en.html"/>
+    <category term="event=freezing drizzle advisory"/>
+    <category term="status=Actual"/>
+    <category term="msgType=Update"/>
+    <category term="language=en-CA"/>
+    <category term="urgency=Immediate"/>
+    <category term="severity=Minor"/>
+    <category term="certainty=Observed"/>
+    <category term="geocode=ON131100"/>
+    <category term="areaDesc=Ottawa and vicinity"/>
+    <georss:polygon>45.0 -76.0 45.0 -75.5 45.5 -75.5 45.5 -76.0 45.0 -76.0</georss:polygon>
+    <summary>Area: Ottawa and vicinity</summary>
+  </entry>
+
+  <!-- FR UPDATE — survives province=ON filter -->
+  <entry>
+    <id>https://www.naad-adna.pelmorex.com/uuid-fr-update-1</id>
+    <updated>2026-01-15T17:03:00Z</updated>
+    <title>Avis de bruine verglaçante maintenu</title>
+    <author><name>ECCC</name></author>
+    <link rel="alternate" type="application/cap+xml"
+          href="https://cap.naad-adna.pelmorex.com/alerts/fr_update_1.cap"/>
+    <link rel="alternate" type="text/html"
+          href="https://www.weather.gc.ca/warnings/alert_fr.html"/>
+    <category term="event=avis de bruine verglaçante"/>
+    <category term="status=Actual"/>
+    <category term="msgType=Update"/>
+    <category term="language=fr-CA"/>
+    <category term="urgency=Immediate"/>
+    <category term="severity=Minor"/>
+    <category term="certainty=Observed"/>
+    <category term="geocode=ON131100"/>
+    <category term="areaDesc=Ottawa et les environs"/>
+    <georss:polygon>45.0 -76.0 45.0 -75.5 45.5 -75.5 45.5 -76.0 45.0 -76.0</georss:polygon>
+    <summary>Area: Ottawa et les environs</summary>
+  </entry>
+
+  <!-- Test status entry — filtered out by status != Actual -->
+  <entry>
+    <id>https://www.naad-adna.pelmorex.com/uuid-test-1</id>
+    <updated>2026-01-15T12:00:00Z</updated>
+    <title>Test alert</title>
+    <author><name>ECCC</name></author>
+    <link rel="alternate" type="application/cap+xml"
+          href="https://cap.naad-adna.pelmorex.com/alerts/test_1.cap"/>
+    <category term="event=test alert"/>
+    <category term="status=Test"/>
+    <category term="msgType=Alert"/>
+    <category term="language=en-CA"/>
+    <category term="geocode=ON131100"/>
+    <category term="areaDesc=Ottawa and vicinity"/>
+    <georss:polygon>45.0 -76.0 45.0 -75.5 45.5 -75.5 45.5 -76.0 45.0 -76.0</georss:polygon>
+  </entry>
+
+  <!-- British Columbia entry — filtered out by province=ON -->
+  <entry>
+    <id>https://www.naad-adna.pelmorex.com/uuid-bc-1</id>
+    <updated>2026-01-15T12:00:00Z</updated>
+    <title>Wind Warning in effect</title>
+    <author><name>ECCC</name></author>
+    <link rel="alternate" type="application/cap+xml"
+          href="https://cap.naad-adna.pelmorex.com/alerts/bc_wind_1.cap"/>
+    <category term="event=wind warning"/>
+    <category term="status=Actual"/>
+    <category term="msgType=Alert"/>
+    <category term="language=en-CA"/>
+    <category term="geocode=BC171300"/>
+    <category term="areaDesc=Vancouver Island"/>
+    <georss:polygon>48.0 -125.0 48.0 -123.0 50.0 -123.0 50.0 -125.0 48.0 -125.0</georss:polygon>
+  </entry>
+
+</feed>

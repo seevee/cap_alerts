@@ -26,7 +26,7 @@ Most current integrations treat each API response as independent. When a provide
 
 `cap_alerts` uses lifecycle-aware hashing to hold identity steady across updates:
 - NWS: VTEC-based identity (`office.phenomena.significance.tracking.year`)
-- ECCC and others: stable composite keys (`event + area + issued_date`)
+- ECCC: bilingual key `sha256(sender + sent + CAP-CP_eventCode + polygon_hash)[:12]` — language-independent fields shared byte-for-byte by en/fr siblings; urgency excluded by design so revision-churn does not produce duplicate identities
 
 A single entity then persists across every update until cancellation or expiration.
 
@@ -87,7 +87,7 @@ Providers that do not emit CAP `severity` directly (for example, MeteoAlarm colo
 
 ### 2.2 Identity and Lifecycle
 
-The `unique_id` for an entity is the provider's stable lifecycle hash: VTEC for NWS, `event + area + issued_date` for ECCC and CAP-generic providers.
+The `unique_id` for an entity is the provider's stable lifecycle hash: VTEC for NWS; for ECCC, `sha256(sender + sent + primary_CAP-CP_eventCode + polygon_hash)[:12]` (language-independent; en/fr siblings produce the same key; urgency excluded to survive revision-churn).
 
 `entity_id` is derived as `incident.<slug(event)>_<short_hash>`, where `short_hash` is the first 8 hex characters of SHA-1 over `unique_id`. Deriving the suffix from the hash avoids HA's numeric-suffix fallback (`..._2`, `..._3`), which otherwise disconnects state history from the stable lifecycle identity each time a collision resolves differently. Slugification uses HA's standard `slugify()` applied to `event`.
 

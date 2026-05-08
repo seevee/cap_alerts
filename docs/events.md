@@ -6,7 +6,7 @@ Event names match the RFC §2.3 `incident_*` contract.
 | Event | Fires when |
 | :-- | :-- |
 | `incident_created` | The store sees an alert ID for the first time. |
-| `incident_updated` | An existing alert's allowlisted fields (see `changed_fields` below) differ from the previous poll. |
+| `incident_updated` | An existing alert's allowlisted fields (see `changed_fields` below) differ from the previous poll, **or** a new alert's `<references>` points to a previous-poll alert (cross-poll supersession — the new alert is considered an update even though its `id` is new). |
 | `incident_removed` | An alert moves to a terminal phase (`cancel` / `expired`) or disappears from the feed between polls. |
 
 ## Payload schema
@@ -44,6 +44,16 @@ This is a departure from earlier builds, which emitted the
 *previous* phase (typically `new` or `update`) on removal. Automations
 that keyed off `phase` on removal to distinguish cancel from expired
 now get that information directly on the payload.
+
+## Cross-poll supersession (ECCC)
+
+For ECCC, an `incident_removed` event is **not** fired when a disappearing alert's CAP `<identifier>` appears in any incoming alert's `references` list. In that case, `incident_updated` is fired for the incoming alert (carrying `previous_phase` from the superseded alert), and `incident_removed` is suppressed. This correctly models a revision chain (NEW → UPDATE) across poll boundaries without spurious removal events.
+
+The CAP `<identifier>` used for this lookup is distinct from `incident_id` (the bilingual lifecycle hash). When a revision shifts the bilingual key inputs (e.g. the alert polygon expands), the UPDATE gets a new `incident_id`; the `<references>` link is the signal that connects it back to the previous poll's alert.
+
+## ECCC — CAP-body fields now populated
+
+Every CAP-1.2 field is provider-supplied for ECCC alerts: `identifier`, `sender`, `sender_name`, `sent`, `effective`, `onset`, `expires`, `headline`, `description`, `instruction`, `references`, `category`, `scope`. The `event` field uses the title-case form from the CAP body (e.g. `"Freezing Drizzle Advisory"` instead of the lowercase Atom category term). ECCC CAP-CP `<eventCode>` blocks flow through `parameters` under their `valueName` key (e.g. `parameters["profile:CAP-CP:Event:0.4"] == "freezing-drizzle"`); `event_code_same` and `event_code_nws` remain empty for ECCC.
 
 ## `unique_id` vs. RFC §2.2
 

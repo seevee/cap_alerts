@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>urn:oid:2.49.0.1.124.test.2026.UPD.EN</identifier>
+  <sender>CWTO</sender>
+  <sent>2026-01-15T12:00:00-05:00</sent>
+  <status>Actual</status>
+  <msgType>Update</msgType>
+  <scope>Public</scope>
+  <references>CWTO,urn:oid:2.49.0.1.124.test.2026.NEW.EN,2026-01-15T08:00:00-05:00</references>
+  <info>
+    <language>en-CA</language>
+    <category>Met</category>
+    <event>Freezing Drizzle Advisory</event>
+    <responseType>Prepare</responseType>
+    <urgency>Immediate</urgency>
+    <severity>Minor</severity>
+    <certainty>Observed</certainty>
+    <effective>2026-01-15T12:00:00-05:00</effective>
+    <onset>2026-01-15T13:00:00-05:00</onset>
+    <expires>2026-01-15T20:00:00-05:00</expires>
+    <senderName>Environment and Climate Change Canada</senderName>
+    <headline>Freezing Drizzle Advisory continued</headline>
+    <description>Light freezing drizzle continues over the region.</description>
+    <instruction>Take extra care if outdoors. Surfaces may be slippery.</instruction>
+    <web>https://www.weather.gc.ca/warnings/alert_en.html</web>
+    <eventCode>
+      <valueName>profile:CAP-CP:Event:0.4</valueName>
+      <value>freezing-drizzle</value>
+    </eventCode>
+    <parameter>
+      <valueName>alertColourLevel</valueName>
+      <value>Yellow</value>
+    </parameter>
+    <area>
+      <areaDesc>Ottawa and vicinity</areaDesc>
+      <polygon>45.0,-76.0 45.0,-75.5 45.5,-75.5 45.5,-76.0 45.0,-76.0</polygon>
+      <geocode>
+        <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+        <value>071100</value>
+      </geocode>
+    </area>
+  </info>
+</alert>

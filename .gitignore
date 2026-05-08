@@ -3,3 +3,4 @@ plans/
 **/__pycache__
 CLAUDE.md
 .venv/
+.aider*

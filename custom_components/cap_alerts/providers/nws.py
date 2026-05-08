@@ -172,6 +172,9 @@ class NWSProvider:
         session: aiohttp.ClientSession,
         config: Mapping[str, Any],
         options: Mapping[str, Any],
+        *,
+        cap_content_cache=None,
+        user_agent=None,
     ) -> list[CAPAlert]:
         """Fetch active alerts from NWS."""
         url = self._build_url(config)

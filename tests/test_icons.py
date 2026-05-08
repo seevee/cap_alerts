@@ -42,6 +42,14 @@ def test_eccc_events(alert_factory, event, expected):
     assert icon_for(alert_factory(event=event, provider="eccc")) == expected
 
 
+def test_eccc_title_case_event_still_maps_icon(alert_factory):
+    """CAP-body title-case shift (e.g. 'Freezing Drizzle Advisory') keeps icon dispatch."""
+    assert (
+        icon_for(alert_factory(event="Freezing Drizzle Advisory", provider="eccc"))
+        == "mdi:snowflake-melt"
+    )
+
+
 @pytest.mark.parametrize(
     ("event", "expected"),
     [
