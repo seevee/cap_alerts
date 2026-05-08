@@ -97,7 +97,7 @@ class AlertStore:
                         EVENT_INCIDENT_UPDATED,
                         updated,
                         phase_changed=phase_changed,
-                        changed_fields=[],
+                        changed_fields=_diff_fields(superseded_prev, alert),
                     )
                 else:
                     updated = replace(alert, phase_changed=True)
