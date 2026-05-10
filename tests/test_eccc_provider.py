@@ -65,6 +65,8 @@ _resolve_chain_leaves = _eccc_mod._resolve_chain_leaves
 _bilingual_key = _eccc_mod._bilingual_key
 _fallback_id = _eccc_mod._fallback_id
 _build_alert_from_cap = _eccc_mod._build_alert_from_cap
+_headline_to_event = _eccc_mod._headline_to_event
+_best_event_name = _eccc_mod._best_event_name
 CAPDoc = _eccc_mod.CAPDoc
 CAPInfoDoc = _eccc_mod.CAPInfoDoc
 
@@ -461,6 +463,75 @@ def test_build_alert_from_cap_references_populated():
 
 
 # ---------------------------------------------------------------------------
+# _headline_to_event / _best_event_name tests
+# ---------------------------------------------------------------------------
+
+
+def test_headline_to_event_strips_in_effect():
+    assert (
+        _headline_to_event("Special Weather Statement in effect")
+        == "Special Weather Statement"
+    )
+
+
+def test_headline_to_event_strips_in_effect_for_area():
+    result = _headline_to_event("Special Weather Statement in effect for James Bay")
+    assert result == "Special Weather Statement"
+
+
+def test_headline_to_event_strips_continued():
+    assert (
+        _headline_to_event("Freezing Drizzle Advisory continued")
+        == "Freezing Drizzle Advisory"
+    )
+
+
+def test_headline_to_event_strips_french_en_vigueur():
+    result = _headline_to_event("Bulletin météorologique spécial en vigueur")
+    assert result == "Bulletin météorologique spécial"
+
+
+def test_headline_to_event_strips_french_en_vigueur_pour():
+    result = _headline_to_event(
+        "Bulletin météorologique spécial en vigueur pour la Baie James"
+    )
+    assert result == "Bulletin météorologique spécial"
+
+
+def test_headline_to_event_returns_full_string_when_no_suffix_matches():
+    assert _headline_to_event("Some Unknown Headline") == "Some Unknown Headline"
+
+
+def test_best_event_name_extracts_from_headline_for_generic_weather():
+    result = _best_event_name("weather", "Special Weather Statement in effect")
+    assert result == "Special Weather Statement"
+
+
+def test_best_event_name_preserves_specific_event():
+    result = _best_event_name(
+        "Freezing Drizzle Advisory", "Freezing Drizzle Advisory in effect"
+    )
+    assert result == "Freezing Drizzle Advisory"
+
+
+def test_best_event_name_returns_event_when_no_headline():
+    assert _best_event_name("weather", "") == "weather"
+
+
+def test_build_alert_from_cap_derives_sps_event_from_headline():
+    xml = _fixture("eccc_cap_en_sps.xml")
+    doc = _parse_cap_alert(xml)
+    assert doc is not None
+    info = _select_info(doc, "en-CA")
+    assert info.event == "weather"
+    assert info.headline == "Special Weather Statement in effect"
+    alert = _build_alert_from_cap(
+        doc, info, {"atom_id": "", "language": "en-CA"}, "", _bilingual_key(doc, info)
+    )
+    assert alert.event == "Special Weather Statement"
+
+
+# ---------------------------------------------------------------------------
 # Full provider flow test
 # ---------------------------------------------------------------------------
 
@@ -564,6 +635,10 @@ async def test_eccc_provider_metadata_only_fallback_on_fetch_failure():
         assert alert.provider == "eccc"
         # Atom-derived fields present
         assert alert.event != "" or alert.area_desc != ""
+
+    # Atom entry <title> gives properly-cased event names even in the fallback path
+    en_events = {a.event for a in alerts if a.language == "en-CA"}
+    assert en_events == {"Freezing Drizzle Advisory"}
 
 
 @pytest.mark.asyncio

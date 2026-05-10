@@ -331,6 +331,77 @@ def _select_info(doc: CAPDoc, language: str) -> CAPInfoDoc:
 
 
 # ---------------------------------------------------------------------------
+# Event name normalisation
+# ---------------------------------------------------------------------------
+
+# ECCC CAP XML uses a generic category string in <event> for some alert types
+# (e.g. "weather" for Special Weather Statements).  When that happens the
+# specific event name is only available in <headline>, formatted as:
+#   "<Event Type> in effect [for <Area>]"
+#   "<Event Type> continued"
+#   "<Event Type> ended"   … etc.
+_ECCC_GENERIC_EVENTS: frozenset[str] = frozenset({"weather"})
+
+# Status suffixes stripped from ECCC headlines to recover the bare event type.
+# Ordered longest-first so " in effect for " beats " in effect".
+_HEADLINE_SUFFIXES: tuple[str, ...] = (
+    " in effect for ",
+    " en vigueur pour ",
+    " in effect",
+    " en vigueur",
+    " continued for ",
+    " continued",
+    " maintenu pour ",
+    " maintenue pour ",
+    " maintenu",
+    " maintenue",
+    " ended",
+    " terminé",
+    " terminée",
+    " cancelled",
+    " annulé",
+    " annulée",
+    " lifted",
+    " levé",
+    " levée",
+    " extended for ",
+    " prolongé pour ",
+    " extended",
+    " prolongé",
+    " prolongée",
+)
+
+
+def _headline_to_event(headline: str) -> str:
+    """Strip a status suffix from an ECCC headline to recover the event type.
+
+    Example: "Special Weather Statement in effect for James Bay" → "Special Weather Statement"
+    """
+    text = headline.strip()
+    lower = text.lower()
+    for suffix in _HEADLINE_SUFFIXES:
+        idx = lower.find(suffix)
+        if idx > 0:
+            return text[:idx].strip()
+    return text
+
+
+def _best_event_name(event: str, headline: str) -> str:
+    """Return the best display name for an ECCC alert event.
+
+    Some ECCC CAP documents set <event> to a broad category like "weather"
+    rather than the specific alert type.  When that happens the headline
+    carries the specific type, so we extract it from there.
+    """
+    if not event or event.lower() not in _ECCC_GENERIC_EVENTS:
+        return event
+    if not headline:
+        return event
+    extracted = _headline_to_event(headline)
+    return extracted if extracted else event
+
+
+# ---------------------------------------------------------------------------
 # Alert identity
 # ---------------------------------------------------------------------------
 
@@ -418,7 +489,7 @@ def _build_alert_from_cap(
         id=alert_id,
         url=atom_metadata.get("atom_id", ""),
         identifier=doc.identifier,
-        event=info.event,
+        event=_best_event_name(info.event, info.headline),
         msg_type=doc.msg_type,
         status=doc.status,
         scope=doc.scope,
@@ -457,10 +528,16 @@ def _build_fallback_alert(
     geometry: dict | None = (
         {"type": "Polygon", "coordinates": [polygon]} if polygon else None
     )
+    event_raw = atom_metadata.get("event", "")
+    title_raw = atom_metadata.get("title", "")
+    # Atom entry <title> is always properly cased; prefer it over the category
+    # event term (which is lowercase).  Fall back to event_raw only when no
+    # title is available.
+    event = _headline_to_event(title_raw) if title_raw else event_raw
     return CAPAlert(
         id=alert_id,
         url=atom_metadata.get("atom_id", ""),
-        event=atom_metadata.get("event", ""),
+        event=event,
         msg_type=atom_metadata.get("msg_type", ""),
         status=atom_metadata.get("status", ""),
         severity=atom_metadata.get("severity", ""),
@@ -587,6 +664,7 @@ class ECCCProvider:
 
             cap_url, web_url = _pick_cap_link(entry)
             atom_id = entry.findtext(f"{{{NS_ATOM}}}id", "")
+            atom_title = entry.findtext(f"{{{NS_ATOM}}}title", "")
 
             atom_metadata: dict[str, Any] = {
                 "atom_id": atom_id,
@@ -594,6 +672,7 @@ class ECCCProvider:
                 "area_desc": area_desc,
                 "geocode": geocode,
                 "event": cats.get("event", ""),
+                "title": atom_title,
                 "severity": cats.get("severity", ""),
                 "urgency": cats.get("urgency", ""),
                 "certainty": cats.get("certainty", ""),

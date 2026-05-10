@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>urn:oid:2.49.0.1.124.test.2026.SPS.EN</identifier>
+  <sender>CWTO</sender>
+  <sent>2026-05-10T16:00:00+00:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <scope>Public</scope>
+  <info>
+    <language>en-CA</language>
+    <category>Met</category>
+    <event>weather</event>
+    <urgency>Future</urgency>
+    <severity>Minor</severity>
+    <certainty>Likely</certainty>
+    <effective>2026-05-10T16:00:00+00:00</effective>
+    <onset>2026-05-10T14:49:00+00:00</onset>
+    <expires>2026-05-11T06:49:00+00:00</expires>
+    <senderName>Environment and Climate Change Canada</senderName>
+    <headline>Special Weather Statement in effect</headline>
+    <description>Unseasonably warm temperatures expected across the region.</description>
+    <web>https://www.weather.gc.ca/warnings/alert_en.html</web>
+    <eventCode>
+      <valueName>profile:CAP-CP:Event:0.4</valueName>
+      <value>special-weather-statement</value>
+    </eventCode>
+    <parameter>
+      <valueName>alertColourLevel</valueName>
+      <value>Yellow</value>
+    </parameter>
+    <area>
+      <areaDesc>James Bay and La Grande River</areaDesc>
+      <polygon>54.0,-79.5 54.0,-77.5 54.5,-77.5 54.5,-79.5 54.0,-79.5</polygon>
+    </area>
+  </info>
+</alert>
