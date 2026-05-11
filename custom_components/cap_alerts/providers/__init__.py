@@ -8,6 +8,7 @@ from typing import Any, Protocol
 import aiohttp
 
 from ..model import CAPAlert
+from .cap_content_cache import CAPContentCache
 
 
 class AlertProvider(Protocol):
@@ -23,6 +24,9 @@ class AlertProvider(Protocol):
         session: aiohttp.ClientSession,
         config: Mapping[str, Any],
         options: Mapping[str, Any],
+        *,
+        cap_content_cache: CAPContentCache | None = None,
+        user_agent: str | None = None,
     ) -> list[CAPAlert]:
         """Fetch current alerts. Raises UpdateFailed on transient errors."""
         ...

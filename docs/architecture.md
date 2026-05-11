@@ -22,7 +22,7 @@ VTEC: /O.NEW.KILN.SV.W.0001.250412T1430Z-250412T1530Z/
 
 **NWS (non-VTEC alerts)** — Some alerts (Special Weather Statements, certain advisories) lack VTEC. Fall back to `sha256(url)[:12]`; these alerts are short-lived and rarely updated, so message-level identity is acceptable.
 
-**ECCC** — Stable key is `sha256(event + areaDesc + issued_date)[:12]`. An event type for a given area on a given day maps to one logical event. `issued_date` (date portion of `<updated>`) ensures a morning thunderstorm warning and an evening reissuance produce distinct IDs, preventing cross-day collisions. Within a day, updates to the same event preserve the same hash.
+**ECCC** — Stable key is `sha256(sender + sent + primary_CAP-CP_eventCode + polygon_hash)[:12]`. Fields are language-independent: `<sender>` is the issuing office, `<sent>` is the second-precision issue timestamp, the CAP-CP `<eventCode>` value (e.g. `freezing-drizzle`) is a language-independent profile code, and `<area>/<polygon>` is geometric. Urgency is deliberately excluded — urgency shifts between revisions (`Likely` → `Observed`) and would produce different IDs on each update. Two language siblings of the same revision share identical values for all four inputs and therefore hash to the same ID, enabling bilingual merge. Revision chains (NEW → UPDATE → CANCEL) are resolved to the leaf via CAP `<references>` before the key is computed, so only the current revision's key is active.
 
 ### Why not just hash the URL?
 
@@ -168,31 +168,55 @@ Keeps providers testable without a running HA instance.
 
 **API**: `https://rss.naad-adna.pelmorex.com/` Atom feed (national, client-side filtered).
 
-**Feed shape**: each `<entry>` carries `<category term="key=value"/>` pairs for most CAP fields, plus `<georss:polygon>` for geometry and `<summary>` with `Area: …` text. Bilingual — entries appear twice (`en-CA` and `fr-CA`). The coordinator resolves the preferred language before calling the provider; the provider picks the preferred-language entry as primary and stores the alternate-language content in `headline_alt` / `description_alt` / `instruction_alt` / `language_alt`.
+**Feed shape**: each Atom `<entry>` links to a per-entry CAP XML document via `<atom:link rel="alternate" type="application/cap+xml">`. The CAP file is the authoritative source for all `CAPAlert` fields. The Atom envelope is used only for two purposes: (1) pre-fetch filtering — the `status` and `geocode`/`georss:polygon` categories are evaluated before the CAP file is fetched, avoiding bandwidth waste on filtered-out entries; (2) the Atom `<id>` element supplies `CAPAlert.url`. All CAP-1.2 fields (`identifier`, `sent`, `effective`, `onset`, `expires`, `headline`, `description`, `instruction`, `references`, etc.) come from the CAP body.
+
+Bilingual — entries appear twice (`en-CA` and `fr-CA`). The coordinator resolves the preferred language before calling the provider; the provider merges language siblings using a language-independent bilingual key and stores the alternate-language content in `headline_alt` / `description_alt` / `instruction_alt` / `language_alt`.
+
+**Lifecycle**: CAP `<references>` is parsed to build a revision chain. Within a poll, `_resolve_chain_leaves` drops superseded revisions (alerts whose `<identifier>` appears in another alert's `<references>` list). Only the leaf revision (the current UPDATE) is exposed. Across polls, the `AlertStore` detects cross-poll supersession when an incoming alert's `<references>` contains the CAP `<identifier>` of a disappearing previous-poll alert — it fires `incident_updated` instead of `incident_removed`.
 
 **Location matching**:
-- Province mode — match `areaDesc` / geocode prefix.
+- Province mode — match `areaDesc` / geocode prefix against Atom categories.
 - GPS mode — point-in-polygon against `<georss:polygon>` using a pure-Python ray-caster (no `shapely`; not in HA core).
+
+**Concurrency**: CAP XML is fetched with `asyncio.Semaphore(5)` for bounded concurrency. A shared `CAPContentCache` (LRU-256, Future-based in-flight coalescing) lives on `hass.data[DOMAIN]` and is reused across polls. Since CAP files are immutable per URL (each revision gets a new URL), cached bodies need no TTL. XML parsing is offloaded to `loop.run_in_executor` so a Canada-wide storm with dozens of CAP files doesn't block the event loop.
 
 **XML parsing**: `defusedxml.ElementTree` — already an HA core dependency.
 
-**Field mapping**:
+**Field mapping (two-tier)**:
+
+*Atom-sourced:*
 
 | NAAD Atom field | CAPAlert field |
 |---|---|
-| `<id>` (entry) | `url` |
-| `<category term="event=…">` | `event` |
-| `<category term="msgType=…">` | `msg_type` |
-| `<category term="status=…">` | `status` |
-| `<category term="severity=…">` | `severity` |
-| `<category term="urgency=…">` | `urgency` |
-| `<category term="certainty=…">` | `certainty` |
-| `<updated>` (entry) | `sent` |
-| `<category term="expires=…">` (if present) | `expires` |
-| `<summary>` Area text | `area_desc` |
-| `<georss:polygon>` | `geometry` (converted to GeoJSON Polygon) |
-| `<link>` | `web` |
-| `sha256(event + areaDesc + issued_date)[:12]` | `id` |
+| `<atom:id>` (entry) | `url` |
+| `sha256(sender + sent + CAP-CP_eventCode + polygon_hash)[:12]` | `id` |
+
+*CAP body-sourced (all other fields):*
+
+| CAP field | CAPAlert field |
+|---|---|
+| `<identifier>` | `identifier` |
+| `<sender>` | `sender` |
+| `<sent>` | `sent` |
+| `<status>` | `status` |
+| `<msgType>` | `msg_type` |
+| `<scope>` | `scope` |
+| `<references>` (flattened to identifier strings) | `references` |
+| `<info>/<language>` | `language` |
+| `<info>/<category>` (first value) | `category` |
+| `<info>/<event>` | `event` (title case as issued, e.g. `Freezing Drizzle Advisory`) |
+| `<info>/<urgency>` / `<severity>` / `<certainty>` | same-named fields |
+| `<info>/<effective>` / `<onset>` / `<expires>` | same-named fields |
+| `<info>/<senderName>` | `sender_name` |
+| `<info>/<headline>` / `<description>` / `<instruction>` | same-named fields |
+| `<info>/<web>` (fallback: Atom `text/html` link) | `web` |
+| `<info>/<area>/<areaDesc>` | `area_desc` |
+| `<info>/<area>/<polygon>` | `geometry` (GeoJSON Polygon or MultiPolygon) |
+| `<info>/<eventCode>` blocks merged into `parameters` | `parameters` |
+| `<info>/<parameter>` blocks | `parameters` (merged; parameters win on key collision) |
+| `<info>/<area>/<geocode>` SAME values | `geocode_same` |
+
+Note: `event_code_same` and `event_code_nws` remain empty for ECCC. CAP-CP profile codes (e.g. `profile:CAP-CP:Event:0.4 → freezing-drizzle`) flow through `parameters` under their `valueName` keys.
 
 ---
 

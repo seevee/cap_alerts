@@ -144,12 +144,26 @@ custom_components/cap_alerts/
   normalize.py      # shared normalization: severity, phase, state truncation
   store.py          # inter-poll diffing, transition detection, HA event firing
   providers/
-    __init__.py     # AlertProvider protocol + get_provider() factory
-    nws.py          # NWS GeoJSON API — zone / GPS / tracker
-    eccc.py         # Environment Canada NAAD Atom feed
+    __init__.py             # AlertProvider protocol + get_provider() factory
+    cap_content_cache.py    # LRU cache for immutable CAP XML bodies
+    nws.py                  # NWS GeoJSON API — zone / GPS / tracker
+    eccc.py                 # Environment Canada NAAD Atom feed
 ```
 
 Deeper reference: [`docs/architecture.md`](docs/architecture.md) (alert identity hashing, field mappings, provider rationale, future providers). Planned work: [`docs/roadmap.md`](docs/roadmap.md).
+
+### ECCC — CAP body fetch
+
+ECCC alerts now fetch the linked CAP XML (`<atom:link type="application/cap+xml">`) to provide the full alert body. This eliminates the empty `description`/`headline`/`instruction`, wrong/stale timestamps, and duplicate cards for the same alert series.
+
+**What changed:**
+- `headline`, `description`, `instruction` are populated from the CAP `<info>` block.
+- `sent`, `effective`, `onset`, `expires` reflect CAP-body values. Past-`expires` alerts are correctly phased as `expired` and filtered from the active set.
+- Revision chains (NEW → UPDATE → CANCEL) collapse to the current leaf via CAP `<references>`, so one card per alert series is shown.
+- `event` uses the CAP title-case form (e.g. `"Freezing Drizzle Advisory"` instead of the lowercase Atom category term). Icon dispatch is unaffected.
+- ECCC CAP-CP eventCodes (e.g. `profile:CAP-CP:Event:0.4 → freezing-drizzle`) are exposed via `attributes.parameters`.
+
+**Operational details:** CAP files are fetched with bounded concurrency (`asyncio.Semaphore(5)`) and cached in a shared LRU-256 `CAPContentCache` on `hass.data[DOMAIN]`. Since each CAP revision has a unique URL, the cache requires no TTL. On fetch failure the alert surfaces with Atom-only metadata (empty long-form text) rather than being dropped.
 
 ### Key design decisions
 

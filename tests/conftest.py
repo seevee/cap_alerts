@@ -31,6 +31,39 @@ def _load_submodule(name: str) -> types.ModuleType:
     return mod
 
 
+def _ensure_ha_stubs() -> None:
+    """Pre-stub homeassistant modules so provider tests can import without HA."""
+    if "homeassistant" in sys.modules:
+        return
+
+    ha = types.ModuleType("homeassistant")
+    core = types.ModuleType("homeassistant.core")
+    helpers = types.ModuleType("homeassistant.helpers")
+    uc_mod = types.ModuleType("homeassistant.helpers.update_coordinator")
+    er_mod = types.ModuleType("homeassistant.helpers.entity_registry")
+
+    class HomeAssistant:  # noqa: D401 — stub
+        pass
+
+    class UpdateFailed(Exception):
+        pass
+
+    core.HomeAssistant = HomeAssistant
+    uc_mod.UpdateFailed = UpdateFailed
+    er_mod.async_get = lambda hass: hass.entity_registry
+    ha.helpers = helpers
+    helpers.update_coordinator = uc_mod
+    helpers.entity_registry = er_mod
+
+    sys.modules["homeassistant"] = ha
+    sys.modules["homeassistant.core"] = core
+    sys.modules["homeassistant.helpers"] = helpers
+    sys.modules["homeassistant.helpers.update_coordinator"] = uc_mod
+    sys.modules["homeassistant.helpers.entity_registry"] = er_mod
+
+
+_ensure_ha_stubs()
+
 # Pre-load submodules so tests can import ``custom_components.cap_alerts.*``.
 _model = _load_submodule("model")
 _icons = _load_submodule("icons")
@@ -65,3 +98,67 @@ def make_alert(**overrides: Any) -> CAPAlert:
 @pytest.fixture
 def alert_factory():
     return make_alert
+
+
+# ---------------------------------------------------------------------------
+# Stub HTTP session for provider tests
+# ---------------------------------------------------------------------------
+
+
+class _StubResponse:
+    """Minimal aiohttp-compatible response for testing."""
+
+    def __init__(self, status: int, body: str) -> None:
+        self.status = status
+        self._body = body
+
+    async def text(self) -> str:
+        return self._body
+
+    async def json(self, **kwargs: Any) -> Any:
+        import json
+
+        return json.loads(self._body)
+
+    async def __aenter__(self) -> "_StubResponse":
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        pass
+
+
+class _ErrorContext:
+    """Context manager that raises an exception on enter."""
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    async def __aenter__(self) -> None:
+        raise self._exc
+
+    async def __aexit__(self, *args: Any) -> None:
+        pass
+
+
+class StubSession:
+    """Stub aiohttp ClientSession for hermetic tests.
+
+    ``responses`` maps URL → one of:
+    - ``str``: body with status 200
+    - ``(int, str)``: explicit (status, body)
+    - ``callable``: zero-arg factory; the returned exception is raised on enter
+    """
+
+    def __init__(self, responses: dict[str, Any]) -> None:
+        self._responses = responses
+
+    def get(self, url: str, **kwargs: Any) -> Any:
+        value = self._responses.get(url)
+        if value is None:
+            return _StubResponse(404, "")
+        if callable(value):
+            return _ErrorContext(value())
+        if isinstance(value, tuple):
+            status, body = value
+            return _StubResponse(status, body)
+        return _StubResponse(200, str(value))

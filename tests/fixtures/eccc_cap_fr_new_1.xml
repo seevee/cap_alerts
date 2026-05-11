@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>urn:oid:2.49.0.1.124.test.2026.NEW.FR</identifier>
+  <sender>CWTO</sender>
+  <sent>2026-01-15T08:00:00-05:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <scope>Public</scope>
+  <info>
+    <language>fr-CA</language>
+    <category>Met</category>
+    <event>Avis de bruine verglaçante</event>
+    <responseType>Prepare</responseType>
+    <urgency>Future</urgency>
+    <severity>Minor</severity>
+    <certainty>Likely</certainty>
+    <effective>2026-01-15T08:00:00-05:00</effective>
+    <onset>2026-01-15T09:00:00-05:00</onset>
+    <expires>2026-01-15T14:00:00-05:00</expires>
+    <senderName>Environnement et Changement climatique Canada</senderName>
+    <headline>Avis de bruine verglaçante en vigueur</headline>
+    <description>De la bruine verglaçante légère est prévue dans la région.</description>
+    <instruction>Couvrez ou rentrez les plantes en pot et d'autres articles sensibles au gel.</instruction>
+    <web>https://www.weather.gc.ca/warnings/alert_fr.html</web>
+    <eventCode>
+      <valueName>profile:CAP-CP:Event:0.4</valueName>
+      <value>freezing-drizzle</value>
+    </eventCode>
+    <parameter>
+      <valueName>alertColourLevel</valueName>
+      <value>Yellow</value>
+    </parameter>
+    <area>
+      <areaDesc>Ottawa et les environs</areaDesc>
+      <polygon>45.0,-76.0 45.0,-75.5 45.5,-75.5 45.5,-76.0 45.0,-76.0</polygon>
+      <geocode>
+        <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+        <value>071100</value>
+      </geocode>
+    </area>
+  </info>
+</alert>
