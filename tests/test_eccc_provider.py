@@ -547,14 +547,17 @@ def test_best_event_name_title_cases_when_all_lowercase():
         "special weather statement in effect",
         atom_title="special weather statement in effect for james bay",
     )
-    assert result == "Special Weather Statement In Effect For James Bay" or result == "Special Weather Statement"
-    # The headline-suffix stripper finds " in effect for " and strips it:
+    # The headline-suffix stripper finds " in effect for " and strips it,
+    # then we title-case the remainder.
     assert result == "Special Weather Statement"
 
 
 def test_best_event_name_title_cases_event_only():
     # No headline, no atom title — title-case the raw event.
-    assert _best_event_name("special weather statement", "", "") == "Special Weather Statement"
+    assert (
+        _best_event_name("special weather statement", "", "")
+        == "Special Weather Statement"
+    )
 
 
 def test_build_alert_from_cap_derives_sps_event_from_headline():
