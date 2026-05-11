@@ -386,19 +386,28 @@ def _headline_to_event(headline: str) -> str:
     return text
 
 
-def _best_event_name(event: str, headline: str) -> str:
+def _best_event_name(event: str, headline: str, atom_title: str = "") -> str:
     """Return the best display name for an ECCC alert event.
 
-    Some ECCC CAP documents set <event> to a broad category like "weather"
-    rather than the specific alert type.  When that happens the headline
-    carries the specific type, so we extract it from there.
+    ECCC's CAP <event> is a generic category ("weather") or a lowercase event
+    type ("special weather statement").  Production data is often all-lowercase
+    across the Atom <title>, the CAP <headline>, and <event>.  We try sources
+    in order of fidelity (Atom title → CAP headline → CAP event), strip any
+    status suffix, and title-case the result when nothing properly-cased is
+    available.
     """
-    if not event or event.lower() not in _ECCC_GENERIC_EVENTS:
-        return event
-    if not headline:
-        return event
-    extracted = _headline_to_event(headline)
-    return extracted if extracted else event
+    for candidate in (atom_title, headline):
+        if not candidate:
+            continue
+        extracted = _headline_to_event(candidate)
+        if not extracted:
+            continue
+        if extracted != extracted.lower():
+            return extracted
+        return extracted.title()
+    if event:
+        return event if event != event.lower() else event.title()
+    return event
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +498,9 @@ def _build_alert_from_cap(
         id=alert_id,
         url=atom_metadata.get("atom_id", ""),
         identifier=doc.identifier,
-        event=_best_event_name(info.event, info.headline),
+        event=_best_event_name(
+            info.event, info.headline, atom_metadata.get("title", "")
+        ),
         msg_type=doc.msg_type,
         status=doc.status,
         scope=doc.scope,
@@ -530,10 +541,7 @@ def _build_fallback_alert(
     )
     event_raw = atom_metadata.get("event", "")
     title_raw = atom_metadata.get("title", "")
-    # Atom entry <title> is always properly cased; prefer it over the category
-    # event term (which is lowercase).  Fall back to event_raw only when no
-    # title is available.
-    event = _headline_to_event(title_raw) if title_raw else event_raw
+    event = _best_event_name(event_raw, "", title_raw)
     return CAPAlert(
         id=alert_id,
         url=atom_metadata.get("atom_id", ""),

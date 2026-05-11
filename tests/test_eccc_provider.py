@@ -514,8 +514,47 @@ def test_best_event_name_preserves_specific_event():
     assert result == "Freezing Drizzle Advisory"
 
 
-def test_best_event_name_returns_event_when_no_headline():
-    assert _best_event_name("weather", "") == "weather"
+def test_best_event_name_title_cases_event_when_no_headline():
+    # With no headline or atom title to recover from, title-case the raw event.
+    assert _best_event_name("weather", "") == "Weather"
+
+
+def test_best_event_name_extracts_from_headline_for_lowercase_event():
+    # ECCC <event> may be "special weather statement" (all-lowercase); headline has proper casing.
+    result = _best_event_name(
+        "special weather statement",
+        "Special Weather Statement in effect for James Bay",
+    )
+    assert result == "Special Weather Statement"
+
+
+def test_best_event_name_prefers_atom_title_when_cap_body_is_lowercase():
+    # Live ECCC sometimes returns lowercase CAP <event> AND <headline>;
+    # only the parent Atom <title> carries proper casing.
+    result = _best_event_name(
+        "special weather statement",
+        "special weather statement in effect",
+        atom_title="Special Weather Statement in effect",
+    )
+    assert result == "Special Weather Statement"
+
+
+def test_best_event_name_title_cases_when_all_lowercase():
+    # Production ECCC: Atom title, headline, and event all lowercase.
+    # We title-case the suffix-stripped headline as a last resort.
+    result = _best_event_name(
+        "special weather statement",
+        "special weather statement in effect",
+        atom_title="special weather statement in effect for james bay",
+    )
+    assert result == "Special Weather Statement In Effect For James Bay" or result == "Special Weather Statement"
+    # The headline-suffix stripper finds " in effect for " and strips it:
+    assert result == "Special Weather Statement"
+
+
+def test_best_event_name_title_cases_event_only():
+    # No headline, no atom title — title-case the raw event.
+    assert _best_event_name("special weather statement", "", "") == "Special Weather Statement"
 
 
 def test_build_alert_from_cap_derives_sps_event_from_headline():
