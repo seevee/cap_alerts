@@ -502,6 +502,64 @@ def test_headline_to_event_returns_full_string_when_no_suffix_matches():
     assert _headline_to_event("Some Unknown Headline") == "Some Unknown Headline"
 
 
+def test_headline_to_event_strips_trailing_hyphen_from_colour_warning():
+    assert (
+        _headline_to_event("Yellow Warning - Wind - in effect")
+        == "Yellow Warning - Wind"
+    )
+
+
+def test_headline_to_event_strips_trailing_hyphen_french():
+    assert (
+        _headline_to_event("avertissement jaune - vent - en vigueur")
+        == "avertissement jaune - vent"
+    )
+
+
+def test_best_event_name_prefers_alert_name_parameter():
+    # ECCC's canonical event name is in the CAP parameter — it has no status
+    # suffix and no leftover separators, so we should prefer it over headline.
+    result = _best_event_name(
+        "wind",
+        "yellow warning - wind - in effect",
+        atom_title="yellow warning - wind - in effect",
+        parameters={"layer:EC-MSC-SMC:1.0:Alert_Name": "yellow warning - wind"},
+    )
+    assert result == "Yellow Warning - Wind"
+
+
+def test_best_event_name_alert_name_parameter_preserves_proper_case():
+    result = _best_event_name(
+        "",
+        "",
+        parameters={"layer:EC-MSC-SMC:1.0:Alert_Name": "Tornado Warning"},
+    )
+    assert result == "Tornado Warning"
+
+
+def test_best_event_name_v1_1_alert_name_wins_over_v1_0():
+    # When both layer versions are present we prefer 1.1.
+    result = _best_event_name(
+        "",
+        "",
+        parameters={
+            "layer:EC-MSC-SMC:1.0:Alert_Name": "stale name",
+            "layer:EC-MSC-SMC:1.1:Alert_Name": "fresh name",
+        },
+    )
+    assert result == "Fresh Name"
+
+
+def test_best_event_name_falls_back_to_headline_when_parameter_missing():
+    # No Alert_Name parameter — existing headline path still works.
+    result = _best_event_name(
+        "weather",
+        "Special Weather Statement in effect",
+        parameters={"some:other:param": "value"},
+    )
+    assert result == "Special Weather Statement"
+
+
 def test_best_event_name_extracts_from_headline_for_generic_weather():
     result = _best_event_name("weather", "Special Weather Statement in effect")
     assert result == "Special Weather Statement"

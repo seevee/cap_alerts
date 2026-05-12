@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
@@ -342,6 +343,22 @@ def _select_info(doc: CAPDoc, language: str) -> CAPInfoDoc:
 #   "<Event Type> ended"   … etc.
 _ECCC_GENERIC_EVENTS: frozenset[str] = frozenset({"weather"})
 
+# ECCC CAP <parameter> keys carrying the canonical event name (e.g.
+# "yellow warning - wind").  v1.1 preferred when both layers are present.
+_ALERT_NAME_PARAM_KEYS: tuple[str, ...] = (
+    "layer:EC-MSC-SMC:1.1:Alert_Name",
+    "layer:EC-MSC-SMC:1.0:Alert_Name",
+)
+
+# Trailing separator chars left over after stripping a status suffix from a
+# colour-coded headline like "Yellow Warning - Wind - in effect".
+_TRAILING_SEPARATORS = re.compile(r"[\s\-–—:,;·]+$")
+
+
+def _strip_trailing_separators(text: str) -> str:
+    return _TRAILING_SEPARATORS.sub("", text)
+
+
 # Status suffixes stripped from ECCC headlines to recover the bare event type.
 # Ordered longest-first so " in effect for " beats " in effect".
 _HEADLINE_SUFFIXES: tuple[str, ...] = (
@@ -382,20 +399,35 @@ def _headline_to_event(headline: str) -> str:
     for suffix in _HEADLINE_SUFFIXES:
         idx = lower.find(suffix)
         if idx > 0:
-            return text[:idx].strip()
+            return _strip_trailing_separators(text[:idx].strip())
     return text
 
 
-def _best_event_name(event: str, headline: str, atom_title: str = "") -> str:
+def _best_event_name(
+    event: str,
+    headline: str,
+    atom_title: str = "",
+    parameters: Mapping[str, str] | None = None,
+) -> str:
     """Return the best display name for an ECCC alert event.
 
     ECCC's CAP <event> is a generic category ("weather") or a lowercase event
     type ("special weather statement").  Production data is often all-lowercase
     across the Atom <title>, the CAP <headline>, and <event>.  We try sources
-    in order of fidelity (Atom title → CAP headline → CAP event), strip any
-    status suffix, and title-case the result when nothing properly-cased is
-    available.
+    in order of fidelity:
+      1. CAP <parameter> ``Alert_Name`` — the provider's canonical event name.
+      2. Atom <title> / CAP <headline> with status suffix stripped.
+      3. Raw CAP <event>.
+    Results are title-cased only when nothing properly-cased is available.
     """
+    if parameters:
+        for key in _ALERT_NAME_PARAM_KEYS:
+            candidate = parameters.get(key, "").strip()
+            candidate = _strip_trailing_separators(candidate)
+            if not candidate:
+                continue
+            return candidate if candidate != candidate.lower() else candidate.title()
+
     for candidate in (atom_title, headline):
         if not candidate:
             continue
@@ -499,7 +531,10 @@ def _build_alert_from_cap(
         url=atom_metadata.get("atom_id", ""),
         identifier=doc.identifier,
         event=_best_event_name(
-            info.event, info.headline, atom_metadata.get("title", "")
+            info.event,
+            info.headline,
+            atom_metadata.get("title", ""),
+            info.parameters,
         ),
         msg_type=doc.msg_type,
         status=doc.status,
