@@ -152,7 +152,10 @@ def _parse_feature(feature: dict[str, Any]) -> CAPAlert:
         vtec_tracking=vtec_fields.get("vtec_tracking", ""),
         sender=props.get("sender", ""),
         sender_name=props.get("senderName", ""),
-        references=tuple(props.get("references", []) or []),
+        references=tuple(
+            ref["identifier"] if isinstance(ref, dict) else str(ref)
+            for ref in (props.get("references", []) or [])
+        ),
         replaced_by=props.get("replacedBy", "") or "",
         replaced_at=props.get("replacedAt", "") or "",
         parameters=props.get("parameters"),
