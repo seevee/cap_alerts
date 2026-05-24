@@ -34,6 +34,7 @@ from .const import (
     CONF_REGION_LABELS,
     CONF_REGIONS,
     CONF_SCAN_INTERVAL,
+    CONF_SOURCE_ID,
     CONF_TIMEOUT,
     CONF_TRACKER_ENTITY,
     CONF_ZONE_ID,
@@ -43,6 +44,7 @@ from .const import (
     ECCC_PROVINCES,
     METEOALARM_COUNTRIES,
     METEOALARM_COUNTRY_NAMES,
+    WMO_SOURCE_NAMES,
 )
 from .providers.meteoalarm import fetch_regions_for_country
 
@@ -88,12 +90,21 @@ _METEOALARM_LANGUAGES = (
 
 _GPS_RE = re.compile(r"^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$")
 _ZONE_RE = re.compile(r"^[A-Za-z]{2}[CZ]\d{3}(,[A-Za-z]{2}[CZ]\d{3})*$")
+# WMO SWIC source IDs: {country}-{agency}-{lang} (e.g. mx-smn-es).
+_WMO_SOURCE_RE = re.compile(r"^[a-z]{2}-[a-z0-9]+-[a-z]{2}$")
 
 
 def _compute_device_title(data: dict[str, Any]) -> str:
     """Derive entry title from config data."""
     provider = data[CONF_PROVIDER].upper()
-    if CONF_ZONE_ID in data:
+    if data[CONF_PROVIDER] == "wmo":
+        source_id = data.get(CONF_SOURCE_ID, "unknown")
+        source_name = WMO_SOURCE_NAMES.get(source_id, source_id)
+        if CONF_GPS_LOC in data:
+            location = f"{source_name} ({data[CONF_GPS_LOC]})"
+        else:
+            location = source_name
+    elif CONF_ZONE_ID in data:
         location = data[CONF_ZONE_ID]
     elif CONF_GPS_LOC in data:
         location = data[CONF_GPS_LOC]
@@ -160,6 +171,37 @@ def _validate_country(value: str) -> tuple[str, str | None]:
     return cleaned, None
 
 
+def _validate_wmo_source(value: str) -> tuple[str, str | None]:
+    """Validate a WMO source ID. Returns (cleaned, error_key_or_None).
+
+    Accepts both catalog entries and free-text that matches the
+    ``{country}-{agency}-{lang}`` source-ID shape, so advanced users can
+    enter sources not yet in ``WMO_SOURCE_NAMES``.
+    """
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return value, "invalid_wmo_source"
+    if cleaned not in WMO_SOURCE_NAMES and not _WMO_SOURCE_RE.match(cleaned):
+        return value, "invalid_wmo_source"
+    return cleaned, None
+
+
+def _wmo_source_selector() -> SelectSelector:
+    """Dropdown selector backed by ``WMO_SOURCE_NAMES``, allowing custom IDs."""
+    options = [
+        SelectOptionDict(value=sid, label=label)
+        for sid, label in sorted(WMO_SOURCE_NAMES.items(), key=lambda x: x[1])
+    ]
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=options,
+            mode=SelectSelectorMode.DROPDOWN,
+            custom_value=True,
+            sort=True,
+        )
+    )
+
+
 def _country_selector() -> SelectSelector:
     """Dropdown selector backed by ``METEOALARM_COUNTRY_NAMES``."""
     options = [
@@ -206,7 +248,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
         """Provider selection menu."""
         return self.async_show_menu(
             step_id="user",
-            menu_options=["nws", "eccc", "meteoalarm"],
+            menu_options=["nws", "eccc", "meteoalarm", "wmo"],
         )
 
     # ── NWS setup ──
@@ -444,6 +486,72 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    # ── WMO setup ──
+
+    async def async_step_wmo(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """WMO: source first, then location filter."""
+        return await self.async_step_wmo_source()
+
+    async def async_step_wmo_source(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            source_id, err = _validate_wmo_source(user_input[CONF_SOURCE_ID])
+            if err:
+                errors["base"] = err
+            else:
+                self._wmo_source_id = source_id
+                return await self.async_step_wmo_filter()
+        return self.async_show_form(
+            step_id="wmo_source",
+            data_schema=vol.Schema(
+                {vol.Required(CONF_SOURCE_ID): _wmo_source_selector()}
+            ),
+            errors=errors,
+        )
+
+    async def async_step_wmo_filter(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return self.async_show_menu(
+            step_id="wmo_filter",
+            menu_options=["wmo_country_wide", "wmo_gps_loc"],
+        )
+
+    async def async_step_wmo_country_wide(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        source_id = getattr(self, "_wmo_source_id", "")
+        data = {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
+        return self.async_create_entry(title=_compute_device_title(data), data=data)
+
+    async def async_step_wmo_gps_loc(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        source_id = getattr(self, "_wmo_source_id", "")
+        if user_input is not None:
+            gps, err = _validate_gps(user_input[CONF_GPS_LOC])
+            if err:
+                errors["base"] = err
+            else:
+                data = {
+                    CONF_PROVIDER: "wmo",
+                    CONF_SOURCE_ID: source_id,
+                    CONF_GPS_LOC: gps,
+                }
+                return self.async_create_entry(
+                    title=_compute_device_title(data), data=data
+                )
+        return self.async_show_form(
+            step_id="wmo_gps_loc",
+            data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
+            errors=errors,
+        )
+
     # ── Reconfigure flow ──
 
     async def async_step_reconfigure(
@@ -456,6 +564,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 "reconfigure_nws",
                 "reconfigure_eccc",
                 "reconfigure_meteoalarm",
+                "reconfigure_wmo",
             ],
         )
 
@@ -739,6 +848,88 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_REGIONS, default=default): _region_selector(
                         regions
                     ),
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure_wmo(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self.async_step_reconfigure_wmo_source()
+
+    async def async_step_reconfigure_wmo_source(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+        if user_input is not None:
+            source_id, err = _validate_wmo_source(user_input[CONF_SOURCE_ID])
+            if err:
+                errors["base"] = err
+            else:
+                self._wmo_source_id = source_id
+                return await self.async_step_reconfigure_wmo_filter()
+        existing = entry.data.get(CONF_SOURCE_ID, "")
+        source_kwargs: dict[str, Any] = {}
+        if existing:
+            source_kwargs["default"] = existing
+        return self.async_show_form(
+            step_id="reconfigure_wmo_source",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SOURCE_ID, **source_kwargs
+                    ): _wmo_source_selector(),
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure_wmo_filter(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return self.async_show_menu(
+            step_id="reconfigure_wmo_filter",
+            menu_options=["reconfigure_wmo_country_wide", "reconfigure_wmo_gps_loc"],
+        )
+
+    async def async_step_reconfigure_wmo_country_wide(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        entry = self._get_reconfigure_entry()
+        source_id = getattr(self, "_wmo_source_id", "")
+        new_data = {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
+        return self.async_update_reload_and_abort(
+            entry, data=new_data, title=_compute_device_title(new_data)
+        )
+
+    async def async_step_reconfigure_wmo_gps_loc(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+        source_id = getattr(self, "_wmo_source_id", "")
+        if user_input is not None:
+            gps, err = _validate_gps(user_input[CONF_GPS_LOC])
+            if err:
+                errors["base"] = err
+            else:
+                new_data = {
+                    CONF_PROVIDER: "wmo",
+                    CONF_SOURCE_ID: source_id,
+                    CONF_GPS_LOC: gps,
+                }
+                return self.async_update_reload_and_abort(
+                    entry, data=new_data, title=_compute_device_title(new_data)
+                )
+        return self.async_show_form(
+            step_id="reconfigure_wmo_gps_loc",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_GPS_LOC, default=entry.data.get(CONF_GPS_LOC, "")
+                    ): str,
                 }
             ),
             errors=errors,

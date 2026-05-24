@@ -18,6 +18,7 @@ USER_AGENT = "HomeAssistant-CAPAlerts/{0}"
 
 # Config keys
 CONF_PROVIDER = "provider"
+CONF_SOURCE_ID = "source_id"
 CONF_ZONE_ID = "zone_id"
 CONF_GPS_LOC = "gps_loc"
 CONF_TRACKER_ENTITY = "tracker_entity"
@@ -138,4 +139,36 @@ METEOALARM_COUNTRY_NAMES: dict[str, str] = {
     "CH": "Switzerland",
     "UA": "Ukraine",
     "UK": "United Kingdom",
+}
+
+# WMO Severe Weather Information Centre (SWIC) source IDs, keyed
+# {country}-{agency}-{lang}. The per-source RSS feed lives at
+# https://severeweather.wmo.int/v2/cap-alerts/{source-id}/rss.xml.
+# Curated subset for the config-flow dropdown; the flow accepts a custom
+# value, so any valid SWIC source ID still works. Every entry below was
+# verified reachable on the live SWIC mirror on 2026-05-24 (cross-checked
+# against the registry at https://severeweather.wmo.int/v2/json/sources.json).
+WMO_SOURCE_NAMES: dict[str, str] = {
+    # Americas
+    "mx-smn-es": "Mexico (SMN, Spanish)",
+    "br-inmet-pt": "Brazil (INMET, Portuguese)",
+    "ar-smn-es": "Argentina (SMN, Spanish)",
+    "cl-meteo-es": "Chile (DMC, Spanish)",
+    # Asia / Pacific
+    "in-imd-en": "India (IMD, English)",
+    "cn-cma-xx": "China (CMA)",
+    "id-inatews-id": "Indonesia (InaTEWS, Indonesian)",
+    "ph-pagasa-en": "Philippines (PAGASA, English)",
+    "th-tmd-th": "Thailand (TMD, Thai)",
+    "au-bom-en": "Australia (BoM, English)",
+    "nz-nms-en": "New Zealand (MetService, English)",
+    # Middle East / Africa
+    "sa-ncm-ar": "Saudi Arabia (NCM, Arabic)",
+    "eg-ema-en": "Egypt (EMA, English)",
+    "za-saws-en": "South Africa (SAWS, English)",
+    "ke-kmd-en": "Kenya (KMD, English)",
+    "ng-nimet-en": "Nigeria (NIMET, English)",
+    "gh-gmet-en": "Ghana (GMet, English)",
+    "sn-anacim-fr": "Senegal (ANACIM, French)",
+    "tz-tma-en": "Tanzania (TMA, English)",
 }

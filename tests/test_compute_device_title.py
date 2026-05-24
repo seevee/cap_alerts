@@ -164,6 +164,7 @@ from cap_alerts.const import (  # noqa: E402
     CONF_PROVINCE,
     CONF_REGION_LABELS,
     CONF_REGIONS,
+    CONF_SOURCE_ID,
     CONF_TRACKER_ENTITY,
     CONF_ZONE_ID,
 )
@@ -260,3 +261,29 @@ def test_meteoalarm_region_picker_legacy_no_labels():
         CONF_REGIONS: ["DE100", "DE200", "DE300"],
     }
     assert _compute(data) == "CAP Alerts METEOALARM (Germany — 3 regions)"
+
+
+# --- WMO ---------------------------------------------------------------------
+
+
+def test_wmo_country_wide_uses_source_name():
+    assert (
+        _compute({CONF_PROVIDER: "wmo", CONF_SOURCE_ID: "mx-smn-es"})
+        == "CAP Alerts WMO (Mexico (SMN, Spanish))"
+    )
+
+
+def test_wmo_gps_appends_coordinates_to_source_name():
+    data = {
+        CONF_PROVIDER: "wmo",
+        CONF_SOURCE_ID: "mx-smn-es",
+        CONF_GPS_LOC: "19.4326,-99.1332",
+    }
+    assert _compute(data) == "CAP Alerts WMO (Mexico (SMN, Spanish) (19.4326,-99.1332))"
+
+
+def test_wmo_unlisted_source_falls_back_to_id():
+    assert (
+        _compute({CONF_PROVIDER: "wmo", CONF_SOURCE_ID: "xx-foo-en"})
+        == "CAP Alerts WMO (xx-foo-en)"
+    )

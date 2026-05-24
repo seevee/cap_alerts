@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>urn:wmo:mx-smn:2026:002</identifier>
+  <sender>smn.conagua.gob.mx</sender>
+  <sent>2026-05-12T17:00:00-06:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <scope>Public</scope>
+  <info>
+    <language>es</language>
+    <category>Met</category>
+    <event>Flash Flood Warning</event>
+    <responseType>Prepare</responseType>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Likely</certainty>
+    <effective>2026-05-12T17:00:00-06:00</effective>
+    <onset>2026-05-12T17:30:00-06:00</onset>
+    <expires>2099-05-12T22:00:00-06:00</expires>
+    <senderName>Servicio Meteorologico Nacional</senderName>
+    <headline>Flash flooding possible in Nuevo Leon</headline>
+    <description>Heavy rainfall may cause flash flooding in low-lying areas.</description>
+    <instruction>Avoid flooded roads and move to higher ground.</instruction>
+    <web>https://smn.conagua.gob.mx/</web>
+    <area>
+      <areaDesc>Nuevo Leon</areaDesc>
+      <polygon>25.0,-100.0 25.0,-98.0 26.0,-98.0 26.0,-100.0 25.0,-100.0</polygon>
+    </area>
+  </info>
+</alert>

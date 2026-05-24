@@ -301,6 +301,86 @@ identifier is missing.
 
 ---
 
+## WMO CAP — Severe Weather Information Centre (SWIC)
+
+**API**: per-source RSS 2.0 feed at
+`https://severeweather.wmo.int/v2/cap-alerts/{source-id}/rss.xml`. Source IDs
+follow `{country}-{agency}-{lang}` (e.g. `mx-smn-es` for Mexico's SMN Spanish
+feed); a best-effort catalog lives in `const.py::WMO_SOURCE_NAMES` and the
+config-flow dropdown also accepts a custom value so unlisted sources work. One
+config entry per source; users wanting multiple sources add multiple entries.
+Covers countries without a dedicated provider (Mexico, Brazil, Japan, …).
+
+**Feed shape**: the RSS envelope is an index, not the payload. Each `<item>`
+carries a plain-text `<link>` pointing to an individual CAP 1.2 XML document
+(unlike Atom, where the URL is an `href` attribute). The provider fetches the
+RSS feed, extracts the per-item links, then fetches and parses each CAP file —
+the CAP body is the authoritative source for every `CAPAlert` field. WMO feeds
+ship one language per source, so there is no bilingual merge: `headline_alt` /
+`description_alt` stay empty.
+
+**Shared CAP parsing**: the CAP body parsing is reused from ECCC. WMO's
+`_parse_wmo_cap_alert` is an alias of `eccc._parse_cap_alert` (which is
+namespace-agnostic and handles the `urn:oasis:names:tc:emergency:cap:1.2`
+namespace), and the `CAPDoc` / `CAPInfoDoc` containers and
+`_resolve_chain_leaves` revision logic are imported from `eccc.py`. This keeps
+`wmo.py` thin without duplicating ~150 lines of well-understood parsing. WMO
+builds its own `CAPAlert` (`provider="wmo"`) rather than reusing ECCC's, since
+ECCC's event-name recovery is specific to its bilingual colour-warning
+headlines.
+
+**Lifecycle**: same revision-chain resolution as ECCC. Within a poll,
+`_resolve_chain_leaves` drops superseded revisions (whose `<identifier>` appears
+in another alert's `<references>`); only the leaf revision is exposed.
+
+**Location matching** (mutually exclusive, picked in the config flow):
+- **Country-wide** — return every alert published by the source.
+- **GPS polygon** — parses each alert's CAP `<polygon>` into a GeoJSON ring and
+  keeps alerts whose ring contains the configured point. Fails loud with
+  `UpdateFailed` when the feed has alerts but none carry polygons (the source
+  does not publish per-alert geometry); matches the ECCC/MeteoAlarm GPS-mode
+  contract. WMO CAP has no standardized sub-country region code, so there is no
+  area-code filter and no GPS-tracker mode.
+
+**Severity**: standard CAP `<severity>` passthrough — WMO has no dedicated
+branch in `_normalize_severity`, so it falls through to the generic non-NWS
+path (lowercase the CAP value, clamp off-axis values to `unknown`).
+
+**Concurrency**: CAP XML is fetched with `asyncio.Semaphore(5)` and the shared
+`CAPContentCache`; parsing is offloaded to `loop.run_in_executor`. CAP fetch
+failures are skipped gracefully (the alert is dropped for that poll), not
+surfaced as metadata-only entries.
+
+**Identity**: `sha256(identifier)[:12]`. WMO CAP identifiers are sender-scoped
+and stable across `Update`/`Cancel` re-issues for one logical event. Falls back
+to hashing the CAP URL when the identifier is missing.
+
+**Field mapping**:
+
+| CAP field | CAPAlert field |
+|---|---|
+| `<identifier>` | `identifier`, primary source for `id` |
+| `<sender>` | `sender` |
+| `<sent>` | `sent` |
+| `<status>` / `<msgType>` / `<scope>` | same-named fields |
+| `<references>` (flattened to identifier strings) | `references` |
+| `<info>/<language>` | `language` |
+| `<info>/<category>` | `category` |
+| `<info>/<event>` (fallback `<headline>`) | `event` |
+| `<info>/<urgency>` / `<severity>` / `<certainty>` | same-named fields |
+| `<info>/<responseType>` | `response_type` |
+| `<info>/<effective>` / `<onset>` / `<expires>` | same-named fields |
+| `<info>/<senderName>` | `sender_name` |
+| `<info>/<headline>` / `<description>` / `<instruction>` / `<web>` | same-named fields |
+| `<info>/<area>/<areaDesc>` | `area_desc` |
+| `<info>/<area>/<polygon>` | `geometry` (GeoJSON Polygon or MultiPolygon) |
+| `<info>/<eventCode>` + `<parameter>` blocks merged | `parameters` (parameters win on collision) |
+| `<info>/<area>/<geocode>` SAME values | `geocode_same` |
+| RSS `<item>/<link>` (CAP XML URL) | `url`, identifier-fallback source for `id` |
+| `sha256(identifier)[:12]` (or `sha256(url)[:12]` fallback) | `id` |
+
+---
+
 ## Alert Store (`store.py`)
 
 Holds the previous poll's alerts in memory and diffs incoming alerts to detect new / phase-change / removed transitions. Only stateful component between polls — providers and the coordinator remain stateless.
@@ -346,14 +426,6 @@ These are documented for architecture planning; the provider protocol accommodat
 - `level` 0–4 maps to severity: 4=Extreme, 3=Severe, 2=Moderate, 1=Minor, 0=None. Color hex as fallback.
 - No CAP urgency/certainty; event names are in German.
 - Config flow: warncell ID or region name.
-
-### WMO CAP — Severe Weather Information Centre
-
-- **API**: Per-source RSS feeds at `https://severeweather.wmo.int/v2/cap-alerts/{source-id}/rss.xml`.
-- Generic CAP format. Covers countries without dedicated providers (Mexico, Brazil, …).
-- Two-step fetch: RSS list → individual CAP XML documents for full details and polygon geometry.
-- Source IDs follow `{country}-{agency}-{lang}` (e.g. `ca-msc-xx`, `mx-smn-es`).
-- Config flow: source selector → GPS or area filter.
 
 ---
 

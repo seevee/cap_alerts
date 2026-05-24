@@ -6,7 +6,8 @@
         "menu_options": {
           "nws": "National Weather Service (US)",
           "eccc": "Environment Canada",
-          "meteoalarm": "MeteoAlarm (Europe)"
+          "meteoalarm": "MeteoAlarm (Europe)",
+          "wmo": "WMO Severe Weather"
         }
       },
       "nws": {
@@ -101,12 +102,38 @@
           "regions": "Select one or more EMMA_ID regions to filter alerts."
         }
       },
+      "wmo_source": {
+        "title": "WMO Source",
+        "data": {
+          "source_id": "Source ID"
+        },
+        "data_description": {
+          "source_id": "Select a WMO SWIC source (e.g. mx-smn-es for Mexico). Enter a custom source ID if yours is not listed."
+        }
+      },
+      "wmo_filter": {
+        "title": "WMO Location Filter",
+        "menu_options": {
+          "wmo_country_wide": "All alerts (country-wide)",
+          "wmo_gps_loc": "GPS Coordinates"
+        }
+      },
+      "wmo_gps_loc": {
+        "title": "WMO GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 19.4326,-99.1332). Filters by per-alert polygons; fails loud if the source does not publish geometry."
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure CAP Alerts",
         "menu_options": {
           "reconfigure_nws": "National Weather Service (US)",
           "reconfigure_eccc": "Environment Canada",
-          "reconfigure_meteoalarm": "MeteoAlarm (Europe)"
+          "reconfigure_meteoalarm": "MeteoAlarm (Europe)",
+          "reconfigure_wmo": "WMO Severe Weather"
         }
       },
       "reconfigure_nws": {
@@ -200,6 +227,31 @@
         "data_description": {
           "regions": "Select one or more EMMA_ID regions to filter alerts."
         }
+      },
+      "reconfigure_wmo_source": {
+        "title": "WMO Source",
+        "data": {
+          "source_id": "Source ID"
+        },
+        "data_description": {
+          "source_id": "Select a WMO SWIC source or enter a custom source ID."
+        }
+      },
+      "reconfigure_wmo_filter": {
+        "title": "WMO Location Filter",
+        "menu_options": {
+          "reconfigure_wmo_country_wide": "All alerts (country-wide)",
+          "reconfigure_wmo_gps_loc": "GPS Coordinates"
+        }
+      },
+      "reconfigure_wmo_gps_loc": {
+        "title": "WMO GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude. Filters by per-alert polygons."
+        }
       }
     },
     "error": {
@@ -207,6 +259,7 @@
       "invalid_zone": "Invalid zone ID format.",
       "invalid_province": "Invalid province code.",
       "invalid_country": "Invalid country code. Use a MeteoAlarm-supported ISO 3166-1 alpha-2 code.",
+      "invalid_wmo_source": "Invalid WMO source ID. Select from the list or enter a valid source ID (e.g. mx-smn-es).",
       "cannot_connect": "Could not connect to the weather service.",
       "cannot_fetch_regions": "Could not load regions for this country. Try again or pick a different filter mode.",
       "no_regions_selected": "Select at least one region."

@@ -37,11 +37,13 @@ def get_provider(provider_id: str) -> AlertProvider:
     from .eccc import ECCCProvider
     from .meteoalarm import MeteoAlarmProvider
     from .nws import NWSProvider
+    from .wmo import WMOProvider
 
     providers: dict[str, type] = {
         "nws": NWSProvider,
         "eccc": ECCCProvider,
         "meteoalarm": MeteoAlarmProvider,
+        "wmo": WMOProvider,
     }
     cls = providers.get(provider_id)
     if cls is None:
