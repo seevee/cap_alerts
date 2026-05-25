@@ -79,7 +79,7 @@ Providers used to filter `msgType=Cancel` themselves. That's a semantic decision
 fetch → normalize (sets phase) → filter_active_alerts (drops Cancel/expired) → store.process
 ```
 
-Different providers express cancellation differently (NWS: VTEC `CAN` + `msgType=Cancel`; ECCC: `msgType=Cancel` category; future WMO: implicit by absence). Normalization maps these to `phase="Cancel"`, and filtering happens once — not N times in each provider.
+Different providers express cancellation differently (NWS: VTEC `CAN` + `msgType=Cancel`; ECCC and WMO: `msgType=Cancel` plus revision-chain resolution via CAP `<references>`; MeteoAlarm: status/absence from the country feed). Normalization maps these to `phase="Cancel"`, and filtering happens once — not N times in each provider.
 
 ### State truncation
 

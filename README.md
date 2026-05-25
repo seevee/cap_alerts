@@ -7,8 +7,9 @@ Alert data is modeled using [CAP (Common Alerting Protocol) 1.2](https://docs.oa
 - **NWS** — U.S. National Weather Service (GeoJSON API)
 - **ECCC** — Environment and Climate Change Canada (NAAD Atom feed)
 - **MeteoAlarm** — EUMETNET European aggregator (per-country CAP JSON, ~37 member services)
+- **WMO** — World Meteorological Organization Severe Weather Information Centre (per-source RSS → CAP XML), covering ~100 national services without a dedicated provider
 
-Additional providers (BoM, DWD, WMO CAP, …) can be added behind the same `AlertProvider` protocol.
+Additional providers (BoM, DWD, …) can be added behind the same `AlertProvider` protocol.
 
 A companion Lovelace card lives at [`weather_alerts_card`](../weather_alerts_card); its `cap.ts` adapter is a thin passthrough because normalization happens here.
 
@@ -39,12 +40,13 @@ Pick a provider, then a location mode:
 | NWS         | Zone ID (e.g. `ILZ014`, or comma-separated), GPS (`lat,lon`), `device_tracker` entity |
 | ECCC        | Province code (`AB`, `BC`, `ON`, …), GPS (`lat,lon`) |
 | MeteoAlarm  | Country (ISO 3166-1 alpha-2, e.g. `DE`), with optional GPS polygon filter or `EMMA_ID` region multi-select |
+| WMO         | Source ID picked from the live SWIC registry (e.g. `mx-smn-es`; custom IDs accepted), country-wide or with optional GPS polygon filter |
 
 ### Options (per entry)
 
 - **Scan interval** — 60–3600 s, default 300
 - **Timeout** — 5–120 s, default 30
-- **Language** — ECCC: `auto` / `en-CA` / `fr-CA`. MeteoAlarm: 2-letter prefix (`en`, `de`, `fr`, …) used to pick the primary `<cap:info>` block.
+- **Language** — ECCC: `auto` / `en-CA` / `fr-CA`. MeteoAlarm: 2-letter prefix (`en`, `de`, `fr`, …) used to pick the primary `<cap:info>` block. NWS and WMO have no language option (English-only / one language per source).
 
 Polygons are **never** emitted in entity attributes — instead, each alert
 carries a `geometry_ref` handle plus a `bbox`. Fetch the full GeoJSON via:
@@ -121,7 +123,7 @@ Data flow per poll:
 
 ```
 Weather API → Provider.async_fetch() → list[CAPAlert]
-                ↑ (NWS: GeoJSON, ECCC: Atom XML, future: varies)
+                ↑ (NWS: GeoJSON, ECCC: Atom→CAP XML, MeteoAlarm: JSON, WMO: RSS→CAP XML)
   Coordinator._async_update_data()
     normalize_alerts() → sets severity_normalized, phase
     store.process()    → diffs vs previous, sets phase_changed, fires HA events
@@ -148,6 +150,8 @@ custom_components/cap_alerts/
     cap_content_cache.py    # LRU cache for immutable CAP XML bodies
     nws.py                  # NWS GeoJSON API — zone / GPS / tracker
     eccc.py                 # Environment Canada NAAD Atom feed
+    meteoalarm.py           # EUMETNET per-country CAP JSON + region listing
+    wmo.py                  # WMO SWIC per-source RSS → CAP XML + source registry
 ```
 
 Deeper reference: [`docs/architecture.md`](docs/architecture.md) (alert identity hashing, field mappings, provider rationale, future providers). Planned work: [`docs/roadmap.md`](docs/roadmap.md).
@@ -164,6 +168,15 @@ ECCC alerts now fetch the linked CAP XML (`<atom:link type="application/cap+xml"
 - ECCC CAP-CP eventCodes (e.g. `profile:CAP-CP:Event:0.4 → freezing-drizzle`) are exposed via `attributes.parameters`.
 
 **Operational details:** CAP files are fetched with bounded concurrency (`asyncio.Semaphore(5)`) and cached in a shared LRU-256 `CAPContentCache` on `hass.data[DOMAIN]`. Since each CAP revision has a unique URL, the cache requires no TTL. On fetch failure the alert surfaces with Atom-only metadata (empty long-form text) rather than being dropped.
+
+### WMO — registry-backed sources & expiry pre-filter
+
+WMO uses the same RSS-index → per-item CAP XML two-step as ECCC (and reuses ECCC's CAP parser). Two WMO-specific behaviors are worth calling out:
+
+- **Source dropdown** is populated at config-flow time from the live SWIC registry (`sources.json`), filtered to mirror-reachable sources, with the static `WMO_SOURCE_NAMES` catalog as an offline fallback. Custom source IDs are accepted. The *alert fetch* always uses the mirror, independent of the registry.
+- **Expiry pre-filter**: the mirror enriches each RSS `<item>` with `cap:expires`, so already-expired items are skipped before any CAP body is fetched. High-volume sources (PAGASA lists ~500 items, nearly all expired) would otherwise blow the per-poll timeout and mark the entry unavailable; the pre-filter keeps only live alerts (e.g. ~9).
+
+EU and US users are better served by the dedicated MeteoAlarm/NWS providers — the WMO field description explains why. See [`docs/architecture.md`](docs/architecture.md) for the full WMO section.
 
 ### Key design decisions
 
