@@ -54,21 +54,22 @@ def _load_provider(name: str) -> types.ModuleType:
 _load("const")
 _load("model")
 _cap_cache_mod = _load_provider("cap_content_cache")
+_cap_mod = _load_provider("cap")  # shared CAP parsing, used by eccc + wmo
 _eccc_mod = _load_provider("eccc")
 
 CAPContentCache = _cap_cache_mod.CAPContentCache
 ECCCProvider = _eccc_mod.ECCCProvider
 _pick_cap_link = _eccc_mod._pick_cap_link
-_parse_cap_alert = _eccc_mod._parse_cap_alert
+_parse_cap_alert = _cap_mod.parse_cap_alert
 _select_info = _eccc_mod._select_info
-_resolve_chain_leaves = _eccc_mod._resolve_chain_leaves
+_resolve_chain_leaves = _cap_mod.resolve_chain_leaves
 _bilingual_key = _eccc_mod._bilingual_key
 _fallback_id = _eccc_mod._fallback_id
 _build_alert_from_cap = _eccc_mod._build_alert_from_cap
 _headline_to_event = _eccc_mod._headline_to_event
 _best_event_name = _eccc_mod._best_event_name
-CAPDoc = _eccc_mod.CAPDoc
-CAPInfoDoc = _eccc_mod.CAPInfoDoc
+CAPDoc = _cap_mod.CAPDoc
+CAPInfoDoc = _cap_mod.CAPInfoDoc
 
 
 from tests.conftest import StubSession  # noqa: E402 — after module setup

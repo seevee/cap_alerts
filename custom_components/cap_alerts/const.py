@@ -34,6 +34,16 @@ CONF_LANGUAGE = "language"
 DEFAULT_SCAN_INTERVAL = 300  # seconds
 DEFAULT_TIMEOUT = 30  # seconds
 
+# Buddhist-Era calendar correction. Some feeds (TMD, surfaced via WMO SWIC)
+# emit Buddhist-Era years — Gregorian + 543 — in CAP dateTime fields, e.g.
+# "2568-08-05T22:50:00+07:00". A year at or above this threshold is
+# unambiguously BE: no Gregorian weather alert is ~375 years out, while every
+# BE year is 2543+, so the offset can be subtracted with no risk to a valid
+# timestamp. Applied both to CAP-body ISO strings (normalize) and to the WMO
+# RSS envelope's RFC-2822 cap:expires (wmo provider).
+MIN_BUDDHIST_ERA_YEAR = 2400
+BUDDHIST_ERA_OFFSET = 543
+
 # ECCC valid province codes
 ECCC_PROVINCES = {
     "AB",

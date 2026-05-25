@@ -56,7 +56,7 @@ def _load_provider(name: str) -> types.ModuleType:
 _load("const")
 _load("model")
 _cap_cache_mod = _load_provider("cap_content_cache")
-_eccc_mod = _load_provider("eccc")  # wmo imports CAP parsing helpers from it
+_cap_mod = _load_provider("cap")  # wmo imports CAP parsing helpers from it
 _wmo_mod = _load_provider("wmo")
 
 CAPContentCache = _cap_cache_mod.CAPContentCache
@@ -133,6 +133,36 @@ def test_parse_rss_links_keeps_all_before_expiry():
         "https://x/live.xml",
         "https://x/noexp.xml",
     ]
+
+
+# Thai (TMD) feeds emit Buddhist-Era years (Gregorian + 543) in the RSS
+# envelope's RFC-2822 cap:expires. 2568 → 2025, 2600 → 2057.
+_CAP_RSS_BE = (
+    '<?xml version="1.0"?>'
+    '<rss version="2.0" xmlns:cap="urn:oasis:names:tc:emergency:cap:1.1">'
+    "<channel><title>TMD</title>"
+    "<item><title>Expired</title><link>https://x/be-expired.xml</link>"
+    "<cap:expires>Mon, 25 May 2568 09:00:00 +0000</cap:expires></item>"
+    "<item><title>Live</title><link>https://x/be-live.xml</link>"
+    "<cap:expires>Tue, 26 May 2600 09:00:00 +0000</cap:expires></item>"
+    "</channel></rss>"
+)
+
+
+def test_parse_rss_links_drops_expired_buddhist_era_item():
+    """A BE expiry whose Gregorian date is past is dropped before CAP fetch."""
+    # 2568 → 2025; cutoff 2026-05-25 is after the corrected 2025-05-25 expiry.
+    now = datetime(2026, 5, 25, 12, 0, 0, tzinfo=timezone.utc)
+    links = _parse_rss_links(_CAP_RSS_BE, now=now)
+    assert links == ["https://x/be-live.xml"]
+
+
+def test_parse_rss_links_keeps_live_buddhist_era_item():
+    """A BE expiry whose Gregorian date is still future is kept."""
+    # 2600 → 2057, comfortably after the cutoff.
+    now = datetime(2026, 5, 25, 12, 0, 0, tzinfo=timezone.utc)
+    links = _parse_rss_links(_CAP_RSS_BE, now=now)
+    assert "https://x/be-live.xml" in links
 
 
 # ---------------------------------------------------------------------------

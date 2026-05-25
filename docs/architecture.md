@@ -85,6 +85,10 @@ Different providers express cancellation differently (NWS: VTEC `CAN` + `msgType
 
 The `event` field becomes the entity's `native_value` (state), which HA caps at 255 characters. `normalize.py` truncates with an ellipsis. Relevant for international CAP providers that sometimes put full descriptions in `<event>`.
 
+### Calendar correction (Buddhist-Era years)
+
+Some feeds — notably Thailand's TMD, surfaced via WMO SWIC — emit Buddhist-Era years (Gregorian + 543) in CAP dateTime fields, e.g. `2568-08-05T22:50:00+07:00`. Left uncorrected, `_compute_phase` never expires the alert and the card renders nonsense ("STARTS IN 198034d"). `normalize._gregorian` rewrites **only the year** when it is at or above `MIN_BUDDHIST_ERA_YEAR` (2400) — the Thai solar calendar is Gregorian apart from the era number, so month, day, time, and UTC offset are preserved verbatim. Detection is value-based and provider-agnostic: no Gregorian weather alert carries a year near 2400, while every BE year is 2543+, so the threshold cannot mangle a valid timestamp. The threshold/offset constants live in `const.py` and are reused by the WMO provider to correct the RFC-2822 `cap:expires` in the RSS envelope (the pre-filter runs before normalization, so the body-level fix can't reach it).
+
 ---
 
 ## Provider Layer (`providers/`)
@@ -117,6 +121,10 @@ Keeps providers testable without a running HA instance.
 1. **Batching varies.** NWS takes multi-zone queries (`?zone=OHC049,OHC035`). ECCC returns a national feed with no server-side filtering. BoM, DWD, MeteoAlarm each differ.
 2. **Parsing varies wildly.** GeoJSON features (NWS), Atom XML with CAP extensions (ECCC, MeteoAlarm), flat JSON (BoM), JSONP keyed by warncell (DWD). One coordinator method can't sanely handle all of them.
 3. **Testing.** Providers run against recorded API responses without a coordinator or HA.
+
+### Shared CAP parsing (`cap.py`)
+
+ECCC and WMO both carry standard CAP 1.2 documents inside different envelopes (Atom vs RSS), so the CAP body parser is factored into `providers/cap.py` — a provider-neutral module exposing the `CAPDoc` / `CAPInfoDoc` containers, `parse_cap_alert` (namespace-agnostic), and `resolve_chain_leaves`. It depends on nothing else in the package — providers import the parser, never each other — so a third CAP-based provider reuses it without touching ECCC. Envelope-specific concerns (Atom pre-filtering and bilingual merge in `eccc.py`, RSS link extraction and expiry pre-filter in `wmo.py`, event-name recovery) stay in their respective provider modules.
 
 ### Error contract
 
@@ -172,7 +180,7 @@ Keeps providers testable without a running HA instance.
 
 Bilingual — entries appear twice (`en-CA` and `fr-CA`). The coordinator resolves the preferred language before calling the provider; the provider merges language siblings using a language-independent bilingual key and stores the alternate-language content in `headline_alt` / `description_alt` / `instruction_alt` / `language_alt`.
 
-**Lifecycle**: CAP `<references>` is parsed to build a revision chain. Within a poll, `_resolve_chain_leaves` drops superseded revisions (alerts whose `<identifier>` appears in another alert's `<references>` list). Only the leaf revision (the current UPDATE) is exposed. Across polls, the `AlertStore` detects cross-poll supersession when an incoming alert's `<references>` contains the CAP `<identifier>` of a disappearing previous-poll alert — it fires `incident_updated` instead of `incident_removed`.
+**Lifecycle**: CAP `<references>` is parsed to build a revision chain. Within a poll, `resolve_chain_leaves` (in the shared `cap.py` module) drops superseded revisions (alerts whose `<identifier>` appears in another alert's `<references>` list). Only the leaf revision (the current UPDATE) is exposed. Across polls, the `AlertStore` detects cross-poll supersession when an incoming alert's `<references>` contains the CAP `<identifier>` of a disappearing previous-poll alert — it fires `incident_updated` instead of `incident_removed`.
 
 **Location matching**:
 - Province mode — match `areaDesc` / geocode prefix against Atom categories.
@@ -343,21 +351,25 @@ fetching every CAP file would blow the coordinator's per-poll timeout and mark
 the whole entry unavailable, whereas the ~9 live items fetch in seconds. Items
 without a parseable `cap:expires` are kept (fail-open), so feeds lacking the
 extension behave as before; the CAP body's own `<expires>` remains the final
-authority via normalization.
+authority via normalization. Buddhist-Era years in the RFC-2822 `cap:expires`
+(Thai TMD feeds) are corrected to Gregorian before the comparison — sharing the
+`const.py` threshold with `normalize._gregorian` — so genuinely-expired Thai
+alerts are pre-dropped instead of read as ~543 years in the future.
 
-**Shared CAP parsing**: the CAP body parsing is reused from ECCC. WMO's
-`_parse_wmo_cap_alert` is an alias of `eccc._parse_cap_alert` (which is
-namespace-agnostic and handles the `urn:oasis:names:tc:emergency:cap:1.2`
-namespace), and the `CAPDoc` / `CAPInfoDoc` containers and
-`_resolve_chain_leaves` revision logic are imported from `eccc.py`. This keeps
-`wmo.py` thin without duplicating ~150 lines of well-understood parsing. WMO
-builds its own `CAPAlert` (`provider="wmo"`) rather than reusing ECCC's, since
-ECCC's event-name recovery is specific to its bilingual colour-warning
-headlines.
+**Shared CAP parsing**: the CAP body parsing lives in the provider-neutral
+`providers/cap.py` module, used verbatim by both WMO and ECCC. `parse_cap_alert`
+is namespace-agnostic (handles the `urn:oasis:names:tc:emergency:cap:1.2`
+namespace), and the `CAPDoc` / `CAPInfoDoc` containers and `resolve_chain_leaves`
+revision logic are imported from there — `cap.py` depends on nothing else in the
+package, so providers import the parser, never each other. This keeps `wmo.py`
+thin without duplicating ~150 lines of well-understood parsing. WMO builds its
+own `CAPAlert` (`provider="wmo"`) rather than reusing ECCC's, since ECCC's
+event-name recovery is specific to its bilingual colour-warning headlines.
 
 **Lifecycle**: same revision-chain resolution as ECCC. Within a poll,
-`_resolve_chain_leaves` drops superseded revisions (whose `<identifier>` appears
-in another alert's `<references>`); only the leaf revision is exposed.
+`resolve_chain_leaves` (shared `cap.py`) drops superseded revisions (whose
+`<identifier>` appears in another alert's `<references>`); only the leaf revision
+is exposed.
 
 **Location matching** (mutually exclusive, picked in the config flow):
 - **Country-wide** — return every alert published by the source.

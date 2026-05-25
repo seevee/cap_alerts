@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from datetime import datetime, timezone
 
+from .const import BUDDHIST_ERA_OFFSET, MIN_BUDDHIST_ERA_YEAR
 from .icons import icon_for
 from .model import CAPAlert
 
 MAX_STATE_LENGTH = 255
 SOFT_CAP_BYTES = 4096
+
+# Some feeds — notably TMD, surfaced via WMO SWIC — emit Buddhist-Era years
+# (Gregorian + 543) in CAP dateTime fields, e.g. "2568-08-05T22:50:00+07:00".
+# Left as-is, _compute_phase never expires the alert and the card renders
+# "STARTS IN 198034d". The detection threshold (MIN_BUDDHIST_ERA_YEAR) lives in
+# const.py, shared with the WMO RSS-envelope correction. Only the year is
+# rewritten; the time and UTC offset are preserved verbatim.
+_ISO_YEAR_RE = re.compile(r"^(\d{4})(\D.*)$")
 
 # CAP canonical severity set (RFC §2.1). Anything outside clamps to "unknown".
 _CANONICAL_SEVERITIES = frozenset({"extreme", "severe", "moderate", "minor", "unknown"})
@@ -44,11 +54,19 @@ def normalize_alerts(alerts: list[CAPAlert]) -> list[CAPAlert]:
 
 def _normalize(alert: CAPAlert, now: datetime) -> CAPAlert:
     """Normalize a single alert. Returns a new frozen instance."""
+    sent = _gregorian(alert.sent)
+    effective = _gregorian(alert.effective)
+    onset = _gregorian(alert.onset)
+    expires = _gregorian(alert.expires)
     return replace(
         alert,
+        sent=sent,
+        effective=effective,
+        onset=onset,
+        expires=expires,
         event=_truncate_state(alert.event),
         severity_normalized=_normalize_severity(alert),
-        phase=_compute_phase(alert, now),
+        phase=_compute_phase(expires, alert.msg_type, now),
         icon=icon_for(alert),
         bbox=_bbox_from_geometry(alert.geometry),
         geometry_ref=f"{alert.provider}:{alert.id}" if alert.geometry else "",
@@ -112,12 +130,31 @@ def _nws_severity(alert: CAPAlert) -> str:
     return _VTEC_SIG_SEVERITY.get(sig, "unknown")
 
 
-def _compute_phase(alert: CAPAlert, now: datetime) -> str:
+def _gregorian(value: str) -> str:
+    """Rewrite a Buddhist-Era year in a CAP dateTime to Gregorian.
+
+    Returns ``value`` unchanged when it lacks a leading 4-digit year or the
+    year is already Gregorian (< 2400). Only the year is touched; month, day,
+    time, and UTC offset are preserved verbatim — the Thai solar calendar is
+    Gregorian apart from the era number (BE = CE + 543).
+    """
+    if not value:
+        return value
+    m = _ISO_YEAR_RE.match(value)
+    if m is None:
+        return value
+    year = int(m.group(1))
+    if year < MIN_BUDDHIST_ERA_YEAR:
+        return value
+    return f"{year - BUDDHIST_ERA_OFFSET:04d}{m.group(2)}"
+
+
+def _compute_phase(expires: str, msg_type: str, now: datetime) -> str:
     """Lifecycle phase: ``expired`` if past ``expires``, else from msg_type."""
-    expires_at = _parse_iso(alert.expires)
+    expires_at = _parse_iso(expires)
     if expires_at is not None and now > expires_at:
         return "expired"
-    return _normalize_phase(alert.msg_type)
+    return _normalize_phase(msg_type)
 
 
 def _normalize_phase(msg_type: str) -> str:

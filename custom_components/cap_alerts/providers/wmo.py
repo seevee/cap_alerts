@@ -4,12 +4,11 @@ Two-step fetch: pull a per-source RSS 2.0 feed, extract the per-item
 ``<link>`` CAP XML URLs, fetch those via the shared ``CAPContentCache``, and
 parse standard CAP 1.2 XML into ``CAPAlert`` objects.
 
-The CAP body parsing is shared with ECCC: ``_parse_cap_alert`` is
-namespace-agnostic and already handles the ``urn:oasis:names:tc:emergency:cap:1.2``
-namespace WMO feeds use, and the ``CAPDoc`` / ``CAPInfoDoc`` containers and
-``_resolve_chain_leaves`` revision logic are reused verbatim. The "no private
-import" rule is relaxed for these intra-package sibling helpers — they are
-data containers and shared CAP parsing, not API-specific implementation.
+The CAP body parsing is shared with ECCC via the provider-neutral ``cap``
+module: ``parse_cap_alert`` is namespace-agnostic and handles the
+``urn:oasis:names:tc:emergency:cap:1.2`` namespace WMO feeds use, and the
+``CAPDoc`` / ``CAPInfoDoc`` containers and ``resolve_chain_leaves`` revision
+logic are reused verbatim by both this provider and ECCC.
 """
 
 from __future__ import annotations
@@ -28,21 +27,16 @@ from defusedxml import ElementTree as ET
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
+    BUDDHIST_ERA_OFFSET,
     CONF_GPS_LOC,
     CONF_SOURCE_ID,
+    MIN_BUDDHIST_ERA_YEAR,
     WMO_SOURCES_URL,
     WMO_UNMIRRORED_SOURCES,
 )
 from ..model import CAPAlert
+from .cap import CAPDoc, CAPInfoDoc, parse_cap_alert, resolve_chain_leaves
 from .cap_content_cache import CAPContentCache
-from .eccc import (
-    CAPDoc,
-    CAPInfoDoc,
-    _resolve_chain_leaves,
-)
-from .eccc import (
-    _parse_cap_alert as _parse_wmo_cap_alert,
-)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,13 +48,31 @@ WMO_RSS_URL = "https://severeweather.wmo.int/v2/cap-alerts/{source_id}/rss.xml"
 # ---------------------------------------------------------------------------
 
 
+def _gregorian_year(dt: datetime) -> datetime | None:
+    """Correct a Buddhist-Era year on a parsed datetime to Gregorian.
+
+    Thai feeds (TMD) emit BE years (Gregorian + 543) in the RSS envelope's
+    RFC-2822 ``cap:expires`` too, not just the CAP body. Without this the
+    pre-filter reads every Thai alert as ~543 years in the future and never
+    drops the expired ones. Returns the datetime unchanged when its year is
+    already Gregorian, or ``None`` if the corrected date is invalid (a
+    BE-labelled 29 Feb with no Gregorian counterpart) so the caller fails open.
+    """
+    if dt.year < MIN_BUDDHIST_ERA_YEAR:
+        return dt
+    try:
+        return dt.replace(year=dt.year - BUDDHIST_ERA_OFFSET)
+    except ValueError:
+        return None
+
+
 def _item_expires(item: Any) -> datetime | None:
     """Parse an RSS item's CAP ``expires`` extension (namespace-agnostic).
 
     The WMO mirror enriches each ``<item>`` with CAP-namespace elements
     (``cap:expires``, ``cap:severity``, …). Returns the expiry as an aware
-    ``datetime`` (naive values are assumed UTC), or ``None`` when the element
-    is absent or unparseable.
+    ``datetime`` (naive values are assumed UTC, Buddhist-Era years corrected
+    to Gregorian), or ``None`` when the element is absent or unparseable.
     """
     for child in item:
         if child.tag.rsplit("}", 1)[-1] != "expires" or not child.text:
@@ -69,9 +81,11 @@ def _item_expires(item: Any) -> datetime | None:
             dt = parsedate_to_datetime(child.text.strip())
         except (TypeError, ValueError):
             return None
-        if dt is not None and dt.tzinfo is None:
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+        return _gregorian_year(dt)
     return None
 
 
@@ -364,12 +378,12 @@ class WMOProvider:
             if body is None:
                 _LOGGER.warning("WMO %s: CAP fetch failed for %s", source_id, cap_url)
                 continue
-            doc = await loop.run_in_executor(None, _parse_wmo_cap_alert, body)
+            doc = await loop.run_in_executor(None, parse_cap_alert, body)
             if doc is not None:
                 parsed.append((cap_url, doc))
 
         # (e) Resolve revision chains within this poll.
-        leaf_ids = {d.identifier for d in _resolve_chain_leaves([d for _, d in parsed])}
+        leaf_ids = {d.identifier for d in resolve_chain_leaves([d for _, d in parsed])}
 
         # (f) Build CAPAlert objects for the leaf revisions.
         alerts: list[CAPAlert] = []
