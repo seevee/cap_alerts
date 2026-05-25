@@ -47,6 +47,7 @@ from .const import (
     WMO_SOURCE_NAMES,
 )
 from .providers.meteoalarm import fetch_regions_for_country
+from .providers.wmo import fetch_wmo_sources
 
 # Languages exposed in the options-flow dropdown for MeteoAlarm entries.
 # Covers the locales the MeteoAlarm member feeds typically ship plus
@@ -186,15 +187,18 @@ def _validate_wmo_source(value: str) -> tuple[str, str | None]:
     return cleaned, None
 
 
-def _wmo_source_selector() -> SelectSelector:
-    """Dropdown selector backed by ``WMO_SOURCE_NAMES``, allowing custom IDs."""
-    options = [
-        SelectOptionDict(value=sid, label=label)
-        for sid, label in sorted(WMO_SOURCE_NAMES.items(), key=lambda x: x[1])
+def _wmo_source_selector(options: list[tuple[str, str]]) -> SelectSelector:
+    """Dropdown selector for WMO source IDs, allowing custom IDs.
+
+    ``options`` is ``[(sourceId, label), ...]``, built dynamically from the
+    live SWIC registry (or the static ``WMO_SOURCE_NAMES`` fallback).
+    """
+    select_options = [
+        SelectOptionDict(value=sid, label=label) for sid, label in options
     ]
     return SelectSelector(
         SelectSelectorConfig(
-            options=options,
+            options=select_options,
             mode=SelectSelectorMode.DROPDOWN,
             custom_value=True,
             sort=True,
@@ -488,6 +492,22 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
     # ── WMO setup ──
 
+    async def _wmo_source_options(self) -> list[tuple[str, str]]:
+        """Build the WMO source dropdown options.
+
+        Fetches the live SWIC registry once per flow (cached on the handler so
+        a re-rendered form doesn't re-fetch); on any failure falls back to the
+        static ``WMO_SOURCE_NAMES`` catalog so setup never hard-fails.
+        """
+        cached = getattr(self, "_wmo_source_options_cache", None)
+        if cached is not None:
+            return cached
+        options = await fetch_wmo_sources(async_get_clientsession(self.hass))
+        if not options:
+            options = sorted(WMO_SOURCE_NAMES.items(), key=lambda item: item[1])
+        self._wmo_source_options_cache = options
+        return options
+
     async def async_step_wmo(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -505,10 +525,11 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             else:
                 self._wmo_source_id = source_id
                 return await self.async_step_wmo_filter()
+        options = await self._wmo_source_options()
         return self.async_show_form(
             step_id="wmo_source",
             data_schema=vol.Schema(
-                {vol.Required(CONF_SOURCE_ID): _wmo_source_selector()}
+                {vol.Required(CONF_SOURCE_ID): _wmo_source_selector(options)}
             ),
             errors=errors,
         )
@@ -874,13 +895,14 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
         source_kwargs: dict[str, Any] = {}
         if existing:
             source_kwargs["default"] = existing
+        options = await self._wmo_source_options()
         return self.async_show_form(
             step_id="reconfigure_wmo_source",
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_SOURCE_ID, **source_kwargs
-                    ): _wmo_source_selector(),
+                    vol.Required(CONF_SOURCE_ID, **source_kwargs): _wmo_source_selector(
+                        options
+                    ),
                 }
             ),
             errors=errors,

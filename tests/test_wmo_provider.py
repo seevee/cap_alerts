@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import types
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,38 @@ def test_parse_rss_links_empty_feed_returns_empty():
         "<title>Empty</title></channel></rss>"
     )
     assert links == []
+
+
+_CAP_RSS_NS = (
+    '<?xml version="1.0"?>'
+    '<rss version="2.0" xmlns:cap="urn:oasis:names:tc:emergency:cap:1.1">'
+    "<channel><title>Feed</title>"
+    "<item><title>Expired</title><link>https://x/expired.xml</link>"
+    "<cap:expires>Mon, 25 May 2026 09:00:00 +0000</cap:expires></item>"
+    "<item><title>Live</title><link>https://x/live.xml</link>"
+    "<cap:expires>Tue, 26 May 2026 09:00:00 +0000</cap:expires></item>"
+    "<item><title>NoExpiry</title><link>https://x/noexp.xml</link></item>"
+    "</channel></rss>"
+)
+
+
+def test_parse_rss_links_skips_expired_items():
+    """Items whose cap:expires is in the past are dropped before CAP fetch."""
+    now = datetime(2026, 5, 25, 12, 0, 0, tzinfo=timezone.utc)
+    links = _parse_rss_links(_CAP_RSS_NS, now=now)
+    # Expired item dropped; live + missing-expires (fail-open) kept.
+    assert links == ["https://x/live.xml", "https://x/noexp.xml"]
+
+
+def test_parse_rss_links_keeps_all_before_expiry():
+    """When the cutoff precedes every expiry, all linked items are kept."""
+    now = datetime(2026, 5, 24, 0, 0, 0, tzinfo=timezone.utc)
+    links = _parse_rss_links(_CAP_RSS_NS, now=now)
+    assert links == [
+        "https://x/expired.xml",
+        "https://x/live.xml",
+        "https://x/noexp.xml",
+    ]
 
 
 # ---------------------------------------------------------------------------

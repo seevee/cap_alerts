@@ -18,6 +18,8 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import Mapping
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import aiohttp
@@ -25,7 +27,12 @@ from defusedxml import ElementTree as ET
 
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from ..const import CONF_GPS_LOC, CONF_SOURCE_ID
+from ..const import (
+    CONF_GPS_LOC,
+    CONF_SOURCE_ID,
+    WMO_SOURCES_URL,
+    WMO_UNMIRRORED_SOURCES,
+)
 from ..model import CAPAlert
 from .cap_content_cache import CAPContentCache
 from .eccc import (
@@ -47,21 +54,123 @@ WMO_RSS_URL = "https://severeweather.wmo.int/v2/cap-alerts/{source_id}/rss.xml"
 # ---------------------------------------------------------------------------
 
 
-def _parse_rss_links(xml_text: str) -> list[str]:
-    """Extract per-item ``<link>`` CAP XML URLs from an RSS 2.0 feed.
+def _item_expires(item: Any) -> datetime | None:
+    """Parse an RSS item's CAP ``expires`` extension (namespace-agnostic).
+
+    The WMO mirror enriches each ``<item>`` with CAP-namespace elements
+    (``cap:expires``, ``cap:severity``, …). Returns the expiry as an aware
+    ``datetime`` (naive values are assumed UTC), or ``None`` when the element
+    is absent or unparseable.
+    """
+    for child in item:
+        if child.tag.rsplit("}", 1)[-1] != "expires" or not child.text:
+            continue
+        try:
+            dt = parsedate_to_datetime(child.text.strip())
+        except (TypeError, ValueError):
+            return None
+        if dt is not None and dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    return None
+
+
+def _parse_rss_links(xml_text: str, *, now: datetime | None = None) -> list[str]:
+    """Extract per-item ``<link>`` CAP XML URLs for currently-active alerts.
 
     RSS 2.0 ``<link>`` is a plain-text element (the URL is the element text,
-    unlike Atom where it is an ``href`` attribute). Raises ``ET.ParseError``
-    on malformed XML — the caller converts that to ``UpdateFailed``. Returns
-    ``[]`` for a valid feed with no items.
+    unlike Atom where it is an ``href`` attribute). Items whose CAP
+    ``expires`` extension is already in the past are skipped, so high-volume
+    feeds (PAGASA lists ~500 items, nearly all expired) only trigger CAP-body
+    fetches for live alerts — without this the cold-start cascade exceeds the
+    coordinator poll timeout. Items lacking a parseable ``expires`` are kept
+    (fail-open), so feeds without the extension behave as before. Raises
+    ``ET.ParseError`` on malformed XML — the caller converts that to
+    ``UpdateFailed``. Returns ``[]`` for a feed with no live items.
     """
+    cutoff = now or datetime.now(timezone.utc)
     root = ET.fromstring(xml_text)
     links: list[str] = []
     for item in root.iter("item"):
         link = item.findtext("link")
-        if link and link.strip():
-            links.append(link.strip())
+        if not (link and link.strip()):
+            continue
+        expires = _item_expires(item)
+        if expires is not None and expires < cutoff:
+            continue
+        links.append(link.strip())
     return links
+
+
+# ---------------------------------------------------------------------------
+# Source registry (config-flow dropdown)
+# ---------------------------------------------------------------------------
+
+
+def _wmo_source_label(source: Mapping[str, Any]) -> str:
+    """Build a compact dropdown label from a registry source record.
+
+    Prefers ``"{countryName} ({AUTHORITYABBREV}, {lang})"`` (the language is
+    the source-ID's trailing segment, e.g. ``mx-smn-es`` → ``es``). Falls
+    back to the first ``byLanguage`` name, then the bare source ID.
+    """
+    sid = str(source.get("sourceId") or "").strip()
+    country = str(source.get("countryName") or "").strip()
+    abbrev = str(source.get("authorityAbbrev") or "").strip()
+    lang = sid.rsplit("-", 1)[-1] if "-" in sid else ""
+    if country and abbrev:
+        head = f"{country} ({abbrev.upper()}"
+        return f"{head}, {lang})" if lang else f"{head})"
+    by_language = source.get("byLanguage")
+    if isinstance(by_language, list) and by_language:
+        first = by_language[0]
+        if isinstance(first, Mapping):
+            name = str(first.get("name") or "").strip()
+            if name:
+                return name
+    return sid
+
+
+async def fetch_wmo_sources(
+    session: aiohttp.ClientSession, *, user_agent: str | None = None
+) -> list[tuple[str, str]]:
+    """Return ``[(sourceId, label), ...]`` for mirror-reachable WMO sources.
+
+    Fetches the live SWIC registry (``WMO_SOURCES_URL``) and drops only the
+    known-unmirrored sources (the ~21 that 404 on the mirror). No
+    cross-provider uniqueness filtering — feeds also covered by MeteoAlarm or
+    NWS are included. Returns ``[]`` on any failure (HTTP error, JSON error,
+    unexpected shape); the caller falls back to the static ``WMO_SOURCE_NAMES``
+    catalog. Sorted by label.
+    """
+    headers = {"User-Agent": user_agent} if user_agent else None
+    try:
+        async with session.get(WMO_SOURCES_URL, headers=headers) as resp:
+            if resp.status != 200:
+                return []
+            try:
+                payload = await resp.json(content_type=None)
+            except (aiohttp.ContentTypeError, ValueError):
+                return []
+    except aiohttp.ClientError:
+        return []
+
+    sources = payload.get("sources") if isinstance(payload, dict) else None
+    if not isinstance(sources, list):
+        return []
+
+    seen: dict[str, str] = {}
+    for entry in sources:
+        if not isinstance(entry, Mapping):
+            continue
+        source = entry.get("source")
+        if not isinstance(source, Mapping):
+            continue
+        sid = str(source.get("sourceId") or "").strip()
+        if not sid or sid in WMO_UNMIRRORED_SOURCES or sid in seen:
+            continue
+        seen[sid] = _wmo_source_label(source)
+    return sorted(seen.items(), key=lambda item: item[1].lower())
 
 
 # ---------------------------------------------------------------------------

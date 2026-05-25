@@ -108,7 +108,7 @@
           "source_id": "Source ID"
         },
         "data_description": {
-          "source_id": "Select a WMO SWIC source (e.g. mx-smn-es for Mexico). Enter a custom source ID if yours is not listed."
+          "source_id": "Pick a source from the live WMO SWIC registry, or type a custom source ID (e.g. mx-smn-es for Mexico) if yours is not listed. European and US users are better served by the dedicated MeteoAlarm and NWS providers; US alerts fetched via WMO recreate their entities on each lifecycle change (NEW/CON/CAN)."
         }
       },
       "wmo_filter": {
@@ -234,7 +234,7 @@
           "source_id": "Source ID"
         },
         "data_description": {
-          "source_id": "Select a WMO SWIC source or enter a custom source ID."
+          "source_id": "Pick a source from the live WMO SWIC registry, or type a custom source ID. European and US users are better served by the dedicated MeteoAlarm and NWS providers; US alerts fetched via WMO recreate their entities on each lifecycle change (NEW/CON/CAN)."
         }
       },
       "reconfigure_wmo_filter": {

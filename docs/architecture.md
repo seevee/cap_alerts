@@ -306,10 +306,25 @@ identifier is missing.
 **API**: per-source RSS 2.0 feed at
 `https://severeweather.wmo.int/v2/cap-alerts/{source-id}/rss.xml`. Source IDs
 follow `{country}-{agency}-{lang}` (e.g. `mx-smn-es` for Mexico's SMN Spanish
-feed); a best-effort catalog lives in `const.py::WMO_SOURCE_NAMES` and the
-config-flow dropdown also accepts a custom value so unlisted sources work. One
-config entry per source; users wanting multiple sources add multiple entries.
-Covers countries without a dedicated provider (Mexico, Brazil, Japan, …).
+feed). One config entry per source; users wanting multiple sources add multiple
+entries. Covers countries without a dedicated provider (Mexico, Brazil, Japan, …).
+
+**Source dropdown** (config flow only — never touched at poll time): populated
+from the live SWIC registry at `https://severeweather.wmo.int/v2/json/sources.json`
+via `wmo.fetch_wmo_sources` (mirroring `meteoalarm.fetch_regions_for_country`).
+The only filter is `const.py::WMO_UNMIRRORED_SOURCES` — the ~21 WMO-category
+sources whose feeds live only on national domains and 404 on the mirror this
+provider fetches from. There is **no** cross-provider uniqueness filtering:
+feeds also served by MeteoAlarm or NWS are listed too, since `custom_value`
+would bypass any such filter anyway and the dedicated providers are merely
+*recommended*, not enforced (the field description points EU/US users at them
+and notes that US alerts fetched via WMO hash the CAP `<identifier>` rather than
+VTEC, so their entities churn across NEW→CON→CAN). On any fetch/parse failure
+the flow falls back to the static `const.py::WMO_SOURCE_NAMES` catalog (verified
+entries), so setup never hard-fails — and the *alert fetch* always uses the
+mirror URL template, independent of the registry. `WMO_UNMIRRORED_SOURCES` is a
+point-in-time curation (verified 2026-05-24); a newly-mirrored source stays
+hidden until the set is updated, but `custom_value` lets users enter any ID.
 
 **Feed shape**: the RSS envelope is an index, not the payload. Each `<item>`
 carries a plain-text `<link>` pointing to an individual CAP 1.2 XML document
@@ -318,6 +333,17 @@ RSS feed, extracts the per-item links, then fetches and parses each CAP file —
 the CAP body is the authoritative source for every `CAPAlert` field. WMO feeds
 ship one language per source, so there is no bilingual merge: `headline_alt` /
 `description_alt` stay empty.
+
+**Expiry pre-filter**: the mirror enriches each `<item>` with CAP-namespace
+extensions (`cap:expires`, `cap:severity`, `cap:areaDesc`, …). `_parse_rss_links`
+parses `cap:expires` (namespace-agnostic) and skips items already expired, so
+only currently-active alerts trigger a CAP-body fetch. This is essential for
+high-volume sources: PAGASA's feed lists ~500 items, nearly all expired —
+fetching every CAP file would blow the coordinator's per-poll timeout and mark
+the whole entry unavailable, whereas the ~9 live items fetch in seconds. Items
+without a parseable `cap:expires` are kept (fail-open), so feeds lacking the
+extension behave as before; the CAP body's own `<expires>` remains the final
+authority via normalization.
 
 **Shared CAP parsing**: the CAP body parsing is reused from ECCC. WMO's
 `_parse_wmo_cap_alert` is an alias of `eccc._parse_cap_alert` (which is

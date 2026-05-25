@@ -1,0 +1,137 @@
+{
+  "sources": [
+    {
+      "source": {
+        "sourceId": "mx-smn-es",
+        "countryName": "Mexico",
+        "authorityCountry": "MX",
+        "authorityAbbrev": "SMN",
+        "byLanguage": [
+          {
+            "code": "es-MX",
+            "name": "Mexico: National Meteorological Service",
+            "logo": "mx-smn.png"
+          }
+        ],
+        "capAlertFeed": "https://smn.conagua.gob.mx/tools/GUI/webservices/cap.xml",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
+    },
+    {
+      "source": {
+        "sourceId": "at-zamg-en",
+        "countryName": "Austria",
+        "authorityCountry": "AT",
+        "authorityAbbrev": "ZAMG",
+        "byLanguage": [
+          {
+            "code": "en-GB",
+            "name": "Austria: GeoSphere Austria",
+            "logo": "at-zamg.png"
+          }
+        ],
+        "capAlertFeed": "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-austria",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": true,
+        "isCountry": true
+      }
+    },
+    {
+      "source": {
+        "sourceId": "us-noaa-nws-en",
+        "countryName": "United States",
+        "authorityCountry": "US",
+        "authorityAbbrev": "NWS",
+        "byLanguage": [
+          {
+            "code": "en-US",
+            "name": "United States: National Weather Service",
+            "logo": "us-nws.png"
+          }
+        ],
+        "capAlertFeed": "https://api.weather.gov/alerts/active",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
+    },
+    {
+      "source": {
+        "sourceId": "co-ungrd-es",
+        "countryName": "Colombia",
+        "authorityCountry": "CO",
+        "authorityAbbrev": "UNGRD",
+        "byLanguage": [
+          {
+            "code": "es-CO",
+            "name": "Colombia: National Unit for Disaster Risk Management",
+            "logo": "co-ungrd.png"
+          }
+        ],
+        "capAlertFeed": "https://cap.ungrd.gov.co/cap.xml",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
+    },
+    {
+      "source": {
+        "sourceId": "ph-pagasa-en",
+        "countryName": "Philippines",
+        "authorityCountry": "PH",
+        "authorityAbbrev": "PAGASA",
+        "byLanguage": [
+          {
+            "code": "en-PH",
+            "name": "Philippines: PAGASA",
+            "logo": "ph-pagasa.png"
+          }
+        ],
+        "capAlertFeed": "https://publicalert.pagasa.dost.gov.ph/feeds/",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
+    },
+    {
+      "source": {
+        "sourceId": "cn-cma-xx",
+        "countryName": "China",
+        "authorityCountry": "CN",
+        "authorityAbbrev": "cma",
+        "byLanguage": [
+          {
+            "code": "zh-CN",
+            "name": "China: China Meteorological Administration",
+            "logo": "cn-cma.png"
+          }
+        ],
+        "capAlertFeed": "https://severeweather.wmo.int/v2/cap-alerts/cn-cma-xx/rss.xml",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
+    },
+    {
+      "source": {
+        "sourceId": "id-inatews-id",
+        "countryName": "Indonesia",
+        "authorityCountry": "ID",
+        "authorityAbbrev": "InaTEWS",
+        "byLanguage": [
+          {
+            "code": "id-ID",
+            "name": "Indonesia: Agency for Meteorology Climatology and Geophysics of Republic Indonesia",
+            "logo": "id-inatews.png"
+          }
+        ],
+        "capAlertFeed": "https://signature.bmkg.go.id/cap/inatews.xml",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
+    }
+  ]
+}

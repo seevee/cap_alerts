@@ -141,13 +141,50 @@ METEOALARM_COUNTRY_NAMES: dict[str, str] = {
     "UK": "United Kingdom",
 }
 
+# WMO SWIC source registry. Fetched at config-flow time to populate the
+# source dropdown with every mirror-reachable source. The HTML index 403s,
+# but the JSON endpoint serves with the integration's own User-Agent.
+WMO_SOURCES_URL = "https://severeweather.wmo.int/v2/json/sources.json"
+
+# WMO-category SWIC sources that are registered but NOT reachable on the
+# severeweather.wmo.int mirror (their feeds live only on national domains in
+# non-uniform formats). Excluded from the dynamic dropdown so users aren't
+# offered sources that 404. Curated from verification on 2026-05-24; a newly
+# mirrored source merely stays hidden until this set is updated, and the
+# config flow's custom-value entry lets users enter any ID regardless.
+WMO_UNMIRRORED_SOURCES: frozenset[str] = frozenset(
+    {
+        "bf-meteo-en",
+        "bi-meteo-en",
+        "bj-meteo-en",
+        "cd-mettelsat-en",
+        "co-ungrd-es",
+        "dj-meteo-en",
+        "gn-dnm-en",
+        "gw-inm-en",
+        "ml-meteo-en",
+        "mm-dmh-en",
+        "mr-onm-en",
+        "mz-inam-en",
+        "ne-meteo-en",
+        "pg-ms-en",
+        "st-meteo-en",
+        "td-anam-en",
+        "tg-dgmn-en",
+        "to-tms-en",
+        "vu-vms-xx",
+        "ws-smd-en",
+        "ye-yms-en",
+    }
+)
+
 # WMO Severe Weather Information Centre (SWIC) source IDs, keyed
 # {country}-{agency}-{lang}. The per-source RSS feed lives at
 # https://severeweather.wmo.int/v2/cap-alerts/{source-id}/rss.xml.
-# Curated subset for the config-flow dropdown; the flow accepts a custom
-# value, so any valid SWIC source ID still works. Every entry below was
-# verified reachable on the live SWIC mirror on 2026-05-24 (cross-checked
-# against the registry at https://severeweather.wmo.int/v2/json/sources.json).
+# Offline fallback for the config-flow dropdown when the live registry
+# (WMO_SOURCES_URL) is unreachable; the flow accepts a custom value, so any
+# valid SWIC source ID still works. Every entry below was verified reachable
+# on the live SWIC mirror on 2026-05-24 (cross-checked against the registry).
 WMO_SOURCE_NAMES: dict[str, str] = {
     # Americas
     "mx-smn-es": "Mexico (SMN, Spanish)",
