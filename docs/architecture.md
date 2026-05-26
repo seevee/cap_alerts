@@ -79,11 +79,15 @@ Providers used to filter `msgType=Cancel` themselves. That's a semantic decision
 fetch → normalize (sets phase) → filter_active_alerts (drops Cancel/expired) → store.process
 ```
 
-Different providers express cancellation differently (NWS: VTEC `CAN` + `msgType=Cancel`; ECCC: `msgType=Cancel` category; future WMO: implicit by absence). Normalization maps these to `phase="Cancel"`, and filtering happens once — not N times in each provider.
+Different providers express cancellation differently (NWS: VTEC `CAN` + `msgType=Cancel`; ECCC and WMO: `msgType=Cancel` plus revision-chain resolution via CAP `<references>`; MeteoAlarm: status/absence from the country feed). Normalization maps these to `phase="Cancel"`, and filtering happens once — not N times in each provider.
 
 ### State truncation
 
 The `event` field becomes the entity's `native_value` (state), which HA caps at 255 characters. `normalize.py` truncates with an ellipsis. Relevant for international CAP providers that sometimes put full descriptions in `<event>`.
+
+### Calendar correction (Buddhist-Era years)
+
+Some feeds — notably Thailand's TMD, surfaced via WMO SWIC — emit Buddhist-Era years (Gregorian + 543) in CAP dateTime fields, e.g. `2568-08-05T22:50:00+07:00`. Left uncorrected, `_compute_phase` never expires the alert and the card renders nonsense ("STARTS IN 198034d"). `normalize._gregorian` rewrites **only the year** when it is at or above `MIN_BUDDHIST_ERA_YEAR` (2400) — the Thai solar calendar is Gregorian apart from the era number, so month, day, time, and UTC offset are preserved verbatim. Detection is value-based and provider-agnostic: no Gregorian weather alert carries a year near 2400, while every BE year is 2543+, so the threshold cannot mangle a valid timestamp. The threshold/offset constants live in `const.py` and are reused by the WMO provider to correct the RFC-2822 `cap:expires` in the RSS envelope (the pre-filter runs before normalization, so the body-level fix can't reach it).
 
 ---
 
@@ -117,6 +121,10 @@ Keeps providers testable without a running HA instance.
 1. **Batching varies.** NWS takes multi-zone queries (`?zone=OHC049,OHC035`). ECCC returns a national feed with no server-side filtering. BoM, DWD, MeteoAlarm each differ.
 2. **Parsing varies wildly.** GeoJSON features (NWS), Atom XML with CAP extensions (ECCC, MeteoAlarm), flat JSON (BoM), JSONP keyed by warncell (DWD). One coordinator method can't sanely handle all of them.
 3. **Testing.** Providers run against recorded API responses without a coordinator or HA.
+
+### Shared CAP parsing (`cap.py`)
+
+ECCC and WMO both carry standard CAP 1.2 documents inside different envelopes (Atom vs RSS), so the CAP body parser is factored into `providers/cap.py` — a provider-neutral module exposing the `CAPDoc` / `CAPInfoDoc` containers, `parse_cap_alert` (namespace-agnostic), and `resolve_chain_leaves`. It depends on nothing else in the package — providers import the parser, never each other — so a third CAP-based provider reuses it without touching ECCC. Envelope-specific concerns (Atom pre-filtering and bilingual merge in `eccc.py`, RSS link extraction and expiry pre-filter in `wmo.py`, event-name recovery) stay in their respective provider modules.
 
 ### Error contract
 
@@ -172,7 +180,7 @@ Keeps providers testable without a running HA instance.
 
 Bilingual — entries appear twice (`en-CA` and `fr-CA`). The coordinator resolves the preferred language before calling the provider; the provider merges language siblings using a language-independent bilingual key and stores the alternate-language content in `headline_alt` / `description_alt` / `instruction_alt` / `language_alt`.
 
-**Lifecycle**: CAP `<references>` is parsed to build a revision chain. Within a poll, `_resolve_chain_leaves` drops superseded revisions (alerts whose `<identifier>` appears in another alert's `<references>` list). Only the leaf revision (the current UPDATE) is exposed. Across polls, the `AlertStore` detects cross-poll supersession when an incoming alert's `<references>` contains the CAP `<identifier>` of a disappearing previous-poll alert — it fires `incident_updated` instead of `incident_removed`.
+**Lifecycle**: CAP `<references>` is parsed to build a revision chain. Within a poll, `resolve_chain_leaves` (in the shared `cap.py` module) drops superseded revisions (alerts whose `<identifier>` appears in another alert's `<references>` list). Only the leaf revision (the current UPDATE) is exposed. Across polls, the `AlertStore` detects cross-poll supersession when an incoming alert's `<references>` contains the CAP `<identifier>` of a disappearing previous-poll alert — it fires `incident_updated` instead of `incident_removed`.
 
 **Location matching**:
 - Province mode — match `areaDesc` / geocode prefix against Atom categories.
@@ -301,6 +309,116 @@ identifier is missing.
 
 ---
 
+## WMO CAP — Severe Weather Information Centre (SWIC)
+
+**API**: per-source RSS 2.0 feed at
+`https://severeweather.wmo.int/v2/cap-alerts/{source-id}/rss.xml`. Source IDs
+follow `{country}-{agency}-{lang}` (e.g. `mx-smn-es` for Mexico's SMN Spanish
+feed). One config entry per source; users wanting multiple sources add multiple
+entries. Covers countries without a dedicated provider (Mexico, Brazil, Japan, …).
+
+**Source dropdown** (config flow only — never touched at poll time): populated
+from the live SWIC registry at `https://severeweather.wmo.int/v2/json/sources.json`
+via `wmo.fetch_wmo_sources` (mirroring `meteoalarm.fetch_regions_for_country`).
+The only filter is `const.py::WMO_UNMIRRORED_SOURCES` — the ~21 WMO-category
+sources whose feeds live only on national domains and 404 on the mirror this
+provider fetches from. There is **no** cross-provider uniqueness filtering:
+feeds also served by MeteoAlarm or NWS are listed too, since `custom_value`
+would bypass any such filter anyway and the dedicated providers are merely
+*recommended*, not enforced (the field description points EU/US users at them
+and notes that US alerts fetched via WMO hash the CAP `<identifier>` rather than
+VTEC, so their entities churn across NEW→CON→CAN). On any fetch/parse failure
+the flow falls back to the static `const.py::WMO_SOURCE_NAMES` catalog (verified
+entries), so setup never hard-fails — and the *alert fetch* always uses the
+mirror URL template, independent of the registry. `WMO_UNMIRRORED_SOURCES` is a
+point-in-time curation (verified 2026-05-24); a newly-mirrored source stays
+hidden until the set is updated, but `custom_value` lets users enter any ID.
+
+**Feed shape**: the RSS envelope is an index, not the payload. Each `<item>`
+carries a plain-text `<link>` pointing to an individual CAP 1.2 XML document
+(unlike Atom, where the URL is an `href` attribute). The provider fetches the
+RSS feed, extracts the per-item links, then fetches and parses each CAP file —
+the CAP body is the authoritative source for every `CAPAlert` field. WMO feeds
+ship one language per source, so there is no bilingual merge: `headline_alt` /
+`description_alt` stay empty.
+
+**Expiry pre-filter**: the mirror enriches each `<item>` with CAP-namespace
+extensions (`cap:expires`, `cap:severity`, `cap:areaDesc`, …). `_parse_rss_links`
+parses `cap:expires` (namespace-agnostic) and skips items already expired, so
+only currently-active alerts trigger a CAP-body fetch. This is essential for
+high-volume sources: PAGASA's feed lists ~500 items, nearly all expired —
+fetching every CAP file would blow the coordinator's per-poll timeout and mark
+the whole entry unavailable, whereas the ~9 live items fetch in seconds. Items
+without a parseable `cap:expires` are kept (fail-open), so feeds lacking the
+extension behave as before; the CAP body's own `<expires>` remains the final
+authority via normalization. Buddhist-Era years in the RFC-2822 `cap:expires`
+(Thai TMD feeds) are corrected to Gregorian before the comparison — sharing the
+`const.py` threshold with `normalize._gregorian` — so genuinely-expired Thai
+alerts are pre-dropped instead of read as ~543 years in the future.
+
+**Shared CAP parsing**: the CAP body parsing lives in the provider-neutral
+`providers/cap.py` module, used verbatim by both WMO and ECCC. `parse_cap_alert`
+is namespace-agnostic (handles the `urn:oasis:names:tc:emergency:cap:1.2`
+namespace), and the `CAPDoc` / `CAPInfoDoc` containers and `resolve_chain_leaves`
+revision logic are imported from there — `cap.py` depends on nothing else in the
+package, so providers import the parser, never each other. This keeps `wmo.py`
+thin without duplicating ~150 lines of well-understood parsing. WMO builds its
+own `CAPAlert` (`provider="wmo"`) rather than reusing ECCC's, since ECCC's
+event-name recovery is specific to its bilingual colour-warning headlines.
+
+**Lifecycle**: same revision-chain resolution as ECCC. Within a poll,
+`resolve_chain_leaves` (shared `cap.py`) drops superseded revisions (whose
+`<identifier>` appears in another alert's `<references>`); only the leaf revision
+is exposed.
+
+**Location matching** (mutually exclusive, picked in the config flow):
+- **Country-wide** — return every alert published by the source.
+- **GPS polygon** — parses each alert's CAP `<polygon>` into a GeoJSON ring and
+  keeps alerts whose ring contains the configured point. Fails loud with
+  `UpdateFailed` when the feed has alerts but none carry polygons (the source
+  does not publish per-alert geometry); matches the ECCC/MeteoAlarm GPS-mode
+  contract. WMO CAP has no standardized sub-country region code, so there is no
+  area-code filter and no GPS-tracker mode.
+
+**Severity**: standard CAP `<severity>` passthrough — WMO has no dedicated
+branch in `_normalize_severity`, so it falls through to the generic non-NWS
+path (lowercase the CAP value, clamp off-axis values to `unknown`).
+
+**Concurrency**: CAP XML is fetched with `asyncio.Semaphore(5)` and the shared
+`CAPContentCache`; parsing is offloaded to `loop.run_in_executor`. CAP fetch
+failures are skipped gracefully (the alert is dropped for that poll), not
+surfaced as metadata-only entries.
+
+**Identity**: `sha256(identifier)[:12]`. WMO CAP identifiers are sender-scoped
+and stable across `Update`/`Cancel` re-issues for one logical event. Falls back
+to hashing the CAP URL when the identifier is missing.
+
+**Field mapping**:
+
+| CAP field | CAPAlert field |
+|---|---|
+| `<identifier>` | `identifier`, primary source for `id` |
+| `<sender>` | `sender` |
+| `<sent>` | `sent` |
+| `<status>` / `<msgType>` / `<scope>` | same-named fields |
+| `<references>` (flattened to identifier strings) | `references` |
+| `<info>/<language>` | `language` |
+| `<info>/<category>` | `category` |
+| `<info>/<event>` (fallback `<headline>`) | `event` |
+| `<info>/<urgency>` / `<severity>` / `<certainty>` | same-named fields |
+| `<info>/<responseType>` | `response_type` |
+| `<info>/<effective>` / `<onset>` / `<expires>` | same-named fields |
+| `<info>/<senderName>` | `sender_name` |
+| `<info>/<headline>` / `<description>` / `<instruction>` / `<web>` | same-named fields |
+| `<info>/<area>/<areaDesc>` | `area_desc` |
+| `<info>/<area>/<polygon>` | `geometry` (GeoJSON Polygon or MultiPolygon) |
+| `<info>/<eventCode>` + `<parameter>` blocks merged | `parameters` (parameters win on collision) |
+| `<info>/<area>/<geocode>` SAME values | `geocode_same` |
+| RSS `<item>/<link>` (CAP XML URL) | `url`, identifier-fallback source for `id` |
+| `sha256(identifier)[:12]` (or `sha256(url)[:12]` fallback) | `id` |
+
+---
+
 ## Alert Store (`store.py`)
 
 Holds the previous poll's alerts in memory and diffs incoming alerts to detect new / phase-change / removed transitions. Only stateful component between polls — providers and the coordinator remain stateless.
@@ -346,14 +464,6 @@ These are documented for architecture planning; the provider protocol accommodat
 - `level` 0–4 maps to severity: 4=Extreme, 3=Severe, 2=Moderate, 1=Minor, 0=None. Color hex as fallback.
 - No CAP urgency/certainty; event names are in German.
 - Config flow: warncell ID or region name.
-
-### WMO CAP — Severe Weather Information Centre
-
-- **API**: Per-source RSS feeds at `https://severeweather.wmo.int/v2/cap-alerts/{source-id}/rss.xml`.
-- Generic CAP format. Covers countries without dedicated providers (Mexico, Brazil, …).
-- Two-step fetch: RSS list → individual CAP XML documents for full details and polygon geometry.
-- Source IDs follow `{country}-{agency}-{lang}` (e.g. `ca-msc-xx`, `mx-smn-es`).
-- Config flow: source selector → GPS or area filter.
 
 ---
 

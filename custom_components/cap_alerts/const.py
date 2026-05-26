@@ -18,6 +18,7 @@ USER_AGENT = "HomeAssistant-CAPAlerts/{0}"
 
 # Config keys
 CONF_PROVIDER = "provider"
+CONF_SOURCE_ID = "source_id"
 CONF_ZONE_ID = "zone_id"
 CONF_GPS_LOC = "gps_loc"
 CONF_TRACKER_ENTITY = "tracker_entity"
@@ -32,6 +33,16 @@ CONF_LANGUAGE = "language"
 # Defaults
 DEFAULT_SCAN_INTERVAL = 300  # seconds
 DEFAULT_TIMEOUT = 30  # seconds
+
+# Buddhist-Era calendar correction. Some feeds (TMD, surfaced via WMO SWIC)
+# emit Buddhist-Era years — Gregorian + 543 — in CAP dateTime fields, e.g.
+# "2568-08-05T22:50:00+07:00". A year at or above this threshold is
+# unambiguously BE: no Gregorian weather alert is ~375 years out, while every
+# BE year is 2543+, so the offset can be subtracted with no risk to a valid
+# timestamp. Applied both to CAP-body ISO strings (normalize) and to the WMO
+# RSS envelope's RFC-2822 cap:expires (wmo provider).
+MIN_BUDDHIST_ERA_YEAR = 2400
+BUDDHIST_ERA_OFFSET = 543
 
 # ECCC valid province codes
 ECCC_PROVINCES = {
@@ -138,4 +149,73 @@ METEOALARM_COUNTRY_NAMES: dict[str, str] = {
     "CH": "Switzerland",
     "UA": "Ukraine",
     "UK": "United Kingdom",
+}
+
+# WMO SWIC source registry. Fetched at config-flow time to populate the
+# source dropdown with every mirror-reachable source. The HTML index 403s,
+# but the JSON endpoint serves with the integration's own User-Agent.
+WMO_SOURCES_URL = "https://severeweather.wmo.int/v2/json/sources.json"
+
+# WMO-category SWIC sources that are registered but NOT reachable on the
+# severeweather.wmo.int mirror (their feeds live only on national domains in
+# non-uniform formats). Excluded from the dynamic dropdown so users aren't
+# offered sources that 404. Curated from verification on 2026-05-24; a newly
+# mirrored source merely stays hidden until this set is updated, and the
+# config flow's custom-value entry lets users enter any ID regardless.
+WMO_UNMIRRORED_SOURCES: frozenset[str] = frozenset(
+    {
+        "bf-meteo-en",
+        "bi-meteo-en",
+        "bj-meteo-en",
+        "cd-mettelsat-en",
+        "co-ungrd-es",
+        "dj-meteo-en",
+        "gn-dnm-en",
+        "gw-inm-en",
+        "ml-meteo-en",
+        "mm-dmh-en",
+        "mr-onm-en",
+        "mz-inam-en",
+        "ne-meteo-en",
+        "pg-ms-en",
+        "st-meteo-en",
+        "td-anam-en",
+        "tg-dgmn-en",
+        "to-tms-en",
+        "vu-vms-xx",
+        "ws-smd-en",
+        "ye-yms-en",
+    }
+)
+
+# WMO Severe Weather Information Centre (SWIC) source IDs, keyed
+# {country}-{agency}-{lang}. The per-source RSS feed lives at
+# https://severeweather.wmo.int/v2/cap-alerts/{source-id}/rss.xml.
+# Offline fallback for the config-flow dropdown when the live registry
+# (WMO_SOURCES_URL) is unreachable; the flow accepts a custom value, so any
+# valid SWIC source ID still works. Every entry below was verified reachable
+# on the live SWIC mirror on 2026-05-24 (cross-checked against the registry).
+WMO_SOURCE_NAMES: dict[str, str] = {
+    # Americas
+    "mx-smn-es": "Mexico (SMN, Spanish)",
+    "br-inmet-pt": "Brazil (INMET, Portuguese)",
+    "ar-smn-es": "Argentina (SMN, Spanish)",
+    "cl-meteo-es": "Chile (DMC, Spanish)",
+    # Asia / Pacific
+    "in-imd-en": "India (IMD, English)",
+    "cn-cma-xx": "China (CMA)",
+    "id-inatews-id": "Indonesia (InaTEWS, Indonesian)",
+    "ph-pagasa-en": "Philippines (PAGASA, English)",
+    "th-tmd-th": "Thailand (TMD, Thai)",
+    "au-bom-en": "Australia (BoM, English)",
+    "nz-nms-en": "New Zealand (MetService, English)",
+    # Middle East / Africa
+    "sa-ncm-ar": "Saudi Arabia (NCM, Arabic)",
+    "eg-ema-en": "Egypt (EMA, English)",
+    "za-saws-en": "South Africa (SAWS, English)",
+    "ke-kmd-en": "Kenya (KMD, English)",
+    "ng-nimet-en": "Nigeria (NIMET, English)",
+    "gh-gmet-en": "Ghana (GMet, English)",
+    "sn-anacim-fr": "Senegal (ANACIM, French)",
+    "tz-tma-en": "Tanzania (TMA, English)",
 }

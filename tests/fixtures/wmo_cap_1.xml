@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>urn:wmo:mx-smn:2026:001</identifier>
+  <sender>smn.conagua.gob.mx</sender>
+  <sent>2026-05-12T18:00:00-06:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <scope>Public</scope>
+  <info>
+    <language>es</language>
+    <category>Met</category>
+    <event>Severe Thunderstorm Warning</event>
+    <responseType>Prepare</responseType>
+    <urgency>Immediate</urgency>
+    <severity>Severe</severity>
+    <certainty>Observed</certainty>
+    <effective>2026-05-12T18:00:00-06:00</effective>
+    <onset>2026-05-12T18:30:00-06:00</onset>
+    <expires>2099-05-12T23:00:00-06:00</expires>
+    <senderName>Servicio Meteorologico Nacional</senderName>
+    <headline>Severe thunderstorms over western Jalisco</headline>
+    <description>Severe thunderstorms with damaging winds and large hail.</description>
+    <instruction>Seek shelter indoors and avoid travel.</instruction>
+    <web>https://smn.conagua.gob.mx/</web>
+    <area>
+      <areaDesc>Western Jalisco</areaDesc>
+      <polygon>20.0,-105.0 20.0,-103.0 21.0,-103.0 21.0,-105.0 20.0,-105.0</polygon>
+    </area>
+  </info>
+</alert>
