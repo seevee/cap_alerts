@@ -194,7 +194,10 @@ WMO_UNMIRRORED_SOURCES: frozenset[str] = frozenset(
 # Offline fallback for the config-flow dropdown when the live registry
 # (WMO_SOURCES_URL) is unreachable; the flow accepts a custom value, so any
 # valid SWIC source ID still works. Every entry below was verified reachable
-# on the live SWIC mirror on 2026-05-24 (cross-checked against the registry).
+# on the live SWIC mirror on 2026-05-24 (cross-checked against the registry);
+# sg-mss-en, tl-dnmg-en, and the SE-Asia alternate-language feeds
+# (id-inatews-en, th-tmd-en, tl-dnmg-pt, tl-dnmg-tet) were added and
+# verified 2026-05-28.
 WMO_SOURCE_NAMES: dict[str, str] = {
     # Americas
     "mx-smn-es": "Mexico (SMN, Spanish)",
@@ -205,8 +208,14 @@ WMO_SOURCE_NAMES: dict[str, str] = {
     "in-imd-en": "India (IMD, English)",
     "cn-cma-xx": "China (CMA)",
     "id-inatews-id": "Indonesia (InaTEWS, Indonesian)",
+    "id-inatews-en": "Indonesia (InaTEWS, English)",
     "ph-pagasa-en": "Philippines (PAGASA, English)",
+    "sg-mss-en": "Singapore (MSS, English)",
     "th-tmd-th": "Thailand (TMD, Thai)",
+    "th-tmd-en": "Thailand (TMD, English)",
+    "tl-dnmg-en": "Timor-Leste (DNMG, English)",
+    "tl-dnmg-pt": "Timor-Leste (DNMG, Portuguese)",
+    "tl-dnmg-tet": "Timor-Leste (DNMG, Tetum)",
     "au-bom-en": "Australia (BoM, English)",
     "nz-nms-en": "New Zealand (MetService, English)",
     # Middle East / Africa
