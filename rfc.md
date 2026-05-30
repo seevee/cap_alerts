@@ -27,6 +27,9 @@ Most current integrations treat each API response as independent. When a provide
 `cap_alerts` uses lifecycle-aware hashing to hold identity steady across updates:
 - NWS: VTEC-based identity (`office.phenomena.significance.tracking.year`)
 - ECCC: bilingual key `sha256(sender + sent + CAP-CP_eventCode + polygon_hash)[:12]` — language-independent fields shared byte-for-byte by en/fr siblings; urgency excluded by design so revision-churn does not produce duplicate identities
+- WMO SWIC: `sha256(<CAP identifier>)[:12]` — the sender-scoped CAP `<identifier>` is stable across Update/Cancel re-issues, so the simplest possible key suffices wherever the provider supplies a durable identifier; revision chains still collapse to the leaf via CAP `<references>`
+
+These three span the strategy space the platform must support — from a structured external standard (VTEC), through a synthesized composite key (ECCC), to a direct identifier hash (WMO) — which is why all three ship in the reference implementation.
 
 A single entity then persists across every update until cancellation or expiration.
 
@@ -87,7 +90,7 @@ Providers that do not emit CAP `severity` directly (for example, MeteoAlarm colo
 
 ### 2.2 Identity and Lifecycle
 
-The `unique_id` for an entity is the provider's stable lifecycle hash: VTEC for NWS; for ECCC, `sha256(sender + sent + primary_CAP-CP_eventCode + polygon_hash)[:12]` (language-independent; en/fr siblings produce the same key; urgency excluded to survive revision-churn).
+The `unique_id` for an entity is the provider's stable lifecycle hash: VTEC for NWS; for ECCC, `sha256(sender + sent + primary_CAP-CP_eventCode + polygon_hash)[:12]` (language-independent; en/fr siblings produce the same key; urgency excluded to survive revision-churn); for WMO SWIC, `sha256(<CAP identifier>)[:12]` over the sender-scoped CAP identifier (falling back to the CAP URL when an identifier is absent).
 
 `entity_id` is derived as `incident.<slug(event)>_<short_hash>`, where `short_hash` is the first 8 hex characters of SHA-1 over `unique_id`. Deriving the suffix from the hash avoids HA's numeric-suffix fallback (`..._2`, `..._3`), which otherwise disconnects state history from the stable lifecycle identity each time a collision resolves differently. Slugification uses HA's standard `slugify()` applied to `event`.
 
@@ -267,9 +270,9 @@ Without it, `incident` starts absorbing `binary_sensor` responsibilities and the
 
 The `cap_alerts` custom integration already implements most of the required core behaviors (lifecycle hashing, sparse attributes, dynamic entity spawn and remove) and serves as a working blueprint. Geometry externalization and registry-purge-on-terminate are the main incremental additions for core adoption.
 
-Provider-specific quirks remain the integration layer's responsibility under this design. CAP authorities interpret the protocol differently across jurisdictions, and core and custom integrations already absorb those differences today. The `incident` domain narrows what an integration author has to build by lifting state management out of their concern, so they can focus on feed semantics. The multi-provider layout in `cap_alerts` exists for prototyping and cross-feed investigation; in practice we recommend one focused integration per upstream service.
+Provider-specific quirks remain the integration layer's responsibility under this design. CAP authorities interpret the protocol differently across jurisdictions, and core and custom integrations already absorb those differences today. The `incident` domain narrows what an integration author has to build by lifting state management out of their concern, so they can focus on feed semantics. The WMO provider is a concrete illustration: its SWIC sources range from a handful of alerts to ~500 RSS items per poll (the Philippines feed is nearly all expired entries), so the provider pre-filters on the feed's own expiry metadata before materializing any entity. The active set the core platform sees stays bounded — typically single digits — without core needing to know anything about RSS framing or CAP expiry semantics. This is exactly the division of labor the platform assumes: the provider absorbs feed-shape and volume quirks; core sees a clean, bounded stream of live incidents. The multi-provider layout in `cap_alerts` exists for prototyping and cross-feed investigation; in practice we recommend one focused integration per upstream service.
 
-The presentation layer also exists in working form. The companion `weather_alerts_card` is a Lovelace card that consumes the entity model exposed by `cap_alerts` — severity-driven theming, phase-transition badging — against live NWS, ECCC, and MeteoAlarm feeds, and additionally adapts the attribute shapes of existing NWS, MeteoAlarm, BoM, and DWD integrations. Because the card and the integration are co-developed by the same author, the entity contract has been shaped by a real UI rather than designed in isolation. The reference UI exists as public code today, which lowers the "backend without a UI" risk for core reviewers.
+The presentation layer also exists in working form. The companion `weather_alerts_card` is a Lovelace card that consumes the entity model exposed by `cap_alerts` — severity-driven theming, phase-transition badging — against live NWS, ECCC, MeteoAlarm, and WMO feeds, and additionally adapts the attribute shapes of existing NWS, MeteoAlarm, BoM, and DWD integrations. Because the card and the integration are co-developed by the same author, the entity contract has been shaped by a real UI rather than designed in isolation. The reference UI exists as public code today, which lowers the "backend without a UI" risk for core reviewers.
 
 ### 5.1 Migration Strategy for Legacy Consumers
 
@@ -440,7 +443,7 @@ This RFC builds on substantial prior work inside and outside the Home Assistant 
 
 ### 8.1 Related Home Assistant Core Work
 
-- [home-assistant/core#164481](https://github.com/home-assistant/core/pull/164481), *"Expose richer alert data and combine alert sensors in Environment Canada"* (@michaeldavie). Collapses the five per-category ECCC alert sensors into a single combined `sensor.<name>_alerts` with an `alerts` list in attributes, sourced from the richer GeoMet WFS API. This PR illustrates both the motivation and the ceiling of the current model: it meaningfully improves the data available to users, yet by design packs every active alert into one entity's attributes, which is the exact pattern §1.1 identifies as brittle under load. The field set it exposes (`title`, `issued`, `color`, `expiry`, `area`, `status`, `confidence`, `impact`, `alert_code`, `type`) also maps cleanly onto the CAP vocabulary proposed here, which reinforces that providers are converging on the same data shape independently.
+- [home-assistant/core#164481](https://github.com/home-assistant/core/pull/164481), *"Expose richer alert data and combine alert sensors in Environment Canada"* (@michaeldavie). Collapses the five per-category ECCC alert sensors into a single combined `sensor.<name>_alerts` with an `alerts` list in attributes, sourced from the richer GeoMet WFS API. This PR illustrates both the motivation and the ceiling of the current model: it meaningfully improves the data available to users, yet by design packs every active alert into one entity's attributes, which is identified in §1.1 as brittle under load. The field set it exposes (`title`, `issued`, `color`, `expiry`, `area`, `status`, `confidence`, `impact`, `alert_code`, `type`) also maps cleanly onto the CAP vocabulary proposed here, which reinforces that providers are converging on the same data shape independently.
 
 ### 8.2 Reference Integrations
 
