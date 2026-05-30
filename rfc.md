@@ -4,7 +4,7 @@
 
 **Author:** @seevee (`cap_alerts` maintainer)
 
-**Date:** April 2026
+**Date:** May 2026
 
 **Audience:** Home Assistant Core developers and the Architecture Working Group, plus weather-alert integration maintainers
 
@@ -125,13 +125,17 @@ Complex multipolygon GeoJSON for a severe-weather warning can easily exceed 16 K
 The design:
 
 - The state machine stores only a bounding box (`bbox`, 4 floats) and a `geometry_ref` handle.
-- Full GeoJSON is held in an in-memory cache within the integration, keyed by `geometry_ref`, and is served by a standard `HomeAssistantView` at `GET /api/incident/{incident_id}/geometry`. `camera` proxies image streams and `media_source` serves local files the same way: an established route for delivering large payloads that don't belong in the state machine, with authentication delegated to the view's standard `requires_auth = True` decorator.
+- Full GeoJSON is held in a bounded in-memory LRU cache within the integration, keyed by `geometry_ref`, and is served by a standard `HomeAssistantView` at `GET /api/incident/{incident_id}/geometry`. `camera` proxies image streams and `media_source` serves local files the same way: an established route for delivering large payloads that don't belong in the state machine, with authentication delegated to the view's standard `requires_auth = True` decorator.
 - Frontend cards fetch geometry lazily. Typical Lovelace renders never need it; map cards fetch once per visible incident.
 - Long-form `description` and `instruction` are soft-capped at 4 KB each in attributes. Overflow is truncated with a trailing `…`, and the full text is available via the same API surface.
 
 We deliberately do not add a bespoke websocket command (e.g., `incident/geometry`) in v1. Geometry is a one-shot fetch per card render, rather than a live-subscribed resource, and the HTTP view delivers the same payload with less new surface area in core. A websocket subscription for live geometry updates could be considered in a follow-up if a concrete use case emerges, but CAP polygons update at poll cycle frequency (minutes), so the incremental value from a live subscription is low.
 
-**Why in-memory instead of `.storage/`.** A large fraction of Home Assistant deployments run on Raspberry Pi hardware with SD-card root filesystems. Routing full GeoJSON payloads through flat-file `.storage/` would trade the 16 KB recorder ceiling for a different failure mode: during severe-weather outbreaks, CAP polygons update every few minutes as storm cells move, and sustained writes of hundreds of KB per cycle would meaningfully accelerate SD wear. Geometry is also ephemeral: it has no value once an incident expires, and the integration can always re-fetch it from the upstream feed. Because there is no correctness requirement that it survive a restart, disk I/O isn't indicated. The in-memory cache is simple and recovers on its own: on restart, the next successful poll repopulates it, and stale entries are dropped when the incident terminates via §2.5.
+**Why in-memory instead of `.storage/`.** A large fraction of Home Assistant deployments run on Raspberry Pi hardware with SD-card root filesystems. Routing full GeoJSON payloads through flat-file `.storage/` would trade the 16 KB recorder ceiling for a different failure mode: during severe-weather outbreaks, CAP polygons update every few minutes as storm cells move, and sustained writes of hundreds of KB per cycle would meaningfully accelerate SD wear. Geometry is also ephemeral: it has no value once an incident expires, and the integration can always re-fetch it from the upstream feed. Because there is no correctness requirement that it survive a restart, disk I/O isn't indicated. The in-memory cache is simple and recovers on its own: on restart, the next successful poll repopulates it.
+
+**Cache lifecycle and memory bounds.** The geometry cache is a bounded LRU keyed by `geometry_ref`, modeled on the reference implementation's existing `CAPContentCache` (a fixed-capacity `OrderedDict` that evicts the least-recently-used entry past a hard ceiling). Two mechanisms evict entries. An incident's geometry is dropped when it terminates (§2.5 `cancel`/`expired`); separately, the entry cap evicts the least-recently-used polygon whenever the cache is full. The cap is what bounds the cache if a termination is never observed — say a provider drops an alert from the feed without issuing a cancel — so a missed cancel costs some extra retention rather than a slow leak. Memory is capped by the entry limit rather than growing with the number of incidents seen over a session; the bound is the entry count times the largest polygon upstream serves.
+
+On restart the cache starts empty and the next poll refills it. If upstream is unreachable then, `bbox` still lives in the state machine and is restored by `RestoreEntity` (§2.5), so map cards draw the bounding box while the full-polygon endpoint returns `404` until a poll succeeds. An incident shows as a rectangle until the next poll re-fetches its detailed shape, rather than vanishing.
 
 **Optional v2: shared geometry store.** A core-managed geometry store (analogous to `image` or `media_source`) would enable cross-integration polygon reuse, for instance NWS and a local emergency feed sharing county geometry, and would survive restarts without re-polling upstream APIs. This is an attractive direction but explicitly orthogonal to v1 and not required for core adoption. The HTTP view is storage-backend-agnostic, so a store can plug in behind it without a client-visible change. See §6.2.
 
@@ -150,6 +154,16 @@ Rules:
 - Removal must be idempotent: calling it on an already-missing entity is safe.
 - Restart mid-storm: the integration does not persist coordinator state or geometry to disk and does not write to `.storage/` beyond what every HA entity already does. Continuity across restarts uses only HA-native mechanisms. The entity registry (already in `.storage/core.entity_registry`) keeps the entity's existence across the restart. `IncidentEntity` inherits `RestoreEntity`, so HA restores the last recorded state and attributes from the recorder database between entity add and first `async_write_ha_state`, preventing a transient `unknown` flash in the UI. The first successful coordinator poll after boot is authoritative: if the incident is still in the upstream feed, the entity is re-validated with fresh data; if it is gone (cancelled or expired during downtime), the normal §2.5 termination path executes. The idempotent-removal rule covers the case where a removal was partially applied before the restart.
 
+**Why the churn is deliberate.** Registry mutation on terminate is the most-criticized part of this design. We chose it because persisting temporal external data across the restarts that accompany severe weather forces a three-way choice:
+
+1. **Hold active incidents only in memory.** Fails on restart — a power blip or brownout mid-storm (exactly when this integration matters most) leaves the dashboard blank until the next poll completes, and leaves the home blind if the same outage took out upstream connectivity. Unacceptable for life-safety data.
+2. **Persist CAP data to a custom `.storage/` store.** Survives restart, but writes CAP payloads to disk every poll cycle as storm cells update — the SD-card wear failure mode §2.4 rejects.
+3. **Use the entity registry + `RestoreEntity` + recorder (this RFC).** Survives restart on HA-native machinery, with only sparse attributes — never geometry — touching disk. The cost is registry add/remove traffic at incident boundaries, batched per cycle (above).
+
+So the churn is the cost of surviving a restart without accelerating disk failure, and the batching rule keeps it bounded even under regional fan-out. It is not the only restart-survivable design — a non-entity abstraction could persist sparse data just as cheaply (§3.6) — but it is the only one that also keeps native UI and history integration.
+
+**On lost customizations.** The objection usually bundled with registry churn is that deleting an entity destroys user customizations — renamed entities, custom icons, area assignment. That presupposes the entity is a customization target. Incidents are not: many last minutes (a tornado warning may expire in fifteen minutes), are dictated entirely by an external authority, and carry nothing the user can edit. Nobody opens the settings dialog to rename a warning that will be gone before they finish typing. The registry value the objection protects — durable, user-curated handles for persistent hardware — does not apply to ephemeral external events. The one customization that does make sense for an incident, a per-event-type icon, is set by the integration from the event taxonomy rather than per-entity by the user (§2.6).
+
 The net effect is that at any moment, `incident.*` entries correspond 1:1 with currently active incidents.
 
 ### 2.6 Presentation Hints
@@ -165,6 +179,13 @@ Integrations must populate `icon`; they should not encode severity into it.
 **No acknowledgment or dismissal service.** The domain intentionally does not expose `incident.dismiss` or `incident.acknowledge`. Entities mirror upstream reality: a tornado warning is active until NWS cancels or expires it, and a user clicking "dismiss" on their phone does not change that fact for anyone else in the household, nor should it. Local "I've seen this" state is a frontend concern, handled by cards via browser local storage (keyed on `incident_id`) or by user-level automations that maintain a dismissed-hash list. Keeping the entity pure preserves multi-client consistency and prevents the backend from growing a per-user UI-state layer it has no business owning. Card authors are expected to surface dismissal UX; the domain surfaces the ground truth the UX operates on.
 
 Capability detection for downstream consumers (custom cards, Alert2, blueprints) is by attribute and domain introspection, not by a version string: check `state.domain == "incident"` or probe for specific attributes, as elsewhere in HA core.
+
+**Consuming dynamic entities.** Because incident entities spawn and despawn with the events they represent, they are meant to be consumed two ways, and the model should be judged against these rather than against hand-placed entity cards:
+
+- **Automations subscribe to events.** The §2.3 events (`incident_created` / `incident_updated` / `incident_removed`) are the intended trigger surface. A user cannot pre-wire a UI state trigger against an entity that does not exist until the storm hits, but the event payload already carries what an automation needs (`severity`, `phase`, `changed_fields`) and fires regardless of entity timing. A reference blueprint (§6.4) ships the pattern, so this does not fall to hand-written Jinja.
+- **Display goes through a domain-aware card.** Dropping `incident.<slug>_<hash>` into a stock entity card would throw "entity not found" once the incident clears, but that is not the intended usage. The native card (§5, item 5; prototyped in `weather_alerts_card`) renders whatever `incident.*` entities currently exist and shows "all clear" when none do — the pattern community cards like `auto-entities` already use to render a varying entity set.
+
+The state machine holds live ground truth, the events drive automations, and the card handles display. Because an entity exists only while its incident is live, a card can render every `incident.*` it sees without filtering empty slots — the burden the static-pool fallback pushes onto every card and automation (§6.1).
 
 ### 2.7 Internationalization
 
@@ -226,6 +247,19 @@ The two address different problem spaces:
 The data model differs accordingly. Repairs items are keyed on `(domain, issue_id)` chosen by the integration, carry a translation key and severity tier drawn from a short fixed set, and are expected to persist only as long as the underlying misconfiguration does (minutes to weeks, driven by user action). Incidents are keyed on provider-stable lifecycle hashes, carry a full CAP vocabulary (urgency, certainty, onset/expires, geometry, zones), and are driven by external clocks the user has no control over.
 
 Forcing CAP onto `issue_registry` would either bloat the Repairs dashboard with non-actionable items (degrading its signal-to-noise as an admin tool) or require a parallel "informational" filter that recreates the distinction this RFC is proposing anyway. Keeping the two separate preserves Repairs as the actionable-admin surface and gives external incidents a domain shaped for their data and lifecycle.
+
+### 3.6 A Dedicated `incident_registry`
+
+A natural follow-on to §3.5: if `issue_registry` is the wrong *existing* registry, why not build a *new* one — a parallel `incident_registry`, sibling to `issue_registry`, that ingests CAP data directly and never creates entities at all? It would track lifecycle hashes natively and drop incidents on expiry with no `async_remove` traffic, which cleanly sidesteps the registry-churn objection (§2.5).
+
+This is a coherent design. We do not adopt it because it forfeits everything the entity model provides for free, and would have to rebuild each piece from scratch:
+
+- **Native History.** Entities land in the recorder automatically; a registry would need its own history surface to match.
+- **State-trigger UI.** Users build automations against entity states in the visual editor. A registry needs an all-new trigger type and editor support before a non-technical user can act on an incident at all.
+- **Declarative Lovelace.** Every existing card consumes entities. A registry needs bespoke cards for any display whatsoever.
+- **Restart survival.** `IncidentEntity` inherits `RestoreEntity` and rides the recorder across reboots (§2.5). A registry would need its own persistence — and persisting CAP data to `.storage/` reintroduces the SD-wear tradeoff weighed in §2.5, while holding it only in memory fails the power-outage test.
+
+The arguments against dynamic entities — poor interaction with the declarative UI and the state-trigger builder (§2.6) — apply more severely to a registry, which has no entities for those surfaces to bind to at all. The entity model stays UI- and history-compatible while still surviving restart. A registry trades a bounded, batched mutation cost for a large new core surface and a new primitive the ecosystem has to learn. If the AWG prefers a non-entity abstraction anyway, the entity schema, event contract (§2.3), and geometry API (§2.4) port to it unchanged; only the binding to the state machine differs.
 
 ---
 
