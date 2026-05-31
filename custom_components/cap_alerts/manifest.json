@@ -9,5 +9,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/seevee/cap_alerts/issues",
   "requirements": ["defusedxml"],
-  "version": "1.0.0"
+  "version": "0.1.0"
 }
