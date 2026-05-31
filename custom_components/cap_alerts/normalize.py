@@ -46,13 +46,32 @@ _METEOALARM_AWARENESS_TO_SEVERITY = {
 }
 
 
-def normalize_alerts(alerts: list[CAPAlert]) -> list[CAPAlert]:
-    """Apply shared normalization to a list of provider-parsed alerts."""
+def normalize_alerts(alerts: list[CAPAlert], entry_id: str = "") -> list[CAPAlert]:
+    """Apply shared normalization to a list of provider-parsed alerts.
+
+    ``entry_id`` namespaces each alert's ``geometry_ref`` so config entries
+    that share a provider don't evict one another's geometry from the shared
+    store. Defaults to "" for callers that don't externalize geometry.
+    """
     now = datetime.now(timezone.utc)
-    return [_normalize(a, now) for a in alerts]
+    return [_normalize(a, now, entry_id) for a in alerts]
 
 
-def _normalize(alert: CAPAlert, now: datetime) -> CAPAlert:
+def _geometry_ref(alert: CAPAlert, entry_id: str) -> str:
+    """Build the externalized-geometry handle, or "" when no geometry.
+
+    Namespaced by config entry: the geometry store is a process-wide
+    singleton shared across entries, so two entries on the same provider
+    would otherwise mint identical ``{provider}:{id}`` refs and each entry's
+    purge would evict the other's polygons (RFC §2.4).
+    """
+    if not alert.geometry:
+        return ""
+    scope = f"{entry_id}:" if entry_id else ""
+    return f"{scope}{alert.provider}:{alert.id}"
+
+
+def _normalize(alert: CAPAlert, now: datetime, entry_id: str = "") -> CAPAlert:
     """Normalize a single alert. Returns a new frozen instance."""
     sent = _gregorian(alert.sent)
     effective = _gregorian(alert.effective)
@@ -69,7 +88,7 @@ def _normalize(alert: CAPAlert, now: datetime) -> CAPAlert:
         phase=_compute_phase(expires, alert.msg_type, now),
         icon=icon_for(alert),
         bbox=_bbox_from_geometry(alert.geometry),
-        geometry_ref=f"{alert.provider}:{alert.id}" if alert.geometry else "",
+        geometry_ref=_geometry_ref(alert, entry_id),
         description=_soft_cap(alert.description),
         instruction=_soft_cap(alert.instruction)
         if alert.instruction

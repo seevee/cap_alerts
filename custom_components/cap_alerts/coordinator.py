@@ -139,7 +139,8 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # cancelled/expired alerts — is handed to store.process so it can
         # fire cap_alert_removed with the true terminal phase before
         # dropping them from the active set (RFC §2.3).
-        alerts = normalize_alerts(alerts)
+        entry_id = self.config_entry.entry_id
+        alerts = normalize_alerts(alerts, entry_id)
         # Externalize geometry for alerts that will remain active. Skipping
         # terminal-phase alerts avoids caching polygons we're about to drop.
         active_refs: set[str] = set()
@@ -149,9 +150,9 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             if a.geometry_ref and a.geometry:
                 await self._geometry_store.put(a.geometry_ref, a.geometry)
                 active_refs.add(a.geometry_ref)
-        await self._geometry_store.purge_missing(
-            active_refs, prefix=f"{self._provider.name}:"
-        )
+        # Purge only this entry's refs (geometry_ref is entry-namespaced), so a
+        # sibling entry on the same provider keeps its geometry.
+        await self._geometry_store.purge_missing(active_refs, prefix=f"{entry_id}:")
         # Diff against previous poll — returns only active alerts.
         alerts = self._store.process(alerts)
         # Track successful update time (not all HA versions expose this)
