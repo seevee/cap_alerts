@@ -1,13 +1,13 @@
 {
   "domain": "cap_alerts",
   "name": "CAP Alerts",
-  "codeowners": [],
+  "codeowners": ["@seevee"],
   "config_flow": true,
   "dependencies": ["http"],
-  "documentation": "https://github.com/TODO/cap_alerts",
+  "documentation": "https://github.com/seevee/cap_alerts",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/TODO/cap_alerts/issues",
+  "issue_tracker": "https://github.com/seevee/cap_alerts/issues",
   "requirements": ["defusedxml"],
   "version": "1.0.0"
 }
