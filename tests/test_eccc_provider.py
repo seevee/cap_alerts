@@ -60,6 +60,8 @@ _eccc_mod = _load_provider("eccc")
 CAPContentCache = _cap_cache_mod.CAPContentCache
 ECCCProvider = _eccc_mod.ECCCProvider
 _pick_cap_link = _eccc_mod._pick_cap_link
+_parse_georss_polygons = _eccc_mod._parse_georss_polygons
+_point_in_polygons = _eccc_mod._point_in_polygons
 _parse_cap_alert = _cap_mod.parse_cap_alert
 _select_info = _eccc_mod._select_info
 _resolve_chain_leaves = _cap_mod.resolve_chain_leaves
@@ -175,6 +177,65 @@ def test_pick_cap_link_extension_xml_fallback():
 
     cap_url, _ = _pick_cap_link(entry)
     assert cap_url == "https://example.com/alert.xml"
+
+
+# ---------------------------------------------------------------------------
+# georss polygon parsing / GPS matching tests
+# ---------------------------------------------------------------------------
+
+
+def _entry_with_polygons(*polygon_texts: str) -> Element:
+    """Build an Atom entry carrying one <georss:polygon> per supplied text."""
+    entry = Element(f"{{{NS_ATOM}}}entry")
+    for text in polygon_texts:
+        poly = SubElement(entry, f"{{{NS_GEORSS}}}polygon")
+        poly.text = text
+    return entry
+
+
+# Two disjoint squares: A near the origin, B over the Canadian prairies.
+# georss text is whitespace-separated "lat lon lat lon ..." pairs.
+_POLYGON_A = "0 0 0 1 1 1 1 0 0 0"
+_POLYGON_B = "50 -100 50 -99 51 -99 51 -100 50 -100"
+# A point inside B only (not A).
+_PT_IN_B = (50.5, -99.5)
+
+
+def test_parse_georss_polygons_returns_all_polygons():
+    entry = _entry_with_polygons(_POLYGON_A, _POLYGON_B)
+    polygons = _parse_georss_polygons(entry)
+    assert len(polygons) == 2
+
+
+def test_parse_georss_polygons_empty_when_none_present():
+    entry = Element(f"{{{NS_ATOM}}}entry")
+    assert _parse_georss_polygons(entry) == []
+
+
+def test_point_in_polygons_matches_a_non_first_polygon():
+    """Regression: a point inside the second polygon must match.
+
+    The pre-fix code only inspected the first <georss:polygon>, so an alert
+    whose matching area was any polygon other than the first was wrongly
+    filtered out.
+    """
+    lat, lon = _PT_IN_B
+    entry = _entry_with_polygons(_POLYGON_A, _POLYGON_B)
+    polygons = _parse_georss_polygons(entry)
+
+    assert _point_in_polygons(lat, lon, polygons) is True
+    # Demonstrates the old single-polygon behavior would have dropped it.
+    assert _point_in_polygons(lat, lon, polygons[:1]) is False
+
+
+def test_point_in_polygons_false_when_outside_all():
+    entry = _entry_with_polygons(_POLYGON_A, _POLYGON_B)
+    polygons = _parse_georss_polygons(entry)
+    assert _point_in_polygons(10.0, 10.0, polygons) is False
+
+
+def test_point_in_polygons_false_for_empty():
+    assert _point_in_polygons(*_PT_IN_B, []) is False
 
 
 # ---------------------------------------------------------------------------

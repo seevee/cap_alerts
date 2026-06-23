@@ -47,7 +47,7 @@ def _parse_categories(entry: Element) -> dict[str, str]:
     return cats
 
 
-def _parse_georss_polygons(entry: Element) -> list[list[list[float]]] | None:
+def _parse_georss_polygons(entry: Element) -> list[list[list[float]]]:
     """Parse all <georss:polygon> into a list of lists of [lon, lat] coordinate pairs."""
     polygons: list[list[list[float]]] = []
     for poly_el in entry.findall(f"{{{NS_GEORSS}}}polygon"):
@@ -73,9 +73,11 @@ def _parse_georss_polygon(poly_el: Element[str]) -> list[list[float]] | None:
         except ValueError:
             return None
     return coords
-    
 
-def _point_in_polygons(lat: float, lon: float, polygons: list[list[list[float]]]) -> bool:
+
+def _point_in_polygons(
+    lat: float, lon: float, polygons: list[list[list[float]]]
+) -> bool:
     """Check if a point is in any of the polygons."""
     for polygon in polygons:
         if _point_in_polygon(lat, lon, polygon):
