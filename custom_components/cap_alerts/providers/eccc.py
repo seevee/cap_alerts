@@ -47,10 +47,19 @@ def _parse_categories(entry: Element) -> dict[str, str]:
     return cats
 
 
-def _parse_georss_polygon(entry: Element) -> list[list[float]] | None:
+def _parse_georss_polygons(entry: Element) -> list[list[list[float]]]:
+    """Parse all <georss:polygon> into a list of lists of [lon, lat] coordinate pairs."""
+    polygons: list[list[list[float]]] = []
+    for poly_el in entry.findall(f"{{{NS_GEORSS}}}polygon"):
+        polygon = _parse_georss_polygon(poly_el)
+        if polygon is not None:
+            polygons.append(polygon)
+    return polygons
+
+
+def _parse_georss_polygon(poly_el: Element[str]) -> list[list[float]] | None:
     """Parse <georss:polygon> into a list of [lon, lat] coordinate pairs."""
-    poly_el = entry.find(f"{{{NS_GEORSS}}}polygon")
-    if poly_el is None or not poly_el.text:
+    if not poly_el.text:
         return None
     parts = poly_el.text.strip().split()
     if len(parts) < 6 or len(parts) % 2 != 0:
@@ -64,6 +73,16 @@ def _parse_georss_polygon(entry: Element) -> list[list[float]] | None:
         except ValueError:
             return None
     return coords
+
+
+def _point_in_polygons(
+    lat: float, lon: float, polygons: list[list[list[float]]]
+) -> bool:
+    """Check if a point is in any of the polygons."""
+    for polygon in polygons:
+        if _point_in_polygon(lat, lon, polygon):
+            return True
+    return False
 
 
 def _point_in_polygon(lat: float, lon: float, polygon: list[list[float]]) -> bool:
@@ -494,11 +513,8 @@ class ECCCProvider:
                 if not _matches_province(area_desc, geocode, province):
                     continue
             elif gps_lat is not None and gps_lon is not None:
-                coords = _parse_georss_polygon(entry)
-                if coords:
-                    if not _point_in_polygon(gps_lat, gps_lon, coords):
-                        continue
-                else:
+                polygons = _parse_georss_polygons(entry)
+                if not _point_in_polygons(gps_lat, gps_lon, polygons):
                     continue
             else:
                 return []
