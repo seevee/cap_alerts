@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     name: HACS & Hassfest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: hacs/action@main
         with:
           category: integration
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Lint
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Type check
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Test
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
