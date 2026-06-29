@@ -27,6 +27,8 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
     CONF_COUNTRY,
+    CONF_COUNTRY_ATTRIBUTE,
+    CONF_COUNTRY_ENTITY,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
@@ -95,6 +97,52 @@ _ZONE_RE = re.compile(r"^[A-Za-z]{2}[CZ]\d{3}(,[A-Za-z]{2}[CZ]\d{3})*$")
 _WMO_SOURCE_RE = re.compile(r"^[a-z]{2}-[a-z0-9]+-[a-z]{2}$")
 
 
+def _tracker_schema(default: str | None = None) -> vol.Schema:
+    """Schema with a single ``device_tracker`` entity selector.
+
+    Shared by every provider's GPS-tracker step. ``default`` carries the
+    current entity id forward in reconfigure flows.
+    """
+    if default is not None:
+        key: Any = vol.Required(CONF_TRACKER_ENTITY, default=default)
+    else:
+        key = vol.Required(CONF_TRACKER_ENTITY)
+    return vol.Schema(
+        {key: EntitySelector(EntitySelectorConfig(domain="device_tracker"))}
+    )
+
+
+def _country_source_schema(
+    tracker_default: str | None = None,
+    country_default: str | None = None,
+    attribute_default: str | None = None,
+) -> vol.Schema:
+    """Schema for MeteoAlarm fully-mobile mode.
+
+    A ``device_tracker`` for coordinates, an (unrestricted) entity whose value
+    names the country, and an optional attribute to read that country from.
+    Defaults carry current values forward in reconfigure flows.
+    """
+    if tracker_default is not None:
+        tracker_key: Any = vol.Required(CONF_TRACKER_ENTITY, default=tracker_default)
+    else:
+        tracker_key = vol.Required(CONF_TRACKER_ENTITY)
+    if country_default is not None:
+        country_key: Any = vol.Required(CONF_COUNTRY_ENTITY, default=country_default)
+    else:
+        country_key = vol.Required(CONF_COUNTRY_ENTITY)
+    attribute_key: Any = vol.Optional(
+        CONF_COUNTRY_ATTRIBUTE, default=attribute_default or ""
+    )
+    return vol.Schema(
+        {
+            tracker_key: EntitySelector(EntitySelectorConfig(domain="device_tracker")),
+            country_key: EntitySelector(EntitySelectorConfig()),
+            attribute_key: str,
+        }
+    )
+
+
 def _compute_device_title(data: dict[str, Any]) -> str:
     """Derive entry title from config data."""
     provider = data[CONF_PROVIDER].upper()
@@ -103,8 +151,14 @@ def _compute_device_title(data: dict[str, Any]) -> str:
         source_name = WMO_SOURCE_NAMES.get(source_id, source_id)
         if CONF_GPS_LOC in data:
             location = f"{source_name} ({data[CONF_GPS_LOC]})"
+        elif CONF_TRACKER_ENTITY in data:
+            location = f"{source_name} ({data[CONF_TRACKER_ENTITY].split('.')[-1]})"
         else:
             location = source_name
+    elif CONF_COUNTRY_ENTITY in data:
+        # MeteoAlarm fully-mobile mode: country follows a source entity, so
+        # there is no static location — surface the tracker name as "auto".
+        location = f"auto: {data[CONF_TRACKER_ENTITY].split('.')[-1]}"
     elif CONF_ZONE_ID in data:
         location = data[CONF_ZONE_ID]
     elif CONF_GPS_LOC in data:
@@ -316,13 +370,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(title=_compute_device_title(data), data=data)
         return self.async_show_form(
             step_id="nws_gps_tracker",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_TRACKER_ENTITY): EntitySelector(
-                        EntitySelectorConfig(domain="device_tracker")
-                    ),
-                }
-            ),
+            data_schema=_tracker_schema(),
             errors=errors,
         )
 
@@ -334,7 +382,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
         """ECCC location type menu."""
         return self.async_show_menu(
             step_id="eccc",
-            menu_options=["eccc_province", "eccc_gps_loc"],
+            menu_options=["eccc_province", "eccc_gps_loc", "eccc_gps_tracker"],
         )
 
     async def async_step_eccc_province(
@@ -375,13 +423,30 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_eccc_gps_tracker(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            data = {
+                CONF_PROVIDER: "eccc",
+                CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
+            }
+            return self.async_create_entry(title=_compute_device_title(data), data=data)
+        return self.async_show_form(
+            step_id="eccc_gps_tracker",
+            data_schema=_tracker_schema(),
+        )
+
     # ── MeteoAlarm setup ──
 
     async def async_step_meteoalarm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """MeteoAlarm: country first, then location filter."""
-        return await self.async_step_meteoalarm_country()
+        """MeteoAlarm: pick a fixed country or the fully-mobile mode."""
+        return self.async_show_menu(
+            step_id="meteoalarm",
+            menu_options=["meteoalarm_country", "meteoalarm_country_source"],
+        )
 
     async def async_step_meteoalarm_country(
         self, user_input: dict[str, Any] | None = None
@@ -408,6 +473,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             menu_options=[
                 "meteoalarm_country_only",
                 "meteoalarm_gps_polygon",
+                "meteoalarm_gps_tracker",
                 "meteoalarm_region_picker",
             ],
         )
@@ -442,6 +508,41 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             step_id="meteoalarm_gps_polygon",
             data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
             errors=errors,
+        )
+
+    async def async_step_meteoalarm_gps_tracker(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        country = getattr(self, "_meteoalarm_country", "")
+        if user_input is not None:
+            data = {
+                CONF_PROVIDER: "meteoalarm",
+                CONF_COUNTRY: country,
+                CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
+            }
+            return self.async_create_entry(title=_compute_device_title(data), data=data)
+        return self.async_show_form(
+            step_id="meteoalarm_gps_tracker",
+            data_schema=_tracker_schema(),
+        )
+
+    async def async_step_meteoalarm_country_source(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Fully-mobile MeteoAlarm: tracker for coords + country-source entity."""
+        if user_input is not None:
+            data = {
+                CONF_PROVIDER: "meteoalarm",
+                CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
+                CONF_COUNTRY_ENTITY: user_input[CONF_COUNTRY_ENTITY],
+            }
+            attribute = (user_input.get(CONF_COUNTRY_ATTRIBUTE) or "").strip()
+            if attribute:
+                data[CONF_COUNTRY_ATTRIBUTE] = attribute
+            return self.async_create_entry(title=_compute_device_title(data), data=data)
+        return self.async_show_form(
+            step_id="meteoalarm_country_source",
+            data_schema=_country_source_schema(),
         )
 
     async def async_step_meteoalarm_region_picker(
@@ -539,7 +640,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="wmo_filter",
-            menu_options=["wmo_country_wide", "wmo_gps_loc"],
+            menu_options=["wmo_country_wide", "wmo_gps_loc", "wmo_gps_tracker"],
         )
 
     async def async_step_wmo_country_wide(
@@ -571,6 +672,22 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             step_id="wmo_gps_loc",
             data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
             errors=errors,
+        )
+
+    async def async_step_wmo_gps_tracker(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        source_id = getattr(self, "_wmo_source_id", "")
+        if user_input is not None:
+            data = {
+                CONF_PROVIDER: "wmo",
+                CONF_SOURCE_ID: source_id,
+                CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
+            }
+            return self.async_create_entry(title=_compute_device_title(data), data=data)
+        return self.async_show_form(
+            step_id="wmo_gps_tracker",
+            data_schema=_tracker_schema(),
         )
 
     # ── Reconfigure flow ──
@@ -667,13 +784,8 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             )
         return self.async_show_form(
             step_id="reconfigure_nws_gps_tracker",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_TRACKER_ENTITY,
-                        default=entry.data.get(CONF_TRACKER_ENTITY, ""),
-                    ): EntitySelector(EntitySelectorConfig(domain="device_tracker")),
-                }
+            data_schema=_tracker_schema(
+                default=entry.data.get(CONF_TRACKER_ENTITY, "")
             ),
         )
 
@@ -682,7 +794,11 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="reconfigure_eccc",
-            menu_options=["reconfigure_eccc_province", "reconfigure_eccc_gps_loc"],
+            menu_options=[
+                "reconfigure_eccc_province",
+                "reconfigure_eccc_gps_loc",
+                "reconfigure_eccc_gps_tracker",
+            ],
         )
 
     async def async_step_reconfigure_eccc_province(
@@ -737,10 +853,35 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure_eccc_gps_tracker(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        entry = self._get_reconfigure_entry()
+        if user_input is not None:
+            new_data = {
+                CONF_PROVIDER: "eccc",
+                CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
+            }
+            return self.async_update_reload_and_abort(
+                entry, data=new_data, title=_compute_device_title(new_data)
+            )
+        return self.async_show_form(
+            step_id="reconfigure_eccc_gps_tracker",
+            data_schema=_tracker_schema(
+                default=entry.data.get(CONF_TRACKER_ENTITY, "")
+            ),
+        )
+
     async def async_step_reconfigure_meteoalarm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        return await self.async_step_reconfigure_meteoalarm_country()
+        return self.async_show_menu(
+            step_id="reconfigure_meteoalarm",
+            menu_options=[
+                "reconfigure_meteoalarm_country",
+                "reconfigure_meteoalarm_country_source",
+            ],
+        )
 
     async def async_step_reconfigure_meteoalarm_country(
         self, user_input: dict[str, Any] | None = None
@@ -776,6 +917,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             menu_options=[
                 "reconfigure_meteoalarm_country_only",
                 "reconfigure_meteoalarm_gps_polygon",
+                "reconfigure_meteoalarm_gps_tracker",
                 "reconfigure_meteoalarm_region_picker",
             ],
         )
@@ -819,6 +961,52 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+        )
+
+    async def async_step_reconfigure_meteoalarm_gps_tracker(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        entry = self._get_reconfigure_entry()
+        country = getattr(self, "_meteoalarm_country", "")
+        if user_input is not None:
+            new_data = {
+                CONF_PROVIDER: "meteoalarm",
+                CONF_COUNTRY: country,
+                CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
+            }
+            return self.async_update_reload_and_abort(
+                entry, data=new_data, title=_compute_device_title(new_data)
+            )
+        return self.async_show_form(
+            step_id="reconfigure_meteoalarm_gps_tracker",
+            data_schema=_tracker_schema(
+                default=entry.data.get(CONF_TRACKER_ENTITY, "")
+            ),
+        )
+
+    async def async_step_reconfigure_meteoalarm_country_source(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        entry = self._get_reconfigure_entry()
+        if user_input is not None:
+            new_data = {
+                CONF_PROVIDER: "meteoalarm",
+                CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
+                CONF_COUNTRY_ENTITY: user_input[CONF_COUNTRY_ENTITY],
+            }
+            attribute = (user_input.get(CONF_COUNTRY_ATTRIBUTE) or "").strip()
+            if attribute:
+                new_data[CONF_COUNTRY_ATTRIBUTE] = attribute
+            return self.async_update_reload_and_abort(
+                entry, data=new_data, title=_compute_device_title(new_data)
+            )
+        return self.async_show_form(
+            step_id="reconfigure_meteoalarm_country_source",
+            data_schema=_country_source_schema(
+                tracker_default=entry.data.get(CONF_TRACKER_ENTITY, ""),
+                country_default=entry.data.get(CONF_COUNTRY_ENTITY, ""),
+                attribute_default=entry.data.get(CONF_COUNTRY_ATTRIBUTE, ""),
+            ),
         )
 
     async def async_step_reconfigure_meteoalarm_region_picker(
@@ -913,7 +1101,11 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="reconfigure_wmo_filter",
-            menu_options=["reconfigure_wmo_country_wide", "reconfigure_wmo_gps_loc"],
+            menu_options=[
+                "reconfigure_wmo_country_wide",
+                "reconfigure_wmo_gps_loc",
+                "reconfigure_wmo_gps_tracker",
+            ],
         )
 
     async def async_step_reconfigure_wmo_country_wide(
@@ -955,6 +1147,27 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+        )
+
+    async def async_step_reconfigure_wmo_gps_tracker(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        entry = self._get_reconfigure_entry()
+        source_id = getattr(self, "_wmo_source_id", "")
+        if user_input is not None:
+            new_data = {
+                CONF_PROVIDER: "wmo",
+                CONF_SOURCE_ID: source_id,
+                CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
+            }
+            return self.async_update_reload_and_abort(
+                entry, data=new_data, title=_compute_device_title(new_data)
+            )
+        return self.async_show_form(
+            step_id="reconfigure_wmo_gps_tracker",
+            data_schema=_tracker_schema(
+                default=entry.data.get(CONF_TRACKER_ENTITY, "")
+            ),
         )
 
 

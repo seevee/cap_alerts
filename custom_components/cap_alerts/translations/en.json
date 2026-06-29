@@ -46,7 +46,8 @@
         "title": "ECCC Location Type",
         "menu_options": {
           "eccc_province": "Province",
-          "eccc_gps_loc": "GPS Coordinates"
+          "eccc_gps_loc": "GPS Coordinates",
+          "eccc_gps_tracker": "GPS Tracker Entity"
         }
       },
       "eccc_province": {
@@ -67,6 +68,19 @@
           "gps_loc": "Latitude,Longitude (e.g. 43.6532,-79.3832)"
         }
       },
+      "eccc_gps_tracker": {
+        "title": "ECCC GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
+        }
+      },
+      "meteoalarm": {
+        "title": "MeteoAlarm Location Type",
+        "menu_options": {
+          "meteoalarm_country": "Fixed country",
+          "meteoalarm_country_source": "GPS Tracker + Country Source (fully mobile)"
+        }
+      },
       "meteoalarm_country": {
         "title": "MeteoAlarm Country",
         "data": {
@@ -81,6 +95,7 @@
         "menu_options": {
           "meteoalarm_country_only": "Country-wide",
           "meteoalarm_gps_polygon": "GPS Coordinates",
+          "meteoalarm_gps_tracker": "GPS Tracker Entity",
           "meteoalarm_region_picker": "Region picker"
         }
       },
@@ -91,6 +106,25 @@
         },
         "data_description": {
           "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050). Filters by per-warning polygons; fails loud if the country does not publish geometry."
+        }
+      },
+      "meteoalarm_gps_tracker": {
+        "title": "MeteoAlarm GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
+        }
+      },
+      "meteoalarm_country_source": {
+        "title": "MeteoAlarm Fully Mobile",
+        "data": {
+          "tracker_entity": "Tracker Entity",
+          "country_entity": "Country Source Entity",
+          "country_attribute": "Country Attribute (optional)"
+        },
+        "data_description": {
+          "tracker_entity": "Device tracker providing coordinates for polygon narrowing.",
+          "country_entity": "Entity whose value names the current country (e.g. sensor.geolocator_country). Accepts an ISO-2 code or a country name.",
+          "country_attribute": "Optional attribute to read the country from instead of the entity's state."
         }
       },
       "meteoalarm_region_picker": {
@@ -115,7 +149,8 @@
         "title": "WMO Location Filter",
         "menu_options": {
           "wmo_country_wide": "All alerts (country-wide)",
-          "wmo_gps_loc": "GPS Coordinates"
+          "wmo_gps_loc": "GPS Coordinates",
+          "wmo_gps_tracker": "GPS Tracker Entity"
         }
       },
       "wmo_gps_loc": {
@@ -125,6 +160,12 @@
         },
         "data_description": {
           "gps_loc": "Latitude,Longitude (e.g. 19.4326,-99.1332). Filters by per-alert polygons; fails loud if the source does not publish geometry."
+        }
+      },
+      "wmo_gps_tracker": {
+        "title": "WMO GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
         }
       },
       "reconfigure": {
@@ -172,7 +213,8 @@
         "title": "ECCC Location Type",
         "menu_options": {
           "reconfigure_eccc_province": "Province",
-          "reconfigure_eccc_gps_loc": "GPS Coordinates"
+          "reconfigure_eccc_gps_loc": "GPS Coordinates",
+          "reconfigure_eccc_gps_tracker": "GPS Tracker Entity"
         }
       },
       "reconfigure_eccc_province": {
@@ -193,6 +235,19 @@
           "gps_loc": "Latitude,Longitude (e.g. 43.6532,-79.3832)"
         }
       },
+      "reconfigure_eccc_gps_tracker": {
+        "title": "ECCC GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
+        }
+      },
+      "reconfigure_meteoalarm": {
+        "title": "MeteoAlarm Location Type",
+        "menu_options": {
+          "reconfigure_meteoalarm_country": "Fixed country",
+          "reconfigure_meteoalarm_country_source": "GPS Tracker + Country Source (fully mobile)"
+        }
+      },
       "reconfigure_meteoalarm_country": {
         "title": "MeteoAlarm Country",
         "data": {
@@ -207,6 +262,7 @@
         "menu_options": {
           "reconfigure_meteoalarm_country_only": "Country-wide",
           "reconfigure_meteoalarm_gps_polygon": "GPS Coordinates",
+          "reconfigure_meteoalarm_gps_tracker": "GPS Tracker Entity",
           "reconfigure_meteoalarm_region_picker": "Region picker"
         }
       },
@@ -217,6 +273,25 @@
         },
         "data_description": {
           "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050). Filters by per-warning polygons; fails loud if the country does not publish geometry."
+        }
+      },
+      "reconfigure_meteoalarm_gps_tracker": {
+        "title": "MeteoAlarm GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
+        }
+      },
+      "reconfigure_meteoalarm_country_source": {
+        "title": "MeteoAlarm Fully Mobile",
+        "data": {
+          "tracker_entity": "Tracker Entity",
+          "country_entity": "Country Source Entity",
+          "country_attribute": "Country Attribute (optional)"
+        },
+        "data_description": {
+          "tracker_entity": "Device tracker providing coordinates for polygon narrowing.",
+          "country_entity": "Entity whose value names the current country (e.g. sensor.geolocator_country). Accepts an ISO-2 code or a country name.",
+          "country_attribute": "Optional attribute to read the country from instead of the entity's state."
         }
       },
       "reconfigure_meteoalarm_region_picker": {
@@ -241,7 +316,8 @@
         "title": "WMO Location Filter",
         "menu_options": {
           "reconfigure_wmo_country_wide": "All alerts (country-wide)",
-          "reconfigure_wmo_gps_loc": "GPS Coordinates"
+          "reconfigure_wmo_gps_loc": "GPS Coordinates",
+          "reconfigure_wmo_gps_tracker": "GPS Tracker Entity"
         }
       },
       "reconfigure_wmo_gps_loc": {
@@ -251,6 +327,12 @@
         },
         "data_description": {
           "gps_loc": "Latitude,Longitude. Filters by per-alert polygons."
+        }
+      },
+      "reconfigure_wmo_gps_tracker": {
+        "title": "WMO GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
         }
       }
     },
