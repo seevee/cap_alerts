@@ -372,6 +372,7 @@ def _build_alert_from_cap(
         area_desc=info.area_desc,
         geometry=geometry,
         geocode_same=tuple(info.geocodes.get("SAME", ())),
+        geocode_clc=tuple(info.geocodes.get("layer:EC-MSC-SMC:1.0:CLC", ())),
         sender=doc.sender,
         sender_name=info.sender_name,
         references=tuple(ref_id for _, ref_id, _ in doc.references),
