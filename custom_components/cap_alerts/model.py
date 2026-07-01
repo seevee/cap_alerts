@@ -46,6 +46,9 @@ class CAPAlert:
     affected_zone_uris: tuple[str, ...] = ()
     geocode_ugc: tuple[str, ...] = ()
     geocode_same: tuple[str, ...] = ()
+    # ECCC Canadian Location Code (layer:EC-MSC-SMC:1.0:CLC). Province-numbered
+    # for land zones; "00…" for marine/water zones (drives marine detection).
+    geocode_clc: tuple[str, ...] = ()
     geometry: dict | None = None
     geometry_ref: str = ""
     bbox: tuple[float, float, float, float] | None = None

@@ -223,8 +223,9 @@ Bilingual — entries appear twice (`en-CA` and `fr-CA`). The coordinator resolv
 | `<info>/<eventCode>` blocks merged into `parameters` | `parameters` |
 | `<info>/<parameter>` blocks | `parameters` (merged; parameters win on key collision) |
 | `<info>/<area>/<geocode>` SAME values | `geocode_same` |
+| `<info>/<area>/<geocode>` `layer:EC-MSC-SMC:1.0:CLC` values | `geocode_clc` |
 
-Note: `event_code_same` and `event_code_nws` remain empty for ECCC. CAP-CP profile codes (e.g. `profile:CAP-CP:Event:0.4 → freezing-drizzle`) flow through `parameters` under their `valueName` keys.
+Note: `event_code_same` and `event_code_nws` remain empty for ECCC. CAP-CP profile codes (e.g. `profile:CAP-CP:Event:0.4 → freezing-drizzle`) flow through `parameters` under their `valueName` keys. `geocode_clc` carries the Canadian Location Code (province-numbered for land, `00…` for marine/water zones); other ECCC area geocode schemes (`profile:CAP-CP:Location:0.3`) are not surfaced.
 
 ---
 

@@ -481,6 +481,26 @@ def test_build_alert_from_cap_populates_all_fields():
     assert alert.provider == "eccc"
 
 
+def test_build_alert_from_cap_populates_geocode_clc():
+    # CLC area geocode (layer:EC-MSC-SMC:1.0:CLC) is carried onto the alert.
+    # Ottawa is a land zone -> province-numbered prefix (07), not marine ("00").
+    alert = _make_alert_from_update_fixture()
+    assert alert.geocode_clc == ("071100",)
+
+
+def test_build_alert_from_cap_geocode_clc_empty_when_absent():
+    # No CLC geocode in the SPS fixture -> field stays an empty tuple (omitted
+    # from to_attributes by the sparse serializer).
+    xml = _fixture("eccc_cap_en_sps.xml")
+    doc = _parse_cap_alert(xml)
+    assert doc is not None
+    info = _select_info(doc, "en-CA")
+    alert = _build_alert_from_cap(
+        doc, info, {"atom_id": "", "language": "en-CA"}, "", _bilingual_key(doc, info)
+    )
+    assert alert.geocode_clc == ()
+
+
 def test_build_alert_from_cap_routes_eventcode_to_parameters():
     alert = _make_alert_from_update_fixture()
     # CAP-CP event codes must land in parameters, NOT event_code_same/event_code_nws
