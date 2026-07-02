@@ -273,6 +273,67 @@ async def test_gps_polygon_fail_loud_when_zero_polygons():
 
 
 @pytest.mark.asyncio
+async def test_gps_polygon_mobile_falls_back_to_country_wide():
+    # Fully-mobile mode (country_entity present) roaming into a country that
+    # publishes no per-warning geometry degrades to country-wide instead of
+    # raising UpdateFailed.
+    payload = json.loads(
+        (_FIXTURE_DIR / "meteoalarm_de.json").read_text(encoding="utf-8")
+    )
+    session = _FakeSession(payload)
+    provider = meteoalarm.MeteoAlarmProvider()
+    alerts = await provider.async_fetch(
+        session,
+        config={
+            "country": "DE",
+            "gps_loc": "50.0,10.0",
+            "country_entity": "sensor.geolocator_country",
+        },
+        options={"language": "en"},
+    )
+    assert len(alerts) >= 1
+
+
+@pytest.mark.asyncio
+async def test_gps_polygon_mobile_keeps_polygonless_warnings():
+    # Mixed feed: in mobile mode a warning without geometry (possibly a
+    # nationwide severe warning) is kept alongside the polygon match, and
+    # non-matching polygons are still dropped. The fixture carries
+    # "Test Triangle" (contains the point), "Two Areas" (doesn't), and
+    # "No Polygon" (no geometry).
+    session = _FakeSession(_polygon_payload())
+    provider = meteoalarm.MeteoAlarmProvider()
+    alerts = await provider.async_fetch(
+        session,
+        config={
+            "country": "DE",
+            "gps_loc": "50.0,10.0",
+            "country_entity": "sensor.geolocator_country",
+        },
+        options={"language": "en"},
+    )
+    events = {a.event for a in alerts}
+    assert events == {"Test Triangle", "No Polygon"}
+
+
+@pytest.mark.asyncio
+async def test_gps_polygon_fixed_mode_drops_polygonless_warnings():
+    # Fixed-country GPS mode keeps strict filtering: "No Polygon" is
+    # dropped when other warnings in the feed carry geometry (also covered
+    # by test_gps_polygon_keeps_warnings_inside_polygon; kept explicit as
+    # the mobile test's counterpart).
+    session = _FakeSession(_polygon_payload())
+    provider = meteoalarm.MeteoAlarmProvider()
+    alerts = await provider.async_fetch(
+        session,
+        config={"country": "DE", "gps_loc": "50.0,10.0"},
+        options={"language": "en"},
+    )
+    events = {a.event for a in alerts}
+    assert events == {"Test Triangle"}
+
+
+@pytest.mark.asyncio
 async def test_gps_polygon_quiet_feed_returns_empty():
     session = _FakeSession({"warnings": []})
     provider = meteoalarm.MeteoAlarmProvider()

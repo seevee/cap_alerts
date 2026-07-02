@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -31,6 +32,8 @@ from .const import (
     DEFAULT_TIMEOUT,
     DOMAIN,
     METEOALARM_COUNTRIES,
+    METEOALARM_COUNTRY_CODE_ALIASES,
+    METEOALARM_COUNTRY_NAME_ALIASES,
     METEOALARM_COUNTRY_NAMES,
 )
 from .geometry_store import GeometryStore
@@ -60,22 +63,31 @@ def _resolve_tracker_gps(state: Any) -> str | None:
     return f"{lat},{lon}"
 
 
-def _resolve_country_code(value: str | None) -> str | None:
+def _resolve_country_code(value: Any) -> str | None:
     """Map a country-source value to a MeteoAlarm ISO-2 code, or ``None``.
 
-    Accepts either an ISO 3166-1 alpha-2 code (``"FR"``) or an exact
-    ``METEOALARM_COUNTRY_NAMES`` display name (``"France"``,
-    ``"United Kingdom"``), case-insensitively. Unrecognized values return
-    ``None``.
+    Accepts a two-letter code — MeteoAlarm's own (``"UK"``), ISO 3166-1
+    (``"GB"``), or the EU institutional variant (``"EL"``) — or a country
+    name, case-insensitively. Names match ``METEOALARM_COUNTRY_NAMES``
+    display names and ``METEOALARM_COUNTRY_NAME_ALIASES``, after stripping
+    parenthetical suffixes so reverse-geocoder output like
+    ``"Moldova (the Republic of)"`` resolves. Non-string or unrecognized
+    values return ``None``.
     """
-    if not value:
+    if not isinstance(value, str):
         return None
     cleaned = value.strip()
     if not cleaned:
         return None
-    if cleaned.upper() in METEOALARM_COUNTRIES:
-        return cleaned.upper()
-    folded = cleaned.casefold()
+    upper = cleaned.upper()
+    if upper in METEOALARM_COUNTRIES:
+        return upper
+    if upper in METEOALARM_COUNTRY_CODE_ALIASES:
+        return METEOALARM_COUNTRY_CODE_ALIASES[upper]
+    folded = re.sub(r"\s*\([^)]*\)", "", cleaned).strip().casefold()
+    alias = METEOALARM_COUNTRY_NAME_ALIASES.get(folded)
+    if alias is not None:
+        return alias
     for iso, name in METEOALARM_COUNTRY_NAMES.items():
         if name.casefold() == folded:
             return iso
@@ -103,8 +115,10 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._cap_content_cache = cap_content_cache
         self._timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
         self.last_update_success_time: datetime | None = None
-        # Guards a single warning when a MeteoAlarm country-source entity
-        # can't be resolved, so the per-poll resolution doesn't spam the log.
+        # Guard a single warning per failure streak when a tracker or
+        # MeteoAlarm country-source entity can't be resolved, so the
+        # per-poll resolution doesn't spam the log.
+        self._tracker_resolve_warned = False
         self._country_resolve_warned = False
 
         super().__init__(
@@ -145,8 +159,13 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             gps = _resolve_tracker_gps(self.hass.states.get(entity_id))
             if gps is None:
                 provider = config.get(CONF_PROVIDER, "")
-                _LOGGER.warning("%s: tracker %s has no location", provider, entity_id)
+                if not self._tracker_resolve_warned:
+                    _LOGGER.warning(
+                        "%s: tracker %s has no location", provider, entity_id
+                    )
+                    self._tracker_resolve_warned = True
                 raise UpdateFailed(f"{provider}: tracker {entity_id} has no location")
+            self._tracker_resolve_warned = False
             config[CONF_GPS_LOC] = gps
 
         # Resolve country-source entity -> ISO-2 country (MeteoAlarm mobile

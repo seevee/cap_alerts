@@ -122,7 +122,7 @@
           "country_attribute": "Country Attribute (optional)"
         },
         "data_description": {
-          "tracker_entity": "Device tracker providing coordinates for polygon narrowing.",
+          "tracker_entity": "Device tracker providing coordinates for polygon narrowing. Warnings without per-warning geometry are kept, so countries that publish none degrade to country-wide alerts.",
           "country_entity": "Entity whose value names the current country (e.g. sensor.geolocator_country). Accepts an ISO-2 code or a country name.",
           "country_attribute": "Optional attribute to read the country from instead of the entity's state."
         }
@@ -289,7 +289,7 @@
           "country_attribute": "Country Attribute (optional)"
         },
         "data_description": {
-          "tracker_entity": "Device tracker providing coordinates for polygon narrowing.",
+          "tracker_entity": "Device tracker providing coordinates for polygon narrowing. Warnings without per-warning geometry are kept, so countries that publish none degrade to country-wide alerts.",
           "country_entity": "Entity whose value names the current country (e.g. sensor.geolocator_country). Accepts an ISO-2 code or a country name.",
           "country_attribute": "Optional attribute to read the country from instead of the entity's state."
         }

@@ -152,6 +152,7 @@ def _make_coord(data, states):
     coord = object.__new__(AlertsDataUpdateCoordinator)
     coord.hass = _Hass(states)
     coord.config_entry = _Entry(data)
+    coord._tracker_resolve_warned = False
     coord._country_resolve_warned = False
     return coord
 
@@ -181,3 +182,29 @@ def test_resolve_config_raises_when_tracker_has_no_location():
     )
     with pytest.raises(UpdateFailed):
         coord._resolve_config()
+
+
+def test_unresolvable_tracker_warns_once_per_failure_streak(caplog):
+    # A day-long outage at a short poll interval must not emit one warning
+    # per poll; the guard resets once the tracker resolves again.
+    coord = _make_coord(
+        {CONF_PROVIDER: "nws", CONF_TRACKER_ENTITY: "device_tracker.phone"},
+        {},
+    )
+    with caplog.at_level("WARNING"):
+        for _ in range(3):
+            with pytest.raises(UpdateFailed):
+                coord._resolve_config()
+    assert sum("has no location" in r.message for r in caplog.records) == 1
+
+    # Tracker recovers → guard resets → next streak warns again.
+    coord.hass = _Hass(
+        {"device_tracker.phone": _State({"latitude": 1.0, "longitude": 2.0})}
+    )
+    coord._resolve_config()
+    coord.hass = _Hass({})
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        with pytest.raises(UpdateFailed):
+            coord._resolve_config()
+    assert sum("has no location" in r.message for r in caplog.records) == 1
