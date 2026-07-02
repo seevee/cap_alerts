@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
+import json
 import sys
 import types
 from pathlib import Path
@@ -172,6 +174,19 @@ views_mod = _load("views")
 websocket_mod = _load("websocket")
 gs_mod = _load("geometry_store")
 
+# With real HA loaded, ``async_response``/``websocket_command`` wrap the
+# handler in a scheduling callback; unwrap back to the original coroutine
+# function. With the stubs above the decorators are identity, so unwrap is
+# a no-op either way.
+_ws_get_geometry = inspect.unwrap(websocket_mod._ws_get_geometry)
+
+
+def _resp_payload(resp):
+    """JSON payload of a view response — stub ``_Resp`` or real aiohttp."""
+    if hasattr(resp, "payload"):
+        return resp.payload
+    return json.loads(resp.body)
+
 
 @pytest.mark.asyncio
 async def test_rest_view_returns_feature_collection():
@@ -183,9 +198,10 @@ async def test_rest_view_returns_feature_collection():
     resp = await view.get(request=None, geometry_ref="nws:a")
 
     assert resp.status == 200
-    assert resp.payload["type"] == "FeatureCollection"
-    assert resp.payload["features"][0]["geometry"] == geom
-    assert resp.payload["features"][0]["properties"]["ref"] == "nws:a"
+    payload = _resp_payload(resp)
+    assert payload["type"] == "FeatureCollection"
+    assert payload["features"][0]["geometry"] == geom
+    assert payload["features"][0]["properties"]["ref"] == "nws:a"
 
 
 @pytest.mark.asyncio
@@ -209,7 +225,7 @@ async def test_ws_command_returns_feature_collection():
     conn.send_error = MagicMock()
 
     msg = {"id": 1, "type": "cap_alerts/geometry", "geometry_ref": "nws:a"}
-    await websocket_mod._ws_get_geometry(hass, conn, msg)
+    await _ws_get_geometry(hass, conn, msg)
 
     conn.send_result.assert_called_once()
     _id, payload = conn.send_result.call_args.args
@@ -230,7 +246,7 @@ async def test_ws_command_sends_error_on_unknown_ref():
     conn.send_error = MagicMock()
 
     msg = {"id": 7, "type": "cap_alerts/geometry", "geometry_ref": "nws:missing"}
-    await websocket_mod._ws_get_geometry(hass, conn, msg)
+    await _ws_get_geometry(hass, conn, msg)
 
     conn.send_error.assert_called_once()
     conn.send_result.assert_not_called()

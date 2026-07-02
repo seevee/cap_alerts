@@ -11,8 +11,22 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _stub_homeassistant(monkeypatch):
-    """Provide minimal homeassistant stubs so ``store`` imports without HA."""
+    """Provide minimal homeassistant stubs so ``store`` imports without HA.
+
+    When real Home Assistant is already loaded (the
+    pytest-homeassistant-custom-component plugin imports it before conftest),
+    only ``entity_registry.async_get`` is redirected at the mock ``hass``
+    used by these tests.
+    """
     if "homeassistant" in sys.modules:
+        er_mod = sys.modules.get("homeassistant.helpers.entity_registry")
+        if er_mod is None:
+            import importlib
+
+            er_mod = importlib.import_module("homeassistant.helpers.entity_registry")
+        monkeypatch.setattr(
+            er_mod, "async_get", lambda hass: hass.entity_registry, raising=False
+        )
         yield
         return
 
