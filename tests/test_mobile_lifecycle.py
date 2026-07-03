@@ -31,7 +31,13 @@ LJUBLJANA = {"latitude": 46.05, "longitude": 14.51}
 LYON = {"latitude": 45.76, "longitude": 4.84}
 
 
-def _warning(identifier: str, event: str, *, polygon: str | None = None) -> dict:
+def _warning(
+    identifier: str,
+    event: str,
+    *,
+    polygon: str | None = None,
+    expires: str = "2099-01-01T00:00:00Z",
+) -> dict:
     area: dict = {
         "areaDesc": "Somewhere",
         "geocode": [{"valueName": "EMMA_ID", "value": "XX000"}],
@@ -56,7 +62,7 @@ def _warning(identifier: str, event: str, *, polygon: str | None = None) -> dict
                     "urgency": "Immediate",
                     "certainty": "Likely",
                     "onset": "2026-07-01T08:00:00Z",
-                    "expires": "2099-01-01T00:00:00Z",
+                    "expires": expires,
                     "headline": f"{event} headline",
                     "description": "desc",
                     "area": [area],
@@ -74,12 +80,15 @@ SI_PAYLOAD = {
 }
 
 # France: one warning with a polygon that does NOT contain Lyon, one without
-# any geometry. Mobile mode must keep the polygon-less warning and drop the
-# non-matching polygon.
+# any geometry, and one polygon-less warning that already expired. Mobile mode
+# must keep the live polygon-less warning, drop the non-matching polygon, and
+# drop the expired one downstream (MeteoAlarm feeds retain lapsed warnings;
+# observed live 2026-07-03 with 95 of 96 FR warnings expired).
 FR_PAYLOAD = {
     "warnings": [
         _warning("fr-1", "Paris Wind", polygon="48.5,2.0 49.0,2.0 48.8,2.8"),
         _warning("fr-2", "Orange Thunderstorms"),
+        _warning("fr-3", "Yesterday Heat", expires="2020-01-01T00:00:00Z"),
     ]
 }
 
@@ -137,6 +146,8 @@ async def test_camper_trip_lifecycle(hass, aioclient_mock, enable_custom_integra
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
 
+    # Of the three French warnings only the live polygon-less one survives:
+    # "Paris Wind" misses the tracker position, "Yesterday Heat" is expired.
     assert hass.states.get(count_id).state == "1"
     fr_ids = _alert_entity_ids(hass, entry)
     assert len(fr_ids) == 1
