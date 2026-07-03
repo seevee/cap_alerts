@@ -159,6 +159,7 @@ _compute = config_flow._compute_device_title
 
 from cap_alerts.const import (  # noqa: E402
     CONF_COUNTRY,
+    CONF_COUNTRY_ENTITY,
     CONF_GPS_LOC,
     CONF_PROVIDER,
     CONF_PROVINCE,
@@ -207,6 +208,13 @@ def test_eccc_gps_title():
     assert (
         _compute({CONF_PROVIDER: "eccc", CONF_GPS_LOC: "45.4,-75.7"})
         == "CAP Alerts ECCC (45.4,-75.7)"
+    )
+
+
+def test_eccc_tracker_title():
+    assert (
+        _compute({CONF_PROVIDER: "eccc", CONF_TRACKER_ENTITY: "device_tracker.phone"})
+        == "CAP Alerts ECCC (phone)"
     )
 
 
@@ -263,6 +271,27 @@ def test_meteoalarm_region_picker_legacy_no_labels():
     assert _compute(data) == "CAP Alerts METEOALARM (Germany — 3 regions)"
 
 
+def test_meteoalarm_tracker_title():
+    # Part A tracker mode carries a fixed country + tracker; title is the bare
+    # tracker name, matching the GPS-polygon mode's location-only title.
+    data = {
+        CONF_PROVIDER: "meteoalarm",
+        CONF_COUNTRY: "DE",
+        CONF_TRACKER_ENTITY: "device_tracker.phone",
+    }
+    assert _compute(data) == "CAP Alerts METEOALARM (phone)"
+
+
+def test_meteoalarm_country_source_title():
+    # Part B fully-mobile mode has no static country; title reads "auto: <name>".
+    data = {
+        CONF_PROVIDER: "meteoalarm",
+        CONF_TRACKER_ENTITY: "device_tracker.van",
+        CONF_COUNTRY_ENTITY: "sensor.geolocator_country",
+    }
+    assert _compute(data) == "CAP Alerts METEOALARM (auto: van)"
+
+
 # --- WMO ---------------------------------------------------------------------
 
 
@@ -287,3 +316,13 @@ def test_wmo_unlisted_source_falls_back_to_id():
         _compute({CONF_PROVIDER: "wmo", CONF_SOURCE_ID: "xx-foo-en"})
         == "CAP Alerts WMO (xx-foo-en)"
     )
+
+
+def test_wmo_tracker_title():
+    # WMO nests the tracker name inside the source name, mirroring WMO GPS.
+    data = {
+        CONF_PROVIDER: "wmo",
+        CONF_SOURCE_ID: "mx-smn-es",
+        CONF_TRACKER_ENTITY: "device_tracker.phone",
+    }
+    assert _compute(data) == "CAP Alerts WMO (Mexico (SMN, Spanish) (phone))"

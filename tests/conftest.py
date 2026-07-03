@@ -64,16 +64,42 @@ def _ensure_ha_stubs() -> None:
 
 _ensure_ha_stubs()
 
-# Pre-load submodules so tests can import ``custom_components.cap_alerts.*``.
+# When pytest-homeassistant-custom-component is installed, its plugin imports
+# the real ``homeassistant`` package before this conftest runs, so
+# ``_ensure_ha_stubs`` no-ops. Distinguish that from our stub module, which
+# was created with ``types.ModuleType`` and therefore has no ``__file__``.
+_REAL_HA = getattr(sys.modules["homeassistant"], "__file__", None) is not None
+
+# Pre-load submodules so tests can import ``cap_alerts.*`` without executing
+# the HA-dependent package __init__.
 _model = _load_submodule("model")
 _icons = _load_submodule("icons")
 _normalize = _load_submodule("normalize")
-sys.modules["custom_components"] = types.ModuleType("custom_components")
-sys.modules["custom_components"].__path__ = [str(_REPO_ROOT / "custom_components")]
-sys.modules["custom_components.cap_alerts"] = sys.modules["cap_alerts"]
-sys.modules["custom_components.cap_alerts.model"] = _model
-sys.modules["custom_components.cap_alerts.icons"] = _icons
-sys.modules["custom_components.cap_alerts.normalize"] = _normalize
+
+if _REAL_HA:
+    # ``custom_components.cap_alerts`` must resolve to the REAL package so
+    # HA's integration loader can set up config entries in lifecycle tests
+    # (a synthetic alias module has no async_setup_entry). The plugin ships
+    # its own ``testing_config/custom_components`` REGULAR package, which
+    # shadows our namespace package regardless of sys.path order, and HA's
+    # loader discovers integrations by iterating ``custom_components.__path__``
+    # — so extend that path with the repo's directory.
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    import custom_components
+
+    _repo_cc = str(_REPO_ROOT / "custom_components")
+    if _repo_cc not in custom_components.__path__:
+        custom_components.__path__.append(_repo_cc)
+else:
+    # Stub mode (no plugin): alias ``custom_components.cap_alerts.*`` to the
+    # pre-loaded copies so imports work without real HA.
+    sys.modules["custom_components"] = types.ModuleType("custom_components")
+    sys.modules["custom_components"].__path__ = [str(_REPO_ROOT / "custom_components")]
+    sys.modules["custom_components.cap_alerts"] = sys.modules["cap_alerts"]
+    sys.modules["custom_components.cap_alerts.model"] = _model
+    sys.modules["custom_components.cap_alerts.icons"] = _icons
+    sys.modules["custom_components.cap_alerts.normalize"] = _normalize
 
 CAPAlert = _model.CAPAlert
 

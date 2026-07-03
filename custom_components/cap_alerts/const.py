@@ -24,6 +24,8 @@ CONF_GPS_LOC = "gps_loc"
 CONF_TRACKER_ENTITY = "tracker_entity"
 CONF_PROVINCE = "province"
 CONF_COUNTRY = "country"
+CONF_COUNTRY_ENTITY = "country_entity"
+CONF_COUNTRY_ATTRIBUTE = "country_attribute"
 CONF_REGIONS = "regions"
 CONF_REGION_LABELS = "region_labels"
 CONF_SCAN_INTERVAL = "scan_interval"
@@ -149,6 +151,25 @@ METEOALARM_COUNTRY_NAMES: dict[str, str] = {
     "CH": "Switzerland",
     "UA": "Ukraine",
     "UK": "United Kingdom",
+}
+
+# Country values a source entity may report that don't match the tables
+# above. MeteoAlarm's own codes diverge from ISO 3166 ("UK" vs "GB"), and
+# reverse geocoders report the ISO *official* English name — verified
+# 2026-07-02 against BigDataCloud (GeoLocator's backend), which returns e.g.
+# "United Kingdom of Great Britain and Northern Ireland (the)" and
+# "North Macedonia". Name keys are casefolded and matched after stripping
+# parenthetical suffixes.
+METEOALARM_COUNTRY_CODE_ALIASES: dict[str, str] = {
+    "GB": "UK",  # ISO 3166-1 alpha-2
+    "EL": "GR",  # EU institutional code for Greece
+}
+METEOALARM_COUNTRY_NAME_ALIASES: dict[str, str] = {
+    "united kingdom of great britain and northern ireland": "UK",
+    "great britain": "UK",
+    "north macedonia": "MK",
+    "republic of moldova": "MD",
+    "czech republic": "CZ",
 }
 
 # WMO SWIC source registry. Fetched at config-flow time to populate the

@@ -29,6 +29,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
     CONF_COUNTRY,
+    CONF_COUNTRY_ENTITY,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_REGIONS,
@@ -471,24 +472,49 @@ class MeteoAlarmProvider:
         regions = config.get(CONF_REGIONS)
 
         if gps_loc:
-            return self._filter_by_polygon(alerts, gps_loc, country)
+            # Fully-mobile mode (country resolved from a source entity) can
+            # roam into countries that publish partial or no per-warning
+            # geometry; there, warnings without geometry are kept rather
+            # than dropped. Explicit fixed-country GPS/tracker modes still
+            # filter strictly and fail loud on zero polygons.
+            mobile = CONF_COUNTRY_ENTITY in config
+            return self._filter_by_polygon(
+                alerts, gps_loc, country, keep_polygonless=mobile
+            )
         if regions:
             return self._filter_by_regions(alerts, regions)
         return alerts
 
     @staticmethod
     def _filter_by_polygon(
-        alerts: list[CAPAlert], gps_loc: str, country: str
+        alerts: list[CAPAlert],
+        gps_loc: str,
+        country: str,
+        *,
+        keep_polygonless: bool = False,
     ) -> list[CAPAlert]:
         """Keep alerts whose geometry contains the configured GPS point.
 
-        Fails loud when the page has alerts but none carry polygons — that
-        signals the country does not publish per-warning geometry.
+        When the page has alerts but none carry polygons, the country does
+        not publish per-warning geometry. By default this fails loud — the
+        user explicitly chose GPS filtering for a known country — and
+        warnings without geometry are dropped when others carry it. In
+        fully-mobile mode (``keep_polygonless``) warnings without usable
+        geometry are kept instead: roaming into a country with partial or
+        absent geometry degrades to broader coverage rather than silently
+        dropped warnings or an unavailable entry.
         """
         if not alerts:
             return []
-        with_polygons = [a for a in alerts if a.geometry]
+        with_polygons = [a for a in alerts if _alert_polygons(a)]
         if not with_polygons:
+            if keep_polygonless:
+                _LOGGER.info(
+                    "MeteoAlarm %s: no per-warning geometry; keeping all %d warnings",
+                    country,
+                    len(alerts),
+                )
+                return alerts
             raise UpdateFailed(
                 f"MeteoAlarm {country}: GPS filter requested but "
                 f"{len(alerts)} warnings carry no polygons; this country "
@@ -502,10 +528,13 @@ class MeteoAlarmProvider:
         lat, lon = gps
         kept: list[CAPAlert] = []
         for alert in alerts:
-            for ring in _alert_polygons(alert):
-                if _point_in_polygon(lat, lon, ring):
+            rings = _alert_polygons(alert)
+            if not rings:
+                if keep_polygonless:
                     kept.append(alert)
-                    break
+                continue
+            if any(_point_in_polygon(lat, lon, ring) for ring in rings):
+                kept.append(alert)
         return kept
 
     @staticmethod

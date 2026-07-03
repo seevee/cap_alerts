@@ -2,6 +2,9 @@
 # and by local tooling (see CLAUDE.md "Build & Test Commands").
 
 homeassistant==2026.4.3
+# Pins its own homeassistant version — keep in lockstep with the pin above
+# (0.13.324 pins homeassistant==2026.4.3).
+pytest-homeassistant-custom-component==0.13.324
 
 pytest>=8.0,<10
 pytest-asyncio>=1.0,<2

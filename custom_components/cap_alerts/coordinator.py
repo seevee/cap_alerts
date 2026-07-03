@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -18,6 +19,9 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .const import (
+    CONF_COUNTRY,
+    CONF_COUNTRY_ATTRIBUTE,
+    CONF_COUNTRY_ENTITY,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
@@ -27,6 +31,10 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TIMEOUT,
     DOMAIN,
+    METEOALARM_COUNTRIES,
+    METEOALARM_COUNTRY_CODE_ALIASES,
+    METEOALARM_COUNTRY_NAME_ALIASES,
+    METEOALARM_COUNTRY_NAMES,
 )
 from .geometry_store import GeometryStore
 from .model import CAPAlert
@@ -36,6 +44,54 @@ from .providers.cap_content_cache import CAPContentCache
 from .store import AlertStore
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _resolve_tracker_gps(state: Any) -> str | None:
+    """Resolve a ``device_tracker`` state to a ``"lat,lon"`` string.
+
+    Returns ``None`` when the state is missing or carries no usable
+    coordinates. Latitude/longitude of exactly ``0.0`` is valid — only a
+    truly absent attribute (``None``) is treated as unresolvable, so the
+    equator/prime-meridian are not silently dropped.
+    """
+    if state is None:
+        return None
+    lat = state.attributes.get(ATTR_LATITUDE)
+    lon = state.attributes.get(ATTR_LONGITUDE)
+    if lat is None or lon is None:
+        return None
+    return f"{lat},{lon}"
+
+
+def _resolve_country_code(value: Any) -> str | None:
+    """Map a country-source value to a MeteoAlarm ISO-2 code, or ``None``.
+
+    Accepts a two-letter code — MeteoAlarm's own (``"UK"``), ISO 3166-1
+    (``"GB"``), or the EU institutional variant (``"EL"``) — or a country
+    name, case-insensitively. Names match ``METEOALARM_COUNTRY_NAMES``
+    display names and ``METEOALARM_COUNTRY_NAME_ALIASES``, after stripping
+    parenthetical suffixes so reverse-geocoder output like
+    ``"Moldova (the Republic of)"`` resolves. Non-string or unrecognized
+    values return ``None``.
+    """
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    upper = cleaned.upper()
+    if upper in METEOALARM_COUNTRIES:
+        return upper
+    if upper in METEOALARM_COUNTRY_CODE_ALIASES:
+        return METEOALARM_COUNTRY_CODE_ALIASES[upper]
+    folded = re.sub(r"\s*\([^)]*\)", "", cleaned).strip().casefold()
+    alias = METEOALARM_COUNTRY_NAME_ALIASES.get(folded)
+    if alias is not None:
+        return alias
+    for iso, name in METEOALARM_COUNTRY_NAMES.items():
+        if name.casefold() == folded:
+            return iso
+    return None
 
 
 class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
@@ -59,6 +115,11 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._cap_content_cache = cap_content_cache
         self._timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
         self.last_update_success_time: datetime | None = None
+        # Guard a single warning per failure streak when a tracker or
+        # MeteoAlarm country-source entity can't be resolved, so the
+        # per-poll resolution doesn't spam the log.
+        self._tracker_resolve_warned = False
+        self._country_resolve_warned = False
 
         super().__init__(
             hass,
@@ -83,21 +144,56 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         """Resolve config and options before passing to provider.
 
         - Tracker mode: resolves tracker entity -> lat/lon coordinates.
+        - Country-source mode: resolves a country entity -> ISO-2 country.
         - Language "auto": resolves to concrete "en-CA" or "fr-CA".
         """
         config = dict(self.config_entry.data)
         options = dict(self.config_entry.options)
 
-        # Resolve tracker entity -> GPS coordinates
+        # Resolve tracker entity -> GPS coordinates. An unresolvable tracker
+        # (missing state or no lat/lon) raises UpdateFailed so the entry goes
+        # visibly unavailable rather than silently degrading to zero or
+        # country-wide alerts.
         if CONF_TRACKER_ENTITY in config:
-            state = self.hass.states.get(config[CONF_TRACKER_ENTITY])
-            if state and state.attributes.get(ATTR_LATITUDE):
-                config[CONF_GPS_LOC] = (
-                    f"{state.attributes[ATTR_LATITUDE]},"
-                    f"{state.attributes[ATTR_LONGITUDE]}"
-                )
+            entity_id = config[CONF_TRACKER_ENTITY]
+            gps = _resolve_tracker_gps(self.hass.states.get(entity_id))
+            if gps is None:
+                provider = config.get(CONF_PROVIDER, "")
+                if not self._tracker_resolve_warned:
+                    _LOGGER.warning(
+                        "%s: tracker %s has no location", provider, entity_id
+                    )
+                    self._tracker_resolve_warned = True
+                raise UpdateFailed(f"{provider}: tracker {entity_id} has no location")
+            self._tracker_resolve_warned = False
+            config[CONF_GPS_LOC] = gps
+
+        # Resolve country-source entity -> ISO-2 country (MeteoAlarm mobile
+        # mode). Leaving CONF_COUNTRY unset lets the provider's existing
+        # "country not configured" path surface UpdateFailed.
+        if CONF_COUNTRY_ENTITY in config:
+            entity_id = config[CONF_COUNTRY_ENTITY]
+            state = self.hass.states.get(entity_id)
+            value: str | None = None
+            if state is not None and state.state not in (
+                "",
+                "unknown",
+                "unavailable",
+            ):
+                attr = config.get(CONF_COUNTRY_ATTRIBUTE)
+                value = state.attributes.get(attr) if attr else state.state
+            code = _resolve_country_code(value)
+            if code is None:
+                if not self._country_resolve_warned:
+                    _LOGGER.warning(
+                        "MeteoAlarm: could not resolve country from %s (value=%r)",
+                        entity_id,
+                        value,
+                    )
+                    self._country_resolve_warned = True
             else:
-                config[CONF_GPS_LOC] = ""
+                self._country_resolve_warned = False
+                config[CONF_COUNTRY] = code
 
         # Resolve language "auto" -> concrete code. ECCC is bilingual EN/FR;
         # MeteoAlarm spans ~35 locales — pass the 2-letter prefix of
