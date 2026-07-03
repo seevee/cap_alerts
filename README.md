@@ -82,7 +82,7 @@ This trips up new HA users, so worth stating explicitly:
 - **Integration domain** (`cap_alerts`) — identifies the integration itself, used in `hass.data`, config entries, device identifiers, fired event types (`incident_created`, etc.).
 - **Entity platform domain** (`sensor`) — every entity this integration produces is a *sensor*, so its `entity_id` starts with `sensor.`, never `cap_alerts.`.
 
-So the integration is `cap_alerts`, but you refer to its entities as `sensor.cap_alert_<slug>`, `sensor.cap_alerts_count`, `sensor.cap_alerts_last_updated` in automations, templates, and the frontend.
+So the integration is `cap_alerts`, but you refer to its entities as `sensor.cap_alert_<event_slug>_<hash>`, `sensor.cap_alerts_<provider>_alert_count`, `sensor.cap_alerts_<provider>_last_updated` in automations, templates, and the frontend.
 
 Per-alert entity IDs are derived from the alert's `event` text (e.g. `sensor.cap_alert_tornado_warning`). If multiple active alerts share an event name, HA appends `_2`, `_3`, … Unique IDs are stable across restarts (`{entry_id}_{provider}_{alert_id}`), so the registry keeps identity even when the entity_id suffix shifts.
 
@@ -143,10 +143,11 @@ custom_components/cap_alerts/
   coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
   model.py          # CAPAlert dataclass + to_attributes()
-  normalize.py      # shared normalization: severity, phase, state truncation
+  normalize.py      # shared normalization: severity, phase, Buddhist-Era year fix, state truncation
   store.py          # inter-poll diffing, transition detection, HA event firing
   providers/
     __init__.py             # AlertProvider protocol + get_provider() factory
+    cap.py                  # shared, provider-neutral CAP 1.2 XML parsing (used by eccc + wmo)
     cap_content_cache.py    # LRU cache for immutable CAP XML bodies
     nws.py                  # NWS GeoJSON API — zone / GPS / tracker
     eccc.py                 # Environment Canada NAAD Atom feed

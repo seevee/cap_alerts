@@ -1,5 +1,5 @@
 # Test, lint, and type-check dependencies. Referenced by .github/workflows/ci.yml
-# and by local tooling (see CLAUDE.md "Build & Test Commands").
+# and by local tooling (see AGENTS.md "Build & Test Commands").
 
 homeassistant==2026.4.3
 # Pins its own homeassistant version — keep in lockstep with the pin above
@@ -14,3 +14,7 @@ defusedxml>=0.7
 ruff==0.15.11
 mypy==1.20.2
 types-defusedxml>=0.7
+
+# Changelog generation (ships a prebuilt `git-cliff` binary as a wheel).
+# Regenerate CHANGELOG.md with: git cliff --config cliff.toml --output CHANGELOG.md
+git-cliff==2.13.1
