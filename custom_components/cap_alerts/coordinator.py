@@ -22,6 +22,7 @@ from .const import (
     CONF_COUNTRY,
     CONF_COUNTRY_ATTRIBUTE,
     CONF_COUNTRY_ENTITY,
+    CONF_EXCLUDE_MARINE,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
@@ -44,6 +45,18 @@ from .providers.cap_content_cache import CAPContentCache
 from .store import AlertStore
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def exclude_marine_alerts(alerts: list[CAPAlert], enabled: bool) -> list[CAPAlert]:
+    """Drop marine/water-zone alerts when the exclude-marine option is on.
+
+    Provider-neutral: relies on the per-provider ``is_marine`` flag. Returns
+    the list unchanged when disabled (default), so non-marine-aware providers
+    (MeteoAlarm, WMO) are unaffected.
+    """
+    if not enabled:
+        return alerts
+    return [a for a in alerts if not a.is_marine]
 
 
 def _resolve_tracker_gps(state: Any) -> str | None:
@@ -237,6 +250,10 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # dropping them from the active set (RFC §2.3).
         entry_id = self.config_entry.entry_id
         alerts = normalize_alerts(alerts, entry_id)
+        # Opt-in marine filter (NWS/ECCC). Dropped alerts flow through store as
+        # silent disappearances, so existing marine entities are removed (firing
+        # incident_removed) when the toggle is flipped on.
+        alerts = exclude_marine_alerts(alerts, options.get(CONF_EXCLUDE_MARINE, False))
         # Externalize geometry for alerts that will remain active. Skipping
         # terminal-phase alerts avoids caching polygons we're about to drop.
         active_refs: set[str] = set()

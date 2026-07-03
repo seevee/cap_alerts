@@ -29,6 +29,7 @@ from .const import (
     CONF_COUNTRY,
     CONF_COUNTRY_ATTRIBUTE,
     CONF_COUNTRY_ENTITY,
+    CONF_EXCLUDE_MARINE,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
@@ -1208,6 +1209,16 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                     default=self.config_entry.options.get(CONF_LANGUAGE, "auto"),
                 )
             ] = vol.In(list(_METEOALARM_LANGUAGES))
+
+        # Marine-alert exclusion is only meaningful for providers that classify
+        # marine zones (NWS UGC prefixes, ECCC CLC "00…").
+        if provider in ("nws", "eccc"):
+            schema[
+                vol.Optional(
+                    CONF_EXCLUDE_MARINE,
+                    default=self.config_entry.options.get(CONF_EXCLUDE_MARINE, False),
+                )
+            ] = bool
 
         return self.async_show_form(
             step_id="init",

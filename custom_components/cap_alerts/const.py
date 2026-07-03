@@ -31,6 +31,7 @@ CONF_REGION_LABELS = "region_labels"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_TIMEOUT = "timeout"
 CONF_LANGUAGE = "language"
+CONF_EXCLUDE_MARINE = "exclude_marine"
 
 # Defaults
 DEFAULT_SCAN_INTERVAL = 300  # seconds
