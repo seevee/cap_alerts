@@ -82,7 +82,7 @@ This trips up new HA users, so worth stating explicitly:
 - **Integration domain** (`cap_alerts`) — identifies the integration itself, used in `hass.data`, config entries, device identifiers, fired event types (`incident_created`, etc.).
 - **Entity platform domain** (`sensor`) — every entity this integration produces is a *sensor*, so its `entity_id` starts with `sensor.`, never `cap_alerts.`.
 
-So the integration is `cap_alerts`, but you refer to its entities as `sensor.cap_alert_<slug>`, `sensor.cap_alerts_count`, `sensor.cap_alerts_last_updated` in automations, templates, and the frontend.
+So the integration is `cap_alerts`, but you refer to its entities as `sensor.cap_alert_<event_slug>_<hash>`, `sensor.cap_alerts_<provider>_alert_count`, `sensor.cap_alerts_<provider>_last_updated` in automations, templates, and the frontend.
 
 Per-alert entity IDs are derived from the alert's `event` text (e.g. `sensor.cap_alert_tornado_warning`). If multiple active alerts share an event name, HA appends `_2`, `_3`, … Unique IDs are stable across restarts (`{entry_id}_{provider}_{alert_id}`), so the registry keeps identity even when the entity_id suffix shifts.
 
@@ -143,10 +143,11 @@ custom_components/cap_alerts/
   coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
   model.py          # CAPAlert dataclass + to_attributes()
-  normalize.py      # shared normalization: severity, phase, state truncation
+  normalize.py      # shared normalization: severity, phase, Buddhist-Era year fix, state truncation
   store.py          # inter-poll diffing, transition detection, HA event firing
   providers/
     __init__.py             # AlertProvider protocol + get_provider() factory
+    cap.py                  # shared, provider-neutral CAP 1.2 XML parsing (used by eccc + wmo)
     cap_content_cache.py    # LRU cache for immutable CAP XML bodies
     nws.py                  # NWS GeoJSON API — zone / GPS / tracker
     eccc.py                 # Environment Canada NAAD Atom feed
@@ -156,27 +157,12 @@ custom_components/cap_alerts/
 
 Deeper reference: [`docs/architecture.md`](docs/architecture.md) (alert identity hashing, field mappings, provider rationale, future providers). Planned work: [`docs/roadmap.md`](docs/roadmap.md).
 
-### ECCC — CAP body fetch
+### Provider notes
 
-ECCC alerts now fetch the linked CAP XML (`<atom:link type="application/cap+xml">`) to provide the full alert body. This eliminates the empty `description`/`headline`/`instruction`, wrong/stale timestamps, and duplicate cards for the same alert series.
+- **ECCC** fetches the linked CAP XML body (not just the Atom envelope), so alerts carry full `headline`/`description`/`instruction`, accurate timestamps, and one card per alert series — revision chains (NEW → UPDATE → CANCEL) collapse to the current leaf via CAP `<references>`.
+- **WMO** reuses the same RSS-index → per-item CAP two-step (and the shared CAP parser), populates its source dropdown from the live SWIC registry, and pre-filters already-expired RSS items so high-volume feeds don't blow the poll timeout. EU/US users are better served by the dedicated MeteoAlarm/NWS providers.
 
-**What changed:**
-- `headline`, `description`, `instruction` are populated from the CAP `<info>` block.
-- `sent`, `effective`, `onset`, `expires` reflect CAP-body values. Past-`expires` alerts are correctly phased as `expired` and filtered from the active set.
-- Revision chains (NEW → UPDATE → CANCEL) collapse to the current leaf via CAP `<references>`, so one card per alert series is shown.
-- `event` uses the CAP title-case form (e.g. `"Freezing Drizzle Advisory"` instead of the lowercase Atom category term). Icon dispatch is unaffected.
-- ECCC CAP-CP eventCodes (e.g. `profile:CAP-CP:Event:0.4 → freezing-drizzle`) are exposed via `attributes.parameters`.
-
-**Operational details:** CAP files are fetched with bounded concurrency (`asyncio.Semaphore(5)`) and cached in a shared LRU-256 `CAPContentCache` on `hass.data[DOMAIN]`. Since each CAP revision has a unique URL, the cache requires no TTL. On fetch failure the alert surfaces with Atom-only metadata (empty long-form text) rather than being dropped.
-
-### WMO — registry-backed sources & expiry pre-filter
-
-WMO uses the same RSS-index → per-item CAP XML two-step as ECCC (and reuses ECCC's CAP parser). Two WMO-specific behaviors are worth calling out:
-
-- **Source dropdown** is populated at config-flow time from the live SWIC registry (`sources.json`), filtered to mirror-reachable sources, with the static `WMO_SOURCE_NAMES` catalog as an offline fallback. Custom source IDs are accepted. The *alert fetch* always uses the mirror, independent of the registry.
-- **Expiry pre-filter**: the mirror enriches each RSS `<item>` with `cap:expires`, so already-expired items are skipped before any CAP body is fetched. High-volume sources (PAGASA lists ~500 items, nearly all expired) would otherwise blow the per-poll timeout and mark the entry unavailable; the pre-filter keeps only live alerts (e.g. ~9).
-
-EU and US users are better served by the dedicated MeteoAlarm/NWS providers — the WMO field description explains why. See [`docs/architecture.md`](docs/architecture.md) for the full WMO section.
+See [`docs/architecture.md`](docs/architecture.md) for the full ECCC and WMO sections — CAP body fetch, concurrency and caching, the expiry pre-filter, and per-field mappings.
 
 ### Key design decisions
 

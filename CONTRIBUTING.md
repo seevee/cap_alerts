@@ -21,6 +21,22 @@ See the [Development section of the README](README.md#development) and [docs/arc
 
 Use conventional-style prefixes: `feat(scope):`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
 
+## Changelog
+
+`CHANGELOG.md` is **generated**, not hand-edited — do not edit it directly. It is
+produced from the conventional commit history by [git-cliff](https://git-cliff.org/)
+(config in `cliff.toml`, pinned in `requirements_test.txt`). Regenerate the whole
+file after tagging a release:
+
+```bash
+git cliff --config cliff.toml --output CHANGELOG.md
+```
+
+Because entries come straight from commit subjects, a clean `type(scope): description`
+subject is what lands in the changelog. `chore(release):` and bare `ci:` commits are
+skipped. GitHub Release notes for a single tag can be generated with
+`git cliff --latest --strip header`.
+
 ## AI-Assisted Contributions
 
 AI coding assistants are welcome as tools, under two rules:
