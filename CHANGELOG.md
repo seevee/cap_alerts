@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0-alpha.2 — 2026-07-04
+
+### Added
+- Add opt-in exclude-marine-alerts option (#18) (#23) (ad81b5e…)
+
+### Maintenance
+- Add generated changelog and generalize agent guidance (#22) (aad1fd9…)
+
 ## 0.2.0-alpha.1 — 2026-07-03
 
 ### Added
