@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Marine ECCC CAP fixture. The distinguishing signal is the CLC area geocode
+  (layer:EC-MSC-SMC:1.0:CLC) value "004310": marine/water zones carry no
+  province prefix and start with "00", whereas land zones are province-numbered
+  (e.g. Ottawa = "071100" in eccc_cap_en_update_1.xml).
+
+  Re-verify note: the CLC "00" == marine rule was validated against a
+  summer/squall-heavy sample of 552 live CAP files. Confirm it still holds for
+  winter gale/storm marine warnings when such data is available.
+-->
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>urn:oid:2.49.0.1.124.test.2026.MARINE.EN</identifier>
+  <sender>CWTO</sender>
+  <sent>2026-01-15T12:00:00-05:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <scope>Public</scope>
+  <info>
+    <language>en-CA</language>
+    <category>Met</category>
+    <event>Squall Warning</event>
+    <responseType>Prepare</responseType>
+    <urgency>Immediate</urgency>
+    <severity>Moderate</severity>
+    <certainty>Observed</certainty>
+    <effective>2026-01-15T12:00:00-05:00</effective>
+    <onset>2026-01-15T13:00:00-05:00</onset>
+    <expires>2026-01-15T20:00:00-05:00</expires>
+    <senderName>Environment and Climate Change Canada</senderName>
+    <headline>Squall Warning in effect</headline>
+    <description>Snow squalls producing hazardous conditions over open water.</description>
+    <instruction>Mariners should remain in port until conditions improve.</instruction>
+    <web>https://www.weather.gc.ca/marine/alert_en.html</web>
+    <eventCode>
+      <valueName>profile:CAP-CP:Event:0.4</valueName>
+      <value>squall</value>
+    </eventCode>
+    <area>
+      <areaDesc>Lake Ontario</areaDesc>
+      <polygon>43.5,-78.0 43.5,-77.0 44.0,-77.0 44.0,-78.0 43.5,-78.0</polygon>
+      <geocode>
+        <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+        <value>004310</value>
+      </geocode>
+    </area>
+  </info>
+</alert>

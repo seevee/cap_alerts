@@ -68,6 +68,7 @@ _resolve_chain_leaves = _cap_mod.resolve_chain_leaves
 _bilingual_key = _eccc_mod._bilingual_key
 _fallback_id = _eccc_mod._fallback_id
 _build_alert_from_cap = _eccc_mod._build_alert_from_cap
+_is_marine_eccc = _eccc_mod._is_marine_eccc
 _headline_to_event = _eccc_mod._headline_to_event
 _best_event_name = _eccc_mod._best_event_name
 CAPDoc = _cap_mod.CAPDoc
@@ -499,6 +500,40 @@ def test_build_alert_from_cap_geocode_clc_empty_when_absent():
         doc, info, {"atom_id": "", "language": "en-CA"}, "", _bilingual_key(doc, info)
     )
     assert alert.geocode_clc == ()
+
+
+def test_is_marine_eccc_true_for_water_zone_prefix():
+    assert _is_marine_eccc(("004310",)) is True
+    assert _is_marine_eccc(("071100", "004410")) is True
+
+
+def test_is_marine_eccc_false_for_land_and_empty():
+    assert _is_marine_eccc(("071100",)) is False
+    assert _is_marine_eccc(()) is False
+
+
+def test_build_alert_from_cap_marine_zone_sets_is_marine():
+    # CLC "004310" (Lake Ontario) is a water zone -> is_marine True, and the
+    # CLC geocode is carried onto the alert.
+    xml = _fixture("eccc_cap_en_marine.xml")
+    doc = _parse_cap_alert(xml)
+    assert doc is not None
+    info = _select_info(doc, "en-CA")
+    alert = _build_alert_from_cap(
+        doc, info, {"atom_id": "", "language": "en-CA"}, "", _bilingual_key(doc, info)
+    )
+    assert alert.geocode_clc == ("004310",)
+    assert alert.is_marine is True
+    # Surfaced as an attribute only when True.
+    assert alert.to_attributes().get("is_marine") is True
+
+
+def test_build_alert_from_cap_land_zone_not_marine():
+    # Ottawa land update fixture (CLC "071100") -> is_marine False, and the
+    # attribute is omitted entirely.
+    alert = _make_alert_from_update_fixture()
+    assert alert.is_marine is False
+    assert "is_marine" not in alert.to_attributes()
 
 
 def test_build_alert_from_cap_routes_eventcode_to_parameters():

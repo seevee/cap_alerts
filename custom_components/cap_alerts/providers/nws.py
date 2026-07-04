@@ -20,6 +20,38 @@ _LOGGER = logging.getLogger(__name__)
 NWS_API_BASE = "https://api.weather.gov/alerts/active"
 MAX_PAGINATION_FOLLOWS = 5
 
+# UGC area prefixes (first two chars of a zone code) that denote marine/water
+# zones — coastal/offshore waters, Great Lakes, and high-seas areas. These are
+# disjoint from the US state/territory postal codes used for land zones, so a
+# prefix test never misclassifies a land alert. A newly minted marine-area code
+# would need to be added here; until then such an alert classifies as land
+# (fail-open — a marine alert is shown, never a non-marine alert hidden).
+NWS_MARINE_UGC_PREFIXES: frozenset[str] = frozenset(
+    {
+        "AM",  # Western North Atlantic / Caribbean / Gulf offshore
+        "AN",  # Atlantic coastal/offshore
+        "GM",  # Gulf of Mexico
+        "LC",  # Lake St. Clair
+        "LE",  # Lake Erie
+        "LH",  # Lake Huron
+        "LM",  # Lake Michigan
+        "LO",  # Lake Ontario
+        "LS",  # Lake Superior
+        "PH",  # Hawaiian coastal/offshore
+        "PK",  # Alaskan coastal
+        "PM",  # Western Pacific (Marianas)
+        "PS",  # American Samoa
+        "PZ",  # Pacific coastal/offshore
+        "SL",  # St. Lawrence River
+    }
+)
+
+
+def _is_marine_nws(codes: tuple[str, ...]) -> bool:
+    """Return True if any UGC/zone code is a marine-area code."""
+    return any(c[:2] in NWS_MARINE_UGC_PREFIXES for c in codes)
+
+
 # VTEC regex: /P.ACTION.OFFICE.PP.S.NNNN.YYMMDDTHHMMZ-YYMMDDTHHMMZ/
 _VTEC_RE = re.compile(
     r"/[A-Z]\.([A-Z]{3})\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})"
@@ -113,6 +145,8 @@ def _parse_feature(feature: dict[str, Any]) -> CAPAlert:
 
     alert_id = _compute_alert_id(props)
 
+    is_marine = _is_marine_nws(geocode_ugc + zone_codes)
+
     return CAPAlert(
         id=alert_id,
         url=props.get("id", ""),
@@ -160,6 +194,7 @@ def _parse_feature(feature: dict[str, Any]) -> CAPAlert:
         replaced_at=props.get("replacedAt", "") or "",
         parameters=props.get("parameters"),
         provider="nws",
+        is_marine=is_marine,
     )
 
 

@@ -52,6 +52,10 @@ class CAPAlert:
     geometry: dict | None = None
     geometry_ref: str = ""
     bbox: tuple[float, float, float, float] | None = None
+    # Marine/water-zone classification, set per-provider (NWS UGC marine-area
+    # prefix, ECCC CLC "00…"). Drives the opt-in exclude-marine filter and is
+    # surfaced as an attribute only when True.
+    is_marine: bool = False
 
     # -- Event Codes --
     event_code_nws: str = ""
@@ -112,6 +116,8 @@ class CAPAlert:
             if f.name == "geometry":
                 continue
             val = getattr(self, f.name)
+            if f.name == "is_marine" and not val:
+                continue
             if val is None or val == "" or val == ():
                 continue
             if isinstance(val, tuple):

@@ -30,6 +30,19 @@ NS_ATOM = "http://www.w3.org/2005/Atom"
 NS_GEORSS = "http://www.georss.org/georss"
 NS_CAP = "urn:oasis:names:tc:emergency:cap:1.2"
 
+# ECCC Canadian Location Code area geocode scheme. Land zones carry a
+# province-numbered prefix (e.g. QC=03, SK=06, BC=08); marine/water zones get
+# no province prefix and start with "00". Verified perfect separation on 552
+# live CAP files (summer/squall-heavy sample — re-verify against winter
+# gale/storm warnings). Fail-open: a mis-prefixed marine zone stays visible.
+_CLC_GEOCODE_KEY = "layer:EC-MSC-SMC:1.0:CLC"
+ECCC_MARINE_CLC_PREFIX = "00"
+
+
+def _is_marine_eccc(clc: tuple[str, ...]) -> bool:
+    """Return True if any CLC area geocode is a marine/water zone ("00…")."""
+    return any(v.startswith(ECCC_MARINE_CLC_PREFIX) for v in clc)
+
 
 # ---------------------------------------------------------------------------
 # Atom envelope helpers (unchanged from original)
@@ -343,6 +356,8 @@ def _build_alert_from_cap(
     # Merge event_codes into parameters (parameters win on collision)
     merged_params: dict[str, str] = {**info.event_codes, **info.parameters}
 
+    clc = tuple(info.geocodes.get(_CLC_GEOCODE_KEY, ()))
+
     return CAPAlert(
         id=alert_id,
         url=atom_metadata.get("atom_id", ""),
@@ -372,7 +387,8 @@ def _build_alert_from_cap(
         area_desc=info.area_desc,
         geometry=geometry,
         geocode_same=tuple(info.geocodes.get("SAME", ())),
-        geocode_clc=tuple(info.geocodes.get("layer:EC-MSC-SMC:1.0:CLC", ())),
+        geocode_clc=clc,
+        is_marine=_is_marine_eccc(clc),
         sender=doc.sender,
         sender_name=info.sender_name,
         references=tuple(ref_id for _, ref_id, _ in doc.references),
