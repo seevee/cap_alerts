@@ -30,8 +30,8 @@ commit_parsers = [
   { message = "^perf", group = "Performance" },
   { message = "^refactor", group = "Changed" },
   { message = "^docs", group = "Documentation" },
-  # Release bumps here use the scoped form `chore(release):` (CI-committed by
-  # .github/workflows/release.yml), so the skip pattern must account for the scope.
+  # Release bumps here use the scoped form `chore(release):` (committed by
+  # scripts/release.sh in the release PR), so the skip pattern must account for the scope.
   { message = '^chore\(release\)', skip = true },
   # Bare `ci:` commits are build-internal noise; scoped fix(ci)/chore(ci) still
   # land in Fixed/Maintenance because those rules match first.
