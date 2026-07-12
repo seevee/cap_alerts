@@ -270,6 +270,8 @@ async def test_gps_polygon_fail_loud_when_zero_polygons():
     msg = str(excinfo.value)
     assert "DE" in msg
     assert "warnings carry no polygons" in msg
+    # The message steers polygonless countries toward region-picker mode.
+    assert "region-picker" in msg
 
 
 @pytest.mark.asyncio
@@ -372,6 +374,68 @@ async def test_region_picker_drops_when_no_intersection():
     assert alerts == []
 
 
+def _fr_payload() -> dict:
+    return json.loads((_FIXTURE_DIR / "meteoalarm_fr.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.asyncio
+async def test_region_picker_intersects_nuts3():
+    # France filters on NUTS3 department codes (#25). Selecting FR614 keeps
+    # only the warning covering Lot-et-Garonne.
+    session = _FakeSession(_fr_payload())
+    provider = meteoalarm.MeteoAlarmProvider()
+    alerts = await provider.async_fetch(
+        session,
+        config={"country": "FR", "regions": ["FR614"]},
+        options={"language": "fr"},
+    )
+    assert len(alerts) == 1
+    assert "FR614" in alerts[0].geocodes["NUTS3"]
+
+
+@pytest.mark.asyncio
+async def test_region_picker_drops_when_no_nuts3_intersection():
+    session = _FakeSession(_fr_payload())
+    provider = meteoalarm.MeteoAlarmProvider()
+    alerts = await provider.async_fetch(
+        session,
+        config={"country": "FR", "regions": ["FR999"]},
+        options={"language": "fr"},
+    )
+    assert alerts == []
+
+
+def test_emma_id_preferred_over_secondary_schemes():
+    # An area carrying both EMMA_ID and WARNCELLID resolves to the EMMA_ID for
+    # region selection; the sub-region cell id is stored but never offered.
+    info = {
+        "area": [
+            {
+                "areaDesc": "Erzgebirgskreis",
+                "geocode": [
+                    {"valueName": "WARNCELLID", "value": "114521000"},
+                    {"valueName": "EMMA_ID", "value": "DE343"},
+                ],
+            }
+        ]
+    }
+    pairs = meteoalarm._region_pairs(info)
+    assert pairs == [("DE343", "Erzgebirgskreis")]
+    codes = meteoalarm._region_codes(
+        {"EMMA_ID": ("DE343",), "WARNCELLID": ("114521000",)}
+    )
+    assert codes == ("DE343",)
+
+
+def test_region_pairs_areadesc_fallback():
+    # Named area with no region-selectable scheme falls back to areaDesc so the
+    # picker is still populated for polygon-only-but-named feeds.
+    info = {"area": [{"areaDesc": "Ticino", "polygon": "46,8 47,8 46.5,9"}]}
+    assert meteoalarm._region_pairs(info) == [("Ticino", "Ticino")]
+    # Unnamed and schemeless → nothing to offer.
+    assert meteoalarm._region_pairs({"area": [{"polygon": "46,8 47,8 46.5,9"}]}) == []
+
+
 # ── fetch_regions_for_country ──────────────────────────────────────
 
 
@@ -407,6 +471,30 @@ async def test_fetch_regions_falls_back_to_warnings():
     assert codes
     for code in codes:
         assert code.startswith("DE")
+
+
+@pytest.mark.asyncio
+async def test_fetch_regions_nuts3_from_warnings():
+    # France has no regions endpoint; the picker is derived from the warnings
+    # feed's NUTS3 areas (#25). Pairs use department names as labels and are
+    # sorted case-insensitively by label.
+    warnings_payload = json.loads(
+        (_FIXTURE_DIR / "meteoalarm_fr.json").read_text(encoding="utf-8")
+    )
+    session = _RoutedFakeSession(
+        {
+            "/api/v1/regions/": ({}, 404),
+            "/api/v1/warnings/": (warnings_payload, 200),
+        }
+    )
+    regions = await meteoalarm.fetch_regions_for_country(session, "FR")
+    assert ("FR614", "Lot-et-Garonne") in regions
+    codes = {code for code, _label in regions}
+    assert {"FR614", "FR611", "FR631", "FR615"} <= codes
+    for code in codes:
+        assert code.startswith("FR")
+    labels = [label for _code, label in regions]
+    assert labels == sorted(labels, key=str.lower)
 
 
 @pytest.mark.asyncio

@@ -257,14 +257,20 @@ not `Actual` are skipped at parse time.
   ring contains the configured point. Fails loud with `UpdateFailed` when
   the page has warnings but none carry polygons (the country does not
   publish per-warning geometry); matches the ECCC GPS-mode contract.
-- **Region picker** — multi-select of `EMMA_ID` codes (e.g. `DE006` for
-  Bavaria). The config flow populates the picker by calling the regions
-  endpoint, falling back to deriving the list from the warnings feed
-  itself when the regions endpoint is unavailable. At fetch time the
-  provider keeps warnings whose `EMMA_ID` set intersects the configured
-  selection. Selected `EMMA_ID → label` pairs are persisted as
-  `CONF_REGION_LABELS` so the device title can show readable region names
-  (e.g. `MeteoAlarm DE — Bavaria +2`) without re-fetching.
+- **Region picker** — multi-select of region codes. Feeds carry a mix of
+  area-geocode schemes across countries (`EMMA_ID` for most, `NUTS3` for
+  FR/BG/RO/MK, `NUTS2` for HU; sub-region cell schemes `WARNCELLID`/`CISORP`
+  co-occur with these). A single scheme-priority resolver
+  (`METEOALARM_REGION_SCHEMES = ("EMMA_ID", "NUTS3", "NUTS2")`, `areaDesc` as
+  last resort) drives **both** picker population and the per-warning filter, so
+  the value stored in `CONF_REGIONS` and the value matched at fetch time are
+  always the same scheme for a given feed. The config flow populates the picker
+  by calling the regions endpoint, falling back to deriving the list from the
+  warnings feed itself when the regions endpoint is unavailable (the only path
+  for NUTS3 countries like France, which have no regions endpoint). Selected
+  `code → label` pairs are persisted as `CONF_REGION_LABELS` so the device
+  title can show readable region names (e.g. `MeteoAlarm DE — Bavaria +2`)
+  without re-fetching.
 
 **Severity**: when an `info` block carries an `awareness_level` parameter
 (format `"N; color; Label"`, e.g. `"3; orange; Severe"`), the color token
@@ -304,7 +310,7 @@ identifier is missing.
 | `alert.info[].headline` / `description` / `instruction` / `web` | same-named fields |
 | `alert.info[].parameter[]` (valueName/value pairs) | `parameters` dict |
 | `alert.info[].area[].areaDesc` | `area_desc` (joined across area blocks) |
-| `alert.info[].area[].geocode[]` where `valueName == "EMMA_ID"` | `geocode_same` (also drives the region-picker filter) |
+| `alert.info[].area[].geocode[]` (all schemes, keyed by `valueName`) | `geocodes` — scheme-keyed container (`{"EMMA_ID": (...), "NUTS3": (...)}`); drives the region-picker filter. MeteoAlarm leaves `geocode_same` empty (EMMA_ID is not a SAME code), unlike NWS/ECCC/WMO |
 | `alert.info[].area[].polygon` | `geometry` (GeoJSON Polygon or MultiPolygon, lon/lat) |
 | `sha256(identifier)[:12]` (or `sha256(uuid)[:12]` fallback) | `id` |
 

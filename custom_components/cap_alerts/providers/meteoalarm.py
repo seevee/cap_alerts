@@ -2,8 +2,11 @@
 
 Uses the aggregate JSON endpoint
 (``feeds.meteoalarm.org/api/v1/warnings/feeds-{country-slug}``) which ships
-proper CAP-1.2 ``info`` blocks (multi-language) and per-area geocodes
-(EMMA_ID/WARNCELLID).
+proper CAP-1.2 ``info`` blocks (multi-language) and per-area geocodes. Feeds
+carry a mix of area-geocode schemes across countries (``EMMA_ID``, ``NUTS3``,
+``NUTS2``, ``WARNCELLID``, ``CISORP``); some countries carry two at once and
+some none (polygon-only). Geocodes are collected into the scheme-keyed
+``CAPAlert.geocodes`` container rather than a single named field.
 
 Three filter modes selectable via config-flow:
 
@@ -12,8 +15,11 @@ Three filter modes selectable via config-flow:
   warnings whose polygon contains the configured point. Fails loud when a
   non-empty warnings page contains zero polygons (the country does not
   publish per-warning geometry).
-* region-picker — keeps warnings whose ``EMMA_ID`` set intersects the
-  configured region selection.
+* region-picker — keeps warnings whose region codes intersect the configured
+  region selection. Region codes are resolved from ``geocodes`` by scheme
+  priority (``METEOALARM_REGION_SCHEMES``) so a country's coarsest
+  administrative scheme (e.g. ``EMMA_ID`` for DE, ``NUTS3`` for FR) is what
+  both the picker offers and the filter matches.
 """
 
 from __future__ import annotations
@@ -41,6 +47,15 @@ _LOGGER = logging.getLogger(__name__)
 
 METEOALARM_FEED_URL = "https://feeds.meteoalarm.org/api/v1/warnings/feeds-{country}"
 METEOALARM_REGIONS_URL = "https://feeds.meteoalarm.org/api/v1/regions/feeds-{country}"
+
+# Region-selectable geocode schemes in priority order: EUMETNET canonical
+# region id first, then NUTS3 (department/county) preferred over NUTS2 (region)
+# when both are present. The first scheme present on an area is what the region
+# picker offers and the region filter matches. Sub-region cell schemes
+# (WARNCELLID, CISORP) always co-occur with one of these and are stored in
+# ``geocodes`` but never offered in the picker. ``areaDesc`` is a last resort
+# when a feed names areas but carries no region-selectable scheme.
+METEOALARM_REGION_SCHEMES: tuple[str, ...] = ("EMMA_ID", "NUTS3", "NUTS2")
 
 
 def _compute_id(identifier: str, fallback: str) -> str:
@@ -117,16 +132,77 @@ def _join_areas(info: Mapping[str, Any]) -> str:
     return ", ".join(descs)
 
 
-def _emma_geocodes(info: Mapping[str, Any]) -> tuple[str, ...]:
-    """All ``EMMA_ID`` geocode values across the info's area blocks."""
-    out: list[str] = []
+def _scheme_geocodes(info: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
+    """All area geocodes keyed by ``valueName`` (scheme).
+
+    Collects every ``geocode`` across the info's area blocks into a
+    scheme→values mapping, e.g. ``{"EMMA_ID": (...), "WARNCELLID": (...)}``.
+    Values are de-duplicated per scheme, order-preserving. Areas without any
+    geocode contribute nothing.
+    """
+    collected: dict[str, list[str]] = {}
     for area in info.get("area") or []:
         for code in area.get("geocode") or []:
-            if code.get("valueName") == "EMMA_ID":
-                value = code.get("value") or ""
-                if value and value not in out:
-                    out.append(value)
-    return tuple(out)
+            scheme = code.get("valueName") or ""
+            value = code.get("value") or ""
+            if not scheme or not value:
+                continue
+            bucket = collected.setdefault(scheme, [])
+            if value not in bucket:
+                bucket.append(value)
+    return {scheme: tuple(values) for scheme, values in collected.items()}
+
+
+def _region_pairs(info: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """``(code, label)`` region-picker pairs for the info's areas.
+
+    Per area, pick the first scheme present in ``METEOALARM_REGION_SCHEMES``
+    with a non-empty value → ``(value, areaDesc or value)``. If no
+    region-selectable scheme is present but ``areaDesc`` is set, fall back to
+    ``(areaDesc, areaDesc)`` so named-but-schemeless feeds still populate the
+    picker. Document order; de-duplicated by code (first label wins).
+    """
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for area in info.get("area") or []:
+        desc = area.get("areaDesc") or ""
+        by_scheme: dict[str, str] = {}
+        for code in area.get("geocode") or []:
+            scheme = code.get("valueName") or ""
+            value = code.get("value") or ""
+            if scheme and value and scheme not in by_scheme:
+                by_scheme[scheme] = value
+        code_value = ""
+        for scheme in METEOALARM_REGION_SCHEMES:
+            if by_scheme.get(scheme):
+                code_value = by_scheme[scheme]
+                break
+        if not code_value and desc:
+            code_value = desc
+        if not code_value or code_value in seen:
+            continue
+        seen.add(code_value)
+        out.append((code_value, desc or code_value))
+    return out
+
+
+def _region_codes(
+    geocodes: Mapping[str, tuple[str, ...]],
+    area_descs: tuple[str, ...] = (),
+) -> tuple[str, ...]:
+    """Region codes for an alert, matching ``_region_pairs`` selection.
+
+    Returns the values of the first scheme present in
+    ``METEOALARM_REGION_SCHEMES``; if none is present, falls back to the
+    alert's area descriptions (mirroring ``_region_pairs``' ``areaDesc``
+    fallback) so picker values and filter keys stay in the same namespace for
+    the same feed.
+    """
+    for scheme in METEOALARM_REGION_SCHEMES:
+        values = geocodes.get(scheme)
+        if values:
+            return tuple(values)
+    return tuple(area_descs)
 
 
 def _first(value: Any) -> str:
@@ -191,26 +267,16 @@ def _point_in_polygon(lat: float, lon: float, polygon: list[list[float]]) -> boo
     return inside
 
 
-def _extract_geometries(
-    info: Mapping[str, Any],
-) -> tuple[list[list[list[float]]], list[tuple[str, str]]]:
-    """Return ``(polygon_rings, area_pairs)`` from a CAP info block.
+def _extract_geometries(info: Mapping[str, Any]) -> list[list[list[float]]]:
+    """Return polygon rings from a CAP info block.
 
-    ``polygon_rings`` is one ring per area that carries a usable polygon,
-    in GeoJSON ``[[lon, lat], ...]`` order. ``area_pairs`` is the
-    ``(EMMA_ID, areaDesc)`` for every area block, used to populate the
-    region-picker fallback. ``area.polygon`` is accepted as a string or
-    a list of strings; unparseable entries are skipped.
+    One ring per area that carries a usable polygon, in GeoJSON
+    ``[[lon, lat], ...]`` order. ``area.polygon`` is accepted as a string or a
+    list of strings; unparseable entries are skipped. Region-picker pairs are
+    derived separately by ``_region_pairs``.
     """
     rings: list[list[list[float]]] = []
-    pairs: list[tuple[str, str]] = []
     for area in info.get("area") or []:
-        desc = area.get("areaDesc") or ""
-        for code in area.get("geocode") or []:
-            if code.get("valueName") == "EMMA_ID":
-                value = code.get("value") or ""
-                if value:
-                    pairs.append((value, desc))
         polygon = area.get("polygon")
         candidates: list[str]
         if isinstance(polygon, list):
@@ -223,7 +289,7 @@ def _extract_geometries(
             ring = _parse_cap_polygon(text)
             if ring is not None:
                 rings.append(ring)
-    return rings, pairs
+    return rings
 
 
 def _geometry_from_rings(
@@ -261,8 +327,8 @@ def _warning_to_alert(
     identifier = alert.get("identifier") or ""
     uuid = warning.get("uuid") or ""
     parameters = _flatten_parameters(primary)
-    geocodes = _emma_geocodes(primary)
-    rings, _pairs = _extract_geometries(primary)
+    geocodes = _scheme_geocodes(primary)
+    rings = _extract_geometries(primary)
     geometry = _geometry_from_rings(rings)
 
     return CAPAlert(
@@ -287,7 +353,7 @@ def _warning_to_alert(
         instruction=_info_text(primary, "instruction") or None,
         web=_info_text(primary, "web"),
         area_desc=_join_areas(primary),
-        geocode_same=geocodes,
+        geocodes=geocodes,
         geometry=geometry,
         sender=alert.get("sender") or "",
         sender_name=_info_text(primary, "senderName"),
@@ -331,7 +397,11 @@ def _alert_polygons(alert: CAPAlert) -> list[list[list[float]]]:
 async def fetch_regions_for_country(
     session: aiohttp.ClientSession, country_iso: str
 ) -> list[tuple[str, str]]:
-    """Return ``[(EMMA_ID, label), ...]`` for the given country.
+    """Return ``[(region_code, label), ...]`` for the given country.
+
+    ``region_code`` is in the country's region-selectable scheme (EMMA_ID for
+    most, NUTS3 for FR/BG/RO/MK, NUTS2 for HU) — the same namespace the
+    per-alert region filter matches against.
 
     Tries the regions endpoint first; on any failure (HTTP error, JSON
     error, empty response, unexpected shape) falls back to deriving the
@@ -416,8 +486,7 @@ async def _fetch_regions_from_warnings(
             continue
         alert = warning.get("alert") or {}
         for info in alert.get("info") or []:
-            _rings, pairs = _extract_geometries(info)
-            out.extend(pairs)
+            out.extend(_region_pairs(info))
     return out
 
 
@@ -518,7 +587,8 @@ class MeteoAlarmProvider:
             raise UpdateFailed(
                 f"MeteoAlarm {country}: GPS filter requested but "
                 f"{len(alerts)} warnings carry no polygons; this country "
-                "does not publish per-warning geometry"
+                "does not publish per-warning geometry — use region-picker "
+                "mode instead"
             )
         gps = _parse_gps(gps_loc)
         if gps is None:
@@ -539,8 +609,18 @@ class MeteoAlarmProvider:
 
     @staticmethod
     def _filter_by_regions(alerts: list[CAPAlert], regions: Any) -> list[CAPAlert]:
-        """Keep alerts whose ``geocode_same`` intersects ``regions``."""
+        """Keep alerts whose resolved region codes intersect ``regions``.
+
+        Region codes are resolved from each alert's ``geocodes`` container via
+        the shared scheme-priority resolver, so the values compared here are
+        the same scheme the region picker offered (see ``_region_pairs``).
+        """
         wanted = {str(r) for r in regions if r}
         if not wanted:
             return []
-        return [a for a in alerts if wanted.intersection(a.geocode_same)]
+        kept: list[CAPAlert] = []
+        for a in alerts:
+            descs = tuple(d.strip() for d in a.area_desc.split(",") if d.strip())
+            if wanted.intersection(_region_codes(a.geocodes, descs)):
+                kept.append(a)
+        return kept
