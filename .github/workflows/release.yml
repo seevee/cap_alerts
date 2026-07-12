@@ -8,34 +8,17 @@ permissions:
   contents: write
 
 jobs:
-  sync-manifest-version:
+  regenerate-changelog:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.target_commitish }}
-      - name: Update manifest.json version
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          python - <<EOF
-          import json, pathlib
-          p = pathlib.Path("custom_components/cap_alerts/manifest.json")
-          data = json.loads(p.read_text())
-          data["version"] = "${VERSION}"
-          p.write_text(json.dumps(data, indent=2) + "\n")
-          EOF
-      - name: Commit version bump if changed
-        run: |
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -am "chore(release): set manifest version to ${GITHUB_REF_NAME#v}"
-            git push origin HEAD:${{ github.event.release.target_commitish }}
-          fi
-      - name: Install git-cliff
-        run: pip install "$(grep '^git-cliff' requirements_test.txt)"
-      - name: Generate changelog
-        run: git cliff --config cliff.toml --output CHANGELOG.md
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Regenerate changelog
+        run: pip install "$(grep '^git-cliff' requirements_test.txt)" && git cliff --config cliff.toml --output CHANGELOG.md
       - name: Commit changelog if changed
         run: |
           if ! git diff --quiet CHANGELOG.md; then
