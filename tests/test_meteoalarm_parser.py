@@ -102,6 +102,11 @@ def feed_with_polygons() -> dict:
     )
 
 
+@pytest.fixture
+def feed_fr() -> dict:
+    return json.loads((_FIXTURE_DIR / "meteoalarm_fr.json").read_text(encoding="utf-8"))
+
+
 def _parse(feed: dict, preferred_prefix: str = "de"):
     """Run the provider's per-warning conversion across a JSON payload."""
     alerts = []
@@ -184,9 +189,38 @@ def test_geometry_populated_when_polygon_present(feed_with_polygons):
 def test_emma_geocodes_collected(feed_de):
     alerts = _parse(feed_de)
     gusts = next(a for a in alerts if a.event == "STURMBÖEN")
-    assert gusts.geocode_same
-    for code in gusts.geocode_same:
+    # MeteoAlarm no longer mislabels EMMA_ID as SAME (#24); codes live in the
+    # scheme-keyed ``geocodes`` container instead.
+    assert gusts.geocode_same == ()
+    emma = gusts.geocodes.get("EMMA_ID", ())
+    assert emma
+    for code in emma:
         assert code.startswith("DE")
+
+
+def test_scheme_geocodes_multi_scheme(feed_de):
+    # The DE fixture's areas carry EMMA_ID *and* WARNCELLID; both land in the
+    # scheme-keyed container, keyed by their valueName.
+    alerts = _parse(feed_de)
+    gusts = next(a for a in alerts if a.event == "STURMBÖEN")
+    assert "EMMA_ID" in gusts.geocodes
+    assert "WARNCELLID" in gusts.geocodes
+    for code in gusts.geocodes["EMMA_ID"]:
+        assert code.startswith("DE")
+
+
+def test_nuts3_feed_populates_geocodes_not_geocode_same(feed_fr):
+    # France publishes NUTS3 department codes and no polygons — the #25 bug.
+    alerts = _parse(feed_fr, preferred_prefix="fr")
+    assert alerts
+    for a in alerts:
+        assert a.geocode_same == ()
+        assert a.geometry is None
+        assert "NUTS3" in a.geocodes
+        for code in a.geocodes["NUTS3"]:
+            assert code.startswith("FR")
+    multi = next(a for a in alerts if a.event == "Vent violent" and "," in a.area_desc)
+    assert set(multi.geocodes["NUTS3"]) == {"FR614", "FR611"}
 
 
 def test_awareness_level_in_parameters(feed_de):
@@ -206,7 +240,7 @@ def test_area_desc_joined_across_areas(feed_de):
     alerts = _parse(feed_de)
     # The fixture trims each warning to two areas; joined string contains both.
     gusts = next(a for a in alerts if a.event == "STURMBÖEN")
-    assert "," in gusts.area_desc or len(gusts.geocode_same) == 1
+    assert "," in gusts.area_desc or len(gusts.geocodes.get("EMMA_ID", ())) == 1
 
 
 def test_repeated_parameters_joined(feed_de):

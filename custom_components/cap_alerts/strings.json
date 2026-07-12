@@ -133,7 +133,7 @@
           "regions": "Regions"
         },
         "data_description": {
-          "regions": "Select one or more EMMA_ID regions to filter alerts."
+          "regions": "Select one or more regions to filter alerts."
         }
       },
       "wmo_source": {
@@ -300,7 +300,7 @@
           "regions": "Regions"
         },
         "data_description": {
-          "regions": "Select one or more EMMA_ID regions to filter alerts."
+          "regions": "Select one or more regions to filter alerts."
         }
       },
       "reconfigure_wmo_source": {

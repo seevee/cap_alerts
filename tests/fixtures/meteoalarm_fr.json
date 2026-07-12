@@ -1,0 +1,147 @@
+{
+  "warnings": [
+    {
+      "uuid": "fr-uuid-1",
+      "alert": {
+        "identifier": "2.49.0.1.250.0.FR.1",
+        "sender": "vigilance@meteo.fr",
+        "sent": "2026-07-03T06:00:00+02:00",
+        "status": "Actual",
+        "msgType": "Alert",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "fr-FR",
+            "category": ["Met"],
+            "event": "Vent violent",
+            "severity": "Moderate",
+            "urgency": "Future",
+            "certainty": "Likely",
+            "expires": "2026-07-03T20:00:00+02:00",
+            "headline": "Vent violent sur le sud-ouest",
+            "description": "Rafales de vent attendues sur plusieurs departements.",
+            "parameter": [
+              {"valueName": "awareness_level", "value": "2; yellow; Moderate"},
+              {"valueName": "awareness_type", "value": "1; Wind"}
+            ],
+            "area": [
+              {
+                "areaDesc": "Lot-et-Garonne",
+                "geocode": [{"valueName": "NUTS3", "value": "FR614"}]
+              },
+              {
+                "areaDesc": "Dordogne",
+                "geocode": [{"valueName": "NUTS3", "value": "FR611"}]
+              }
+            ]
+          },
+          {
+            "language": "en-GB",
+            "category": ["Met"],
+            "event": "Wind",
+            "severity": "Moderate",
+            "urgency": "Future",
+            "certainty": "Likely",
+            "expires": "2026-07-03T20:00:00+02:00",
+            "headline": "Strong wind over the south-west",
+            "description": "Wind gusts expected across several departments.",
+            "area": [
+              {
+                "areaDesc": "Lot-et-Garonne",
+                "geocode": [{"valueName": "NUTS3", "value": "FR614"}]
+              },
+              {
+                "areaDesc": "Dordogne",
+                "geocode": [{"valueName": "NUTS3", "value": "FR611"}]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "uuid": "fr-uuid-2",
+      "alert": {
+        "identifier": "2.49.0.1.250.0.FR.2",
+        "sender": "vigilance@meteo.fr",
+        "sent": "2026-07-03T06:00:00+02:00",
+        "status": "Actual",
+        "msgType": "Alert",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "fr-FR",
+            "category": ["Met"],
+            "event": "Orages",
+            "severity": "Severe",
+            "urgency": "Immediate",
+            "certainty": "Likely",
+            "expires": "2026-07-03T22:00:00+02:00",
+            "headline": "Orages sur la Correze",
+            "description": "Orages forts avec grele possible.",
+            "parameter": [
+              {"valueName": "awareness_level", "value": "3; orange; Severe"},
+              {"valueName": "awareness_type", "value": "4; Thunderstorm"}
+            ],
+            "area": [
+              {
+                "areaDesc": "Correze",
+                "geocode": [{"valueName": "NUTS3", "value": "FR631"}]
+              }
+            ]
+          },
+          {
+            "language": "en-GB",
+            "category": ["Met"],
+            "event": "Thunderstorm",
+            "severity": "Severe",
+            "urgency": "Immediate",
+            "certainty": "Likely",
+            "expires": "2026-07-03T22:00:00+02:00",
+            "headline": "Thunderstorms over Correze",
+            "description": "Strong thunderstorms with possible hail.",
+            "area": [
+              {
+                "areaDesc": "Correze",
+                "geocode": [{"valueName": "NUTS3", "value": "FR631"}]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "uuid": "fr-uuid-3",
+      "alert": {
+        "identifier": "2.49.0.1.250.0.FR.3",
+        "sender": "vigilance@meteo.fr",
+        "sent": "2026-07-03T06:00:00+02:00",
+        "status": "Actual",
+        "msgType": "Alert",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "fr-FR",
+            "category": ["Met"],
+            "event": "Vent violent",
+            "severity": "Moderate",
+            "urgency": "Future",
+            "certainty": "Likely",
+            "expires": "2026-07-03T20:00:00+02:00",
+            "headline": "Vent sur la Gironde",
+            "description": "Rafales attendues sur le littoral.",
+            "parameter": [
+              {"valueName": "awareness_level", "value": "2; yellow; Moderate"}
+            ],
+            "area": [
+              {
+                "areaDesc": "Gironde",
+                "geocode": [{"valueName": "NUTS3", "value": "FR615"}]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

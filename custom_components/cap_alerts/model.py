@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields
+from types import MappingProxyType
 from typing import Any
+
+# Immutable empty mapping shared as the ``geocodes`` default. A plain ``{}``
+# would be rejected as a mutable default on a frozen/slots dataclass, so the
+# field uses ``default_factory`` returning this singleton.
+_EMPTY_GEOCODES: Mapping[str, tuple[str, ...]] = MappingProxyType({})
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +56,14 @@ class CAPAlert:
     # ECCC Canadian Location Code (layer:EC-MSC-SMC:1.0:CLC). Province-numbered
     # for land zones; "00…" for marine/water zones (drives marine detection).
     geocode_clc: tuple[str, ...] = ()
+    # Per-scheme area geocodes keyed by CAP ``valueName`` (e.g. ``EMMA_ID``,
+    # ``NUTS3``, ``WARNCELLID``). Typed multi-scheme container for providers
+    # whose feeds carry a mix of schemes (MeteoAlarm); populated instead of the
+    # per-scheme named fields above where a single named field can't honestly
+    # hold "the" geocode. Serialized as ``{scheme: [codes]}``, omitted if empty.
+    geocodes: Mapping[str, tuple[str, ...]] = field(
+        default_factory=lambda: _EMPTY_GEOCODES
+    )
     geometry: dict | None = None
     geometry_ref: str = ""
     bbox: tuple[float, float, float, float] | None = None
@@ -117,6 +132,12 @@ class CAPAlert:
                 continue
             val = getattr(self, f.name)
             if f.name == "is_marine" and not val:
+                continue
+            if f.name == "geocodes":
+                if val:
+                    attrs[f.name] = {
+                        scheme: list(codes) for scheme, codes in val.items()
+                    }
                 continue
             if val is None or val == "" or val == ():
                 continue
