@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# -------------------------
+# Activate venv if available
+# -------------------------
+
+if [ -d ".venv" ]; then
+  . .venv/bin/activate
+fi
+
 usage() {
   cat <<'USAGE'
 Usage: publish.sh <version>
