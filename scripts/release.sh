@@ -6,6 +6,14 @@ PRERELEASE=""
 BUMP=""
 
 # -------------------------
+# Activate venv if available
+# -------------------------
+
+if [ -d ".venv" ]; then
+  . .venv/bin/activate
+fi
+
+# -------------------------
 # Parse args
 # -------------------------
 
