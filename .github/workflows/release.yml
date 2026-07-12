@@ -32,3 +32,16 @@ jobs:
             git commit -am "chore(release): set manifest version to ${GITHUB_REF_NAME#v}"
             git push origin HEAD:${{ github.event.release.target_commitish }}
           fi
+      - name: Install git-cliff
+        run: pip install "$(grep '^git-cliff' requirements_test.txt)"
+      - name: Generate changelog
+        run: git cliff --config cliff.toml --output CHANGELOG.md
+      - name: Commit changelog if changed
+        run: |
+          if ! git diff --quiet CHANGELOG.md; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add CHANGELOG.md
+            git commit -m "chore(changelog): regenerate changelog for ${{ github.event.release.tag_name }}"
+            git push origin HEAD:${{ github.event.release.target_commitish }}
+          fi
