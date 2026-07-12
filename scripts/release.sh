@@ -200,7 +200,7 @@ if [ "$DRY_RUN" = true ]; then
   echo ""
   echo "---- SIMULATED RELEASE FROM origin/main ----"
   pip install "$(grep '^git-cliff' requirements_test.txt)" 2>/dev/null
-  python -m git_cliff \
+  git-cliff \
     --config cliff.toml \
     --tag "v$VERSION" \
     "${CLIFF_FLAGS[@]}" \
@@ -250,7 +250,7 @@ fi
 # -------------------------
 
 pip install "$(grep '^git-cliff' requirements_test.txt)" 2>/dev/null
-python -m git_cliff --config cliff.toml --tag "v$VERSION" "${CLIFF_FLAGS[@]}" --output CHANGELOG.md
+git-cliff --config cliff.toml --tag "v$VERSION" "${CLIFF_FLAGS[@]}" --output CHANGELOG.md
 
 git add CHANGELOG.md custom_components/cap_alerts/manifest.json
 
@@ -275,7 +275,7 @@ fi
 # Create PR
 # -------------------------
 
-NOTES=$(python -m git_cliff \
+NOTES=$(git-cliff \
   --config cliff.toml \
   --tag "v$VERSION" \
   "${CLIFF_FLAGS[@]}" \
