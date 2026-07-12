@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0-alpha.3 — 2026-07-12
+
+### Added
+- Resolve region schemes into a typed geocode container (#29) (a872764…)
+
+### Fixed
+- Reconcile prerelease version bump with commit history (#31) (33d7fa6…)
+- Activate venv before running tests and lint (#32) (f650e9e…)
+- Use git-cliff CLI binary instead of python -m git_cliff (#33) (69ca77b…)
+
 ## 0.2.0-alpha.2 — 2026-07-04
 
 ### Added
