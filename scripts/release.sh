@@ -98,9 +98,12 @@ if [ "$RESUMING" = true ]; then
   VERSION="$RESUME_VERSION"
   echo "Resuming version: $VERSION"
 else
+  # Get current version from manifest.json
+  CURRENT=$(python -c "import json; print(json.load(open('custom_components/cap_alerts/manifest.json'))['version'])")
+
   if [ -z "$BUMP" ]; then
     LATEST_TAG=$(git describe --tags --abbrev=0 "$BASE_REF" 2>/dev/null || echo "")
-    if [ -n "$LATEST_TAG" ]; then
+    if [ -n "$LATEST_TAG" ] && ! [[ "$CURRENT" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
       BUMP=$(git log "$LATEST_TAG".."$BASE_REF" --pretty=%s \
         | python -c "
 import sys
@@ -122,9 +125,6 @@ else:
 ")
     fi
   fi
-
-  # Get current version from manifest.json
-  CURRENT=$(python -c "import json; print(json.load(open('custom_components/cap_alerts/manifest.json'))['version'])")
 
   # Extract base version from CURRENT (strip any pre-release suffix)
   BASE_VERSION=$(echo "$CURRENT" | sed -E 's/-(alpha|beta|rc)\.[0-9]+$//')
@@ -148,18 +148,14 @@ else:
     echo "Promoting prerelease $CURRENT → v$VERSION"
   elif [ -n "$PRERELEASE" ]; then
     # Determine base for bump
-    if [[ "$CURRENT" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-      BASE="$CURRENT"
-    else
-      # Parse semver bump from base version
-      IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
-      case "$BUMP" in
-        major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-        minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-        patch) PATCH=$((PATCH + 1)) ;;
-      esac
-      BASE="$MAJOR.$MINOR.$PATCH"
-    fi
+    BASE="$BASE_VERSION"
+    IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+    case "$BUMP" in
+      major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+      minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+      patch) PATCH=$((PATCH + 1)) ;;
+    esac
+    BASE="$MAJOR.$MINOR.$PATCH"
 
     EXISTING=$(git tag -l "v$BASE-$PRERELEASE.*" | wc -l | tr -d ' ')
     NEXT=$((EXISTING + 1))
