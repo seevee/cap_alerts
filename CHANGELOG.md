@@ -1,12 +1,5 @@
 # Changelog
 
-### Fixed
-- Use git-cliff CLI binary and add release workflow (67436dc…)
-
-### Maintenance
-- Regenerate changelog for v0.2.0-alpha.3 (e1cb081…)
-- Remove GitHub Actions publish workflow, add venv activation to publish.sh (#35) (7ff168a…)
-
 ## 0.2.0-alpha.3 — 2026-07-12
 
 ### Added
