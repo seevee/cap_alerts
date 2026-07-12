@@ -45,10 +45,10 @@ fi
 CLIFF_FLAGS=()
 if [ "$PRERELEASE" = true ]; then
   NOTES=$(pip install "$(grep '^git-cliff' requirements_test.txt)" 2>/dev/null \
-    && python -m git_cliff --config cliff.toml --latest --strip header)
+    && git-cliff --config cliff.toml --latest --strip header)
 else
   NOTES=$(pip install "$(grep '^git-cliff' requirements_test.txt)" 2>/dev/null \
-    && python -m git_cliff --config cliff.toml --tag-pattern "^v[0-9]+\.[0-9]+\.[0-9]+$" --latest --strip header)
+    && git-cliff --config cliff.toml --tag-pattern "^v[0-9]+\.[0-9]+\.[0-9]+$" --latest --strip header)
 fi
 
 if gh release view "$TAG" >/dev/null 2>&1; then
