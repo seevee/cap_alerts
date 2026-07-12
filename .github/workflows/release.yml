@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Regenerate changelog
-        run: pip install "$(grep '^git-cliff' requirements_test.txt)" && git cliff --config cliff.toml --output CHANGELOG.md
+        run: pip install "$(grep '^git-cliff' requirements_test.txt)" && git cliff --config cliff.toml --tag "${{ github.event.release.tag_name }}" --output CHANGELOG.md
       - name: Commit changelog if changed
         run: |
           if ! git diff --quiet CHANGELOG.md; then
