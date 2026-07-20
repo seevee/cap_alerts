@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -105,6 +106,29 @@ def feed_with_polygons() -> dict:
 @pytest.fixture
 def feed_fr() -> dict:
     return json.loads((_FIXTURE_DIR / "meteoalarm_fr.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def feed_fr_reissue() -> dict:
+    return json.loads(
+        (_FIXTURE_DIR / "meteoalarm_fr_reissue.json").read_text(encoding="utf-8")
+    )
+
+
+@pytest.fixture
+def feed_fr_multiday() -> dict:
+    return json.loads(
+        (_FIXTURE_DIR / "meteoalarm_fr_multiday.json").read_text(encoding="utf-8")
+    )
+
+
+@pytest.fixture
+def feed_fr_regionset_churn() -> dict:
+    return json.loads(
+        (_FIXTURE_DIR / "meteoalarm_fr_regionset_churn.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
 
 def _parse(feed: dict, preferred_prefix: str = "de"):
@@ -251,3 +275,100 @@ def test_repeated_parameters_joined(feed_de):
     assert gusts.parameters is not None
     impacts = gusts.parameters.get("impacts", "")
     assert ";" in impacts
+
+
+# --- MeteoFrance identity stability (issue #37) ---------------------------
+
+
+def test_reissue_same_id(feed_fr_reissue):
+    # Two re-issues of the same logical MeteoFrance warning for one forecast
+    # day: same sender/awareness_type/NUTS3/onset-date but different
+    # identifier/sent/expires. Both must resolve to one stable id (#37).
+    first, second = _parse(feed_fr_reissue, preferred_prefix="fr")
+    assert first.identifier != second.identifier
+    assert first.id == second.id
+
+
+def test_escalation_keeps_id(feed_fr_reissue):
+    # The re-issue also escalates yellow → orange; awareness_level is excluded
+    # from the key, so the id is unchanged (entity updates, not spawns).
+    first, second = _parse(feed_fr_reissue, preferred_prefix="fr")
+    assert first.parameters["awareness_level"].startswith("2;")
+    assert second.parameters["awareness_level"].startswith("3;")
+    assert first.id == second.id
+
+
+def test_distinct_forecast_day_distinct_id(feed_fr_multiday):
+    # Same department + phenomenon, different onset dates (J vs J+1) → distinct
+    # entities, so the 4-day outlook is not collapsed.
+    j, j1 = _parse(feed_fr_multiday, preferred_prefix="fr")
+    assert j.onset[:10] != j1.onset[:10]
+    assert j.id != j1.id
+
+
+def test_distinct_phenomenon_distinct_id(feed_fr):
+    # Same region+day but different awareness_type must stay distinct. The FR
+    # fixture's Correze warning (Thunderstorm) vs a Gironde wind warning differ
+    # in both, so instead assert two same-day warnings with different
+    # awareness_type get different ids.
+    alerts = _parse(feed_fr, preferred_prefix="fr")
+    wind = next(a for a in alerts if a.event == "Vent violent" and "," in a.area_desc)
+    storm = next(a for a in alerts if a.event == "Orages")
+    assert wind.id != storm.id
+
+
+def test_distinct_region_distinct_id(feed_fr):
+    # Two "Vent violent" warnings for different departments (FR611/FR614 vs
+    # FR615) must be distinct entities.
+    alerts = _parse(feed_fr, preferred_prefix="fr")
+    multi = next(a for a in alerts if a.event == "Vent violent" and "," in a.area_desc)
+    single = next(
+        a for a in alerts if a.event == "Vent violent" and "," not in a.area_desc
+    )
+    assert multi.id != single.id
+
+
+def test_fallback_to_event_when_no_awareness_type(feed_fr):
+    # The FR fixture's Gironde warning carries awareness_level but no
+    # awareness_type; the phenomenon key falls back to the casefolded event and
+    # still yields a stable 12-hex id.
+    alerts = _parse(feed_fr, preferred_prefix="fr")
+    single = next(
+        a for a in alerts if a.event == "Vent violent" and "," not in a.area_desc
+    )
+    assert single.parameters.get("awareness_type") is None
+    assert len(single.id) == 12
+    assert all(c in "0123456789abcdef" for c in single.id)
+
+
+def test_non_meteofrance_sender_uses_identifier_hash(feed_de):
+    # Regression guard: authorities other than MeteoFrance keep the
+    # per-message identifier hash byte-for-byte (dispatch default).
+    alerts = _parse(feed_de)
+    for a in alerts:
+        assert a.sender != "vigilance@meteo.fr"
+        expected = hashlib.sha256(a.identifier.encode()).hexdigest()[:12]
+        assert a.id == expected
+
+
+def test_region_scope_stable_across_set_churn(feed_fr_regionset_churn):
+    # A bulletin covering {FR623, FR615, FR611} re-issued as {FR623, FR615,
+    # FR614} — a configured user watching FR623 must keep a stable id even as
+    # the bulletin's full department set churns. The unscoped base ids differ
+    # (full sets differ); _filter_by_regions scopes them to the FR623
+    # intersection, making them equal.
+    a, b = _parse(feed_fr_regionset_churn, preferred_prefix="fr")
+    assert a.id != b.id  # base ids use full (differing) region sets
+    filtered_a = meteoalarm.MeteoAlarmProvider._filter_by_regions([a], ["FR623"])
+    filtered_b = meteoalarm.MeteoAlarmProvider._filter_by_regions([b], ["FR623"])
+    assert len(filtered_a) == 1 and len(filtered_b) == 1
+    assert filtered_a[0].id == filtered_b[0].id
+
+
+def test_non_meteofrance_region_filter_leaves_id_unchanged(feed_de):
+    # _filter_by_regions must not recompute ids for non-MeteoFrance senders.
+    alerts = _parse(feed_de)
+    target = next(a for a in alerts if a.geocodes.get("EMMA_ID"))
+    region = target.geocodes["EMMA_ID"][0]
+    (kept,) = meteoalarm.MeteoAlarmProvider._filter_by_regions([target], [region])
+    assert kept.id == target.id
