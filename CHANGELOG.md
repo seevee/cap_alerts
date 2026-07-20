@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0-alpha.4 — 2026-07-20
+
+### Fixed
+- Use git-cliff CLI binary and add release workflow (67436dc…)
+- Use --tag flag when regenerating changelog in release workflow (719d475…)
+- Migrate feed to alertready.ca and rework province filter (#38) (#39) (3b5f8b6…)
+
+### Maintenance
+- Regenerate changelog for v0.2.0-alpha.3 (e1cb081…)
+- Remove GitHub Actions publish workflow, add venv activation to publish.sh (#35) (7ff168a…)
+
 ## 0.2.0-alpha.3 — 2026-07-12
 
 ### Added
