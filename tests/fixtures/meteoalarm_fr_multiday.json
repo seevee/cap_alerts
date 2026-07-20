@@ -1,0 +1,74 @@
+{
+  "warnings": [
+    {
+      "uuid": "fr-multiday-uuid-j",
+      "alert": {
+        "identifier": "2.49.0.0.250.0.FR.20260715060108.010001",
+        "sender": "vigilance@meteo.fr",
+        "sent": "2026-07-15T06:01:08+02:00",
+        "status": "Actual",
+        "msgType": "Alert",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "fr-FR",
+            "category": ["Met"],
+            "event": "Canicule",
+            "severity": "Severe",
+            "urgency": "Immediate",
+            "certainty": "Likely",
+            "onset": "2026-07-15T06:00:00+02:00",
+            "expires": "2026-07-16T00:00:00+02:00",
+            "headline": "Vigilance orange canicule (aujourd'hui)",
+            "description": "Chaleur intense aujourd'hui.",
+            "parameter": [
+              {"valueName": "awareness_level", "value": "3; orange; Severe"},
+              {"valueName": "awareness_type", "value": "5; Extreme high temperature"}
+            ],
+            "area": [
+              {
+                "areaDesc": "Haute-Garonne",
+                "geocode": [{"valueName": "NUTS3", "value": "FR623"}]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "uuid": "fr-multiday-uuid-j1",
+      "alert": {
+        "identifier": "2.49.0.0.250.0.FR.20260715060108.010002",
+        "sender": "vigilance@meteo.fr",
+        "sent": "2026-07-15T06:01:08+02:00",
+        "status": "Actual",
+        "msgType": "Alert",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "fr-FR",
+            "category": ["Met"],
+            "event": "Canicule",
+            "severity": "Severe",
+            "urgency": "Future",
+            "certainty": "Possible",
+            "onset": "2026-07-16T06:00:00+02:00",
+            "expires": "2026-07-17T00:00:00+02:00",
+            "headline": "Vigilance orange canicule (demain)",
+            "description": "Chaleur intense attendue demain.",
+            "parameter": [
+              {"valueName": "awareness_level", "value": "3; orange; Severe"},
+              {"valueName": "awareness_type", "value": "5; Extreme high temperature"}
+            ],
+            "area": [
+              {
+                "areaDesc": "Haute-Garonne",
+                "geocode": [{"valueName": "NUTS3", "value": "FR623"}]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -282,17 +282,40 @@ malformed, falls back to lower-cased CAP `severity` via the standard
 non-NWS branch. The full `awareness_level` string is preserved verbatim
 in `parameters` for cards that want the numeric tier or label.
 
-**Identity**: `sha256(cap.identifier)[:12]`. MeteoAlarm identifiers are
-sender-scoped and stable across `Update`/`Cancel` re-issues for one
-logical event. Falls back to hashing the warning `uuid` when the
-identifier is missing.
+**Identity**: dispatched per sender. Every authority **except MeteoFrance**
+uses `sha256(cap.identifier)[:12]` (falling back to the warning `uuid` when the
+identifier is missing) — there, identifier collisions across a poll are
+genuinely-distinct concurrent warnings (e.g. Italy/Austria publish one
+region-and-time-window warning each), so the per-message identifier is the
+correct key.
+
+MeteoFrance is the exception (issue #37): its CAP `identifier` embeds a
+per-message issue timestamp, so every re-issue of the same logical warning mints
+a fresh identifier — hashing it spawned a duplicate entity each poll. For
+`sender == vigilance@meteo.fr` the id is instead a content key
+`sha256("{sender}|{event_key}|{region_key}|{window_key}")[:12]` where:
+
+- `event_key` = the leading numeric token of `awareness_type` (language-
+  independent phenomenon code; falls back to the casefolded `event`),
+- `region_key` = the sorted resolved region codes — in region-picker mode
+  scoped to the *intersection with the configured regions* (so a fixed
+  department is stable even as other departments enter/leave the bulletin);
+  the full resolved set otherwise,
+- `window_key` = the `YYYY-MM-DD` date of `onset` (then `effective`, then
+  `sent`) — the forecast day, stable across a day's re-issues, distinct across
+  the J/J+1/J+2/J+3 outlook.
+
+Severity/color (`awareness_level`) is deliberately excluded so an orange→red
+escalation updates the existing entity rather than spawning a new one. Existing
+MeteoFrance entities recompute once on upgrade (stale ones are safe to delete);
+all other authorities are byte-for-byte unchanged.
 
 **Field mapping**:
 
 | MeteoAlarm JSON path | CAPAlert field |
 |---|---|
-| `warnings[].uuid` | identifier-fallback source for `id` |
-| `warnings[].alert.identifier` | `identifier`, primary source for `id` |
+| `warnings[].uuid` | identifier-fallback source for `id` (non-MeteoFrance senders) |
+| `warnings[].alert.identifier` | `identifier`; primary source for `id` (non-MeteoFrance senders) |
 | `warnings[].alert.sender` | `sender` |
 | `warnings[].alert.sent` | `sent` |
 | `warnings[].alert.status` | `status` (warnings with status ≠ `Actual` skipped) |

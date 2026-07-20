@@ -26,7 +26,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 import aiohttp
@@ -57,11 +58,95 @@ METEOALARM_REGIONS_URL = "https://feeds.meteoalarm.org/api/v1/regions/feeds-{cou
 # when a feed names areas but carries no region-selectable scheme.
 METEOALARM_REGION_SCHEMES: tuple[str, ...] = ("EMMA_ID", "NUTS3", "NUTS2")
 
+# MeteoFrance publishes via MeteoAlarm with a per-message CAP identifier that
+# embeds an issue timestamp, so every re-issue of the same logical warning mints
+# a fresh identifier (issue #37). Identity for this sender alone is derived from
+# a content key (see ``_meteofrance_id``); every other authority keeps the
+# per-message identifier hash, whose collisions there are genuinely-distinct
+# concurrent warnings, not re-issues.
+_MF_SENDER = "vigilance@meteo.fr"
 
-def _compute_id(identifier: str, fallback: str) -> str:
-    """Hash a CAP identifier (or fallback) to a 12-hex stable ID."""
-    key = identifier or fallback
+
+def _awareness_type_code(parameters: Mapping[str, str] | None) -> str:
+    """Language-independent phenomenon key: the leading token of the
+    ``awareness_type`` parameter (``"3; Thunderstorm"`` → ``"3"``).
+
+    Returns ``""`` when the parameter (or the whole mapping) is absent.
+    """
+    if not parameters:
+        return ""
+    raw = parameters.get("awareness_type") or ""
+    return raw.split(";", 1)[0].strip()
+
+
+def _forecast_window_key(onset: str, effective: str, sent: str) -> str:
+    """Forecast-day key: the ``YYYY-MM-DD`` prefix of the first non-empty of
+    ``onset``/``effective``/``sent``.
+
+    MeteoFrance re-issues a given day's warning several times but keeps the
+    ``onset`` date stable, so the date (not the full timestamp) merges re-issues
+    while keeping the J/J+1/J+2/J+3 outlook days distinct. Returns ``""`` when
+    all three are empty.
+    """
+    for value in (onset, effective, sent):
+        if value:
+            return value[:10]
+    return ""
+
+
+def _default_id(identifier: str, uuid: str) -> str:
+    """Hash a CAP identifier (or ``uuid`` fallback) to a 12-hex stable ID.
+
+    This is the identity for every authority except MeteoFrance.
+    """
+    key = identifier or uuid
     return hashlib.sha256(key.encode()).hexdigest()[:12]
+
+
+def _meteofrance_id(
+    sender: str,
+    event_key: str,
+    region_codes: Sequence[str],
+    window_key: str,
+    *,
+    fallback: str,
+) -> str:
+    """Content-key identity for MeteoFrance vigilance.
+
+    Keys on sender + phenomenon + forecast-region set + forecast day so a
+    re-issue (fresh per-message identifier, same logical warning) keeps one
+    stable id, while distinct phenomena, regions, and forecast days stay
+    distinct entities. Severity/color is intentionally excluded so an
+    orange→red escalation updates the existing entity rather than spawning a
+    new one. Falls back to hashing ``fallback`` when every key component is
+    empty (degenerate warning).
+    """
+    region_key = ";".join(sorted(region_codes))
+    if not (sender or event_key or region_key or window_key):
+        return hashlib.sha256(fallback.encode()).hexdigest()[:12]
+    key = f"{sender}|{event_key}|{region_key}|{window_key}"
+    return hashlib.sha256(key.encode()).hexdigest()[:12]
+
+
+def _compute_alert_id(
+    sender: str,
+    identifier: str,
+    uuid: str,
+    event_key: str,
+    region_codes: Sequence[str],
+    window_key: str,
+) -> str:
+    """Dispatch identity by sender.
+
+    MeteoFrance gets the re-issue-stable content key; every other authority
+    keeps the per-message identifier hash (byte-for-byte unchanged from before
+    issue #37's fix).
+    """
+    if sender == _MF_SENDER:
+        return _meteofrance_id(
+            sender, event_key, region_codes, window_key, fallback=identifier or uuid
+        )
+    return _default_id(identifier, uuid)
 
 
 def _lang_prefix(value: str) -> str:
@@ -331,11 +416,22 @@ def _warning_to_alert(
     rings = _extract_geometries(primary)
     geometry = _geometry_from_rings(rings)
 
+    sender = alert.get("sender") or ""
+    event = _info_text(primary, "event")
+    onset = _info_text(primary, "onset")
+    sent = alert.get("sent") or ""
+    area_descs = tuple(d.strip() for d in _join_areas(primary).split(",") if d.strip())
+    event_key = _awareness_type_code(parameters) or event.casefold()
+    window_key = _forecast_window_key(onset, "", sent)
+    region_codes = _region_codes(geocodes, area_descs)
+
     return CAPAlert(
-        id=_compute_id(identifier, uuid),
+        id=_compute_alert_id(
+            sender, identifier, uuid, event_key, region_codes, window_key
+        ),
         url="",
         identifier=identifier,
-        event=_info_text(primary, "event"),
+        event=event,
         msg_type=alert.get("msgType") or "",
         status=status,
         scope=alert.get("scope") or "",
@@ -344,9 +440,9 @@ def _warning_to_alert(
         severity=_info_text(primary, "severity"),
         certainty=_info_text(primary, "certainty"),
         response_type=_first(primary.get("responseType")),
-        sent=alert.get("sent") or "",
+        sent=sent,
         effective="",
-        onset=_info_text(primary, "onset"),
+        onset=onset,
         expires=_info_text(primary, "expires"),
         headline=_info_text(primary, "headline"),
         description=_info_text(primary, "description"),
@@ -355,7 +451,7 @@ def _warning_to_alert(
         area_desc=_join_areas(primary),
         geocodes=geocodes,
         geometry=geometry,
-        sender=alert.get("sender") or "",
+        sender=sender,
         sender_name=_info_text(primary, "senderName"),
         parameters=parameters or None,
         language=_info_text(primary, "language"),
@@ -614,6 +710,12 @@ class MeteoAlarmProvider:
         Region codes are resolved from each alert's ``geocodes`` container via
         the shared scheme-priority resolver, so the values compared here are
         the same scheme the region picker offered (see ``_region_pairs``).
+
+        For MeteoFrance (issue #37), the kept alert's id is recomputed against
+        the *configured-region intersection* rather than the bulletin's full
+        department set, so a fixed department keeps a stable id even when other
+        departments enter or leave the bulletin between polls. Non-MeteoFrance
+        alerts are kept unchanged.
         """
         wanted = {str(r) for r in regions if r}
         if not wanted:
@@ -621,6 +723,22 @@ class MeteoAlarmProvider:
         kept: list[CAPAlert] = []
         for a in alerts:
             descs = tuple(d.strip() for d in a.area_desc.split(",") if d.strip())
-            if wanted.intersection(_region_codes(a.geocodes, descs)):
-                kept.append(a)
+            resolved = _region_codes(a.geocodes, descs)
+            if not wanted.intersection(resolved):
+                continue
+            if a.sender == _MF_SENDER:
+                matched = sorted(wanted & set(resolved))
+                event_key = _awareness_type_code(a.parameters) or a.event.casefold()
+                window_key = _forecast_window_key(a.onset, a.effective, a.sent)
+                a = replace(
+                    a,
+                    id=_meteofrance_id(
+                        a.sender,
+                        event_key,
+                        matched,
+                        window_key,
+                        fallback=a.identifier or a.id,
+                    ),
+                )
+            kept.append(a)
         return kept
