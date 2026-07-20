@@ -7,7 +7,7 @@ import hashlib
 import logging
 import re
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 from xml.etree.ElementTree import Element
@@ -24,7 +24,11 @@ from .cap_content_cache import CAPContentCache
 
 _LOGGER = logging.getLogger(__name__)
 
-NAAD_FEED_URL = "https://rss.naad-adna.pelmorex.com/"
+# NAAD public dissemination feed. Migrated April 2026 from the legacy
+# rss.naad-adna.pelmorex.com host to rss.alertready.ca per the NAAD System
+# Governance Council. The legacy host still returns HTTP 200 but serves a
+# partial (regionally-scoped) feed, so it silently drops most of the country.
+NAAD_FEED_URL = "https://rss.alertready.ca/"
 
 NS_ATOM = "http://www.w3.org/2005/Atom"
 NS_GEORSS = "http://www.georss.org/georss"
@@ -37,6 +41,32 @@ NS_CAP = "urn:oasis:names:tc:emergency:cap:1.2"
 # gale/storm warnings). Fail-open: a mis-prefixed marine zone stays visible.
 _CLC_GEOCODE_KEY = "layer:EC-MSC-SMC:1.0:CLC"
 ECCC_MARINE_CLC_PREFIX = "00"
+
+# ECCC CAP bodies carry a Statistics Canada SGC location code under this
+# geocode valueName; the first two digits are the province/territory SGC code.
+# This is the province signal used for province-configured filtering since the
+# alertready.ca migration dropped the Atom-envelope "geocode" category. Preferred
+# over the CLC prefix: present on effectively every alert (CLC is occasionally
+# absent) and correct for water zones, which all share CLC prefix "00" but keep
+# their province in the SGC code (e.g. Lake Nipigon → 35 = Ontario).
+_SGC_GEOCODE_KEY = "profile:CAP-CP:Location:0.3"
+
+# 2-letter province/territory code → StatCan SGC 2-digit code (SGC 2021).
+_PROVINCE_TO_SGC: dict[str, str] = {
+    "NL": "10",
+    "PE": "11",
+    "NS": "12",
+    "NB": "13",
+    "QC": "24",
+    "ON": "35",
+    "MB": "46",
+    "SK": "47",
+    "AB": "48",
+    "BC": "59",
+    "YT": "60",
+    "NT": "61",
+    "NU": "62",
+}
 
 
 def _is_marine_eccc(clc: tuple[str, ...]) -> bool:
@@ -114,14 +144,17 @@ def _point_in_polygon(lat: float, lon: float, polygon: list[list[float]]) -> boo
     return inside
 
 
-def _matches_province(area_desc: str, geocode: str, province: str) -> bool:
-    """Check if an alert matches the configured province."""
-    province_upper = province.upper()
-    if geocode and geocode[:2].upper() == province_upper:
-        return True
-    if province_upper in area_desc.upper():
-        return True
-    return False
+def _matches_province_sgc(geocodes: Mapping[str, Sequence[str]], province: str) -> bool:
+    """Check if a CAP body's SGC location codes fall in the configured province.
+
+    Reads ``profile:CAP-CP:Location:0.3`` geocodes from the CAP body (the Atom
+    envelope no longer carries province info after the alertready.ca migration);
+    the first two digits are the StatCan SGC province/territory code.
+    """
+    sgc_prefix = _PROVINCE_TO_SGC.get(province.upper())
+    if sgc_prefix is None:
+        return False
+    return any(v.startswith(sgc_prefix) for v in geocodes.get(_SGC_GEOCODE_KEY, ()))
 
 
 # ---------------------------------------------------------------------------
@@ -486,11 +519,14 @@ class ECCCProvider:
         """Fetch active alerts from ECCC NAAD feed.
 
         (a) Fetches the Atom feed.
-        (b) Pre-filters entries by status and location against Atom envelope.
+        (b) Pre-filters entries by status; GPS/tracker location is filtered here
+            against the Atom envelope polygon. Province filtering is deferred to
+            (f) since the envelope no longer carries a "geocode" category.
         (c) Fetches CAP XML for survivors via a shared cache.
         (d) Parses CAP XML in the thread pool executor.
         (e) Resolves revision chains to leaf revisions.
-        (f) Builds CAPAlert objects, groups by bilingual key.
+        (f) Builds CAPAlert objects (filtering by CAP-body SGC code in province
+            mode), groups by bilingual key.
         (g) Merges language variants into a single bilingual alert.
         """
         preferred_lang = options.get(CONF_LANGUAGE, "en-CA")
@@ -527,8 +563,10 @@ class ECCCProvider:
             language = cats.get("language", "en-CA")
 
             if province:
-                if not _matches_province(area_desc, geocode, province):
-                    continue
+                # Province filtering is deferred to the CAP body: the alertready.ca
+                # envelope no longer carries a "geocode" category, so we accept
+                # every Actual entry here and filter by SGC code after fetch (f).
+                pass
             elif gps_lat is not None and gps_lon is not None:
                 polygons = _parse_georss_polygons(entry)
                 if not _point_in_polygons(gps_lat, gps_lon, polygons):
@@ -597,12 +635,24 @@ class ECCCProvider:
                 if doc.identifier not in leaf_ids:
                     continue
                 info = _select_info(doc, language)
+                if province and not _matches_province_sgc(info.geocodes, province):
+                    continue
                 alert_id = _bilingual_key(doc, info)
                 alert = _build_alert_from_cap(
                     doc, info, atom_metadata, web_url, alert_id
                 )
             else:
                 atom_id = atom_metadata["atom_id"]
+                if province:
+                    # No CAP body → no SGC code → province can't be verified.
+                    # Fail closed: showing a province user an alert from elsewhere
+                    # in the country is worse than transiently missing one.
+                    _LOGGER.warning(
+                        "ECCC: CAP fetch failed for atom id %s; dropping "
+                        "(province mode cannot verify location without CAP body)",
+                        atom_id,
+                    )
+                    continue
                 alert_id = _fallback_id(atom_id, language)
                 alert = _build_fallback_alert(atom_metadata, web_url, alert_id)
                 _LOGGER.warning(

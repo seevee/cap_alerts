@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>urn:oid:2.49.0.1.124.test.2026.NEW.BC</identifier>
+  <sender>CWVR</sender>
+  <sent>2026-01-15T09:00:00-08:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <scope>Public</scope>
+  <info>
+    <language>en-CA</language>
+    <category>Met</category>
+    <event>Wind Warning</event>
+    <responseType>Prepare</responseType>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Likely</certainty>
+    <effective>2026-01-15T09:00:00-08:00</effective>
+    <onset>2026-01-15T10:00:00-08:00</onset>
+    <expires>2026-01-15T22:00:00-08:00</expires>
+    <senderName>Environment and Climate Change Canada</senderName>
+    <headline>Wind Warning in effect</headline>
+    <description>Strong winds are expected over the region.</description>
+    <web>https://www.weather.gc.ca/warnings/alert_en.html</web>
+    <eventCode>
+      <valueName>profile:CAP-CP:Event:0.4</valueName>
+      <value>wind</value>
+    </eventCode>
+    <area>
+      <areaDesc>Vancouver Island</areaDesc>
+      <polygon>48.0,-125.0 48.0,-123.0 50.0,-123.0 50.0,-125.0 48.0,-125.0</polygon>
+      <geocode>
+        <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+        <value>081710</value>
+      </geocode>
+      <geocode>
+        <valueName>profile:CAP-CP:Location:0.3</valueName>
+        <value>5900010</value>
+      </geocode>
+    </area>
+  </info>
+</alert>

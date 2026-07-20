@@ -69,6 +69,7 @@ _bilingual_key = _eccc_mod._bilingual_key
 _fallback_id = _eccc_mod._fallback_id
 _build_alert_from_cap = _eccc_mod._build_alert_from_cap
 _is_marine_eccc = _eccc_mod._is_marine_eccc
+_matches_province_sgc = _eccc_mod._matches_province_sgc
 _headline_to_event = _eccc_mod._headline_to_event
 _best_event_name = _eccc_mod._best_event_name
 CAPDoc = _cap_mod.CAPDoc
@@ -104,6 +105,11 @@ def _cap_responses() -> dict[str, str]:
         ),
         "https://cap.naad-adna.pelmorex.com/alerts/fr_update_1.cap": _fixture(
             "eccc_cap_fr_update_1.xml"
+        ),
+        # BC entry — fetched in province mode (envelope no longer carries a
+        # geocode), then dropped by the SGC province filter (59 = BC ≠ 35 = ON).
+        "https://cap.naad-adna.pelmorex.com/alerts/bc_wind_1.cap": _fixture(
+            "eccc_cap_bc_wind_1.xml"
         ),
     }
 
@@ -757,7 +763,7 @@ def test_build_alert_from_cap_derives_sps_event_from_headline():
 async def test_eccc_provider_full_flow():
     """Four CAP entries (NEW+UPDATE × en/fr) → one merged bilingual alert."""
     responses: dict[str, Any] = {
-        "https://rss.naad-adna.pelmorex.com/": _atom_xml(),
+        "https://rss.alertready.ca/": _atom_xml(),
         **_cap_responses(),
     }
     session = StubSession(responses)
@@ -800,7 +806,7 @@ async def test_eccc_provider_filters_expired_alert():
         "<expires>2020-01-01T00:00:00+00:00</expires>",
     )
     responses: dict[str, Any] = {
-        "https://rss.naad-adna.pelmorex.com/": _atom_xml(),
+        "https://rss.alertready.ca/": _atom_xml(),
         "https://cap.naad-adna.pelmorex.com/alerts/en_new_1.cap": _fixture(
             "eccc_cap_en_new_1.xml"
         ),
@@ -828,9 +834,14 @@ async def test_eccc_provider_filters_expired_alert():
 
 @pytest.mark.asyncio
 async def test_eccc_provider_metadata_only_fallback_on_fetch_failure():
-    """CAP fetch returns 404 → alert surfaces with Atom-only fields, empty long-form text."""
+    """CAP fetch returns 404 → alert surfaces with Atom-only fields, empty long-form text.
+
+    Uses GPS mode: the entry passed the envelope polygon filter, so its location
+    is verified and a metadata-only fallback is safe. Province mode instead fails
+    closed on CAP failure (it cannot verify the province without the CAP body).
+    """
     responses: dict[str, Any] = {
-        "https://rss.naad-adna.pelmorex.com/": _atom_xml(),
+        "https://rss.alertready.ca/": _atom_xml(),
         # All CAP files return 404
         "https://cap.naad-adna.pelmorex.com/alerts/en_new_1.cap": (404, ""),
         "https://cap.naad-adna.pelmorex.com/alerts/fr_new_1.cap": (404, ""),
@@ -839,8 +850,9 @@ async def test_eccc_provider_metadata_only_fallback_on_fetch_failure():
     }
     session = StubSession(responses)
     provider = ECCCProvider()
+    # GPS point inside the Ottawa entries' envelope polygon (lat 45–45.5, lon -76 to -75.5)
     alerts = await provider.async_fetch(
-        session, {"province": "ON"}, {"language": "en-CA"}
+        session, {"gps_loc": "45.2,-75.7"}, {"language": "en-CA"}
     )
 
     # Should surface 4 metadata-only alerts (one per Atom entry, no bilingual merge)
@@ -862,7 +874,7 @@ async def test_eccc_provider_metadata_only_fallback_on_fetch_failure():
 async def test_eccc_provider_filters_test_status():
     """Status=Test entry is dropped before any CAP fetch."""
     responses: dict[str, Any] = {
-        "https://rss.naad-adna.pelmorex.com/": _atom_xml(),
+        "https://rss.alertready.ca/": _atom_xml(),
         **_cap_responses(),
     }
     session = StubSession(responses)
@@ -878,9 +890,9 @@ async def test_eccc_provider_filters_test_status():
 
 @pytest.mark.asyncio
 async def test_eccc_provider_filters_foreign_province():
-    """BC entry is filtered out when province=ON."""
+    """BC entry is fetched (envelope has no geocode) then dropped by SGC (59 ≠ 35)."""
     responses: dict[str, Any] = {
-        "https://rss.naad-adna.pelmorex.com/": _atom_xml(),
+        "https://rss.alertready.ca/": _atom_xml(),
         **_cap_responses(),
     }
     session = StubSession(responses)
@@ -889,13 +901,49 @@ async def test_eccc_provider_filters_foreign_province():
         session, {"province": "ON"}, {"language": "en-CA"}
     )
     assert not any("Vancouver" in (a.area_desc or "") for a in alerts)
+    # Positive side: the in-province ON alert survives the SGC filter.
+    assert any("Ottawa" in (a.area_desc or "") for a in alerts)
+
+
+def test_matches_province_sgc():
+    """SGC location prefix decides province; unknown codes and missing key fail."""
+    on = {"profile:CAP-CP:Location:0.3": ("3506008", "3558090")}
+    bc = {"profile:CAP-CP:Location:0.3": ("5900010",)}
+    assert _matches_province_sgc(on, "ON") is True
+    assert _matches_province_sgc(on, "on") is True  # case-insensitive
+    assert _matches_province_sgc(on, "BC") is False
+    assert _matches_province_sgc(bc, "ON") is False
+    # No SGC geocode present → no match
+    assert _matches_province_sgc({"SAME": ("012345",)}, "ON") is False
+    # Unrecognised province code → no match (never matches everything)
+    assert _matches_province_sgc(on, "ZZ") is False
+
+
+@pytest.mark.asyncio
+async def test_eccc_province_fails_closed_on_cap_fetch_failure():
+    """Province mode drops entries whose CAP body can't be fetched (no SGC to verify)."""
+    responses: dict[str, Any] = {
+        "https://rss.alertready.ca/": _atom_xml(),
+        # Every CAP body 404s → no SGC code available for any entry.
+        "https://cap.naad-adna.pelmorex.com/alerts/en_new_1.cap": (404, ""),
+        "https://cap.naad-adna.pelmorex.com/alerts/fr_new_1.cap": (404, ""),
+        "https://cap.naad-adna.pelmorex.com/alerts/en_update_1.cap": (404, ""),
+        "https://cap.naad-adna.pelmorex.com/alerts/fr_update_1.cap": (404, ""),
+        "https://cap.naad-adna.pelmorex.com/alerts/bc_wind_1.cap": (404, ""),
+    }
+    session = StubSession(responses)
+    provider = ECCCProvider()
+    alerts = await provider.async_fetch(
+        session, {"province": "ON"}, {"language": "en-CA"}
+    )
+    assert alerts == []
 
 
 @pytest.mark.asyncio
 async def test_eccc_provider_returns_empty_when_no_location_configured():
     """Neither province nor GPS → empty list."""
     responses: dict[str, Any] = {
-        "https://rss.naad-adna.pelmorex.com/": _atom_xml(),
+        "https://rss.alertready.ca/": _atom_xml(),
     }
     session = StubSession(responses)
     provider = ECCCProvider()

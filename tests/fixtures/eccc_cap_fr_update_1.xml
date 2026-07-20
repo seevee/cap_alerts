@@ -38,6 +38,10 @@
         <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
         <value>071100</value>
       </geocode>
+      <geocode>
+        <valueName>profile:CAP-CP:Location:0.3</valueName>
+        <value>3506008</value>
+      </geocode>
     </area>
   </info>
 </alert>
