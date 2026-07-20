@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0-alpha.5 — 2026-07-20
+
+### Fixed
+- Stabilize MeteoFrance alert entity ids (#37) (#41) (21fd560…)
+
 ## 0.2.0-alpha.4 — 2026-07-20
 
 ### Fixed
