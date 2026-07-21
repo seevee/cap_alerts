@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0-alpha.6 — 2026-07-21
+
+### Fixed
+- Pre-filter province mode by polygon bbox (#43) (c2560e6…)
+
 ## 0.2.0-alpha.5 — 2026-07-20
 
 ### Fixed
