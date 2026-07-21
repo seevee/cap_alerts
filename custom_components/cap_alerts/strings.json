@@ -52,6 +52,7 @@
       },
       "eccc_province": {
         "title": "ECCC Province",
+        "description": "Creates an entity for every active alert across the whole province. To match only your location, go back and choose GPS location or device tracker instead.",
         "data": {
           "province": "Province Code"
         },
@@ -219,6 +220,7 @@
       },
       "reconfigure_eccc_province": {
         "title": "ECCC Province",
+        "description": "Creates an entity for every active alert across the whole province. To match only your location, go back and choose GPS location or device tracker instead.",
         "data": {
           "province": "Province Code"
         },
