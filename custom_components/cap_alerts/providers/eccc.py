@@ -68,6 +68,39 @@ _PROVINCE_TO_SGC: dict[str, str] = {
     "NU": "62",
 }
 
+# Coarse province/territory bounding boxes for the province-mode envelope
+# pre-filter, as (min_lon, min_lat, max_lon, max_lat) — the repo-wide bbox order,
+# matching the [lon, lat] polygon storage. Since the alertready.ca migration the
+# envelope carries no geographic category, so province mode would otherwise have
+# to fetch the CAP body of every national Actual entry (~1800) just to read its
+# SGC code — unfeasible inside the poll timeout. Instead we reject entries whose
+# georss-polygon bbox does not intersect the (padded) province box before the
+# fetch. This is a coarse gate only: survivors are still confirmed by the
+# authoritative SGC check (_matches_province_sgc), so the boxes are rounded
+# outward generously — over-inclusion is harmless (SGC removes it), while a
+# too-tight box would drop a real in-province alert.
+_PROVINCE_BBOX: dict[str, tuple[float, float, float, float]] = {
+    "NL": (-67.9, 46.6, -52.5, 60.4),
+    "PE": (-64.5, 45.9, -61.9, 47.1),
+    "NS": (-66.4, 43.3, -59.7, 47.1),
+    "NB": (-69.1, 44.5, -63.7, 48.1),
+    "QC": (-79.8, 44.9, -57.1, 62.6),
+    "ON": (-95.2, 41.6, -74.3, 56.9),
+    "MB": (-102.2, 48.9, -88.9, 60.1),
+    "SK": (-110.0, 48.9, -101.3, 60.1),
+    "AB": (-120.1, 48.9, -109.9, 60.1),
+    "BC": (-139.1, 48.2, -114.0, 60.1),
+    "YT": (-141.1, 59.9, -123.7, 69.7),
+    "NT": (-136.6, 59.9, -101.9, 78.9),
+    "NU": (-120.5, 51.5, -60.9, 83.2),
+}
+
+# Degrees added to every side of a province box before the intersection test.
+# Absorbs polygon coordinate imprecision and near-shore marine zones spilling
+# just past the land boundary; residual over-inclusion is cleaned up by the SGC
+# check.
+_PROVINCE_BBOX_PAD_DEG = 0.5
+
 
 def _is_marine_eccc(clc: tuple[str, ...]) -> bool:
     """Return True if any CLC area geocode is a marine/water zone ("00…")."""
@@ -155,6 +188,51 @@ def _matches_province_sgc(geocodes: Mapping[str, Sequence[str]], province: str) 
     if sgc_prefix is None:
         return False
     return any(v.startswith(sgc_prefix) for v in geocodes.get(_SGC_GEOCODE_KEY, ()))
+
+
+def _bbox_of_polygons(
+    polygons: list[list[list[float]]],
+) -> tuple[float, float, float, float] | None:
+    """Return (min_lon, min_lat, max_lon, max_lat) over all [lon, lat] vertices.
+
+    Returns ``None`` when there are no vertices to bound.
+    """
+    min_lon = min_lat = float("inf")
+    max_lon = max_lat = float("-inf")
+    for ring in polygons:
+        for lon, lat in ring:
+            min_lon = min(min_lon, lon)
+            max_lon = max(max_lon, lon)
+            min_lat = min(min_lat, lat)
+            max_lat = max(max_lat, lat)
+    if min_lon == float("inf"):
+        return None
+    return (min_lon, min_lat, max_lon, max_lat)
+
+
+def _province_bbox_intersects(polygons: list[list[list[float]]], province: str) -> bool:
+    """Return True if the alert geometry plausibly touches the province.
+
+    Coarse envelope pre-filter for province mode: tests the alert polygon's
+    bounding box against the configured province's (padded) box. Fails open —
+    an unknown province code or geometry with no boundable vertices returns
+    True, deferring the decision to the authoritative SGC check.
+    """
+    box = _PROVINCE_BBOX.get(province.upper())
+    if box is None:
+        return True
+    alert_bbox = _bbox_of_polygons(polygons)
+    if alert_bbox is None:
+        return True
+    a_min_lon, a_min_lat, a_max_lon, a_max_lat = alert_bbox
+    p_min_lon, p_min_lat, p_max_lon, p_max_lat = box
+    pad = _PROVINCE_BBOX_PAD_DEG
+    return (
+        a_min_lon <= p_max_lon + pad
+        and a_max_lon >= p_min_lon - pad
+        and a_min_lat <= p_max_lat + pad
+        and a_max_lat >= p_min_lat - pad
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -563,10 +641,15 @@ class ECCCProvider:
             language = cats.get("language", "en-CA")
 
             if province:
-                # Province filtering is deferred to the CAP body: the alertready.ca
-                # envelope no longer carries a "geocode" category, so we accept
-                # every Actual entry here and filter by SGC code after fetch (f).
-                pass
+                # The alertready.ca envelope no longer carries a "geocode"
+                # category, so province can only be confirmed from the CAP body
+                # (SGC code) after fetch (f). To avoid fetching every national
+                # Actual entry, coarsely reject entries whose georss-polygon bbox
+                # does not intersect the province box here; survivors are still
+                # confirmed by SGC. Fail open: a polygonless entry is kept.
+                polygons = _parse_georss_polygons(entry)
+                if polygons and not _province_bbox_intersects(polygons, province):
+                    continue
             elif gps_lat is not None and gps_lon is not None:
                 polygons = _parse_georss_polygons(entry)
                 if not _point_in_polygons(gps_lat, gps_lon, polygons):

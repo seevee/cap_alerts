@@ -177,8 +177,10 @@ class StubSession:
 
     def __init__(self, responses: dict[str, Any]) -> None:
         self._responses = responses
+        self.requested: list[str] = []
 
     def get(self, url: str, **kwargs: Any) -> Any:
+        self.requested.append(url)
         value = self._responses.get(url)
         if value is None:
             return _StubResponse(404, "")

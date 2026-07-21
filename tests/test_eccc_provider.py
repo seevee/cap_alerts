@@ -70,6 +70,8 @@ _fallback_id = _eccc_mod._fallback_id
 _build_alert_from_cap = _eccc_mod._build_alert_from_cap
 _is_marine_eccc = _eccc_mod._is_marine_eccc
 _matches_province_sgc = _eccc_mod._matches_province_sgc
+_bbox_of_polygons = _eccc_mod._bbox_of_polygons
+_province_bbox_intersects = _eccc_mod._province_bbox_intersects
 _headline_to_event = _eccc_mod._headline_to_event
 _best_event_name = _eccc_mod._best_event_name
 CAPDoc = _cap_mod.CAPDoc
@@ -106,8 +108,9 @@ def _cap_responses() -> dict[str, str]:
         "https://cap.naad-adna.pelmorex.com/alerts/fr_update_1.cap": _fixture(
             "eccc_cap_fr_update_1.xml"
         ),
-        # BC entry — fetched in province mode (envelope no longer carries a
-        # geocode), then dropped by the SGC province filter (59 = BC ≠ 35 = ON).
+        # BC entry — in province=ON mode its polygon bbox misses Ontario, so the
+        # bbox gate drops it pre-fetch and this response is never requested. In
+        # GPS mode it is fetched normally.
         "https://cap.naad-adna.pelmorex.com/alerts/bc_wind_1.cap": _fixture(
             "eccc_cap_bc_wind_1.xml"
         ),
@@ -890,7 +893,7 @@ async def test_eccc_provider_filters_test_status():
 
 @pytest.mark.asyncio
 async def test_eccc_provider_filters_foreign_province():
-    """BC entry is fetched (envelope has no geocode) then dropped by SGC (59 ≠ 35)."""
+    """BC entry is dropped pre-fetch by the bbox gate; its CAP body is never fetched."""
     responses: dict[str, Any] = {
         "https://rss.alertready.ca/": _atom_xml(),
         **_cap_responses(),
@@ -901,8 +904,15 @@ async def test_eccc_provider_filters_foreign_province():
         session, {"province": "ON"}, {"language": "en-CA"}
     )
     assert not any("Vancouver" in (a.area_desc or "") for a in alerts)
-    # Positive side: the in-province ON alert survives the SGC filter.
+    # Positive side: the in-province ON alert survives.
     assert any("Ottawa" in (a.area_desc or "") for a in alerts)
+    # The BC entry's bbox misses Ontario, so its CAP body is never requested,
+    # while the in-province Ottawa CAP bodies are.
+    assert (
+        "https://cap.naad-adna.pelmorex.com/alerts/bc_wind_1.cap"
+        not in session.requested
+    )
+    assert "https://cap.naad-adna.pelmorex.com/alerts/en_new_1.cap" in session.requested
 
 
 def test_matches_province_sgc():
@@ -917,6 +927,51 @@ def test_matches_province_sgc():
     assert _matches_province_sgc({"SAME": ("012345",)}, "ON") is False
     # Unrecognised province code → no match (never matches everything)
     assert _matches_province_sgc(on, "ZZ") is False
+
+
+# Ontario (Ottawa-ish) and BC (Vancouver Island-ish) rings, [lon, lat] pairs.
+_ON_RING = [[-76.0, 45.0], [-75.5, 45.0], [-75.5, 45.5], [-76.0, 45.5], [-76.0, 45.0]]
+_BC_RING = [
+    [-125.0, 48.0],
+    [-123.0, 48.0],
+    [-123.0, 50.0],
+    [-125.0, 50.0],
+    [-125.0, 48.0],
+]
+
+
+def test_bbox_of_polygons_single_ring():
+    assert _bbox_of_polygons([_ON_RING]) == (-76.0, 45.0, -75.5, 45.5)
+
+
+def test_bbox_of_polygons_multiple_rings_unions():
+    assert _bbox_of_polygons([_ON_RING, _BC_RING]) == (-125.0, 45.0, -75.5, 50.0)
+
+
+def test_bbox_of_polygons_empty_is_none():
+    assert _bbox_of_polygons([]) is None
+    assert _bbox_of_polygons([[]]) is None
+
+
+def test_province_bbox_intersects_in_province():
+    assert _province_bbox_intersects([_ON_RING], "ON") is True
+
+
+def test_province_bbox_intersects_foreign_province():
+    assert _province_bbox_intersects([_BC_RING], "ON") is False
+    assert _province_bbox_intersects([_BC_RING], "BC") is True
+
+
+def test_province_bbox_intersects_case_insensitive():
+    assert _province_bbox_intersects([_ON_RING], "on") is True
+
+
+def test_province_bbox_intersects_fails_open_on_empty_geometry():
+    assert _province_bbox_intersects([], "ON") is True
+
+
+def test_province_bbox_intersects_fails_open_on_unknown_province():
+    assert _province_bbox_intersects([_BC_RING], "ZZ") is True
 
 
 @pytest.mark.asyncio
