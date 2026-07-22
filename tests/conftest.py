@@ -173,15 +173,27 @@ class StubSession:
     - ``str``: body with status 200
     - ``(int, str)``: explicit (status, body)
     - ``callable``: zero-arg factory; the returned exception is raised on enter
+    - ``list``: a per-call sequence of any of the above; successive GETs of the
+      same URL consume the next element, and the last element repeats once the
+      sequence is exhausted (models retry/transient-failure scenarios)
     """
 
     def __init__(self, responses: dict[str, Any]) -> None:
         self._responses = responses
+        self._seq_index: dict[str, int] = {}
         self.requested: list[str] = []
 
     def get(self, url: str, **kwargs: Any) -> Any:
         self.requested.append(url)
         value = self._responses.get(url)
+        if isinstance(value, list):
+            idx = min(self._seq_index.get(url, 0), len(value) - 1) if value else 0
+            self._seq_index[url] = self._seq_index.get(url, 0) + 1
+            value = value[idx] if value else None
+        return self._materialize(value)
+
+    @staticmethod
+    def _materialize(value: Any) -> Any:
         if value is None:
             return _StubResponse(404, "")
         if callable(value):
