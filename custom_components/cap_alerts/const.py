@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "cap_alerts"
-PLATFORMS = ["sensor"]
+PLATFORMS = ["button", "sensor"]
 
 # RFC §2.7 — bumped on breaking attribute/event payload changes
 PLATFORM_VERSION = "1.0"

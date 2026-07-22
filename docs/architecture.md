@@ -241,6 +241,8 @@ Note: `event_code_same` and `event_code_nws` remain empty for ECCC. CAP-CP profi
 
 **Availability (issue #16)**: only a *backfill* drives `last_update_success`. The periodic `_async_update_data` backfill raising `UpdateFailed` flips entities `unavailable`; a transient socket disconnect, or a stream-triggered reconnect backfill that fails, does **not** — the last-known active set is retained while the client reconnects, avoiding availability flapping. Stream pushes therefore go through `_async_push_data` (assign `data`, notify listeners) rather than `async_set_updated_data`: the latter asserts `last_update_success`, letting a heartbeat mark entities available while the authoritative backfill is failing, *and* resets the refresh timer, which would let ~60 s heartbeats defer the 30-minute resync indefinitely so it never ran.
 
+**Forcing a refresh**: each config entry gets a diagnostic **Refresh** button (`button.py`, all providers) whose press calls `async_request_refresh()` — a GeoRSS backfill when streaming, an early poll otherwise. It goes through the coordinator's debouncer so repeated presses cannot hammer the ~7 MB feed, and unlike the data entities it stays available across a failed update, which is when it is most useful. The equivalent service call is `homeassistant.update_entity` against any entity of the entry.
+
 ---
 
 ## MeteoAlarm — CAP JSON mapping

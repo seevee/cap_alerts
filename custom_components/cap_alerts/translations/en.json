@@ -373,6 +373,11 @@
     }
   },
   "entity": {
+    "button": {
+      "refresh": {
+        "name": "Refresh"
+      }
+    },
     "sensor": {
       "alert_count": {
         "name": "Alert count"
