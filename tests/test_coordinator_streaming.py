@@ -16,13 +16,18 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_capture_events,
+    async_fire_time_changed,
+)
 
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er
 
 DOMAIN = "cap_alerts"
 FEED = "https://rss.alertready.ca/"
+RESYNC_S = 1800  # DEFAULT_STREAM_RESYNC_INTERVAL
 
 
 def _iso(dt: datetime) -> str:
@@ -38,6 +43,9 @@ def _cap_xml(
     sgc: str = "3506008",  # Ontario
     polygon: str = "45.0,-76.0 45.0,-75.5 45.5,-75.5 45.5,-76.0 45.0,-76.0",
     lang: str = "en-CA",
+    status: str = "Actual",
+    msg_type: str = "Alert",
+    sent_offset_h: int = 1,
 ) -> str:
     """A minimal ECCC-style CAP 1.2 alert with clock-relative timestamps."""
     now = datetime.now(timezone.utc)
@@ -48,8 +56,9 @@ def _cap_xml(
         '<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">'
         f"<identifier>{identifier}</identifier>"
         "<sender>CWTO</sender>"
-        f"<sent>{_iso(now - timedelta(hours=1))}</sent>"
-        "<status>Actual</status><msgType>Alert</msgType><scope>Public</scope>"
+        f"<sent>{_iso(now - timedelta(hours=sent_offset_h))}</sent>"
+        f"<status>{status}</status><msgType>{msg_type}</msgType>"
+        "<scope>Public</scope>"
         f"{refs}"
         "<info>"
         f"<language>{lang}</language><category>Met</category><event>{event}</event>"
@@ -104,6 +113,7 @@ def _install_fake_stream(monkeypatch) -> dict:
             holder["on_alert_doc"] = on_alert_doc
             holder["on_heartbeat"] = on_heartbeat
             holder["on_backfill_needed"] = on_backfill_needed
+            holder["client"] = self
             self._stopped = asyncio.Event()
 
         async def run(self) -> None:
@@ -204,3 +214,196 @@ async def test_reconnect_backfill_failure_keeps_entities_available(
     state = hass.states.get(count_id).state
     assert state != STATE_UNAVAILABLE
     assert state == "1"
+
+
+@pytest.mark.asyncio
+async def test_resync_backfill_fires_despite_heartbeats(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch, freezer
+):
+    """Heartbeats must not defer the safety resync.
+
+    Regression: pushing stream updates through ``async_set_updated_data`` reset
+    the coordinator's refresh timer, so a heartbeat every ~60 s meant the
+    30-minute GeoRSS resync — the only authoritative backfill, and the only
+    availability signal — never ran at all.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    await _setup(hass)
+    calls_before = len(aioclient_mock.mock_calls)
+
+    # Two heartbeats spread over 20 minutes — each would have pushed the resync
+    # a fresh 30 minutes into the future.
+    for _ in range(2):
+        freezer.tick(timedelta(seconds=600))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+        await holder["on_heartbeat"]()
+        await hass.async_block_till_done()
+    assert len(aioclient_mock.mock_calls) == calls_before, "resync fired early"
+
+    # Past the resync interval measured from setup, the backfill must run.
+    freezer.tick(timedelta(seconds=RESYNC_S - 1200 + 60))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert len(aioclient_mock.mock_calls) > calls_before
+
+
+@pytest.mark.asyncio
+async def test_periodic_backfill_failure_flips_unavailable_and_heartbeat_does_not_restore(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch, freezer
+):
+    """Only a backfill drives availability — a heartbeat must not paper over it."""
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    count_id = _count_id(hass, entry)
+    assert hass.states.get(count_id).state == "1"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(FEED, status=503)
+    freezer.tick(timedelta(seconds=RESYNC_S + 60))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(count_id).state == STATE_UNAVAILABLE
+
+    # The stream is still alive, but a heartbeat is not evidence the data is good.
+    await holder["on_heartbeat"]()
+    await hass.async_block_till_done()
+    assert hass.states.get(count_id).state == STATE_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+async def test_streamed_test_message_does_not_surface(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """The socket carries the whole NAAD channel, tests and exercises included."""
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    count_id = _count_id(hass, entry)
+    assert hass.states.get(count_id).state == "1"
+
+    for status in ("Test", "Exercise", "Draft"):
+        await holder["on_alert_doc"](
+            _cap_xml(f"urn:oid:{status}", event=f"{status} Warning", status=status)
+        )
+        await hass.async_block_till_done()
+    assert hass.states.get(count_id).state == "1"
+
+
+@pytest.mark.asyncio
+async def test_out_of_region_streamed_doc_is_not_retained(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """A BC alert must not enter an Ontario entry's live set."""
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    count_id = _count_id(hass, entry)
+
+    await holder["on_alert_doc"](
+        _cap_xml("urn:oid:BC", event="Wind Warning", sgc="5915022")
+    )
+    await hass.async_block_till_done()
+
+    assert hass.states.get(count_id).state == "1"
+    assert "urn:oid:BC" not in coordinator._live_docs
+
+
+@pytest.mark.asyncio
+async def test_superseding_doc_is_retained_even_when_out_of_region(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """A revision that references a tracked alert is kept, so it can supersede it.
+
+    Without this escape from the region filter, an update whose geometry moved
+    off the user would be dropped and the superseded alert would linger active
+    until it expired.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    count_id = _count_id(hass, entry)
+    assert hass.states.get(count_id).state == "1"
+
+    await holder["on_alert_doc"](
+        _cap_xml(
+            "urn:oid:A2",
+            references="CWTO,urn:oid:A,2026-07-22T12:00:00-00:00",
+            sgc="5915022",  # revised geometry is no longer in Ontario
+            msg_type="Update",
+            sent_offset_h=0,
+        )
+    )
+    await hass.async_block_till_done()
+
+    assert "urn:oid:A2" in coordinator._live_docs
+    assert hass.states.get(count_id).state == "0"
+
+
+@pytest.mark.asyncio
+async def test_streamed_revision_fires_incident_updated(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """Supersession over the stream goes through AlertStore like a poll does."""
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    count_id = _count_id(hass, entry)
+    events = async_capture_events(hass, "incident_updated")
+
+    await holder["on_alert_doc"](
+        _cap_xml(
+            "urn:oid:A2",
+            event="Wind Warning",
+            references="CWTO,urn:oid:A,2026-07-22T12:00:00-00:00",
+            msg_type="Update",
+            sent_offset_h=0,
+        )
+    )
+    await hass.async_block_till_done()
+
+    assert hass.states.get(count_id).state == "1"  # superseded, not duplicated
+    assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_unload_stops_the_stream_task(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """Unloading the entry must stop the client and leave no stream task behind."""
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    assert coordinator._stream_task is not None
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert holder["client"]._stopped.is_set()
+    assert coordinator._stream_task is None

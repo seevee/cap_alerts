@@ -100,9 +100,13 @@ def _make_client(**overrides):
 class _FakeWriter:
     def __init__(self) -> None:
         self.closed = False
+        self.awaited_closed = False
 
     def close(self) -> None:
         self.closed = True
+
+    async def wait_closed(self) -> None:
+        self.awaited_closed = True
 
 
 def _reader(*chunks: str, eof: bool = True) -> asyncio.StreamReader:
@@ -202,6 +206,37 @@ async def test_read_loop_dispatches_alerts_and_heartbeats():
 
 
 @pytest.mark.asyncio
+async def test_read_loop_decodes_multibyte_char_split_across_reads():
+    """A UTF-8 character straddling two reads must survive intact (bilingual feed)."""
+    docs: list[str] = []
+
+    async def on_alert(doc: str) -> None:
+        docs.append(doc)
+
+    text = "<alert><headline>Avertissement de grêle</headline></alert>"
+    raw = text.encode("utf-8")
+    cut = raw.index("ê".encode()) + 1  # split inside the 2-byte sequence
+
+    reader = asyncio.StreamReader()
+    reader.feed_data(raw[:cut])
+    reader.feed_data(raw[cut:])
+    reader.feed_eof()
+
+    client = _make_client(on_alert_doc=on_alert)
+    await client._read_loop(reader)
+
+    assert docs == [text]
+
+
+@pytest.mark.asyncio
+async def test_read_loop_reports_whether_data_arrived():
+    """The return value is what run()'s backoff policy keys off."""
+    client = _make_client()
+    assert await client._read_loop(_reader(_ALERT)) is True
+    assert await client._read_loop(_reader()) is False
+
+
+@pytest.mark.asyncio
 async def test_read_loop_returns_on_heartbeat_silence():
     """No data within the heartbeat timeout returns (to trigger a reconnect)."""
     client = _make_client(heartbeat_timeout_s=0.02)
@@ -257,6 +292,76 @@ async def test_run_retries_connect_failures_with_bounded_backoff():
 
     # Two failed connects retried, third succeeds and stops the loop.
     assert len(attempts) == 3
+
+
+@pytest.mark.asyncio
+async def test_run_grows_backoff_when_connection_delivers_nothing():
+    """Accept-then-close must back off, not hot-loop.
+
+    Every reconnect costs a full GeoRSS backfill, so a server that accepts the
+    connection and immediately drops it must not be retried in a tight loop.
+    """
+    slept: list[float] = []
+
+    async def connect():
+        return _reader(eof=True), _FakeWriter()  # accepts, delivers nothing
+
+    client = _make_client(connect=connect, backoff_min_s=1, backoff_max_s=8)
+
+    async def _record(backoff: float) -> None:
+        slept.append(backoff)
+        if len(slept) >= 4:
+            client.stop()
+
+    client._sleep_backoff = _record
+    await asyncio.wait_for(client.run(), timeout=1.0)
+
+    assert slept == [1, 2, 4, 8]  # doubling, clamped at the ceiling
+
+
+@pytest.mark.asyncio
+async def test_run_resets_backoff_after_a_productive_connection():
+    """A connection that delivered data starts the next backoff back at the floor."""
+    slept: list[float] = []
+    connects: list[int] = []
+
+    async def connect():
+        connects.append(1)
+        # Third connection delivers a doc; the rest close silently.
+        if len(connects) == 3:
+            return _reader(_ALERT), _FakeWriter()
+        return _reader(eof=True), _FakeWriter()
+
+    client = _make_client(connect=connect, backoff_min_s=1, backoff_max_s=8)
+
+    async def _record(backoff: float) -> None:
+        slept.append(backoff)
+        if len(slept) >= 4:
+            client.stop()
+
+    client._sleep_backoff = _record
+    await asyncio.wait_for(client.run(), timeout=1.0)
+
+    assert slept == [1, 2, 1, 2]  # grew, reset after the productive connection
+
+
+@pytest.mark.asyncio
+async def test_run_awaits_tls_shutdown_on_disconnect():
+    """close() alone leaves the TLS shutdown pending; run() waits for it."""
+    writers: list[_FakeWriter] = []
+
+    async def connect():
+        writer = _FakeWriter()
+        writers.append(writer)
+        if len(writers) >= 2:
+            client.stop()
+        return _reader(eof=True), writer
+
+    client = _make_client(connect=connect)
+    await asyncio.wait_for(client.run(), timeout=1.0)
+
+    assert writers[0].closed is True
+    assert writers[0].awaited_closed is True
 
 
 def test_stop_closes_writer():

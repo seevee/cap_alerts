@@ -74,7 +74,7 @@ async def _async_options_updated(
     # Toggling real-time streaming changes ingestion wiring captured when the
     # coordinator was built (the stream task, the poll-vs-resync interval), so a
     # clean reload is simpler and safer than in-place re-wiring.
-    if AlertsDataUpdateCoordinator._streaming_enabled(entry) != coordinator._streaming:
+    if AlertsDataUpdateCoordinator.streaming_enabled(entry) != coordinator.streaming:
         hass.config_entries.async_schedule_reload(entry.entry_id)
         return
     coordinator.update_interval = coordinator._resolve_update_interval(entry)

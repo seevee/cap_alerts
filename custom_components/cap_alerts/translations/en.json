@@ -363,7 +363,7 @@
           "exclude_marine": "Exclude marine alerts"
         },
         "data_description": {
-          "scan_interval": "How often to check for new alerts (60–3600)",
+          "scan_interval": "How often to check for new alerts (60–3600). ECCC: applies only when real-time streaming is off.",
           "timeout": "Per-request API timeout (5–120)",
           "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes.",
           "streaming": "Stream ECCC alerts over the NAAD real-time feed for near-instant updates (recommended). When off, alerts are polled from the GeoRSS feed on the polling interval. ECCC only.",

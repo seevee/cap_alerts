@@ -594,6 +594,65 @@ def _merge_languages(variants: list[CAPAlert], preferred_lang: str) -> CAPAlert:
 # ---------------------------------------------------------------------------
 
 
+def _is_actual(doc: CAPDoc) -> bool:
+    """Whether a CAP doc is a real alert rather than test/exercise traffic.
+
+    The GeoRSS path drops non-``Actual`` entries on the Atom envelope before the
+    body is ever fetched, but the streaming feed carries the whole NAAD channel —
+    ``Test``, ``Exercise`` and ``Draft`` messages included — so the rule lives
+    here, on the one path both ingestion sources share. Fails open on an absent
+    status: ``<status>`` is mandatory in CAP 1.2, so its absence means a
+    malformed document, and dropping a real alert over a parse quirk is the
+    worse error.
+    """
+    return not doc.status or doc.status == "Actual"
+
+
+def _info_matches_region(
+    info: CAPInfoDoc,
+    province: str,
+    gps_lat: float | None,
+    gps_lon: float | None,
+) -> bool:
+    """Whether a CAP ``<info>`` block falls inside the configured region.
+
+    Province mode tests the authoritative SGC geocode; GPS/tracker mode runs a
+    point-in-polygon test against the CAP-body polygon.
+    """
+    if province and not _matches_province_sgc(info.geocodes, province):
+        return False
+    if (
+        gps_lat is not None
+        and gps_lon is not None
+        and not _point_in_polygons(gps_lat, gps_lon, info.polygons)
+    ):
+        return False
+    return True
+
+
+def doc_matches_region(
+    doc: CAPDoc,
+    *,
+    province: str,
+    gps_lat: float | None,
+    gps_lon: float | None,
+    preferred_lang: str,
+) -> bool:
+    """Whether a streamed CAP document is worth keeping for this configuration.
+
+    The streaming admission test. The socket carries every alert in Canada, so
+    the coordinator screens docs here — before they enter its live set — rather
+    than paying for national volume in memory and in every rebuild. Selects the
+    same ``<info>`` block ``build_alerts_from_cap_docs`` would, so admission and
+    the later build agree.
+    """
+    if not _is_actual(doc):
+        return False
+    return _info_matches_region(
+        _select_info(doc, preferred_lang), province, gps_lat, gps_lon
+    )
+
+
 def build_alerts_from_cap_docs(
     docs: list[CAPDoc],
     *,
@@ -607,16 +666,19 @@ def build_alerts_from_cap_docs(
     """Build merged bilingual ``CAPAlert``s from parsed CAP documents.
 
     The provider-neutral half of ingestion, shared by the GeoRSS ``async_fetch``
-    path and the real-time streaming path: resolve revision chains to leaves,
-    filter each leaf against the configured region purely from its CAP body
-    (province via SGC geocode, GPS via CAP-body polygon), then group by bilingual
-    key and merge language siblings.
+    path and the real-time streaming path: drop non-``Actual`` documents, resolve
+    revision chains to leaves, filter each leaf against the configured region
+    purely from its CAP body (province via SGC geocode, GPS via CAP-body
+    polygon), then group by bilingual key and merge language siblings.
 
     ``atom_meta_by_id`` / ``web_by_id`` (keyed by CAP ``identifier``) let the
     GeoRSS path supply Atom-envelope niceties (entry id, title, alternate web
     link) so its output is unchanged; the streaming path omits them and builds
     purely from the CAP body.
     """
+    # Screen test/exercise traffic before chain resolution, so a test message's
+    # <references> cannot suppress the real alert it points at.
+    docs = [doc for doc in docs if _is_actual(doc)]
     leaf_ids = {d.identifier for d in resolve_chain_leaves(docs)}
     groups: dict[str, list[CAPAlert]] = defaultdict(list)
 
@@ -627,13 +689,7 @@ def build_alerts_from_cap_docs(
         # Prefer the envelope's declared language; fall back to the preferred
         # language so a single-<info> streaming doc still resolves its block.
         info = _select_info(doc, meta.get("language") or preferred_lang)
-        if province and not _matches_province_sgc(info.geocodes, province):
-            continue
-        if (
-            gps_lat is not None
-            and gps_lon is not None
-            and not _point_in_polygons(gps_lat, gps_lon, info.polygons)
-        ):
+        if not _info_matches_region(info, province, gps_lat, gps_lon):
             continue
         alert_id = _bilingual_key(doc, info)
         web_url = (web_by_id or {}).get(doc.identifier, "")

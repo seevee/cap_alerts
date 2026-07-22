@@ -19,6 +19,7 @@ drive a scripted reader without a socket.
 from __future__ import annotations
 
 import asyncio
+import codecs
 import logging
 import random
 import re
@@ -41,6 +42,9 @@ _MAX_BUFFER_BYTES = 8 * 1024 * 1024
 
 # Read chunk size for the byte stream.
 _READ_CHUNK = 65536
+
+# How long to wait for the TLS shutdown handshake when dropping a connection.
+_CLOSE_TIMEOUT_S = 5
 
 _ALERT_START = "<alert"
 _ALERT_END = "</alert>"
@@ -109,6 +113,22 @@ class NAADStreamClient:
             except Exception:  # noqa: BLE001 — best-effort teardown
                 pass
 
+    async def _aclose_writer(self, writer: asyncio.StreamWriter) -> None:
+        """Close a connection and wait for the TLS shutdown to complete.
+
+        ``close()`` alone leaves the SSL shutdown pending, which surfaces as a
+        lingering-transport warning at unload; the wait is bounded so a server
+        that never completes the handshake cannot stall the run loop.
+        """
+        self._writer = None
+        try:
+            writer.close()
+            await asyncio.wait_for(writer.wait_closed(), timeout=_CLOSE_TIMEOUT_S)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — best-effort teardown
+            pass
+
     async def run(self) -> None:
         """Connect, read, and reconnect until stopped.
 
@@ -131,28 +151,47 @@ class NAADStreamClient:
                 continue
 
             self._writer = writer
-            backoff = self._backoff_min_s
             if not first:
                 await self._safe_backfill()
             first = False
 
+            saw_data = False
             try:
-                await self._read_loop(reader)
+                saw_data = await self._read_loop(reader)
             except asyncio.CancelledError:
                 raise
             except Exception as err:  # noqa: BLE001 — transient read failure
                 self._logger.debug("NAAD stream read error: %s", err)
             finally:
-                self._close_writer()
+                await self._aclose_writer(writer)
 
-    async def _read_loop(self, reader: asyncio.StreamReader) -> None:
+            if self._stopped:
+                break
+            # Reset the backoff only for a connection that actually delivered
+            # something. A server that accepts and immediately closes never does,
+            # so its delay keeps growing instead of hot-looping — and every
+            # reconnect costs a full GeoRSS backfill, so the loop must not spin.
+            if saw_data:
+                backoff = self._backoff_min_s
+            await self._sleep_backoff(backoff)
+            backoff = min(backoff * 2, self._backoff_max_s)
+
+    async def _read_loop(self, reader: asyncio.StreamReader) -> bool:
         """Read the byte stream, reassemble frames, dispatch docs.
 
         Returns (to trigger a reconnect) on EOF or when no bytes arrive within the
         heartbeat timeout — since heartbeats are emitted at least every 60 s, a
-        read timeout doubles as the heartbeat/liveness watchdog.
+        read timeout doubles as the heartbeat/liveness watchdog. The return value
+        reports whether this connection delivered any bytes at all, which is what
+        the caller's backoff policy keys off.
+
+        Decoding runs through an incremental decoder held for the life of the
+        connection, so a multi-byte character straddling two reads survives
+        intact — ECCC bodies are bilingual, so accented text is a given.
         """
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
         buffer = ""
+        saw_data = False
         while not self._stopped:
             try:
                 chunk = await asyncio.wait_for(
@@ -163,13 +202,15 @@ class NAADStreamClient:
                     "NAAD stream: no data within %ss; reconnecting",
                     self._heartbeat_timeout_s,
                 )
-                return
+                return saw_data
             if not chunk:
-                return  # EOF — server closed the connection
-            buffer += chunk.decode("utf-8", errors="replace")
+                return saw_data  # EOF — server closed the connection
+            saw_data = True
+            buffer += decoder.decode(chunk)
             buffer, docs = self._extract_docs(buffer)
             for doc_str in docs:
                 await self._dispatch(doc_str)
+        return saw_data
 
     def _extract_docs(self, buffer: str) -> tuple[str, list[str]]:
         """Split complete ``<alert>…</alert>`` frames out of the buffer.

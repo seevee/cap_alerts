@@ -13,6 +13,7 @@ import aiohttp
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_LATITUDE, ATTR_LONGITUDE
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -49,7 +50,11 @@ from .normalize import normalize_alerts
 from .providers import AlertProvider
 from .providers.cap import CAPDoc, parse_cap_alert
 from .providers.cap_content_cache import CAPContentCache
-from .providers.eccc import ECCCProvider, build_alerts_from_cap_docs
+from .providers.eccc import (
+    ECCCProvider,
+    build_alerts_from_cap_docs,
+    doc_matches_region,
+)
 from .providers.naad_stream import NAADStreamClient
 from .store import AlertStore
 
@@ -160,6 +165,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # per-poll resolution doesn't spam the log.
         self._tracker_resolve_warned = False
         self._country_resolve_warned = False
+        self._stream_backfill_warned = False
 
         # Real-time streaming (ECCC only, default on). When enabled, a background
         # NAAD stream client pushes CAP docs into _live_docs and the GeoRSS feed
@@ -182,15 +188,24 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         )
 
     @staticmethod
-    def _streaming_enabled(entry: ConfigEntry) -> bool:
-        """Whether the entry runs ECCC streaming (default on for ECCC)."""
+    def streaming_enabled(entry: ConfigEntry) -> bool:
+        """Whether a config entry is configured for ECCC streaming (default on).
+
+        Derived from the entry alone, so the setup path can compare a *pending*
+        options change against a live coordinator's ``streaming``.
+        """
         return entry.data.get(CONF_PROVIDER) == "eccc" and entry.options.get(
             CONF_STREAMING, True
         )
 
+    @property
+    def streaming(self) -> bool:
+        """Whether this coordinator ingests from the NAAD stream."""
+        return self._streaming
+
     def _resolve_update_interval(self, entry: ConfigEntry) -> timedelta:
         """Poll interval: the GeoRSS scan interval, or the resync cadence when streaming."""
-        if self._streaming_enabled(entry):
+        if self._streaming:
             return timedelta(seconds=DEFAULT_STREAM_RESYNC_INTERVAL)
         return timedelta(
             seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
@@ -357,6 +372,41 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             "preferred_lang": options.get(CONF_LANGUAGE, "en-CA"),
         }
 
+    @callback
+    def _async_push_data(self, data: dict[str, CAPAlert]) -> None:
+        """Publish stream-sourced data to entities.
+
+        Deliberately *not* ``async_set_updated_data``: that resets the
+        ``update_interval`` timer, so heartbeats arriving every ~60 s would defer
+        the 30-minute safety-resync backfill indefinitely and it would never run.
+        It also asserts ``last_update_success``, which would let a heartbeat mark
+        entities available again while the authoritative backfill is failing.
+        Only a backfill drives availability (issue #16); the stream publishes
+        data and notifies listeners, nothing more.
+        """
+        self.data = data
+        self.async_update_listeners()
+
+    def _admit(
+        self, docs: list[CAPDoc], build_kwargs: Mapping[str, Any]
+    ) -> list[CAPDoc]:
+        """Screen streamed docs down to the ones worth holding in the live set.
+
+        The socket carries every alert in Canada, so admitting everything would
+        size the live set — and the rebuild it feeds on every stream event — by
+        national volume rather than by the configured region. A doc is kept when
+        it matches the region, or when it references something already tracked:
+        the latter so an update or cancellation still supersedes an alert we hold
+        even if its revised geometry no longer covers the user.
+        """
+        kept: list[CAPDoc] = []
+        for doc in docs:
+            if doc_matches_region(doc, **build_kwargs) or any(
+                ref_id in self._live_docs for _, ref_id, _ in doc.references
+            ):
+                kept.append(doc)
+        return kept
+
     def _merge_docs(self, docs: list[CAPDoc]) -> None:
         """Upsert docs into the live set by CAP identifier and prune stale ones."""
         for doc in docs:
@@ -404,42 +454,51 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             )
             return await self._apply(alerts)
 
-    async def async_ingest_docs(
-        self, docs: list[CAPDoc], *, heartbeat: bool = False
-    ) -> None:
+    async def async_ingest_docs(self, docs: list[CAPDoc]) -> None:
         """Merge streamed docs into the live set, rebuild, and push to entities.
 
         Called by the stream client for each alert doc (``docs=[doc]``) and for
-        each heartbeat (``docs=[]``, ``heartbeat=True``) — the heartbeat rebuild
-        ages out alerts that have since expired, with no network I/O.
+        each heartbeat (``docs=[]``) — the heartbeat rebuild ages out alerts that
+        have since expired, with no network I/O.
         """
         try:
             config, options = self._resolve_config()
         except UpdateFailed:
-            # Region unresolvable right now (e.g. tracker has no location) — leave
-            # the docs in the live set; a later successful rebuild will surface them.
+            # Region unresolvable right now (e.g. tracker has no location) — drop
+            # this push; the next backfill re-seeds from the authoritative feed.
             return
+        build_kwargs = self._build_kwargs(config, options)
         async with self._ingest_lock:
-            self._merge_docs(docs)
+            self._merge_docs(self._admit(docs, build_kwargs))
             alerts = build_alerts_from_cap_docs(
-                list(self._live_docs.values()), **self._build_kwargs(config, options)
+                list(self._live_docs.values()), **build_kwargs
             )
             data = await self._apply(alerts)
-        self.async_set_updated_data(data)
+        self._async_push_data(data)
 
     async def _on_backfill_needed(self) -> None:
         """GeoRSS backfill requested by the stream client on reconnect.
 
         A transient backfill failure here does not flip availability (issue #16) —
         the periodic ``_async_update_data`` backfill is the authoritative signal.
+        It is still worth a warning, once per failure streak, since a persistently
+        failing reconnect backfill means alerts missed while disconnected are not
+        being recovered.
         """
         try:
             config, options = self._resolve_config()
             data = await self._backfill(config, options)
         except UpdateFailed as err:
-            _LOGGER.debug("ECCC: stream-triggered backfill failed: %s", err)
+            if not self._stream_backfill_warned:
+                _LOGGER.warning(
+                    "ECCC: stream-triggered backfill failed: %s; alerts issued "
+                    "while disconnected may be missing until the next resync",
+                    err,
+                )
+                self._stream_backfill_warned = True
             return
-        self.async_set_updated_data(data)
+        self._stream_backfill_warned = False
+        self._async_push_data(data)
 
     async def _on_stream_alert_doc(self, doc_str: str) -> None:
         loop = asyncio.get_running_loop()
@@ -449,7 +508,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         await self.async_ingest_docs([doc])
 
     async def _on_stream_heartbeat(self) -> None:
-        await self.async_ingest_docs([], heartbeat=True)
+        await self.async_ingest_docs([])
 
     async def async_start_stream(self) -> None:
         """Start the NAAD stream background task (no-op unless streaming). Idempotent."""
