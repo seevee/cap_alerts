@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -26,22 +27,30 @@ from .const import (
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
+    CONF_PROVINCE,
     CONF_SCAN_INTERVAL,
+    CONF_STREAMING,
     CONF_TIMEOUT,
     CONF_TRACKER_ENTITY,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_STREAM_RESYNC_INTERVAL,
     DEFAULT_TIMEOUT,
     DOMAIN,
     METEOALARM_COUNTRIES,
     METEOALARM_COUNTRY_CODE_ALIASES,
     METEOALARM_COUNTRY_NAME_ALIASES,
     METEOALARM_COUNTRY_NAMES,
+    NAAD_STREAM_HOST,
+    NAAD_STREAM_PORT,
 )
 from .geometry_store import GeometryStore
 from .model import CAPAlert
 from .normalize import normalize_alerts
 from .providers import AlertProvider
+from .providers.cap import CAPDoc, parse_cap_alert
 from .providers.cap_content_cache import CAPContentCache
+from .providers.eccc import ECCCProvider, build_alerts_from_cap_docs
+from .providers.naad_stream import NAADStreamClient
 from .store import AlertStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,6 +66,24 @@ def exclude_marine_alerts(alerts: list[CAPAlert], enabled: bool) -> list[CAPAler
     if not enabled:
         return alerts
     return [a for a in alerts if not a.is_marine]
+
+
+def _doc_sent_before(doc: CAPDoc, cutoff: datetime) -> bool:
+    """Whether a CAP doc's ``sent`` timestamp is before ``cutoff``.
+
+    Fails open — an unparseable or missing ``sent`` returns ``False`` so the doc
+    is retained rather than pruned on a formatting quirk. A tz-naive timestamp is
+    assumed UTC.
+    """
+    if not doc.sent:
+        return False
+    try:
+        sent = datetime.fromisoformat(doc.sent)
+    except ValueError:
+        return False
+    if sent.tzinfo is None:
+        sent = sent.replace(tzinfo=timezone.utc)
+    return sent < cutoff
 
 
 def _resolve_tracker_gps(state: Any) -> str | None:
@@ -134,14 +161,39 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._tracker_resolve_warned = False
         self._country_resolve_warned = False
 
+        # Real-time streaming (ECCC only, default on). When enabled, a background
+        # NAAD stream client pushes CAP docs into _live_docs and the GeoRSS feed
+        # is used only as (re)connect + periodic-resync backfill; the poll
+        # interval becomes the safety-resync cadence rather than the hot loop.
+        self._streaming = provider.name == "eccc" and entry.options.get(
+            CONF_STREAMING, True
+        )
+        self._live_docs: dict[str, CAPDoc] = {}
+        self._ingest_lock = asyncio.Lock()
+        self._stream_client: NAADStreamClient | None = None
+        self._stream_task: asyncio.Task[None] | None = None
+
         super().__init__(
             hass,
             _LOGGER,
             config_entry=entry,
             name=f"{DOMAIN}_{entry.entry_id}",
-            update_interval=timedelta(
-                seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-            ),
+            update_interval=self._resolve_update_interval(entry),
+        )
+
+    @staticmethod
+    def _streaming_enabled(entry: ConfigEntry) -> bool:
+        """Whether the entry runs ECCC streaming (default on for ECCC)."""
+        return entry.data.get(CONF_PROVIDER) == "eccc" and entry.options.get(
+            CONF_STREAMING, True
+        )
+
+    def _resolve_update_interval(self, entry: ConfigEntry) -> timedelta:
+        """Poll interval: the GeoRSS scan interval, or the resync cadence when streaming."""
+        if self._streaming_enabled(entry):
+            return timedelta(seconds=DEFAULT_STREAM_RESYNC_INTERVAL)
+        return timedelta(
+            seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         )
 
     @property
@@ -228,6 +280,12 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
 
     async def _async_update_data(self) -> dict[str, CAPAlert]:
         config, options = self._resolve_config()
+
+        # Streaming mode: the periodic tick is a GeoRSS safety-resync backfill,
+        # not the primary ingestion path (the stream client pushes in real time).
+        if self._streaming:
+            return await self._backfill(config, options)
+
         try:
             async with asyncio.timeout(self._timeout):
                 alerts = await self._provider.async_fetch(
@@ -244,6 +302,15 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         except aiohttp.ClientError as err:
             raise UpdateFailed(f"{self._provider.name}: {err}") from err
 
+        return await self._apply(alerts)
+
+    async def _apply(self, alerts: list[CAPAlert]) -> dict[str, CAPAlert]:
+        """Run the shared post-fetch pipeline and index the active set by ID.
+
+        Normalize → marine filter → geometry externalization → store diff. Used by
+        both the polling path and the streaming ingest/backfill paths so their
+        transition detection, event firing, and geometry handling are identical.
+        """
         # Shared normalization. The full normalized list — including
         # cancelled/expired alerts — is handed to store.process so it can
         # fire cap_alert_removed with the true terminal phase before
@@ -253,7 +320,8 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # Opt-in marine filter (NWS/ECCC). Dropped alerts flow through store as
         # silent disappearances, so existing marine entities are removed (firing
         # incident_removed) when the toggle is flipped on.
-        alerts = exclude_marine_alerts(alerts, options.get(CONF_EXCLUDE_MARINE, False))
+        exclude_marine = self.config_entry.options.get(CONF_EXCLUDE_MARINE, False)
+        alerts = exclude_marine_alerts(alerts, exclude_marine)
         # Externalize geometry for alerts that will remain active. Skipping
         # terminal-phase alerts avoids caching polygons we're about to drop.
         active_refs: set[str] = set()
@@ -272,3 +340,147 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self.last_update_success_time = datetime.now(timezone.utc)
         # Index by ID for O(1) lookup
         return {a.id: a for a in alerts}
+
+    # ------------------------------------------------------------------
+    # Streaming ingestion (ECCC)
+    # ------------------------------------------------------------------
+
+    def _build_kwargs(
+        self, config: Mapping[str, Any], options: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Region/language kwargs for build_alerts_from_cap_docs from resolved config."""
+        gps_lat, gps_lon = ECCCProvider._parse_gps(config)
+        return {
+            "province": config.get(CONF_PROVINCE, ""),
+            "gps_lat": gps_lat,
+            "gps_lon": gps_lon,
+            "preferred_lang": options.get(CONF_LANGUAGE, "en-CA"),
+        }
+
+    def _merge_docs(self, docs: list[CAPDoc]) -> None:
+        """Upsert docs into the live set by CAP identifier and prune stale ones."""
+        for doc in docs:
+            if doc.identifier:
+                self._live_docs[doc.identifier] = doc
+        # The NAAD feeds carry a rolling 48 h window; drop anything older so the
+        # live set stays bounded and superseded/expired docs age out.
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+        stale = [
+            identifier
+            for identifier, doc in self._live_docs.items()
+            if _doc_sent_before(doc, cutoff)
+        ]
+        for identifier in stale:
+            del self._live_docs[identifier]
+
+    async def _backfill(
+        self, config: Mapping[str, Any], options: Mapping[str, Any]
+    ) -> dict[str, CAPAlert]:
+        """Seed/re-sync the live set from the GeoRSS feed and rebuild the active set.
+
+        Runs under the ingest lock so it cannot interleave with a stream push.
+        Raises UpdateFailed on fetch failure (drives availability, issue #16).
+        """
+        async with self._ingest_lock:
+            try:
+                async with asyncio.timeout(self._timeout):
+                    docs = await self._provider.async_fetch_docs(  # type: ignore[attr-defined]
+                        async_get_clientsession(self.hass),
+                        config,
+                        options,
+                        cap_content_cache=self._cap_content_cache,
+                        user_agent=self._user_agent,
+                    )
+            except TimeoutError as err:
+                raise UpdateFailed(
+                    f"{self._provider.name}: timeout after {self._timeout}s"
+                ) from err
+            except aiohttp.ClientError as err:
+                raise UpdateFailed(f"{self._provider.name}: {err}") from err
+
+            self._merge_docs(docs)
+            alerts = build_alerts_from_cap_docs(
+                list(self._live_docs.values()), **self._build_kwargs(config, options)
+            )
+            return await self._apply(alerts)
+
+    async def async_ingest_docs(
+        self, docs: list[CAPDoc], *, heartbeat: bool = False
+    ) -> None:
+        """Merge streamed docs into the live set, rebuild, and push to entities.
+
+        Called by the stream client for each alert doc (``docs=[doc]``) and for
+        each heartbeat (``docs=[]``, ``heartbeat=True``) — the heartbeat rebuild
+        ages out alerts that have since expired, with no network I/O.
+        """
+        try:
+            config, options = self._resolve_config()
+        except UpdateFailed:
+            # Region unresolvable right now (e.g. tracker has no location) — leave
+            # the docs in the live set; a later successful rebuild will surface them.
+            return
+        async with self._ingest_lock:
+            self._merge_docs(docs)
+            alerts = build_alerts_from_cap_docs(
+                list(self._live_docs.values()), **self._build_kwargs(config, options)
+            )
+            data = await self._apply(alerts)
+        self.async_set_updated_data(data)
+
+    async def _on_backfill_needed(self) -> None:
+        """GeoRSS backfill requested by the stream client on reconnect.
+
+        A transient backfill failure here does not flip availability (issue #16) —
+        the periodic ``_async_update_data`` backfill is the authoritative signal.
+        """
+        try:
+            config, options = self._resolve_config()
+            data = await self._backfill(config, options)
+        except UpdateFailed as err:
+            _LOGGER.debug("ECCC: stream-triggered backfill failed: %s", err)
+            return
+        self.async_set_updated_data(data)
+
+    async def _on_stream_alert_doc(self, doc_str: str) -> None:
+        loop = asyncio.get_running_loop()
+        doc = await loop.run_in_executor(None, parse_cap_alert, doc_str)
+        if doc is None or not doc.identifier:
+            return
+        await self.async_ingest_docs([doc])
+
+    async def _on_stream_heartbeat(self) -> None:
+        await self.async_ingest_docs([], heartbeat=True)
+
+    async def async_start_stream(self) -> None:
+        """Start the NAAD stream background task (no-op unless streaming). Idempotent."""
+        if not self._streaming or self._stream_task is not None:
+            return
+        self._stream_client = NAADStreamClient(
+            NAAD_STREAM_HOST,
+            NAAD_STREAM_PORT,
+            on_alert_doc=self._on_stream_alert_doc,
+            on_heartbeat=self._on_stream_heartbeat,
+            on_backfill_needed=self._on_backfill_needed,
+            logger=_LOGGER,
+        )
+        self._stream_task = self.hass.async_create_background_task(
+            self._stream_client.run(),
+            name=f"{DOMAIN}_naad_stream_{self.config_entry.entry_id}",
+        )
+
+    async def async_stop_stream(self) -> None:
+        """Stop the NAAD stream task and client. Idempotent; no task leak."""
+        client = self._stream_client
+        task = self._stream_task
+        self._stream_client = None
+        self._stream_task = None
+        if client is not None:
+            client.stop()
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as err:  # noqa: BLE001 — teardown best-effort
+                _LOGGER.debug("ECCC: stream task raised on teardown: %s", err)
