@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0-alpha.7 — 2026-07-22
+
+### Fixed
+- Guard against truncated NAAD feed downloads (#46) (961c012…)
+
 ## 0.2.0-alpha.6 — 2026-07-21
 
 ### Fixed
