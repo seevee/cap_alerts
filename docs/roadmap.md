@@ -86,3 +86,44 @@ Breaking internal change — best done alongside a new provider that actually ne
 `const.py::WMO_UNMIRRORED_SOURCES` is a point-in-time curation (verified 2026-05-24) of the registered SWIC sources that 404 on the `severeweather.wmo.int` mirror. The config-flow dropdown excludes them so users aren't offered broken sources, but the set goes stale: a newly-mirrored source stays hidden until the constant is updated by hand (`custom_value` entry is the escape hatch in the meantime).
 
 **Proposed**: a low-frequency background revalidation (e.g. HEAD-probe the mirror for registry sources and cache the reachable set on `hass.data` with a long TTL) so the exclude set self-heals without a code change. Must stay off the coordinator poll path — it's a config-flow-only concern.
+
+---
+
+## ECCC NAAD streaming socket (push ingestion)
+
+Today the ECCC provider polls the `rss.alertready.ca` Atom feed, which is a single ~7 MB object with no server-side filtering, compression, range, or conditional-GET support (all verified against the live endpoint). The whole feed is pulled every poll. Because it's a large chunked response behind `istio-envoy` with no `Content-Length`, an early-terminated stream makes aiohttp return a partial/empty body *without raising*, which historically surfaced as a misleading Atom `ParseError`. That failure mode is now guarded in `eccc.py::_fetch_feed_root` (completeness check on `</feed>` + bounded retry, branch `fix/eccc-truncated-feed`) — but the guard only makes the symptom clean and retriable; it does not remove the 7 MB-per-poll transfer that *causes* the truncation window. HTTP/2 is **not** a fix: HA's shared session is aiohttp (HTTP/1.1-only), and even via `httpx`+`h2` the H2 response also carries no `Content-Length`, so a clean `END_STREAM` after partial data truncates silently just like the chunked case — it would only (sometimes) convert a silent cut into a clean error, which the completeness guard already does for every transport.
+
+This is not just the more robust option — it is the **documented-correct ingestion path**. The NAADS 2.0 LMD User Guide (updated January 2026, "NAAD System Feed Specifications") is explicit that the RSS feed is the *auxiliary* "Internet GeoRSS Feed" and that it *"should not be used to feed a 24/7 automated system"* / *"should not be used as a base for public display by LMDs"* (it carries only a geometry subset of each alert). The channel Pelmorex documents for automated systems is the **TCP Streaming Feed**:
+
+- Hosts `streaming1.naad-adna.pelmorex.com` (Oakville) and `streaming2.naad-adna.pelmorex.com` (Montreal), **TCP port 8080** (connect to both for redundancy, dedupe).
+- Real-time CAP-CP alerts delimited by `<alert>…</alert>`, byte-identical to the RSS/GeoRSS version.
+- **Heartbeat every 60 seconds** carrying the last 10 alert ids, so a client can detect a dropped connection and a missed alert.
+- A **48-hour HTTP short-term repository** for retrieving missed alerts (also archived at alertsarchive.pelmorex.com).
+
+Switching to it eliminates the giant per-poll download *and* moves us onto the sanctioned channel at the same time. (What we surface today is still authoritative — we fetch each alert's full CAP body via its link, which the guide says is byte-identical to the TCP version — so this is about the discovery mechanism, not the alert data.)
+
+**Scope of the change** (why it's roadmap, not a bugfix):
+
+- Push vs. HA's poll-based `DataUpdateCoordinator`: needs a long-lived background connection task with reconnect/backoff and heartbeat monitoring (miss ~2 heartbeats → reconnect), feeding the store out-of-band rather than on an `update_interval` tick.
+- Startup + gap backfill: on init and after any disconnect, the currently-active alert set must still be seeded from the 48h repository/archive (the socket only carries alerts issued *while connected*), so an initial fetch doesn't fully go away — but it becomes a recovery path, not the steady-state hot loop.
+- Filtering (province/GPS/tracker) and the CAP-body/SGC logic are reusable, but the "which entries exist right now" discovery moves from feed enumeration to socket events + heartbeat-driven backfill.
+
+Pairs naturally with the `#24` geocode container work and the deployment-scaling numbers parked in the RFC incident follow-ups. Keep the completeness-guard fix regardless — it's protocol-agnostic and still needed for the backfill fetch.
+
+---
+
+## Partial-feed tolerance (authoritative vs. best-effort diffing)
+
+The ECCC feed guard (`eccc.py::_fetch_feed_root`) is all-or-nothing: a body that doesn't arrive complete (non-empty, ending in `</feed>`) is discarded and the poll fails. This is deliberately **fail-closed**, because `AlertStore.process` treats any tracked alert *absent* from a poll as ended — so salvaging a truncated (tail-missing) feed would fire false `cap_alert_removed` events, i.e. a false "all-clear," the worst failure mode for a weather-alert system. Discarding instead keeps the last-known-good snapshot (the coordinator retains `data` on `UpdateFailed`; `_sync_alert_entities` computes an empty removal set, so no alert entities are deleted) at the cost of the poll going stale until a clean fetch.
+
+The limitation this leaves: a partial feed still contains valid, parseable entries, and on a **cold start / backfill** there is no prior snapshot to fall back to — a persistent truncation yields an empty integration (`ConfigEntryNotReady`), genuinely withholding alerts that *did* arrive in the partial body.
+
+**Proposed** — make the diff **state-aware** rather than always-authoritative, by threading a "feed completeness" signal from the provider into the store:
+
+1. Complete feed → authoritative: process adds *and* removals (current behavior).
+2. Partial feed, steady state → **suppress removals** (absence is "unknown," not "ended"); optionally still surface the adds/updates that arrived. An alert that genuinely ended lingers until the next complete feed — the safe direction.
+3. Partial feed, cold start → **salvage** the arrived entries (nothing is tracked yet, so there is zero false-clear risk) instead of coming up empty.
+
+Requires: `Provider.async_fetch` (or a richer return type) to report completeness/partiality; `AlertStore.process` to take an `authoritative: bool` gating the removal branch; the coordinator to pass it through. The streaming-socket ingestion above must apply the same rule — its initial/gap backfill is exactly case 2/3, and it must fail-closed on an incomplete *steady-state* backfill for the same false-clear reason.
+
+**Open decision — entity availability on a failed/partial poll.** Today a failed poll marks every entity `unavailable` (the issue #16 contract, pinned by `test_mobile_lifecycle.py`). That is correct for *location-resolution* failures (offline tracker / unresolvable country: we don't know where the user is, so we can't assert their alerts). A pure *transport* failure at a fixed location (truncated ECCC feed) is different: the last-known alert set is still valid, so staying available with stale data — staleness surfaced by the last-updated sensor — is arguably safer than graying out an active warning. Reconciling the two needs **failure-type-aware** availability (distinguish "location unresolved" from "fetch failed"), not a blanket override, which would reverse #16 for the mobile case.

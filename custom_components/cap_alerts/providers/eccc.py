@@ -30,6 +30,18 @@ _LOGGER = logging.getLogger(__name__)
 # partial (regionally-scoped) feed, so it silently drops most of the country.
 NAAD_FEED_URL = "https://rss.alertready.ca/"
 
+# The alertready.ca feed is a large (~7 MB) chunked response with no
+# Content-Length, served behind istio-envoy. When the upstream stream is
+# terminated early, aiohttp returns a partial (or empty) body *without* raising
+# a ClientError, so parsing it fails at a random offset ("no element found",
+# "unclosed token"). The endpoint offers no server-side filtering, compression,
+# range, or conditional GET, so the whole document must be pulled each poll. We
+# guard by requiring a complete document (non-empty, ending in </feed>) and
+# retrying a bounded number of times, so a single truncation doesn't blank the
+# entry for a whole poll cycle.
+_FEED_FETCH_ATTEMPTS = 3
+_FEED_RETRY_BACKOFF_S = 0.5
+
 NS_ATOM = "http://www.w3.org/2005/Atom"
 NS_GEORSS = "http://www.georss.org/georss"
 NS_CAP = "urn:oasis:names:tc:emergency:cap:1.2"
@@ -609,15 +621,7 @@ class ECCCProvider:
         """
         preferred_lang = options.get(CONF_LANGUAGE, "en-CA")
 
-        async with session.get(NAAD_FEED_URL) as resp:
-            if resp.status != 200:
-                raise UpdateFailed(f"ECCC NAAD feed returned {resp.status}")
-            text = await resp.text()
-
-        try:
-            root = ET.fromstring(text)
-        except ET.ParseError as err:
-            raise UpdateFailed(f"ECCC: failed to parse Atom feed: {err}") from err
+        root = await self._fetch_feed_root(session)
 
         province = config.get(CONF_PROVINCE, "")
         gps_lat, gps_lon = self._parse_gps(config)
@@ -749,6 +753,45 @@ class ECCCProvider:
         return [
             _merge_languages(variants, preferred_lang) for variants in groups.values()
         ]
+
+    @staticmethod
+    async def _fetch_feed_root(session: aiohttp.ClientSession) -> Element:
+        """Fetch and parse the NAAD Atom feed, guarding against truncated downloads.
+
+        The alertready.ca feed can be delivered incomplete: an early-terminated
+        chunked stream makes ``resp.text()`` return a partial or empty body
+        without raising, and parsing it fails at a random offset. A body that is
+        not a complete document (empty, or not ending in ``</feed>``) is treated
+        as a transient truncation and retried a bounded number of times before
+        surfacing ``UpdateFailed`` (retried by the coordinator next poll).
+        """
+        last_error = "no attempts made"
+        for attempt in range(1, _FEED_FETCH_ATTEMPTS + 1):
+            async with session.get(NAAD_FEED_URL) as resp:
+                if resp.status != 200:
+                    raise UpdateFailed(f"ECCC NAAD feed returned {resp.status}")
+                text = await resp.text()
+
+            if text.rstrip().endswith("</feed>"):
+                try:
+                    return ET.fromstring(text)
+                except ET.ParseError as err:
+                    last_error = f"failed to parse Atom feed: {err}"
+            else:
+                last_error = (
+                    f"truncated feed response ({len(text)} bytes, missing </feed>)"
+                )
+
+            _LOGGER.debug(
+                "ECCC: %s (attempt %d/%d)",
+                last_error,
+                attempt,
+                _FEED_FETCH_ATTEMPTS,
+            )
+            if attempt < _FEED_FETCH_ATTEMPTS:
+                await asyncio.sleep(_FEED_RETRY_BACKOFF_S)
+
+        raise UpdateFailed(f"ECCC: {last_error}")
 
     @staticmethod
     def _parse_gps(

@@ -915,6 +915,55 @@ async def test_eccc_provider_filters_foreign_province():
     assert "https://cap.naad-adna.pelmorex.com/alerts/en_new_1.cap" in session.requested
 
 
+@pytest.mark.asyncio
+async def test_eccc_provider_raises_on_persistently_truncated_feed(monkeypatch):
+    """A feed body missing </feed> on every attempt raises UpdateFailed, not ParseError.
+
+    Simulates istio-envoy terminating the ~7 MB chunked stream early: aiohttp
+    returns a partial body without raising, so the guard must catch it. The
+    fetch retries the bounded number of times, then fails cleanly.
+    """
+    monkeypatch.setattr(_eccc_mod, "_FEED_RETRY_BACKOFF_S", 0)
+    truncated = _atom_xml()[: len(_atom_xml()) // 2]
+    responses: dict[str, Any] = {"https://rss.alertready.ca/": truncated}
+    session = StubSession(responses)
+    provider = ECCCProvider()
+
+    with pytest.raises(_eccc_mod.UpdateFailed, match="truncated feed response"):
+        await provider.async_fetch(session, {"province": "ON"}, {"language": "en-CA"})
+
+    # Retried the full budget; no CAP bodies fetched on a never-parseable feed.
+    assert (
+        session.requested.count("https://rss.alertready.ca/")
+        == _eccc_mod._FEED_FETCH_ATTEMPTS
+    )
+    assert not any(".cap" in url for url in session.requested)
+
+
+@pytest.mark.asyncio
+async def test_eccc_provider_retries_then_succeeds_on_truncated_feed(monkeypatch):
+    """A single truncated feed response recovers on retry within the same poll."""
+    monkeypatch.setattr(_eccc_mod, "_FEED_RETRY_BACKOFF_S", 0)
+    truncated = _atom_xml()[: len(_atom_xml()) // 2]
+    responses: dict[str, Any] = {
+        # First GET truncated, second GET complete → parses on attempt 2.
+        "https://rss.alertready.ca/": [truncated, _atom_xml()],
+        **_cap_responses(),
+    }
+    session = StubSession(responses)
+    provider = ECCCProvider()
+
+    alerts = await provider.async_fetch(
+        session, {"province": "ON"}, {"language": "en-CA"}
+    )
+
+    # Recovered to the same result as the clean full-flow case.
+    assert len(alerts) == 1
+    assert alerts[0].event == "Freezing Drizzle Advisory"
+    # Feed fetched exactly twice (one retry), then CAP bodies proceed normally.
+    assert session.requested.count("https://rss.alertready.ca/") == 2
+
+
 def test_matches_province_sgc():
     """SGC location prefix decides province; unknown codes and missing key fail."""
     on = {"profile:CAP-CP:Location:0.3": ("3506008", "3558090")}
