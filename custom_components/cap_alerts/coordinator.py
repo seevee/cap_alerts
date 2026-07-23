@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -12,11 +13,14 @@ import aiohttp
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_LATITUDE, ATTR_LONGITUDE
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
+from homeassistant.util.ssl import client_context
 
 from .const import (
     CONF_COUNTRY,
@@ -26,22 +30,36 @@ from .const import (
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
+    CONF_PROVINCE,
     CONF_SCAN_INTERVAL,
+    CONF_STREAMING,
     CONF_TIMEOUT,
     CONF_TRACKER_ENTITY,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_STREAM_RESYNC_INTERVAL,
     DEFAULT_TIMEOUT,
     DOMAIN,
     METEOALARM_COUNTRIES,
     METEOALARM_COUNTRY_CODE_ALIASES,
     METEOALARM_COUNTRY_NAME_ALIASES,
     METEOALARM_COUNTRY_NAMES,
+    NAAD_STREAM_BACKFILL_MIN_INTERVAL_S,
+    NAAD_STREAM_HOST,
+    NAAD_STREAM_PORT,
 )
 from .geometry_store import GeometryStore
 from .model import CAPAlert
 from .normalize import normalize_alerts
-from .providers import AlertProvider
+from .providers import AlertProvider, BackfillProvider
+from .providers.cap import CAPDoc, parse_cap_alert
 from .providers.cap_content_cache import CAPContentCache
+from .providers.eccc import (
+    ECCCProvider,
+    build_alerts_from_cap_docs,
+    doc_matches_region,
+    is_actual,
+)
+from .providers.naad_stream import NAADStreamClient
 from .store import AlertStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,6 +75,24 @@ def exclude_marine_alerts(alerts: list[CAPAlert], enabled: bool) -> list[CAPAler
     if not enabled:
         return alerts
     return [a for a in alerts if not a.is_marine]
+
+
+def _doc_sent_before(doc: CAPDoc, cutoff: datetime) -> bool:
+    """Whether a CAP doc's ``sent`` timestamp is before ``cutoff``.
+
+    Fails open — an unparseable or missing ``sent`` returns ``False`` so the doc
+    is retained rather than pruned on a formatting quirk. A tz-naive timestamp is
+    assumed UTC.
+    """
+    if not doc.sent:
+        return False
+    try:
+        sent = datetime.fromisoformat(doc.sent)
+    except ValueError:
+        return False
+    if sent.tzinfo is None:
+        sent = sent.replace(tzinfo=timezone.utc)
+    return sent < cutoff
 
 
 def _resolve_tracker_gps(state: Any) -> str | None:
@@ -133,21 +169,108 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # per-poll resolution doesn't spam the log.
         self._tracker_resolve_warned = False
         self._country_resolve_warned = False
+        self._stream_backfill_warned = False
+
+        # Real-time streaming (ECCC only, default on). When enabled, a background
+        # NAAD stream client pushes CAP docs into _live_docs and the GeoRSS feed
+        # is used only as (re)connect + periodic-resync backfill; the poll
+        # interval becomes the safety-resync cadence rather than the hot loop.
+        self._streaming = provider.name == "eccc" and entry.options.get(
+            CONF_STREAMING, True
+        )
+        # The backfill needs the doc-level fetch, which the AlertProvider protocol
+        # deliberately doesn't carry. Narrow once here so the backfill is typed
+        # rather than reaching through an ignore on every call.
+        self._backfill_provider: BackfillProvider | None = (
+            provider if isinstance(provider, BackfillProvider) else None
+        )
+        self._live_docs: dict[str, CAPDoc] = {}
+        self._ingest_lock = asyncio.Lock()
+        self._stream_client: NAADStreamClient | None = None
+        self._stream_task: asyncio.Task[None] | None = None
+        self._stream_connected = False
+        # When the last GeoRSS backfill was attempted, from either source, so a
+        # reconnect-triggered one can be throttled against it.
+        self._last_backfill_at: datetime | None = None
 
         super().__init__(
             hass,
             _LOGGER,
             config_entry=entry,
             name=f"{DOMAIN}_{entry.entry_id}",
-            update_interval=timedelta(
-                seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-            ),
+            update_interval=self.resolve_update_interval(entry),
+        )
+
+    @staticmethod
+    def streaming_enabled(entry: ConfigEntry) -> bool:
+        """Whether a config entry is configured for ECCC streaming (default on).
+
+        Derived from the entry alone, so the setup path can compare a *pending*
+        options change against a live coordinator's ``streaming``.
+        """
+        return entry.data.get(CONF_PROVIDER) == "eccc" and entry.options.get(
+            CONF_STREAMING, True
+        )
+
+    @property
+    def streaming(self) -> bool:
+        """Whether this coordinator ingests from the NAAD stream."""
+        return self._streaming
+
+    @property
+    def stream_connected(self) -> bool:
+        """Whether the NAAD socket is currently established.
+
+        Always ``False`` for a non-streaming entry. Distinct from availability:
+        the socket can be down while the entry is perfectly healthy on backfills,
+        which is precisely the state the connectivity entity exists to surface.
+        """
+        return self._stream_connected
+
+    @callback
+    def _on_stream_connection_change(self, connected: bool) -> None:
+        """Publish a socket connect/disconnect to entity listeners.
+
+        Only notifies listeners — it must not touch ``last_update_success``: a
+        dropped socket is not a failed data refresh (issue #16), and the entry
+        stays available on backfills while the client reconnects.
+        """
+        self._stream_connected = connected
+        self.async_update_listeners()
+
+    def resolve_update_interval(self, entry: ConfigEntry) -> timedelta:
+        """Poll interval: the GeoRSS scan interval, or the resync cadence when streaming.
+
+        Public because the options-update listener re-derives the interval from a
+        changed entry, and the streaming-vs-polling branch must not be duplicated
+        there.
+        """
+        if self._streaming:
+            return timedelta(seconds=DEFAULT_STREAM_RESYNC_INTERVAL)
+        return timedelta(
+            seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         )
 
     @property
     def provider(self) -> AlertProvider:
         """Expose provider for device_info model field."""
         return self._provider
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Device identity for every entity of this config entry.
+
+        Single source of truth: the sensor and button platforms both defer here,
+        so the device name/model cannot drift between them — a mismatch would
+        split one entry's entities across two devices in the registry.
+        """
+        model = self._provider.name.upper()
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.config_entry.entry_id)},
+            name=f"CAP Alerts {model}",
+            manufacturer="CAP Alerts",
+            model=model,
+        )
 
     def update_timeout(self, timeout: int) -> None:
         """Called by options update listener."""
@@ -228,6 +351,12 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
 
     async def _async_update_data(self) -> dict[str, CAPAlert]:
         config, options = self._resolve_config()
+
+        # Streaming mode: the periodic tick is a GeoRSS safety-resync backfill,
+        # not the primary ingestion path (the stream client pushes in real time).
+        if self._streaming:
+            return await self._backfill(config, options)
+
         try:
             async with asyncio.timeout(self._timeout):
                 alerts = await self._provider.async_fetch(
@@ -244,6 +373,22 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         except aiohttp.ClientError as err:
             raise UpdateFailed(f"{self._provider.name}: {err}") from err
 
+        data = await self._apply(alerts)
+        self.last_update_success_time = datetime.now(timezone.utc)
+        return data
+
+    async def _apply(self, alerts: list[CAPAlert]) -> dict[str, CAPAlert]:
+        """Run the shared post-fetch pipeline and index the active set by ID.
+
+        Normalize → marine filter → geometry externalization → store diff. Used by
+        both the polling path and the streaming ingest/backfill paths so their
+        transition detection, event firing, and geometry handling are identical.
+
+        Deliberately does *not* stamp ``last_update_success_time``: the streaming
+        path runs this pipeline on every heartbeat with no network I/O, and the
+        "Last updated" sensor reports when data was last *fetched*, not when the
+        active set was last recomputed. Only the fetch-backed callers stamp it.
+        """
         # Shared normalization. The full normalized list — including
         # cancelled/expired alerts — is handed to store.process so it can
         # fire cap_alert_removed with the true terminal phase before
@@ -253,7 +398,8 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # Opt-in marine filter (NWS/ECCC). Dropped alerts flow through store as
         # silent disappearances, so existing marine entities are removed (firing
         # incident_removed) when the toggle is flipped on.
-        alerts = exclude_marine_alerts(alerts, options.get(CONF_EXCLUDE_MARINE, False))
+        exclude_marine = self.config_entry.options.get(CONF_EXCLUDE_MARINE, False)
+        alerts = exclude_marine_alerts(alerts, exclude_marine)
         # Externalize geometry for alerts that will remain active. Skipping
         # terminal-phase alerts avoids caching polygons we're about to drop.
         active_refs: set[str] = set()
@@ -268,7 +414,244 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         await self._geometry_store.purge_missing(active_refs, prefix=f"{entry_id}:")
         # Diff against previous poll — returns only active alerts.
         alerts = self._store.process(alerts)
-        # Track successful update time (not all HA versions expose this)
-        self.last_update_success_time = datetime.now(timezone.utc)
         # Index by ID for O(1) lookup
         return {a.id: a for a in alerts}
+
+    # ------------------------------------------------------------------
+    # Streaming ingestion (ECCC)
+    # ------------------------------------------------------------------
+
+    def _build_kwargs(
+        self, config: Mapping[str, Any], options: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Region/language kwargs for build_alerts_from_cap_docs from resolved config."""
+        gps_lat, gps_lon = ECCCProvider._parse_gps(config)
+        return {
+            "province": config.get(CONF_PROVINCE, ""),
+            "gps_lat": gps_lat,
+            "gps_lon": gps_lon,
+            "preferred_lang": options.get(CONF_LANGUAGE, "en-CA"),
+        }
+
+    @callback
+    def _async_push_data(self, data: dict[str, CAPAlert]) -> None:
+        """Publish stream-sourced data to entities.
+
+        Deliberately *not* ``async_set_updated_data``: that resets the
+        ``update_interval`` timer, so heartbeats arriving every ~60 s would defer
+        the 30-minute safety-resync backfill indefinitely and it would never run.
+        It also asserts ``last_update_success``, which would let a heartbeat mark
+        entities available again while the authoritative backfill is failing.
+        Only a backfill drives availability (issue #16); the stream publishes
+        data and notifies listeners, nothing more.
+        """
+        self.data = data
+        self.async_update_listeners()
+
+    def _admit(
+        self, docs: list[CAPDoc], build_kwargs: Mapping[str, Any]
+    ) -> list[CAPDoc]:
+        """Screen streamed docs down to the ones worth holding in the live set.
+
+        The socket carries every alert in Canada, so admitting everything would
+        size the live set — and the rebuild it feeds on every stream event — by
+        national volume rather than by the configured region. A doc is kept when
+        it matches the region, or when it references something already tracked:
+        the latter so an update or cancellation still supersedes an alert we hold
+        even if its revised geometry no longer covers the user.
+
+        Test/exercise traffic is rejected up front rather than left to
+        ``doc_matches_region``, since the references escape bypasses that check —
+        and a heartbeat's ``<references>`` lists recent alert OIDs, so a heartbeat
+        that ever escaped classification would otherwise be admitted once a minute.
+        """
+        kept: list[CAPDoc] = []
+        for doc in docs:
+            if not is_actual(doc):
+                continue
+            if doc_matches_region(doc, **build_kwargs) or any(
+                ref_id in self._live_docs for _, ref_id, _ in doc.references
+            ):
+                kept.append(doc)
+        return kept
+
+    def _merge_docs(self, docs: list[CAPDoc]) -> None:
+        """Upsert docs into the live set by CAP identifier and prune stale ones."""
+        for doc in docs:
+            if doc.identifier:
+                self._live_docs[doc.identifier] = doc
+        # The NAAD feeds carry a rolling 48 h window; drop anything older so the
+        # live set stays bounded and superseded/expired docs age out.
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+        stale = [
+            identifier
+            for identifier, doc in self._live_docs.items()
+            if _doc_sent_before(doc, cutoff)
+        ]
+        for identifier in stale:
+            del self._live_docs[identifier]
+
+    async def _backfill(
+        self, config: Mapping[str, Any], options: Mapping[str, Any]
+    ) -> dict[str, CAPAlert]:
+        """Seed/re-sync the live set from the GeoRSS feed and rebuild the active set.
+
+        Runs under the ingest lock so it cannot interleave with a stream push.
+        Raises UpdateFailed on fetch failure (drives availability, issue #16).
+        """
+        provider = self._backfill_provider
+        if provider is None:  # pragma: no cover — guarded by the _streaming gate
+            raise UpdateFailed(
+                f"{self._provider.name}: provider cannot supply backfill documents"
+            )
+        async with self._ingest_lock:
+            # Stamped before the fetch, and whether or not it succeeds: what the
+            # reconnect throttle has to bound is the ~7 MB transfer, which a
+            # failing feed costs just the same.
+            self._last_backfill_at = datetime.now(timezone.utc)
+            try:
+                async with asyncio.timeout(self._timeout):
+                    docs = await provider.async_fetch_docs(
+                        async_get_clientsession(self.hass),
+                        config,
+                        options,
+                        cap_content_cache=self._cap_content_cache,
+                        user_agent=self._user_agent,
+                    )
+            except TimeoutError as err:
+                raise UpdateFailed(
+                    f"{self._provider.name}: timeout after {self._timeout}s"
+                ) from err
+            except aiohttp.ClientError as err:
+                raise UpdateFailed(f"{self._provider.name}: {err}") from err
+
+            self._merge_docs(docs)
+            alerts = build_alerts_from_cap_docs(
+                list(self._live_docs.values()), **self._build_kwargs(config, options)
+            )
+            data = await self._apply(alerts)
+        self.last_update_success_time = datetime.now(timezone.utc)
+        return data
+
+    async def async_ingest_docs(self, docs: list[CAPDoc]) -> None:
+        """Merge streamed docs into the live set, rebuild, and push to entities.
+
+        Called by the stream client for each alert doc (``docs=[doc]``) and for
+        each heartbeat (``docs=[]``) — the heartbeat rebuild ages out alerts that
+        have since expired, with no network I/O.
+        """
+        try:
+            config, options = self._resolve_config()
+        except UpdateFailed:
+            # Region unresolvable right now (e.g. tracker has no location) — drop
+            # this push; the next backfill re-seeds from the authoritative feed.
+            return
+        build_kwargs = self._build_kwargs(config, options)
+        async with self._ingest_lock:
+            self._merge_docs(self._admit(docs, build_kwargs))
+            alerts = build_alerts_from_cap_docs(
+                list(self._live_docs.values()), **build_kwargs
+            )
+            data = await self._apply(alerts)
+        self._async_push_data(data)
+
+    async def _on_backfill_needed(self) -> None:
+        """GeoRSS backfill requested by the stream client on reconnect.
+
+        Throttled against the last backfill from either source. The client's
+        backoff only grows for connections that delivered nothing, so an endpoint
+        that sends a heartbeat and then drops reconnects at the heartbeat (or
+        watchdog) cadence with the backoff pinned at its floor — and each
+        reconnect would otherwise pay a full ~7 MB feed fetch, making a flapping
+        socket more expensive than the polling it replaced. Skipping is safe: the
+        periodic resync still runs, and a backfill within the last few minutes has
+        already recovered essentially everything this one would.
+
+        A transient backfill failure here does not flip availability (issue #16) —
+        the periodic ``_async_update_data`` backfill is the authoritative signal.
+        It is still worth a warning, once per failure streak, since a persistently
+        failing reconnect backfill means alerts missed while disconnected are not
+        being recovered.
+        """
+        last = self._last_backfill_at
+        if last is not None and datetime.now(timezone.utc) - last < timedelta(
+            seconds=NAAD_STREAM_BACKFILL_MIN_INTERVAL_S
+        ):
+            _LOGGER.debug(
+                "ECCC: skipping reconnect backfill; one ran %.0fs ago (floor %ds)",
+                (datetime.now(timezone.utc) - last).total_seconds(),
+                NAAD_STREAM_BACKFILL_MIN_INTERVAL_S,
+            )
+            return
+        try:
+            config, options = self._resolve_config()
+            data = await self._backfill(config, options)
+        except UpdateFailed as err:
+            if not self._stream_backfill_warned:
+                _LOGGER.warning(
+                    "ECCC: stream-triggered backfill failed: %s; alerts issued "
+                    "while disconnected may be missing until the next resync",
+                    err,
+                )
+                self._stream_backfill_warned = True
+            return
+        self._stream_backfill_warned = False
+        self._async_push_data(data)
+
+    async def _on_stream_alert_doc(self, doc_str: str) -> None:
+        loop = asyncio.get_running_loop()
+        doc = await loop.run_in_executor(None, parse_cap_alert, doc_str)
+        if doc is None or not doc.identifier:
+            return
+        await self.async_ingest_docs([doc])
+
+    async def _on_stream_heartbeat(self) -> None:
+        await self.async_ingest_docs([])
+
+    async def async_start_stream(self) -> None:
+        """Start the NAAD stream background task (no-op unless streaming). Idempotent."""
+        if not self._streaming or self._stream_task is not None:
+            return
+        # Build the TLS context off the event loop: it reads the CA bundle from
+        # disk, and HA flags that as a blocking call. ``client_context`` is HA's
+        # certifi-backed client context and is itself cached, so entries after
+        # the first pay nothing. Note it advertises no ALPN protocol — the NAAD
+        # socket carries raw CAP, not HTTP, so ``get_default_context`` (which
+        # pins ALPN to http/1.1) would be wrong here.
+        ssl_context = await self.hass.async_add_executor_job(client_context)
+        self._stream_client = NAADStreamClient(
+            NAAD_STREAM_HOST,
+            NAAD_STREAM_PORT,
+            on_alert_doc=self._on_stream_alert_doc,
+            on_heartbeat=self._on_stream_heartbeat,
+            on_backfill_needed=self._on_backfill_needed,
+            on_connection_change=self._on_stream_connection_change,
+            ssl_context=ssl_context,
+            logger=_LOGGER,
+        )
+        self._stream_task = self.hass.async_create_background_task(
+            self._stream_client.run(),
+            name=f"{DOMAIN}_naad_stream_{self.config_entry.entry_id}",
+        )
+
+    async def async_stop_stream(self) -> None:
+        """Stop the NAAD stream task and client. Idempotent; no task leak."""
+        client = self._stream_client
+        task = self._stream_task
+        self._stream_client = None
+        self._stream_task = None
+        if client is not None:
+            client.stop()
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as err:  # noqa: BLE001 — teardown best-effort
+                _LOGGER.debug("ECCC: stream task raised on teardown: %s", err)
+        # run()'s finally normally publishes the disconnect, but a client that
+        # never started (or a task cancelled before it ran) leaves the flag set
+        # from a previous connection. Clear it directly; entities are being torn
+        # down anyway, so no notification is needed.
+        self._stream_connected = False

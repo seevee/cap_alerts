@@ -18,7 +18,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
 
-from .const import CONF_PROVIDER, DOMAIN, PLATFORM_VERSION
+from .const import CONF_PROVIDER, PLATFORM_VERSION
 from .coordinator import AlertsDataUpdateCoordinator
 from .model import CAPAlert
 
@@ -135,12 +135,7 @@ class _CAPAlertsEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEnt
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name=f"CAP Alerts {self.coordinator.provider.name.upper()}",
-            manufacturer="CAP Alerts",
-            model=self.coordinator.provider.name.upper(),
-        )
+        return self.coordinator.device_info
 
 
 class CountSensor(_CAPAlertsEntity):
@@ -202,12 +197,7 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name=f"CAP Alerts {self.coordinator.provider.name.upper()}",
-            manufacturer="CAP Alerts",
-            model=self.coordinator.provider.name.upper(),
-        )
+        return self.coordinator.device_info
 
     @property
     def _alert(self) -> CAPAlert | None:

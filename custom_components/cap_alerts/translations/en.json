@@ -359,18 +359,30 @@
           "scan_interval": "Polling interval (seconds)",
           "timeout": "API timeout (seconds)",
           "language": "Language",
+          "streaming": "Real-time streaming",
           "exclude_marine": "Exclude marine alerts"
         },
         "data_description": {
-          "scan_interval": "How often to check for new alerts (60\u20133600)",
-          "timeout": "Per-request API timeout (5\u2013120)",
+          "scan_interval": "How often to check for new alerts (60–3600). ECCC: applies only when real-time streaming is off.",
+          "timeout": "Per-request API timeout (5–120)",
           "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes.",
+          "streaming": "Stream ECCC alerts over the NAAD real-time feed for near-instant updates (recommended). When off, alerts are polled from the GeoRSS feed on the polling interval. ECCC only.",
           "exclude_marine": "Hide alerts issued for marine/water zones (boating, open water). NWS and ECCC only."
         }
       }
     }
   },
   "entity": {
+    "binary_sensor": {
+      "stream_connected": {
+        "name": "Real-time stream"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh"
+      }
+    },
     "sensor": {
       "alert_count": {
         "name": "Alert count"

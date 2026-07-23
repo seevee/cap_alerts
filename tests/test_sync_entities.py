@@ -232,31 +232,24 @@ def test_restart_grace_two_cycle_sequence():
 # --- device_info.name decoupling --------------------------------------------
 
 
-def test_device_info_name_is_stable_across_entry_title():
-    """device.name derives from coordinator.provider.name, not entry.title.
+def test_sensor_device_info_delegates_to_the_coordinator():
+    """Neither sensor entity re-derives device identity.
 
-    Pinning device.name to a stable value keeps HA's slug composition (which
-    uses device.name + entity.name at first registration) from baking
-    volatile reconfigure data — lat/long, zone codes — into entity_ids.
+    device.name must stay stable and derive from the provider, not entry.title:
+    HA composes entity_id slugs from device.name + entity.name at first
+    registration, so a title carrying lat/long or zone codes would bake volatile
+    reconfigure data into them. The derivation itself lives on the coordinator —
+    one source of truth for all three platforms, asserted against the real device
+    registry in test_refresh_button.py. What this pins is that the sensors defer
+    to it rather than keeping a second copy that could drift.
     """
-
-    class FakeEntry:
-        entry_id = "01KP7B41CFK72KRHSG16DBJ1E1"
-        title = "CAP Alerts ECCC (67.787607,-115.166)"
-
-    class FakeProvider:
-        name = "eccc"
+    sentinel = {"identifiers": {("cap_alerts", "01KP7B41CFK72KRHSG16DBJ1E1")}}
 
     class FakeCoord:
-        provider = FakeProvider()
+        device_info = sentinel
 
     class FakeSelf:
-        _entry = FakeEntry()
         coordinator = FakeCoord()
 
-    base_info = sensor._CAPAlertsEntity.device_info.fget(FakeSelf)
-    alert_info = sensor.AlertEntity.device_info.fget(FakeSelf)
-
-    assert base_info["name"] == "CAP Alerts ECCC"
-    assert alert_info["name"] == "CAP Alerts ECCC"
-    assert base_info["identifiers"] == {("cap_alerts", FakeEntry.entry_id)}
+    assert sensor._CAPAlertsEntity.device_info.fget(FakeSelf) is sentinel
+    assert sensor.AlertEntity.device_info.fget(FakeSelf) is sentinel

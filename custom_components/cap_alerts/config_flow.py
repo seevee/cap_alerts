@@ -38,6 +38,7 @@ from .const import (
     CONF_REGIONS,
     CONF_SCAN_INTERVAL,
     CONF_SOURCE_ID,
+    CONF_STREAMING,
     CONF_TIMEOUT,
     CONF_TRACKER_ENTITY,
     CONF_ZONE_ID,
@@ -1202,6 +1203,12 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                     default=self.config_entry.options.get(CONF_LANGUAGE, "auto"),
                 )
             ] = vol.In(["auto", "en-CA", "fr-CA"])
+            schema[
+                vol.Optional(
+                    CONF_STREAMING,
+                    default=self.config_entry.options.get(CONF_STREAMING, True),
+                )
+            ] = bool
         elif provider == "meteoalarm":
             schema[
                 vol.Optional(

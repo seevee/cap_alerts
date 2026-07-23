@@ -24,10 +24,14 @@ from .cap_content_cache import CAPContentCache
 
 _LOGGER = logging.getLogger(__name__)
 
-# NAAD public dissemination feed. Migrated April 2026 from the legacy
-# rss.naad-adna.pelmorex.com host to rss.alertready.ca per the NAAD System
-# Governance Council. The legacy host still returns HTTP 200 but serves a
-# partial (regionally-scoped) feed, so it silently drops most of the country.
+# NAAD public dissemination GeoRSS feed. Migrated April 2026 from
+# rss.naad-adna.pelmorex.com to rss.alertready.ca per the NAAD System Governance
+# Council (March 2026 Public Summary): an intentional domain rebrand off the
+# Pelmorex name, with both feeds maintained concurrently for 6 months (legacy
+# host sunsets ~late Sept 2026). Content is unchanged between the two. The legacy
+# host remains healthy national production (sends Content-Length, supports
+# conditional GET); alertready.ca is the sanctioned endpoint but is currently
+# backed by a degraded DQS/training instance (see _fetch_feed_root comment).
 NAAD_FEED_URL = "https://rss.alertready.ca/"
 
 # The alertready.ca feed is a large (~7 MB) chunked response with no
@@ -586,6 +590,120 @@ def _merge_languages(variants: list[CAPAlert], preferred_lang: str) -> CAPAlert:
 
 
 # ---------------------------------------------------------------------------
+# Shared doc → alert builder
+# ---------------------------------------------------------------------------
+
+
+def is_actual(doc: CAPDoc) -> bool:
+    """Whether a CAP doc is a real alert rather than test/exercise traffic.
+
+    The GeoRSS path drops non-``Actual`` entries on the Atom envelope before the
+    body is ever fetched, but the streaming feed carries the whole NAAD channel —
+    ``Test``, ``Exercise`` and ``Draft`` messages included — so the rule lives
+    here, on the one path both ingestion sources share. Fails open on an absent
+    status: ``<status>`` is mandatory in CAP 1.2, so its absence means a
+    malformed document, and dropping a real alert over a parse quirk is the
+    worse error.
+
+    Public because the coordinator's streaming admission needs it directly: its
+    "references something we already track" escape bypasses ``doc_matches_region``
+    entirely, so the status rule has to be applied ahead of that branch too.
+    """
+    return not doc.status or doc.status == "Actual"
+
+
+def _info_matches_region(
+    info: CAPInfoDoc,
+    province: str,
+    gps_lat: float | None,
+    gps_lon: float | None,
+) -> bool:
+    """Whether a CAP ``<info>`` block falls inside the configured region.
+
+    Province mode tests the authoritative SGC geocode; GPS/tracker mode runs a
+    point-in-polygon test against the CAP-body polygon.
+    """
+    if province and not _matches_province_sgc(info.geocodes, province):
+        return False
+    if (
+        gps_lat is not None
+        and gps_lon is not None
+        and not _point_in_polygons(gps_lat, gps_lon, info.polygons)
+    ):
+        return False
+    return True
+
+
+def doc_matches_region(
+    doc: CAPDoc,
+    *,
+    province: str,
+    gps_lat: float | None,
+    gps_lon: float | None,
+    preferred_lang: str,
+) -> bool:
+    """Whether a streamed CAP document is worth keeping for this configuration.
+
+    The streaming admission test. The socket carries every alert in Canada, so
+    the coordinator screens docs here — before they enter its live set — rather
+    than paying for national volume in memory and in every rebuild. Selects the
+    same ``<info>`` block ``build_alerts_from_cap_docs`` would, so admission and
+    the later build agree.
+    """
+    if not is_actual(doc):
+        return False
+    return _info_matches_region(
+        _select_info(doc, preferred_lang), province, gps_lat, gps_lon
+    )
+
+
+def build_alerts_from_cap_docs(
+    docs: list[CAPDoc],
+    *,
+    province: str,
+    gps_lat: float | None,
+    gps_lon: float | None,
+    preferred_lang: str,
+    atom_meta_by_id: Mapping[str, dict[str, Any]] | None = None,
+    web_by_id: Mapping[str, str] | None = None,
+) -> list[CAPAlert]:
+    """Build merged bilingual ``CAPAlert``s from parsed CAP documents.
+
+    The provider-neutral half of ingestion, shared by the GeoRSS ``async_fetch``
+    path and the real-time streaming path: drop non-``Actual`` documents, resolve
+    revision chains to leaves, filter each leaf against the configured region
+    purely from its CAP body (province via SGC geocode, GPS via CAP-body
+    polygon), then group by bilingual key and merge language siblings.
+
+    ``atom_meta_by_id`` / ``web_by_id`` (keyed by CAP ``identifier``) let the
+    GeoRSS path supply Atom-envelope niceties (entry id, title, alternate web
+    link) so its output is unchanged; the streaming path omits them and builds
+    purely from the CAP body.
+    """
+    # Screen test/exercise traffic before chain resolution, so a test message's
+    # <references> cannot suppress the real alert it points at.
+    docs = [doc for doc in docs if is_actual(doc)]
+    leaf_ids = {d.identifier for d in resolve_chain_leaves(docs)}
+    groups: dict[str, list[CAPAlert]] = defaultdict(list)
+
+    for doc in docs:
+        if doc.identifier not in leaf_ids:
+            continue
+        meta = (atom_meta_by_id or {}).get(doc.identifier, {})
+        # Prefer the envelope's declared language; fall back to the preferred
+        # language so a single-<info> streaming doc still resolves its block.
+        info = _select_info(doc, meta.get("language") or preferred_lang)
+        if not _info_matches_region(info, province, gps_lat, gps_lon):
+            continue
+        alert_id = _bilingual_key(doc, info)
+        web_url = (web_by_id or {}).get(doc.identifier, "")
+        alert = _build_alert_from_cap(doc, info, meta, web_url, alert_id)
+        groups[alert.id].append(alert)
+
+    return [_merge_languages(variants, preferred_lang) for variants in groups.values()]
+
+
+# ---------------------------------------------------------------------------
 # Provider
 # ---------------------------------------------------------------------------
 
@@ -606,28 +724,122 @@ class ECCCProvider:
         cap_content_cache: CAPContentCache | None = None,
         user_agent: str | None = None,
     ) -> list[CAPAlert]:
-        """Fetch active alerts from ECCC NAAD feed.
+        """Fetch active alerts from the ECCC NAAD GeoRSS feed.
 
-        (a) Fetches the Atom feed.
-        (b) Pre-filters entries by status; GPS/tracker location is filtered here
-            against the Atom envelope polygon. Province filtering is deferred to
-            (f) since the envelope no longer carries a "geocode" category.
-        (c) Fetches CAP XML for survivors via a shared cache.
-        (d) Parses CAP XML in the thread pool executor.
-        (e) Resolves revision chains to leaf revisions.
-        (f) Builds CAPAlert objects (filtering by CAP-body SGC code in province
-            mode), groups by bilingual key.
-        (g) Merges language variants into a single bilingual alert.
+        Runs the envelope pre-filter + CAP-body fetch/parse (``_collect``), builds
+        merged bilingual alerts from the successfully-parsed docs via the shared
+        ``build_alerts_from_cap_docs``, and — for survivors whose CAP body could
+        not be fetched — applies the Atom-envelope fallback: province mode fails
+        closed (drops, cannot verify location), GPS/tracker mode surfaces a
+        metadata-only alert (its location was already verified by the envelope
+        polygon).
         """
         preferred_lang = options.get(CONF_LANGUAGE, "en-CA")
+        province = config.get(CONF_PROVINCE, "")
+        gps_lat, gps_lon = self._parse_gps(config)
 
+        results = await self._collect(
+            session,
+            config,
+            cap_content_cache=cap_content_cache,
+            user_agent=user_agent,
+        )
+
+        docs = [doc for _, _, doc in results if doc is not None]
+        atom_meta_by_id = {
+            doc.identifier: meta for meta, _, doc in results if doc is not None
+        }
+        web_by_id = {doc.identifier: web for _, web, doc in results if doc is not None}
+
+        alerts = build_alerts_from_cap_docs(
+            docs,
+            province=province,
+            gps_lat=gps_lat,
+            gps_lon=gps_lon,
+            preferred_lang=preferred_lang,
+            atom_meta_by_id=atom_meta_by_id,
+            web_by_id=web_by_id,
+        )
+
+        # Fallback for survivors whose CAP body could not be fetched/parsed.
+        for atom_metadata, web_url, doc in results:
+            if doc is not None:
+                continue
+            atom_id = atom_metadata["atom_id"]
+            if province:
+                # No CAP body → no SGC code → province can't be verified.
+                # Fail closed: showing a province user an alert from elsewhere in
+                # the country is worse than transiently missing one.
+                _LOGGER.warning(
+                    "ECCC: CAP fetch failed for atom id %s; dropping "
+                    "(province mode cannot verify location without CAP body)",
+                    atom_id,
+                )
+                continue
+            alert_id = _fallback_id(atom_id, atom_metadata.get("language", "en-CA"))
+            alerts.append(_build_fallback_alert(atom_metadata, web_url, alert_id))
+            _LOGGER.warning(
+                "ECCC: CAP fetch failed for atom id %s; surfacing metadata-only alert",
+                atom_id,
+            )
+
+        return alerts
+
+    async def async_fetch_docs(
+        self,
+        session: aiohttp.ClientSession,
+        config: Mapping[str, Any],
+        options: Mapping[str, Any],
+        *,
+        cap_content_cache: CAPContentCache | None = None,
+        user_agent: str | None = None,
+    ) -> list[CAPDoc]:
+        """Fetch region-relevant CAP documents from the GeoRSS feed.
+
+        The streaming backfill source: runs the same envelope pre-filter and
+        CAP-body fetch/parse as ``async_fetch`` but returns the parsed ``CAPDoc``s
+        directly, for the coordinator's live-doc set to merge. Unlike
+        ``async_fetch`` there is no metadata-only fallback — a body that could not
+        be fetched is simply omitted and recovered on a later backfill.
+        """
+        results = await self._collect(
+            session,
+            config,
+            cap_content_cache=cap_content_cache,
+            user_agent=user_agent,
+        )
+        return [doc for _, _, doc in results if doc is not None]
+
+    async def _collect(
+        self,
+        session: aiohttp.ClientSession,
+        config: Mapping[str, Any],
+        *,
+        cap_content_cache: CAPContentCache | None = None,
+        user_agent: str | None = None,
+    ) -> list[tuple[dict[str, Any], str, CAPDoc | None]]:
+        """Run the GeoRSS envelope pre-filter + CAP-body fetch/parse.
+
+        Returns one ``(atom_metadata, web_url, doc)`` tuple per surviving entry,
+        with ``doc`` ``None`` when its CAP body could not be fetched or parsed:
+
+        (a) Fetches the Atom feed.
+        (b) Pre-filters entries by status; province mode by georss-polygon bbox,
+            GPS/tracker mode by georss-polygon point-in-polygon. The authoritative
+            region check happens later against the CAP body.
+        (c) Fetches CAP XML for survivors via a shared cache.
+        (d) Parses CAP XML in the thread pool executor.
+        """
         root = await self._fetch_feed_root(session)
 
         province = config.get(CONF_PROVINCE, "")
         gps_lat, gps_lon = self._parse_gps(config)
 
-        # (b) Pre-filter entries using Atom envelope
-        SurvivorTuple = tuple[Element, str, dict[str, Any], str, str]
+        if not province and gps_lat is None:
+            return []
+
+        # (b) Pre-filter entries using the Atom envelope
+        SurvivorTuple = tuple[str, dict[str, Any], str]
         survivors: list[SurvivorTuple] = []
 
         for entry in root.findall(f"{{{NS_ATOM}}}entry"):
@@ -647,19 +859,17 @@ class ECCCProvider:
             if province:
                 # The alertready.ca envelope no longer carries a "geocode"
                 # category, so province can only be confirmed from the CAP body
-                # (SGC code) after fetch (f). To avoid fetching every national
-                # Actual entry, coarsely reject entries whose georss-polygon bbox
-                # does not intersect the province box here; survivors are still
+                # (SGC code) after fetch. To avoid fetching every national Actual
+                # entry, coarsely reject entries whose georss-polygon bbox does
+                # not intersect the province box here; survivors are still
                 # confirmed by SGC. Fail open: a polygonless entry is kept.
                 polygons = _parse_georss_polygons(entry)
                 if polygons and not _province_bbox_intersects(polygons, province):
                     continue
-            elif gps_lat is not None and gps_lon is not None:
-                polygons = _parse_georss_polygons(entry)
-                if not _point_in_polygons(gps_lat, gps_lon, polygons):
-                    continue
             else:
-                return []
+                polygons = _parse_georss_polygons(entry)
+                if not _point_in_polygons(gps_lat, gps_lon, polygons):  # type: ignore[arg-type]
+                    continue
 
             cap_url, web_url = _pick_cap_link(entry)
             atom_id = entry.findtext(f"{{{NS_ATOM}}}id", "")
@@ -679,7 +889,7 @@ class ECCCProvider:
                 "status": cats.get("status", ""),
                 "polygon": _parse_georss_polygon(entry),
             }
-            survivors.append((entry, language, atom_metadata, cap_url, web_url))
+            survivors.append((cap_url, atom_metadata, web_url))
 
         if not survivors:
             return []
@@ -697,62 +907,20 @@ class ECCCProvider:
                 return await cache.get_or_fetch(session, cap_url, user_agent=user_agent)
 
         bodies: list[str | None] = await asyncio.gather(
-            *[_fetch_one(cap_url) for _, _, _, cap_url, _ in survivors]
+            *[_fetch_one(cap_url) for cap_url, _, _ in survivors]
         )
 
         # (d) Parse CAP XML in executor (CPU-bound)
         loop = asyncio.get_running_loop()
-        raw_docs: list[CAPDoc | None] = []
-        for body in bodies:
+        results: list[tuple[dict[str, Any], str, CAPDoc | None]] = []
+        for (_, atom_metadata, web_url), body in zip(survivors, bodies):
             if body is None:
-                raw_docs.append(None)
+                results.append((atom_metadata, web_url, None))
             else:
                 doc = await loop.run_in_executor(None, parse_cap_alert, body)
-                raw_docs.append(doc)
+                results.append((atom_metadata, web_url, doc))
 
-        # (e) Resolve revision chains within this poll
-        valid_docs = [d for d in raw_docs if d is not None]
-        leaf_ids = {d.identifier for d in resolve_chain_leaves(valid_docs)}
-
-        # (f) Build CAPAlert objects
-        groups: dict[str, list[CAPAlert]] = defaultdict(list)
-
-        for (_, language, atom_metadata, _, web_url), doc in zip(survivors, raw_docs):
-            if doc is not None:
-                if doc.identifier not in leaf_ids:
-                    continue
-                info = _select_info(doc, language)
-                if province and not _matches_province_sgc(info.geocodes, province):
-                    continue
-                alert_id = _bilingual_key(doc, info)
-                alert = _build_alert_from_cap(
-                    doc, info, atom_metadata, web_url, alert_id
-                )
-            else:
-                atom_id = atom_metadata["atom_id"]
-                if province:
-                    # No CAP body → no SGC code → province can't be verified.
-                    # Fail closed: showing a province user an alert from elsewhere
-                    # in the country is worse than transiently missing one.
-                    _LOGGER.warning(
-                        "ECCC: CAP fetch failed for atom id %s; dropping "
-                        "(province mode cannot verify location without CAP body)",
-                        atom_id,
-                    )
-                    continue
-                alert_id = _fallback_id(atom_id, language)
-                alert = _build_fallback_alert(atom_metadata, web_url, alert_id)
-                _LOGGER.warning(
-                    "ECCC: CAP fetch failed for atom id %s; surfacing metadata-only alert",
-                    atom_id,
-                )
-
-            groups[alert.id].append(alert)
-
-        # (g) Merge language variants
-        return [
-            _merge_languages(variants, preferred_lang) for variants in groups.values()
-        ]
+        return results
 
     @staticmethod
     async def _fetch_feed_root(session: aiohttp.ClientSession) -> Element:

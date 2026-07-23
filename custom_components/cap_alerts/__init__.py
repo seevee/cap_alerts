@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.instance_id import async_get as async_get_instance_id
 
 from .const import (
     CONF_PROVIDER,
-    CONF_SCAN_INTERVAL,
     CONF_TIMEOUT,
-    DEFAULT_SCAN_INTERVAL,
     DEFAULT_TIMEOUT,
     DOMAIN,
     PLATFORMS,
@@ -56,6 +52,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) ->
 
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Start the NAAD real-time stream (no-op unless ECCC streaming is enabled).
+    # The first refresh above already seeded the active set from the GeoRSS
+    # backfill, so the stream only needs to carry live updates + reconnect gaps.
+    await coordinator.async_start_stream()
+    entry.async_on_unload(coordinator.async_stop_stream)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True
 
@@ -70,8 +71,12 @@ async def _async_options_updated(
 ) -> None:
     """Apply options changes without reloading."""
     coordinator: AlertsDataUpdateCoordinator = entry.runtime_data
-    coordinator.update_interval = timedelta(
-        seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-    )
+    # Toggling real-time streaming changes ingestion wiring captured when the
+    # coordinator was built (the stream task, the poll-vs-resync interval), so a
+    # clean reload is simpler and safer than in-place re-wiring.
+    if AlertsDataUpdateCoordinator.streaming_enabled(entry) != coordinator.streaming:
+        hass.config_entries.async_schedule_reload(entry.entry_id)
+        return
+    coordinator.update_interval = coordinator.resolve_update_interval(entry)
     coordinator.update_timeout(entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
     await coordinator.async_request_refresh()

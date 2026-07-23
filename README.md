@@ -70,6 +70,8 @@ Every config entry produces one **device** (named `CAP Alerts <PROVIDER>`, e.g. 
 | `sensor.cap_alerts_<provider>_alert_count` | Diagnostic. Number of active alerts. | integer |
 | `sensor.cap_alerts_<provider>_last_updated` | Diagnostic. Last successful poll. | ISO timestamp |
 | `sensor.cap_alert_<event_slug>_<hash>` | One per active alert; created/removed dynamically each poll. | normalized severity (`minor` \| `moderate` \| `severe` \| `extreme` \| `unknown`) |
+| `button.cap_alerts_<provider>_refresh` | Diagnostic. Fetches from the provider now, without waiting for the next poll. | — |
+| `binary_sensor.cap_alerts_eccc_real_time_stream` | Diagnostic. Whether the NAAD real-time socket is connected. ECCC with streaming on only. | `on` (connected) \| `off` |
 
 The device name is intentionally stable across reconfigures so entity_ids don't drift when you change GPS, zone, or region. The per-entry friendly label (with location detail) remains visible in the integrations list as the entry title; users running multiple entries of the same provider can set `name_by_user` on the device for a personalized label.
 

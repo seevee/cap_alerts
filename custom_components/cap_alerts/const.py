@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "cap_alerts"
-PLATFORMS = ["sensor"]
+PLATFORMS = ["binary_sensor", "button", "sensor"]
 
 # RFC §2.7 — bumped on breaking attribute/event payload changes
 PLATFORM_VERSION = "1.0"
@@ -32,10 +32,41 @@ CONF_SCAN_INTERVAL = "scan_interval"
 CONF_TIMEOUT = "timeout"
 CONF_LANGUAGE = "language"
 CONF_EXCLUDE_MARINE = "exclude_marine"
+CONF_STREAMING = "streaming"
 
 # Defaults
 DEFAULT_SCAN_INTERVAL = 300  # seconds
 DEFAULT_TIMEOUT = 30  # seconds
+
+# ECCC/NAAD real-time streaming feed. The NAADS 2.0 LMD User Guide documents the
+# TCP streaming feed — not the auxiliary GeoRSS feed — as the correct channel for
+# 24/7 automated systems. streaming.alertready.ca:8443 is the surviving-domain TLS
+# endpoint (the deprecated pelmorex streaming1/2:8080 hosts sunset ~Sept 2026 and
+# drop unregistered clients). When streaming is enabled the GeoRSS feed is retained
+# only as the startup/reconnect backfill source; the coordinator's update_interval
+# is repurposed as the periodic safety-resync cadence.
+NAAD_STREAM_HOST = "streaming.alertready.ca"
+NAAD_STREAM_PORT = 8443
+# A NAADS heartbeat is a CAP <alert> whose <sender> starts with this prefix and
+# whose <status> is "System"; it is emitted at least every 60 s and carries a
+# <references> list of recent alert OIDs. Silence past the watchdog timeout forces
+# a reconnect.
+NAAD_STREAM_HEARTBEAT_SENDER_PREFIX = "NAADS-Heartbeat"
+NAAD_STREAM_HEARTBEAT_TIMEOUT_S = 130
+# Exponential reconnect backoff bounds (seconds).
+NAAD_STREAM_BACKOFF_MIN_S = 1
+NAAD_STREAM_BACKOFF_MAX_S = 60
+# Periodic GeoRSS safety-resync interval (seconds) used as the coordinator
+# update_interval when streaming, replacing the fast GeoRSS poll.
+DEFAULT_STREAM_RESYNC_INTERVAL = 1800
+# Floor between GeoRSS backfills triggered by a stream *reconnect*. Backoff only
+# grows for connections that delivered nothing, so an endpoint that sends a
+# heartbeat and then drops — or goes half-open — reconnects at the heartbeat or
+# watchdog cadence with the backoff pinned at its floor, and every reconnect
+# costs a full ~7 MB feed fetch. This bounds that to the GeoRSS poll cadence
+# streaming replaced, so a flapping socket can never cost more than polling did.
+# The periodic resync is never gated by it: that fetch is the availability signal.
+NAAD_STREAM_BACKFILL_MIN_INTERVAL_S = DEFAULT_SCAN_INTERVAL
 
 # Buddhist-Era calendar correction. Some feeds (TMD, surfaced via WMO SWIC)
 # emit Buddhist-Era years — Gregorian + 543 — in CAP dateTime fields, e.g.

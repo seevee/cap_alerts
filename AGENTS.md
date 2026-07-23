@@ -18,6 +18,8 @@ See `docs/architecture.md` for design rationale (alert identity, field mappings,
 - **Count sensor** (`sensor.cap_alerts_<provider>_alert_count`): `state` = number of active alerts, `EntityCategory.DIAGNOSTIC`
 - **Last updated sensor** (`sensor.cap_alerts_<provider>_last_updated`): `state` = ISO timestamp, `EntityCategory.DIAGNOSTIC`
 - **Alert entities** (`sensor.cap_alert_<slug>`): one per active alert, dynamically created/removed each poll cycle
+- **Refresh button** (`button.cap_alerts_<provider>_refresh`): forces an off-cycle fetch, `EntityCategory.DIAGNOSTIC`
+- **Stream connectivity** (`binary_sensor.cap_alerts_eccc_real_time_stream`): NAAD socket state, `EntityCategory.DIAGNOSTIC`, ECCC-with-streaming only
 
 ### Data Flow
 
@@ -40,8 +42,10 @@ custom_components/cap_alerts/
   __init__.py       # entry setup, coordinator wiring, platform forwarding
   const.py          # domain, defaults, user-agent format
   config_flow.py    # setup flow + reconfigure flow + options flow
-  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities
+  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info + NAAD stream lifecycle
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
+  button.py         # RefreshButton: on-demand provider fetch (all providers)
+  binary_sensor.py  # StreamConnectivitySensor: NAAD socket state (ECCC streaming only)
   model.py          # CAPAlert dataclass + to_attributes()
   normalize.py      # shared normalization: severity, phase, Buddhist-Era year fix, state truncation
   store.py          # alert store: inter-poll diffing, transition detection, HA event firing
@@ -83,11 +87,11 @@ python3 -m venv .venv
 .venv/bin/python -m pytest tests/test_store_payload.py   # single file
 .venv/bin/python -m pytest -k normalize                  # pattern
 
-# Lint + format (CI checks both custom_components/ and tests/)
-.venv/bin/ruff check custom_components/ tests/
-.venv/bin/ruff format --diff custom_components/ tests/
+# Lint + format (CI checks custom_components/, tests/, and scripts/)
+.venv/bin/ruff check custom_components/ tests/ scripts/
+.venv/bin/ruff format --diff custom_components/ tests/ scripts/
 
-# Type checking
+# Type checking (the integration only — scripts/ is standalone dev tooling)
 .venv/bin/mypy custom_components/cap_alerts
 ```
 

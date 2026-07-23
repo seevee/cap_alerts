@@ -6,6 +6,7 @@ import asyncio
 import importlib.util
 import sys
 import types
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,8 @@ _is_marine_eccc = _eccc_mod._is_marine_eccc
 _matches_province_sgc = _eccc_mod._matches_province_sgc
 _bbox_of_polygons = _eccc_mod._bbox_of_polygons
 _province_bbox_intersects = _eccc_mod._province_bbox_intersects
+build_alerts_from_cap_docs = _eccc_mod.build_alerts_from_cap_docs
+doc_matches_region = _eccc_mod.doc_matches_region
 _headline_to_event = _eccc_mod._headline_to_event
 _best_event_name = _eccc_mod._best_event_name
 CAPDoc = _cap_mod.CAPDoc
@@ -1194,3 +1197,234 @@ async def test_cache_inflight_dict_does_not_grow_unbounded():
     urls = [f"http://test/{i}" for i in range(10)]
     await asyncio.gather(*[cache.get_or_fetch(session, u) for u in urls])
     assert len(cache._inflight) == 0
+
+
+# ---------------------------------------------------------------------------
+# build_alerts_from_cap_docs — shared doc→alert builder (streaming + backfill)
+# ---------------------------------------------------------------------------
+
+
+def _docs(*names: str) -> list:
+    docs = []
+    for name in names:
+        doc = _parse_cap_alert(_fixture(name))
+        assert doc is not None
+        docs.append(doc)
+    return docs
+
+
+def test_build_alerts_from_cap_docs_merges_bilingual_pair():
+    """en + fr docs sharing a bilingual key merge into one alert (no envelope meta)."""
+    docs = _docs("eccc_cap_en_new_1.xml", "eccc_cap_fr_new_1.xml")
+    alerts = build_alerts_from_cap_docs(
+        docs, province="ON", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
+    )
+    assert len(alerts) == 1
+    alert = alerts[0]
+    assert alert.language == "en-CA"
+    assert alert.language_alt == "fr-CA"
+    assert alert.headline_alt != ""
+    # Built purely from the CAP body: no Atom id available.
+    assert alert.url == ""
+
+
+def test_build_alerts_from_cap_docs_resolves_revision_chain():
+    """An UPDATE referencing a NEW supersedes it; only the leaf survives."""
+    docs = _docs(
+        "eccc_cap_en_new_1.xml",
+        "eccc_cap_fr_new_1.xml",
+        "eccc_cap_en_update_1.xml",
+        "eccc_cap_fr_update_1.xml",
+    )
+    alerts = build_alerts_from_cap_docs(
+        docs, province="ON", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
+    )
+    assert len(alerts) == 1
+    assert alerts[0].msg_type == "Update"
+
+
+def test_build_alerts_from_cap_docs_province_sgc_filters_foreign():
+    """SGC province check drops a BC doc when ON is configured."""
+    docs = _docs("eccc_cap_bc_wind_1.xml")
+    assert (
+        build_alerts_from_cap_docs(
+            docs, province="ON", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
+        )
+        == []
+    )
+    # …and keeps it for its own province.
+    assert (
+        len(
+            build_alerts_from_cap_docs(
+                docs, province="BC", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
+            )
+        )
+        == 1
+    )
+
+
+def test_build_alerts_from_cap_docs_gps_filters_on_cap_body_polygon():
+    """GPS mode filters against the CAP-body polygon (Ottawa ring)."""
+    docs = _docs("eccc_cap_en_new_1.xml", "eccc_cap_fr_new_1.xml")
+    inside = build_alerts_from_cap_docs(
+        docs, province="", gps_lat=45.2, gps_lon=-75.7, preferred_lang="en-CA"
+    )
+    assert len(inside) == 1
+    outside = build_alerts_from_cap_docs(
+        docs, province="", gps_lat=10.0, gps_lon=10.0, preferred_lang="en-CA"
+    )
+    assert outside == []
+
+
+def test_build_alerts_from_cap_docs_uses_atom_metadata_when_supplied():
+    """Backfill/poll path can supply envelope niceties (atom id, web) by identifier."""
+    docs = _docs("eccc_cap_en_new_1.xml")
+    identifier = docs[0].identifier
+    alerts = build_alerts_from_cap_docs(
+        docs,
+        province="ON",
+        gps_lat=None,
+        gps_lon=None,
+        preferred_lang="en-CA",
+        atom_meta_by_id={
+            identifier: {"atom_id": "https://atom/id", "language": "en-CA"}
+        },
+        web_by_id={identifier: "https://fallback.web/"},
+    )
+    assert len(alerts) == 1
+    assert alerts[0].url == "https://atom/id"
+
+
+@pytest.mark.asyncio
+async def test_async_fetch_docs_returns_region_relevant_docs():
+    """async_fetch_docs returns parsed CAPDocs; the foreign-province body is never fetched."""
+    responses: dict[str, Any] = {
+        "https://rss.alertready.ca/": _atom_xml(),
+        **_cap_responses(),
+    }
+    session = StubSession(responses)
+    provider = ECCCProvider()
+    docs = await provider.async_fetch_docs(
+        session,
+        {"province": "ON"},
+        {"language": "en-CA"},
+        cap_content_cache=CAPContentCache(),
+    )
+    # ON entries (en/fr × new/update) parse; the BC body is bbox-gated pre-fetch.
+    identifiers = {d.identifier for d in docs}
+    assert "urn:oid:2.49.0.1.124.test.2026.NEW.EN" in identifiers
+    assert (
+        "https://cap.naad-adna.pelmorex.com/alerts/bc_wind_1.cap"
+        not in session.requested
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_fetch_equals_build_over_fetch_docs():
+    """async_fetch output matches building alerts from async_fetch_docs (parity)."""
+    responses: dict[str, Any] = {
+        "https://rss.alertready.ca/": _atom_xml(),
+        **_cap_responses(),
+    }
+    provider = ECCCProvider()
+
+    alerts = await provider.async_fetch(
+        StubSession(responses), {"province": "ON"}, {"language": "en-CA"}
+    )
+    docs = await provider.async_fetch_docs(
+        StubSession(responses), {"province": "ON"}, {"language": "en-CA"}
+    )
+    built = build_alerts_from_cap_docs(
+        docs, province="ON", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
+    )
+    assert {a.id for a in alerts} == {a.id for a in built}
+    assert len(alerts) == len(built) == 1
+
+
+def _doc_with_status(status: str):
+    """A minimal ON-province CAP doc carrying the given <status>."""
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">'
+        f"<identifier>urn:oid:status-{status}</identifier>"
+        "<sender>CWTO</sender><sent>2026-07-22T12:00:00-00:00</sent>"
+        f"<status>{status}</status><msgType>Alert</msgType><scope>Public</scope>"
+        "<info><language>en-CA</language><category>Met</category>"
+        "<event>Wind Warning</event><severity>Moderate</severity>"
+        "<headline>Wind Warning in effect</headline>"
+        "<area><areaDesc>Ottawa</areaDesc>"
+        "<polygon>45.0,-76.0 45.0,-75.5 45.5,-75.5 45.5,-76.0 45.0,-76.0</polygon>"
+        "<geocode><valueName>profile:CAP-CP:Location:0.3</valueName>"
+        "<value>3506008</value></geocode>"
+        "</area></info></alert>"
+    )
+    doc = _parse_cap_alert(xml)
+    assert doc is not None
+    return doc
+
+
+@pytest.mark.parametrize("status", ["Test", "Exercise", "Draft", "System"])
+def test_build_alerts_from_cap_docs_drops_non_actual(status: str):
+    """The stream carries the whole NAAD channel; only Actual alerts are real."""
+    docs = [_doc_with_status(status)]
+    assert (
+        build_alerts_from_cap_docs(
+            docs, province="ON", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
+        )
+        == []
+    )
+
+
+def test_build_alerts_from_cap_docs_keeps_actual():
+    docs = [_doc_with_status("Actual")]
+    assert (
+        len(
+            build_alerts_from_cap_docs(
+                docs, province="ON", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
+            )
+        )
+        == 1
+    )
+
+
+def test_build_alerts_from_cap_docs_fails_open_on_missing_status():
+    """<status> is mandatory CAP; a doc without one is malformed, not a test message."""
+    doc = _doc_with_status("Actual")
+    assert (
+        len(
+            build_alerts_from_cap_docs(
+                [replace(doc, status="")],
+                province="ON",
+                gps_lat=None,
+                gps_lon=None,
+                preferred_lang="en-CA",
+            )
+        )
+        == 1
+    )
+
+
+def test_doc_matches_region_province():
+    """Streaming admission test: SGC province match."""
+    docs = _docs("eccc_cap_bc_wind_1.xml")
+    kwargs = {"gps_lat": None, "gps_lon": None, "preferred_lang": "en-CA"}
+    assert doc_matches_region(docs[0], province="BC", **kwargs) is True
+    assert doc_matches_region(docs[0], province="ON", **kwargs) is False
+
+
+def test_doc_matches_region_gps_and_status():
+    docs = _docs("eccc_cap_en_new_1.xml")
+    kwargs = {"province": "", "preferred_lang": "en-CA"}
+    assert doc_matches_region(docs[0], gps_lat=45.2, gps_lon=-75.7, **kwargs) is True
+    assert doc_matches_region(docs[0], gps_lat=10.0, gps_lon=10.0, **kwargs) is False
+    # Non-Actual never enters the live set, whatever its geography.
+    assert (
+        doc_matches_region(
+            _doc_with_status("Test"),
+            province="ON",
+            gps_lat=None,
+            gps_lon=None,
+            preferred_lang="en-CA",
+        )
+        is False
+    )
