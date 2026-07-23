@@ -65,6 +65,9 @@ _parse_georss_polygons = _eccc_mod._parse_georss_polygons
 _point_in_polygons = _eccc_mod._point_in_polygons
 _parse_cap_alert = _cap_mod.parse_cap_alert
 _select_info = _eccc_mod._select_info
+_select_region_info = _eccc_mod._select_region_info
+_location_status = _eccc_mod._location_status
+_is_terminal_info = _eccc_mod._is_terminal_info
 _resolve_chain_leaves = _cap_mod.resolve_chain_leaves
 _bilingual_key = _eccc_mod._bilingual_key
 _fallback_id = _eccc_mod._fallback_id
@@ -1427,4 +1430,274 @@ def test_doc_matches_region_gps_and_status():
             preferred_lang="en-CA",
         )
         is False
+    )
+
+
+# ---------------------------------------------------------------------------
+# Area-group lifecycle — Alert_Location_Status (issue #45)
+# ---------------------------------------------------------------------------
+
+# ECCC segments one CAP document into an <info> block per (language × area
+# group). The mixed fixture holds four: en/fr "active" over Calgary expiring
+# +16 h, en/fr "ended" over Medicine Hat expiring +1 h. Points inside each ring:
+_CALGARY = (52.0, -114.06)  # active group
+_MEDICINE_HAT = (50.0, -112.06)  # ended group
+_OTTAWA = (45.2, -75.7)  # neither
+
+
+def _mixed_doc():
+    (doc,) = _docs("eccc_cap_mixed_area_groups.xml")
+    return doc
+
+
+def test_location_status_prefers_11_over_10():
+    """v1.1 wins when both layers are present, matching Alert_Name precedence."""
+    info = CAPInfoDoc(
+        parameters={
+            "layer:EC-MSC-SMC:1.0:Alert_Location_Status": "active",
+            "layer:EC-MSC-SMC:1.1:Alert_Location_Status": "ended",
+        }
+    )
+    assert _location_status(info) == "ended"
+    # Either layer alone is read…
+    assert (
+        _location_status(
+            CAPInfoDoc(
+                parameters={"layer:EC-MSC-SMC:1.0:Alert_Location_Status": "ended"}
+            )
+        )
+        == "ended"
+    )
+    # …and a block with neither carries no signal.
+    assert _location_status(CAPInfoDoc()) == ""
+
+
+def test_is_terminal_info_fails_open_on_unknown_status():
+    """Only the two known terminal tokens end an area group; anything else is live.
+
+    11 of 92 documents in the 2026-07-22 national sample came from non-ECCC
+    senders (Amber, flood, 911) with no such parameter at all — reading absence
+    as terminal would silently drop them.
+    """
+    for status in ("", "active", "some_future_token"):
+        info = CAPInfoDoc(
+            parameters={"layer:EC-MSC-SMC:1.1:Alert_Location_Status": status}
+            if status
+            else {}
+        )
+        assert _is_terminal_info(info) is False, status
+    for status in ("ended", "transitioned_out"):
+        info = CAPInfoDoc(
+            parameters={"layer:EC-MSC-SMC:1.1:Alert_Location_Status": status}
+        )
+        assert _is_terminal_info(info) is True, status
+
+
+def test_select_region_info_gps_picks_users_area_group():
+    """A GPS user inside the ended group gets *that* block, not infos[0].
+
+    Core defect A: language-only selection always returned the first matching
+    block, which is empirically the active one, so the entity read another area
+    group's expires, severity and headline.
+    """
+    doc = _mixed_doc()
+    lat, lon = _MEDICINE_HAT
+    info = _select_region_info(
+        doc, language="en-CA", province="", gps_lat=lat, gps_lon=lon
+    )
+    assert info is not None
+    assert info is not doc.infos[0]
+    assert info.headline == "yellow warning - air quality - ended"
+    assert _is_terminal_info(info) is True
+
+
+def test_select_region_info_prefers_active_when_both_match():
+    """Province mode sees both groups; the alert is still live somewhere in AB."""
+    doc = _mixed_doc()
+    info = _select_region_info(
+        doc, language="en-CA", province="AB", gps_lat=None, gps_lon=None
+    )
+    assert info is not None
+    assert info.headline == "yellow warning - air quality - in effect"
+    assert _is_terminal_info(info) is False
+
+
+def test_select_region_info_returns_none_when_no_block_matches():
+    """Out-of-region: the document does not concern this configuration."""
+    doc = _mixed_doc()
+    lat, lon = _OTTAWA
+    assert (
+        _select_region_info(
+            doc, language="en-CA", province="", gps_lat=lat, gps_lon=lon
+        )
+        is None
+    )
+    assert (
+        _select_region_info(
+            doc, language="en-CA", province="ON", gps_lat=None, gps_lon=None
+        )
+        is None
+    )
+
+
+def test_select_region_info_single_info_unchanged():
+    """One-area-group documents behave exactly as _select_info did."""
+    (doc,) = _docs("eccc_cap_en_new_1.xml")
+    only = doc.infos[0]
+    assert (
+        _select_region_info(
+            doc, language="en-CA", province="ON", gps_lat=None, gps_lon=None
+        )
+        is only
+    )
+    # Unmatched language still falls back to the block that exists.
+    assert (
+        _select_region_info(
+            doc, language="de-DE", province="ON", gps_lat=None, gps_lon=None
+        )
+        is only
+    )
+
+
+def test_all_ended_document_is_terminal():
+    """Every block ended → a terminal alert, not a live "…- ended" entity.
+
+    Core defect B: msgType stays Update and expires is an hour out, so the old
+    code published an active entity whose headline read "ended".
+    """
+    from cap_alerts.normalize import normalize_alerts
+
+    docs = _docs("eccc_cap_all_ended.xml")
+    alerts = build_alerts_from_cap_docs(
+        docs, province="AB", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
+    )
+    assert len(alerts) == 1
+    assert alerts[0].lifecycle_status == "ended"
+    (normalized,) = normalize_alerts(alerts)
+    assert normalized.phase == "expired"
+
+
+def test_mixed_area_groups_province_prefers_active():
+    """False-all-clear guard: a mixed document must stay live in province mode.
+
+    The province has no finer location than its SGC prefix, so "still in effect
+    somewhere in AB" is the honest reading. Announcing an all-clear to users in
+    the still-active part is the worst failure mode here.
+    """
+    from cap_alerts.normalize import normalize_alerts
+
+    alerts = build_alerts_from_cap_docs(
+        [_mixed_doc()],
+        province="AB",
+        gps_lat=None,
+        gps_lon=None,
+        preferred_lang="en-CA",
+    )
+    assert len(alerts) == 1
+    assert "in effect" in alerts[0].headline
+    assert alerts[0].lifecycle_status == "active"
+    (normalized,) = normalize_alerts(alerts)
+    assert normalized.phase not in ("cancel", "expired")
+
+
+def test_gps_inside_ended_group_yields_a_terminal_alert():
+    """The #45 report, end to end: a user in the ended sub-area is released."""
+    from cap_alerts.normalize import normalize_alerts
+
+    lat, lon = _MEDICINE_HAT
+    alerts = build_alerts_from_cap_docs(
+        [_mixed_doc()],
+        province="",
+        gps_lat=lat,
+        gps_lon=lon,
+        preferred_lang="en-CA",
+    )
+    assert len(alerts) == 1
+    assert alerts[0].lifecycle_status == "ended"
+    (normalized,) = normalize_alerts(alerts)
+    assert normalized.phase == "expired"
+
+
+def test_build_alerts_deduplicates_repeated_documents():
+    """One Atom entry per (language × area group), all linking one CAP body.
+
+    Defect C: the GeoRSS path hands the same document over up to four times.
+    Left in, every copy resolved to the same <info> and the merge spliced the
+    alert with itself — same language in headline and headline_alt.
+    """
+    doc = _mixed_doc()
+    kwargs: dict[str, Any] = {
+        "province": "AB",
+        "gps_lat": None,
+        "gps_lon": None,
+        "preferred_lang": "en-CA",
+    }
+    once = build_alerts_from_cap_docs([doc], **kwargs)
+    four_times = build_alerts_from_cap_docs([doc] * 4, **kwargs)
+
+    assert len(four_times) == len(once) == 1
+    assert four_times[0] == once[0]
+    # Genuinely bilingual, not the same language spliced into both slots.
+    assert four_times[0].language == "en-CA"
+    assert four_times[0].language_alt == "fr-CA"
+    assert "en vigueur" in four_times[0].headline_alt
+
+
+def test_build_alerts_bilingual_primary_is_preferred_language():
+    """The user's language wins, and the alternate carries the *other* one."""
+    alerts = build_alerts_from_cap_docs(
+        [_mixed_doc()],
+        province="AB",
+        gps_lat=None,
+        gps_lon=None,
+        preferred_lang="fr-CA",
+    )
+    assert len(alerts) == 1
+    alert = alerts[0]
+    assert alert.language == "fr-CA"
+    assert alert.language_alt == "en-CA"
+    assert "en vigueur" in alert.headline
+    assert alert.headline_alt != alert.headline
+    assert "in effect" in alert.headline_alt
+
+
+@pytest.mark.parametrize("entry_language", ["en-CA", "fr-CA"])
+def test_build_alerts_bilingual_ignores_atom_entry_language(entry_language: str):
+    """Which entry landed last in the feed must not decide the primary language.
+
+    ``atom_meta_by_id`` is keyed by identifier and is last-write-wins across an
+    entry group, so the surviving language is an artefact of feed order. The CAP
+    body carries both languages; ``preferred_lang`` is honoured against it.
+    """
+    doc = _mixed_doc()
+    alerts = build_alerts_from_cap_docs(
+        [doc],
+        province="AB",
+        gps_lat=None,
+        gps_lon=None,
+        preferred_lang="fr-CA",
+        atom_meta_by_id={doc.identifier: {"language": entry_language}},
+    )
+    assert len(alerts) == 1
+    assert alerts[0].language == "fr-CA"
+    assert alerts[0].language_alt == "en-CA"
+
+
+def test_doc_matches_region_matches_terminal_only_block():
+    """Streaming-path guard: admission must keep the doc that ends the alert.
+
+    The active group is out of region and only the ended group covers the user.
+    Rejecting it here would mean the coordinator never learns the alert ended
+    and the entity lingers — issue #45 on the streaming path.
+    """
+    lat, lon = _MEDICINE_HAT
+    assert (
+        doc_matches_region(
+            _mixed_doc(),
+            province="",
+            gps_lat=lat,
+            gps_lon=lon,
+            preferred_lang="en-CA",
+        )
+        is True
     )

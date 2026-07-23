@@ -460,6 +460,15 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         the latter so an update or cancellation still supersedes an alert we hold
         even if its revised geometry no longer covers the user.
 
+        Admission is deliberately wider than the rebuild that follows:
+        ``doc_matches_region`` matches on *any* ``<info>`` block, including one
+        whose area group has already ended. That is the point — an ECCC document
+        segments into a block per area group, and the block that ends a tracked
+        alert is often the only one still covering the user. Screening it out
+        here would leave the entity live until its stale ``expires`` (issue #45).
+        Which block actually speaks for this region, and whether it is terminal,
+        is decided later by ``build_alerts_from_cap_docs``.
+
         Test/exercise traffic is rejected up front rather than left to
         ``doc_matches_region``, since the references escape bypasses that check —
         and a heartbeat's ``<references>`` lists recent alert OIDs, so a heartbeat

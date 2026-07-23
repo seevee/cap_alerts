@@ -518,6 +518,73 @@ async def test_streamed_revision_fires_incident_updated(
     assert len(events) == 1
 
 
+def _ended_cap_xml(
+    identifier: str, *, references: str, event: str = "Wind Warning"
+) -> str:
+    """A revision whose only area group has ended, ECCC-style.
+
+    Termination is never visible through ``msgType`` — it stays ``Update``, and
+    ``expires`` is still an hour out. The ``Alert_Location_Status`` parameter is
+    the whole signal (issue #45).
+    """
+    now = datetime.now(timezone.utc)
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">'
+        f"<identifier>{identifier}</identifier>"
+        "<sender>CWTO</sender>"
+        f"<sent>{_iso(now)}</sent>"
+        "<status>Actual</status><msgType>Update</msgType><scope>Public</scope>"
+        f"<references>{references}</references>"
+        "<info>"
+        f"<language>en-CA</language><category>Met</category><event>{event}</event>"
+        "<urgency>Past</urgency><severity>Minor</severity>"
+        f"<certainty>Observed</certainty><expires>{_iso(now + timedelta(hours=1))}</expires>"
+        f"<headline>{event} ended</headline><description>desc</description>"
+        "<parameter>"
+        "<valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>"
+        "<value>ended</value>"
+        "</parameter>"
+        "<area><areaDesc>Ottawa</areaDesc>"
+        "<polygon>45.0,-76.0 45.0,-75.5 45.5,-75.5 45.5,-76.0 45.0,-76.0</polygon>"
+        "<geocode><valueName>profile:CAP-CP:Location:0.3</valueName>"
+        "<value>3506008</value></geocode>"
+        "</area></info></alert>"
+    )
+
+
+@pytest.mark.asyncio
+async def test_streamed_ended_document_removes_entity(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """An ended revision retires the entity instead of leaving it to expire.
+
+    Issue #45 on the default transport: with ``msgType`` still ``Update`` and an
+    hour left on ``expires``, the alert used to stay live — headline reading
+    "ended" — until the clock caught up.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    count_id = _count_id(hass, entry)
+    assert hass.states.get(count_id).state == "1"
+    removed = async_capture_events(hass, "incident_removed")
+
+    await holder["on_alert_doc"](
+        _ended_cap_xml(
+            "urn:oid:A2", references="CWTO,urn:oid:A,2026-07-22T12:00:00-00:00"
+        )
+    )
+    await hass.async_block_till_done()
+
+    assert hass.states.get(count_id).state == "0"
+    assert len(removed) == 1
+    assert removed[0].data["phase"] == "expired"
+
+
 def _stream_id(hass, entry) -> str | None:
     return er.async_get(hass).async_get_entity_id(
         "binary_sensor", DOMAIN, f"{entry.entry_id}_stream_connected"

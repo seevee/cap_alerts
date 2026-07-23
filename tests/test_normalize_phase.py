@@ -40,6 +40,64 @@ def test_missing_msg_type_defaults_to_new(alert_factory):
     assert out.phase == "new"
 
 
+def test_lifecycle_status_ended_is_terminal(alert_factory):
+    # ECCC never signals termination through msgType — it stays "Update" and
+    # leaves an hour of expires on the clock, marking the area group "ended" in
+    # a CAP parameter instead (issue #45). Without honouring that, the alert
+    # stays live with a headline that literally says it ended.
+    (out,) = normalize_alerts(
+        [
+            alert_factory(
+                msg_type="Update",
+                expires="2099-01-01T00:00:00Z",
+                lifecycle_status="ended",
+            )
+        ]
+    )
+    assert out.phase == "expired"
+
+
+def test_lifecycle_status_transitioned_out_is_terminal(alert_factory):
+    # The area moved to a different alert (yellow → orange), which arrives as
+    # its own document; this one is over for the area it covers.
+    (out,) = normalize_alerts(
+        [
+            alert_factory(
+                msg_type="Update",
+                expires="2099-01-01T00:00:00Z",
+                lifecycle_status="transitioned_out",
+            )
+        ]
+    )
+    assert out.phase == "expired"
+
+
+def test_unknown_lifecycle_status_is_not_terminal(alert_factory):
+    # Fail open: only the two known terminal tokens retire an alert. An
+    # unfamiliar value must degrade to msg_type handling, never to a false
+    # all-clear.
+    for status in ("active", "wat"):
+        (out,) = normalize_alerts(
+            [
+                alert_factory(
+                    msg_type="Update",
+                    expires="2099-01-01T00:00:00Z",
+                    lifecycle_status=status,
+                )
+            ]
+        )
+        assert out.phase == "update", status
+
+
+def test_empty_lifecycle_status_leaves_phase_unchanged(alert_factory):
+    # Regression guard for every provider that publishes no such signal.
+    (out,) = normalize_alerts(
+        [alert_factory(msg_type="Update", expires="2099-01-01T00:00:00Z")]
+    )
+    assert out.lifecycle_status == ""
+    assert out.phase == "update"
+
+
 def test_phase_is_never_empty(alert_factory):
     # Guard rail: across a sweep of odd msg_type values, phase must always
     # fall on {new, update, cancel, expired} — never "".

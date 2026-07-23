@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Reduced from the live national NAAD document named in issue #45
+  (urn:oid:2.49.0.1.124.3426017992.2026): four <info> blocks, one per
+  (language × area group) — en/fr "active" expiring +16 h, en/fr "ended"
+  expiring +1 h. The 29-entry <references> list is trimmed to two and each
+  polygon to a triangle; the <parameter> blocks are verbatim, including the
+  duplicated 1.0/1.1 Alert_Location_Status layers.
+
+  Geography: both groups are Alberta (SGC 48…), so province mode matches both
+  and must prefer the active one. The rings are disjoint — the active group
+  sits around 52.0/-114.0, the ended group around 50.0/-112.0 — so a GPS point
+  can select one group without touching the other.
+
+  Timestamps are pinned to 2099 rather than the captured 2026 dates so the
+  clock never reaches them: these tests are about the Alert_Location_Status
+  lifecycle rule, and a wall-clock expiry would mark every block terminal and
+  hide whichever defect the test is pinning. The +16 h / +1 h spread between
+  the two groups — the shape that lets an ended alert linger — is preserved.
+-->
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>urn:oid:2.49.0.1.124.test.2026.MIXED</identifier>
+  <sender>CWWG</sender>
+  <sent>2099-07-22T14:00:00-00:00</sent>
+  <status>Actual</status>
+  <msgType>Update</msgType>
+  <scope>Public</scope>
+  <references>CWWG,urn:oid:2.49.0.1.124.test.2026.MIXED.PRIOR1,2099-07-22T12:00:00-00:00 CWWG,urn:oid:2.49.0.1.124.test.2026.MIXED.PRIOR2,2099-07-22T13:00:00-00:00</references>
+  <info>
+    <language>en-CA</language>
+    <category>Met</category>
+    <event>air quality</event>
+    <responseType>Monitor</responseType>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Likely</certainty>
+    <effective>2099-07-22T14:00:00-00:00</effective>
+    <expires>2099-07-23T06:00:00-00:00</expires>
+    <senderName>Environment and Climate Change Canada</senderName>
+    <headline>yellow warning - air quality - in effect</headline>
+    <description>Poor air quality due to wildfire smoke is expected to persist.</description>
+    <instruction>Limit time outdoors.</instruction>
+    <web>https://www.weather.gc.ca/warnings/alert_en.html</web>
+    <eventCode>
+      <valueName>profile:CAP-CP:Event:0.4</valueName>
+      <value>airQuality</value>
+    </eventCode>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.0:Alert_Location_Status</valueName>
+      <value>active</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>
+      <value>active</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Name</valueName>
+      <value>yellow warning - air quality</value>
+    </parameter>
+    <area>
+      <areaDesc>Calgary - Airdrie - Cochrane</areaDesc>
+      <polygon>51.8,-114.2 52.2,-114.2 52.0,-113.8 51.8,-114.2</polygon>
+      <geocode>
+        <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+        <value>480110</value>
+      </geocode>
+      <geocode>
+        <valueName>profile:CAP-CP:Location:0.3</valueName>
+        <value>4806016</value>
+      </geocode>
+    </area>
+  </info>
+  <info>
+    <language>fr-CA</language>
+    <category>Met</category>
+    <event>qualité de l'air</event>
+    <responseType>Monitor</responseType>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Likely</certainty>
+    <effective>2099-07-22T14:00:00-00:00</effective>
+    <expires>2099-07-23T06:00:00-00:00</expires>
+    <senderName>Environnement et Changement climatique Canada</senderName>
+    <headline>avertissement jaune - qualité de l'air - en vigueur</headline>
+    <description>La mauvaise qualité de l'air causée par la fumée des feux de forêt devrait persister.</description>
+    <instruction>Limitez le temps passé à l'extérieur.</instruction>
+    <web>https://www.weather.gc.ca/warnings/alert_fr.html</web>
+    <eventCode>
+      <valueName>profile:CAP-CP:Event:0.4</valueName>
+      <value>airQuality</value>
+    </eventCode>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.0:Alert_Location_Status</valueName>
+      <value>active</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>
+      <value>active</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Name</valueName>
+      <value>avertissement jaune - qualité de l'air</value>
+    </parameter>
+    <area>
+      <areaDesc>Calgary - Airdrie - Cochrane</areaDesc>
+      <polygon>51.8,-114.2 52.2,-114.2 52.0,-113.8 51.8,-114.2</polygon>
+      <geocode>
+        <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+        <value>480110</value>
+      </geocode>
+      <geocode>
+        <valueName>profile:CAP-CP:Location:0.3</valueName>
+        <value>4806016</value>
+      </geocode>
+    </area>
+  </info>
+  <info>
+    <language>en-CA</language>
+    <category>Met</category>
+    <event>air quality</event>
+    <responseType>AllClear</responseType>
+    <urgency>Past</urgency>
+    <severity>Minor</severity>
+    <certainty>Observed</certainty>
+    <effective>2099-07-22T14:00:00-00:00</effective>
+    <expires>2099-07-22T15:00:00-00:00</expires>
+    <senderName>Environment and Climate Change Canada</senderName>
+    <headline>yellow warning - air quality - ended</headline>
+    <description>Air quality has improved and the warning has ended.</description>
+    <web>https://www.weather.gc.ca/warnings/alert_en.html</web>
+    <eventCode>
+      <valueName>profile:CAP-CP:Event:0.4</valueName>
+      <value>airQuality</value>
+    </eventCode>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.0:Alert_Location_Status</valueName>
+      <value>ended</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>
+      <value>ended</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Name</valueName>
+      <value>yellow warning - air quality</value>
+    </parameter>
+    <area>
+      <areaDesc>Medicine Hat - Bow Island</areaDesc>
+      <polygon>49.8,-112.2 50.2,-112.2 50.0,-111.8 49.8,-112.2</polygon>
+      <geocode>
+        <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+        <value>480210</value>
+      </geocode>
+      <geocode>
+        <valueName>profile:CAP-CP:Location:0.3</valueName>
+        <value>4801006</value>
+      </geocode>
+    </area>
+  </info>
+  <info>
+    <language>fr-CA</language>
+    <category>Met</category>
+    <event>qualité de l'air</event>
+    <responseType>AllClear</responseType>
+    <urgency>Past</urgency>
+    <severity>Minor</severity>
+    <certainty>Observed</certainty>
+    <effective>2099-07-22T14:00:00-00:00</effective>
+    <expires>2099-07-22T15:00:00-00:00</expires>
+    <senderName>Environnement et Changement climatique Canada</senderName>
+    <headline>avertissement jaune - qualité de l'air - terminé</headline>
+    <description>La qualité de l'air s'est améliorée et l'avertissement est terminé.</description>
+    <web>https://www.weather.gc.ca/warnings/alert_fr.html</web>
+    <eventCode>
+      <valueName>profile:CAP-CP:Event:0.4</valueName>
+      <value>airQuality</value>
+    </eventCode>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.0:Alert_Location_Status</valueName>
+      <value>ended</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>
+      <value>ended</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Name</valueName>
+      <value>avertissement jaune - qualité de l'air</value>
+    </parameter>
+    <area>
+      <areaDesc>Medicine Hat - Bow Island</areaDesc>
+      <polygon>49.8,-112.2 50.2,-112.2 50.0,-111.8 49.8,-112.2</polygon>
+      <geocode>
+        <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+        <value>480210</value>
+      </geocode>
+      <geocode>
+        <valueName>profile:CAP-CP:Location:0.3</valueName>
+        <value>4801006</value>
+      </geocode>
+    </area>
+  </info>
+</alert>
