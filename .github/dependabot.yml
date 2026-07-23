@@ -7,3 +7,13 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+  # Test/lint/typecheck pins in requirements_test.txt. NOTE: homeassistant and
+  # pytest-homeassistant-custom-component must move in lockstep (see the
+  # comment in requirements_test.txt) — verify the pair before merging.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      test-deps:
+        patterns: ["*"]

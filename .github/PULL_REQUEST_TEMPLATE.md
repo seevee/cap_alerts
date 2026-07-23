@@ -8,11 +8,13 @@
 
 ## Test Plan
 
-- [ ] `ruff check custom_components/` passes
-- [ ] `ruff format --check custom_components/` passes
-- [ ] `mypy custom_components/cap_alerts` passes (if applicable)
-- [ ] `pytest` passes (if tests exist)
-- [ ] Loaded in a running Home Assistant instance
+<!-- Same invocations CI runs — see AGENTS.md "Build & Test Commands" -->
+
+- [ ] `pytest tests -q` passes
+- [ ] `ruff check custom_components/ tests/ scripts/` passes
+- [ ] `ruff format --diff custom_components/ tests/ scripts/` is clean
+- [ ] `mypy custom_components/cap_alerts` passes
+- [ ] Loaded in a running Home Assistant instance (for behavior changes)
 - [ ] Dependency order respected (model → providers → coordinator → sensor → config_flow → __init__)
 
 ## Related Issues
