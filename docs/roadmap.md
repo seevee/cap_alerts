@@ -114,6 +114,14 @@ Pairs naturally with the `#24` geocode container work and the deployment-scaling
 
 ---
 
+## Remove the pelmorex NAAD host (cleanup)
+
+**When:** after the legacy `rss.naad-adna.pelmorex.com` host retires (~late Sept 2026), or sooner if Pelmorex closes SR #46534 and `rss.alertready.ca`'s omission set clears.
+
+The GeoRSS host union (issue #38, `fix/eccc-naad-feed-union`) fetches both NAAD hosts and unions their entries because alertready persistently drops ~10 live alerts pelmorex carries, while pelmorex retains a shorter window. Once pelmorex is gone (it will simply fail every poll, which the union tolerates), remove it: drop `NAAD_FEED_PELMOREX` and the `pelmorex` value from `NAAD_FEED_HOSTS` / `NAAD_FEED_UNION_ORDER` in `providers/eccc.py`, drop `pelmorex` from the `CONF_FEED_SOURCE` selector in `config_flow.py` (leaving `auto` = alertready-only), and update the `feed_source` strings. If alertready's omission set has not cleared by then, escalate before removing — the union is the only thing making the feed complete.
+
+---
+
 ## Partial-feed tolerance (authoritative vs. best-effort diffing)
 
 The ECCC feed guard (`eccc.py::_fetch_feed_root`) is all-or-nothing: a body that doesn't arrive complete (non-empty, ending in `</feed>`) is discarded and the poll fails. This is deliberately **fail-closed**, because `AlertStore.process` treats any tracked alert *absent* from a poll as ended — so salvaging a truncated (tail-missing) feed would fire false `cap_alert_removed` events, i.e. a false "all-clear," the worst failure mode for a weather-alert system. Discarding instead keeps the last-known-good snapshot (the coordinator retains `data` on `UpdateFailed`; `_sync_alert_entities` computes an empty removal set, so no alert entities are deleted) at the cost of the poll going stale until a clean fetch.

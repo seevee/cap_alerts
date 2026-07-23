@@ -17,22 +17,50 @@ from defusedxml import ElementTree as ET
 
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from ..const import CONF_GPS_LOC, CONF_LANGUAGE, CONF_PROVINCE
+from ..const import (
+    CONF_FEED_SOURCE,
+    CONF_GPS_LOC,
+    CONF_LANGUAGE,
+    CONF_PROVINCE,
+    DEFAULT_FEED_SOURCE,
+)
 from ..model import CAPAlert
 from .cap import CAPDoc, CAPInfoDoc, parse_cap_alert, resolve_chain_leaves
 from .cap_content_cache import CAPContentCache
 
 _LOGGER = logging.getLogger(__name__)
 
-# NAAD public dissemination GeoRSS feed. Migrated April 2026 from
+# NAAD public dissemination GeoRSS hosts. Migrated April 2026 from
 # rss.naad-adna.pelmorex.com to rss.alertready.ca per the NAAD System Governance
 # Council (March 2026 Public Summary): an intentional domain rebrand off the
 # Pelmorex name, with both feeds maintained concurrently for 6 months (legacy
-# host sunsets ~late Sept 2026). Content is unchanged between the two. The legacy
-# host remains healthy national production (sends Content-Length, supports
-# conditional GET); alertready.ca is the sanctioned endpoint but is currently
-# backed by a degraded DQS/training instance (see _fetch_feed_root comment).
-NAAD_FEED_URL = "https://rss.alertready.ca/"
+# host sunsets ~late Sept 2026).
+#
+# Neither host alone is complete (issue #38). Measured 2026-07-23 from
+# simultaneous samples: rss.alertready.ca retains ~48 h of history but
+# persistently omits ~10 live status=Actual alerts at any moment that pelmorex
+# carries (one OID absent across 110 of 179 probe samples, ~11.5 h); pelmorex
+# retains only ~13.5 h, so it drops alerts older than that which alertready still
+# serves. "auto" fetches both and unions their entries deduplicated by CAP OID,
+# which is complete on both axes. The rss.alertready.ca Atom <id> authority is
+# "rsstrainingdqs.alertready.ca" — that is the tag-URI authority of the feed
+# generator instance, *not* a per-alert test marker (all 1,254 entries carry it,
+# and the OIDs behind them are the same alerts pelmorex serves), so it is NOT
+# filtered on.
+NAAD_FEED_ALERTREADY = "https://rss.alertready.ca/"
+NAAD_FEED_PELMOREX = "https://rss.naad-adna.pelmorex.com/"
+NAAD_FEED_HOSTS: dict[str, str] = {
+    "alertready": NAAD_FEED_ALERTREADY,
+    "pelmorex": NAAD_FEED_PELMOREX,
+}
+# Union / href tie-break priority: the first host to yield a surviving entry for
+# a given CAP OID wins, so its CAP href is the one fetched. alertready is first
+# because it serves CAP bodies over HTTPS (pelmorex serves them over plain HTTP)
+# and is the endpoint that survives the September 2026 sunset.
+NAAD_FEED_UNION_ORDER: tuple[str, ...] = ("alertready", "pelmorex")
+# Backwards-compatible alias for the sanctioned host (referenced by tests and
+# scripts/naad_feed_diff.py).
+NAAD_FEED_URL = NAAD_FEED_ALERTREADY
 
 # The alertready.ca feed is a large (~7 MB) chunked response with no
 # Content-Length, served behind istio-envoy. When the upstream stream is
@@ -121,6 +149,43 @@ _PROVINCE_BBOX_PAD_DEG = 0.5
 def _is_marine_eccc(clc: tuple[str, ...]) -> bool:
     """Return True if any CLC area geocode is a marine/water zone ("00…")."""
     return any(v.startswith(ECCC_MARINE_CLC_PREFIX) for v in clc)
+
+
+# ---------------------------------------------------------------------------
+# Feed source resolution + cross-host deduplication
+# ---------------------------------------------------------------------------
+
+
+def _resolve_feed_urls(options: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Return the ``(source_id, url)`` pairs to fetch, in union priority order.
+
+    ``feed_source`` "auto" (the default, and any unrecognised value — fail open)
+    yields every host in ``NAAD_FEED_UNION_ORDER``; a named host yields just that
+    one, as an escape hatch pinning a single feed.
+    """
+    source = options.get(CONF_FEED_SOURCE, DEFAULT_FEED_SOURCE)
+    if source in NAAD_FEED_HOSTS:
+        return [(source, NAAD_FEED_HOSTS[source])]
+    return [(host, NAAD_FEED_HOSTS[host]) for host in NAAD_FEED_UNION_ORDER]
+
+
+# CAP OID embedded in an Atom <id> tag URI, e.g.
+# "tag:rsstrainingdqs.alertready.ca,2026:feed.atom/urn:oid:2.49.0.1.124.…".
+# The same alert on both hosts carries the same OID under a different tag
+# authority, so the OID is the cross-host identity.
+_ATOM_ID_OID_RE = re.compile(r"urn:oid:[\w.]+")
+
+
+def _entry_oid(entry: Element) -> str:
+    """Return an Atom entry's CAP OID for cross-host deduplication.
+
+    Reads the ``urn:oid:…`` out of the Atom ``<id>``. Fails open to the whole
+    ``<id>`` when no OID is present, which preserves per-entry identity for feeds
+    whose ids carry no OID (e.g. the synthetic ``eccc_naad_atom.xml`` fixture).
+    """
+    atom_id = entry.findtext(f"{{{NS_ATOM}}}id", "") or ""
+    match = _ATOM_ID_OID_RE.search(atom_id)
+    return match.group(0) if match else atom_id
 
 
 # ---------------------------------------------------------------------------
@@ -885,6 +950,12 @@ def _select_region_infos(
 class ECCCProvider:
     """Environment Canada NAAD Atom feed provider."""
 
+    def __init__(self) -> None:
+        # Warn-once-per-streak state, keyed by feed source id: True while a host
+        # is in a failure streak so the union logs one warning per streak, reset
+        # on that host's next success.
+        self._feed_warned: dict[str, bool] = {}
+
     @property
     def name(self) -> str:
         return "eccc"
@@ -923,6 +994,7 @@ class ECCCProvider:
         results = await self._collect(
             session,
             config,
+            options,
             cap_content_cache=cap_content_cache,
             user_agent=user_agent,
         )
@@ -987,6 +1059,7 @@ class ECCCProvider:
         results = await self._collect(
             session,
             config,
+            options,
             cap_content_cache=cap_content_cache,
             user_agent=user_agent,
         )
@@ -996,6 +1069,7 @@ class ECCCProvider:
         self,
         session: aiohttp.ClientSession,
         config: Mapping[str, Any],
+        options: Mapping[str, Any],
         *,
         cap_content_cache: CAPContentCache | None = None,
         user_agent: str | None = None,
@@ -1005,14 +1079,21 @@ class ECCCProvider:
         Returns one ``(atom_metadata, web_url, doc)`` tuple per surviving entry,
         with ``doc`` ``None`` when its CAP body could not be fetched or parsed:
 
-        (a) Fetches the Atom feed.
+        (a) Fetches the configured NAAD host(s) and unions their Atom entries
+            (``_fetch_feed_entries``; ``options`` selects the feed source).
         (b) Pre-filters entries by status; province mode by georss-polygon bbox,
             GPS/tracker mode by georss-polygon point-in-polygon. The authoritative
             region check happens later against the CAP body.
+        (b') Cross-host dedup: after an entry survives the region filter, the
+            first survivor per CAP OID wins (the first host in
+            ``NAAD_FEED_UNION_ORDER``), so a cross-host duplicate is collapsed
+            before its CAP body is fetched. Deduplicating *survivors* (not raw
+            entries) keeps the per-entry region test exact — see
+            ``_fetch_feed_entries``.
         (c) Fetches CAP XML for survivors via a shared cache.
         (d) Parses CAP XML in the thread pool executor.
         """
-        root = await self._fetch_feed_root(session)
+        entries = await self._fetch_feed_entries(session, options)
 
         province = config.get(CONF_PROVINCE, "")
         gps_lat, gps_lon = self._parse_gps(config)
@@ -1023,8 +1104,9 @@ class ECCCProvider:
         # (b) Pre-filter entries using the Atom envelope
         SurvivorTuple = tuple[str, dict[str, Any], str]
         survivors: list[SurvivorTuple] = []
+        seen: set[str] = set()
 
-        for entry in root.findall(f"{{{NS_ATOM}}}entry"):
+        for entry in entries:
             cats = _parse_categories(entry)
 
             if cats.get("status", "") != "Actual":
@@ -1071,6 +1153,11 @@ class ECCCProvider:
                 "status": cats.get("status", ""),
                 "polygon": _parse_georss_polygon(entry),
             }
+            # (b') Cross-host dedup on survivors: first host in union order wins.
+            oid = _entry_oid(entry)
+            if oid in seen:
+                continue
+            seen.add(oid)
             survivors.append((cap_url, atom_metadata, web_url))
 
         if not survivors:
@@ -1104,9 +1191,59 @@ class ECCCProvider:
 
         return results
 
-    @staticmethod
-    async def _fetch_feed_root(session: aiohttp.ClientSession) -> Element:
-        """Fetch and parse the NAAD Atom feed, guarding against truncated downloads.
+    async def _fetch_feed_entries(
+        self, session: aiohttp.ClientSession, options: Mapping[str, Any]
+    ) -> list[Element]:
+        """Fetch the configured NAAD host(s) and return their Atom entries.
+
+        Hosts (``_resolve_feed_urls``) are fetched in ``NAAD_FEED_UNION_ORDER``
+        (also the href tie-break priority) and their entries concatenated in that
+        order, with **no** deduplication here — dedup runs later in ``_collect``
+        on the entries that survive the region filter, because the entries of one
+        document are per (language × area group) and carry *different* polygons,
+        so collapsing them before the region test could keep an area group the
+        user is not in (issue #45 shape) and drop the document.
+
+        Hosts are fetched sequentially rather than concurrently: since #49 made
+        the GeoRSS path a ~30-minute backfill (not a hot poll), the latency of a
+        second ~1 MB request is immaterial, and a sequential ``await`` keeps the
+        whole fetch inside the caller's coroutine — an ``asyncio.gather`` here
+        would spawn child tasks whose completion ordering makes the backfill
+        availability signal (issue #16) race the coordinator's update cycle.
+
+        Per-host failure is tolerated: as long as one host succeeds the union is
+        returned, with one warning logged per failure streak per host. Only an
+        all-hosts failure raises ``UpdateFailed``, naming each host and its error.
+        """
+        sources = _resolve_feed_urls(options)
+        entries: list[Element] = []
+        failures: list[str] = []
+        for source_id, url in sources:
+            try:
+                root = await self._fetch_one_feed(session, source_id, url)
+            except Exception as err:  # noqa: BLE001 — one host down must not sink the union
+                failures.append(f"{source_id} ({url}): {err}")
+                if not self._feed_warned.get(source_id):
+                    _LOGGER.warning(
+                        "ECCC: NAAD host %s failed; %s",
+                        source_id,
+                        "continuing with the other host"
+                        if len(sources) > 1
+                        else "no other host configured",
+                    )
+                    self._feed_warned[source_id] = True
+                continue
+            self._feed_warned[source_id] = False
+            entries.extend(root.findall(f"{{{NS_ATOM}}}entry"))
+
+        if len(failures) == len(sources):
+            raise UpdateFailed("ECCC: all NAAD hosts failed: " + "; ".join(failures))
+        return entries
+
+    async def _fetch_one_feed(
+        self, session: aiohttp.ClientSession, source_id: str, url: str
+    ) -> Element:
+        """Fetch and parse one NAAD Atom feed, guarding against truncated downloads.
 
         The alertready.ca feed can be delivered incomplete: an early-terminated
         chunked stream makes ``resp.text()`` return a partial or empty body
@@ -1117,9 +1254,11 @@ class ECCCProvider:
         """
         last_error = "no attempts made"
         for attempt in range(1, _FEED_FETCH_ATTEMPTS + 1):
-            async with session.get(NAAD_FEED_URL) as resp:
+            async with session.get(url) as resp:
                 if resp.status != 200:
-                    raise UpdateFailed(f"ECCC NAAD feed returned {resp.status}")
+                    raise UpdateFailed(
+                        f"ECCC NAAD feed {source_id} returned {resp.status}"
+                    )
                 text = await resp.text()
 
             if text.rstrip().endswith("</feed>"):
@@ -1133,8 +1272,9 @@ class ECCCProvider:
                 )
 
             _LOGGER.debug(
-                "ECCC: %s (attempt %d/%d)",
+                "ECCC: %s from %s (attempt %d/%d)",
                 last_error,
+                source_id,
                 attempt,
                 _FEED_FETCH_ATTEMPTS,
             )
