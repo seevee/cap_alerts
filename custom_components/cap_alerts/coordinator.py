@@ -42,6 +42,7 @@ from .const import (
     METEOALARM_COUNTRY_CODE_ALIASES,
     METEOALARM_COUNTRY_NAME_ALIASES,
     METEOALARM_COUNTRY_NAMES,
+    NAAD_STREAM_BACKFILL_MIN_INTERVAL_S,
     NAAD_STREAM_HOST,
     NAAD_STREAM_PORT,
 )
@@ -55,6 +56,7 @@ from .providers.eccc import (
     ECCCProvider,
     build_alerts_from_cap_docs,
     doc_matches_region,
+    is_actual,
 )
 from .providers.naad_stream import NAADStreamClient
 from .store import AlertStore
@@ -179,6 +181,9 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._ingest_lock = asyncio.Lock()
         self._stream_client: NAADStreamClient | None = None
         self._stream_task: asyncio.Task[None] | None = None
+        # When the last GeoRSS backfill was attempted, from either source, so a
+        # reconnect-triggered one can be throttled against it.
+        self._last_backfill_at: datetime | None = None
 
         super().__init__(
             hass,
@@ -318,7 +323,9 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         except aiohttp.ClientError as err:
             raise UpdateFailed(f"{self._provider.name}: {err}") from err
 
-        return await self._apply(alerts)
+        data = await self._apply(alerts)
+        self.last_update_success_time = datetime.now(timezone.utc)
+        return data
 
     async def _apply(self, alerts: list[CAPAlert]) -> dict[str, CAPAlert]:
         """Run the shared post-fetch pipeline and index the active set by ID.
@@ -326,6 +333,11 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         Normalize → marine filter → geometry externalization → store diff. Used by
         both the polling path and the streaming ingest/backfill paths so their
         transition detection, event firing, and geometry handling are identical.
+
+        Deliberately does *not* stamp ``last_update_success_time``: the streaming
+        path runs this pipeline on every heartbeat with no network I/O, and the
+        "Last updated" sensor reports when data was last *fetched*, not when the
+        active set was last recomputed. Only the fetch-backed callers stamp it.
         """
         # Shared normalization. The full normalized list — including
         # cancelled/expired alerts — is handed to store.process so it can
@@ -352,8 +364,6 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         await self._geometry_store.purge_missing(active_refs, prefix=f"{entry_id}:")
         # Diff against previous poll — returns only active alerts.
         alerts = self._store.process(alerts)
-        # Track successful update time (not all HA versions expose this)
-        self.last_update_success_time = datetime.now(timezone.utc)
         # Index by ID for O(1) lookup
         return {a.id: a for a in alerts}
 
@@ -399,9 +409,16 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         it matches the region, or when it references something already tracked:
         the latter so an update or cancellation still supersedes an alert we hold
         even if its revised geometry no longer covers the user.
+
+        Test/exercise traffic is rejected up front rather than left to
+        ``doc_matches_region``, since the references escape bypasses that check —
+        and a heartbeat's ``<references>`` lists recent alert OIDs, so a heartbeat
+        that ever escaped classification would otherwise be admitted once a minute.
         """
         kept: list[CAPDoc] = []
         for doc in docs:
+            if not is_actual(doc):
+                continue
             if doc_matches_region(doc, **build_kwargs) or any(
                 ref_id in self._live_docs for _, ref_id, _ in doc.references
             ):
@@ -433,6 +450,10 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         Raises UpdateFailed on fetch failure (drives availability, issue #16).
         """
         async with self._ingest_lock:
+            # Stamped before the fetch, and whether or not it succeeds: what the
+            # reconnect throttle has to bound is the ~7 MB transfer, which a
+            # failing feed costs just the same.
+            self._last_backfill_at = datetime.now(timezone.utc)
             try:
                 async with asyncio.timeout(self._timeout):
                     docs = await self._provider.async_fetch_docs(  # type: ignore[attr-defined]
@@ -453,7 +474,9 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             alerts = build_alerts_from_cap_docs(
                 list(self._live_docs.values()), **self._build_kwargs(config, options)
             )
-            return await self._apply(alerts)
+            data = await self._apply(alerts)
+        self.last_update_success_time = datetime.now(timezone.utc)
+        return data
 
     async def async_ingest_docs(self, docs: list[CAPDoc]) -> None:
         """Merge streamed docs into the live set, rebuild, and push to entities.
@@ -480,12 +503,31 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     async def _on_backfill_needed(self) -> None:
         """GeoRSS backfill requested by the stream client on reconnect.
 
+        Throttled against the last backfill from either source. The client's
+        backoff only grows for connections that delivered nothing, so an endpoint
+        that sends a heartbeat and then drops reconnects at the heartbeat (or
+        watchdog) cadence with the backoff pinned at its floor — and each
+        reconnect would otherwise pay a full ~7 MB feed fetch, making a flapping
+        socket more expensive than the polling it replaced. Skipping is safe: the
+        periodic resync still runs, and a backfill within the last few minutes has
+        already recovered essentially everything this one would.
+
         A transient backfill failure here does not flip availability (issue #16) —
         the periodic ``_async_update_data`` backfill is the authoritative signal.
         It is still worth a warning, once per failure streak, since a persistently
         failing reconnect backfill means alerts missed while disconnected are not
         being recovered.
         """
+        last = self._last_backfill_at
+        if last is not None and datetime.now(timezone.utc) - last < timedelta(
+            seconds=NAAD_STREAM_BACKFILL_MIN_INTERVAL_S
+        ):
+            _LOGGER.debug(
+                "ECCC: skipping reconnect backfill; one ran %.0fs ago (floor %ds)",
+                (datetime.now(timezone.utc) - last).total_seconds(),
+                NAAD_STREAM_BACKFILL_MIN_INTERVAL_S,
+            )
+            return
         try:
             config, options = self._resolve_config()
             data = await self._backfill(config, options)

@@ -594,7 +594,7 @@ def _merge_languages(variants: list[CAPAlert], preferred_lang: str) -> CAPAlert:
 # ---------------------------------------------------------------------------
 
 
-def _is_actual(doc: CAPDoc) -> bool:
+def is_actual(doc: CAPDoc) -> bool:
     """Whether a CAP doc is a real alert rather than test/exercise traffic.
 
     The GeoRSS path drops non-``Actual`` entries on the Atom envelope before the
@@ -604,6 +604,10 @@ def _is_actual(doc: CAPDoc) -> bool:
     status: ``<status>`` is mandatory in CAP 1.2, so its absence means a
     malformed document, and dropping a real alert over a parse quirk is the
     worse error.
+
+    Public because the coordinator's streaming admission needs it directly: its
+    "references something we already track" escape bypasses ``doc_matches_region``
+    entirely, so the status rule has to be applied ahead of that branch too.
     """
     return not doc.status or doc.status == "Actual"
 
@@ -646,7 +650,7 @@ def doc_matches_region(
     same ``<info>`` block ``build_alerts_from_cap_docs`` would, so admission and
     the later build agree.
     """
-    if not _is_actual(doc):
+    if not is_actual(doc):
         return False
     return _info_matches_region(
         _select_info(doc, preferred_lang), province, gps_lat, gps_lon
@@ -678,7 +682,7 @@ def build_alerts_from_cap_docs(
     """
     # Screen test/exercise traffic before chain resolution, so a test message's
     # <references> cannot suppress the real alert it points at.
-    docs = [doc for doc in docs if _is_actual(doc)]
+    docs = [doc for doc in docs if is_actual(doc)]
     leaf_ids = {d.identifier for d in resolve_chain_leaves(docs)}
     groups: dict[str, list[CAPAlert]] = defaultdict(list)
 

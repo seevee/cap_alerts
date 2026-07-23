@@ -29,6 +29,7 @@ from homeassistant.helpers import entity_registry as er
 DOMAIN = "cap_alerts"
 FEED = "https://rss.alertready.ca/"
 RESYNC_S = 1800  # DEFAULT_STREAM_RESYNC_INTERVAL
+BACKFILL_FLOOR_S = 300  # NAAD_STREAM_BACKFILL_MIN_INTERVAL_S
 
 
 def _iso(dt: datetime) -> str:
@@ -214,7 +215,7 @@ async def test_heartbeat_rebuilds_locally_without_fetch(
 
 @pytest.mark.asyncio
 async def test_reconnect_backfill_failure_keeps_entities_available(
-    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch, freezer
 ):
     holder = _install_fake_stream(monkeypatch)
     cap_a = "https://cap.example/a.cap"
@@ -229,12 +230,117 @@ async def test_reconnect_backfill_failure_keeps_entities_available(
     # unavailable (issue #16: only the authoritative periodic backfill does).
     aioclient_mock.clear_requests()
     aioclient_mock.get(FEED, status=503)
+    # Past the reconnect-backfill floor, so the fetch is actually attempted
+    # rather than throttled against the one setup just ran.
+    freezer.tick(timedelta(seconds=BACKFILL_FLOOR_S + 1))
     await holder["on_backfill_needed"]()
     await hass.async_block_till_done()
 
     state = hass.states.get(count_id).state
     assert state != STATE_UNAVAILABLE
     assert state == "1"
+
+
+@pytest.mark.asyncio
+async def test_reconnect_backfill_is_throttled_against_a_recent_one(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch, freezer
+):
+    """A flapping socket must not pay a ~7 MB fetch per reconnect.
+
+    Backoff only grows for connections that delivered nothing, so an endpoint
+    that sends a heartbeat and then drops reconnects at the heartbeat cadence
+    with the backoff at its floor. Unthrottled, that is a full GeoRSS fetch every
+    ~60 s — more expensive than the 300 s polling this feature replaced.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    await _setup(hass)
+    calls_before = len(aioclient_mock.mock_calls)
+
+    # Four reconnects inside the floor, spread the way a heartbeat-then-drop
+    # server would produce them.
+    for _ in range(4):
+        freezer.tick(timedelta(seconds=60))
+        await holder["on_backfill_needed"]()
+        await hass.async_block_till_done()
+    assert len(aioclient_mock.mock_calls) == calls_before, "unthrottled reconnect fetch"
+
+    # Past the floor, the next reconnect does resync.
+    freezer.tick(timedelta(seconds=BACKFILL_FLOOR_S + 1))
+    await holder["on_backfill_needed"]()
+    await hass.async_block_till_done()
+    assert len(aioclient_mock.mock_calls) > calls_before
+
+
+@pytest.mark.asyncio
+async def test_non_actual_doc_referencing_a_tracked_alert_is_not_retained(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """The references escape must not readmit test traffic.
+
+    ``doc_matches_region`` rejects non-``Actual`` docs, but the escape bypasses it
+    entirely — and a heartbeat's ``<references>`` lists recent alert OIDs, so a
+    heartbeat that ever escaped classification would land in the live set once a
+    minute until the 48 h prune.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    assert "urn:oid:A" in coordinator._live_docs
+
+    await holder["on_alert_doc"](
+        _cap_xml(
+            "urn:oid:TEST",
+            status="Test",
+            references="CWTO,urn:oid:A,2026-07-22T12:00:00-00:00",
+        )
+    )
+    await hass.async_block_till_done()
+
+    assert "urn:oid:TEST" not in coordinator._live_docs
+    assert hass.states.get(_count_id(hass, entry)).state == "1"
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_does_not_advance_last_updated(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch, freezer
+):
+    """ "Last updated" reports the last fetch, not the last local rebuild.
+
+    Heartbeats run the full pipeline every ~60 s with no network I/O; stamping
+    the timestamp there would show a fresh time while the authoritative GeoRSS
+    backfill was up to 30 minutes stale.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    last_updated_id = er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_last_updated"
+    )
+    seeded = hass.states.get(last_updated_id).state
+
+    freezer.tick(timedelta(seconds=120))
+    await holder["on_heartbeat"]()
+    await hass.async_block_till_done()
+    assert hass.states.get(last_updated_id).state == seeded
+
+    # A backfill — a real fetch — does advance it. Driven directly rather than
+    # through the resync timer, whose refresh runs as a background task that
+    # ``async_block_till_done`` does not wait for.
+    freezer.tick(timedelta(seconds=RESYNC_S))
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(last_updated_id).state != seeded
 
 
 @pytest.mark.asyncio
