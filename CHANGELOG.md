@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0-rc.1 — 2026-07-23
+
+### Added
+- Stream NAAD alerts in real time, GeoRSS as backfill (#49) (f019d08…)
+
+### Fixed
+- Honor ended area groups so alerts don't linger until expiry (#45) (#51) (f9ecb7c…)
+- Union both NAAD hosts so no live alert is missed (#38) (#52) (3006d56…)
+
 ## 0.2.0-alpha.7 — 2026-07-22
 
 ### Fixed
