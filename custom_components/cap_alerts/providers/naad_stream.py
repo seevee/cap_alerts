@@ -37,8 +37,10 @@ _LOGGER = logging.getLogger(__name__)
 
 # Bound the reassembly buffer so a never-terminated ``<alert>`` (a missing close
 # tag) cannot grow memory without limit. NAAD alerts are well under this; a
-# buffer past it is discarded and the stream re-syncs on the next frame.
-_MAX_BUFFER_BYTES = 8 * 1024 * 1024
+# buffer past it is discarded and the stream re-syncs on the next frame. Counted
+# in characters, not bytes: the buffer holds decoded text, so the byte ceiling is
+# this times the UTF-8 width of whatever is in it.
+_MAX_BUFFER_CHARS = 8 * 1024 * 1024
 
 # Read chunk size for the byte stream.
 _READ_CHUNK = 65536
@@ -144,21 +146,53 @@ class NAADStreamClient:
 
         On every reconnect (i.e. any connect after the first) a GeoRSS backfill is
         requested before resuming the read loop, so alerts issued while
-        disconnected are recovered. Connection and read errors are logged and
-        retried with bounded exponential backoff; cancellation propagates.
+        disconnected are recovered. Connection and read errors are retried with
+        bounded exponential backoff; cancellation propagates.
+
+        Logging is transition-based rather than per-attempt: the first failure of
+        a streak warns, recovery logs at ``info``, and everything in between stays
+        at ``debug``. A silently dead socket degrades this integration to the
+        30-minute resync — slow, not broken — which is exactly the failure a user
+        needs to see in the log without having to enable debug first, and exactly
+        the one a per-attempt logger would bury.
         """
         backoff = self._backoff_min_s
         first = True
+        failures = 0
         while not self._stopped:
             try:
                 reader, writer = await self._connect()
             except asyncio.CancelledError:
                 raise
             except Exception as err:  # noqa: BLE001 — transient connect failure
-                self._logger.debug("NAAD stream connect failed: %s", err)
+                failures += 1
+                if failures == 1:
+                    self._logger.warning(
+                        "NAAD stream: cannot connect to %s:%s (%s); retrying with "
+                        "backoff. Alerts still arrive via the periodic GeoRSS "
+                        "resync, but not in real time",
+                        self._host,
+                        self._port,
+                        err,
+                    )
+                else:
+                    self._logger.debug("NAAD stream connect failed: %s", err)
                 await self._sleep_backoff(backoff)
                 backoff = min(backoff * 2, self._backoff_max_s)
                 continue
+
+            if failures:
+                self._logger.info(
+                    "NAAD stream: connected to %s:%s after %d failed attempt(s)",
+                    self._host,
+                    self._port,
+                    failures,
+                )
+                failures = 0
+            else:
+                self._logger.debug(
+                    "NAAD stream: connected to %s:%s", self._host, self._port
+                )
 
             self._writer = writer
             if not first:
@@ -247,11 +281,11 @@ class NAADStreamClient:
             docs.append(buffer[start:end])
             buffer = buffer[end:]
 
-        if len(buffer) > _MAX_BUFFER_BYTES:
+        if len(buffer) > _MAX_BUFFER_CHARS:
             self._logger.warning(
-                "NAAD stream: reassembly buffer exceeded %d bytes without a "
+                "NAAD stream: reassembly buffer exceeded %d characters without a "
                 "complete frame; discarding and re-syncing",
-                _MAX_BUFFER_BYTES,
+                _MAX_BUFFER_CHARS,
             )
             buffer = ""
         return buffer, docs

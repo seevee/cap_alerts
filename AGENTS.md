@@ -83,11 +83,11 @@ python3 -m venv .venv
 .venv/bin/python -m pytest tests/test_store_payload.py   # single file
 .venv/bin/python -m pytest -k normalize                  # pattern
 
-# Lint + format (CI checks both custom_components/ and tests/)
-.venv/bin/ruff check custom_components/ tests/
-.venv/bin/ruff format --diff custom_components/ tests/
+# Lint + format (CI checks custom_components/, tests/, and scripts/)
+.venv/bin/ruff check custom_components/ tests/ scripts/
+.venv/bin/ruff format --diff custom_components/ tests/ scripts/
 
-# Type checking
+# Type checking (the integration only — scripts/ is standalone dev tooling)
 .venv/bin/mypy custom_components/cap_alerts
 ```
 

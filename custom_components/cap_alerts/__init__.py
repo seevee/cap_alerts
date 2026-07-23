@@ -77,6 +77,6 @@ async def _async_options_updated(
     if AlertsDataUpdateCoordinator.streaming_enabled(entry) != coordinator.streaming:
         hass.config_entries.async_schedule_reload(entry.entry_id)
         return
-    coordinator.update_interval = coordinator._resolve_update_interval(entry)
+    coordinator.update_interval = coordinator.resolve_update_interval(entry)
     coordinator.update_timeout(entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
     await coordinator.async_request_refresh()

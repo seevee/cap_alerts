@@ -3,3 +3,8 @@ plans/
 **/__pycache__
 .venv/
 .aider*
+# Sampled output from scripts/ probes (e.g. naad_feed_diff.py --log). Raw
+# upstream observations for characterising feed behaviour — findings belong in
+# an issue or docs/, not the repo.
+*-probe-*.jsonl
+*.probe.jsonl

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import logging
 import ssl
 import sys
 import threading
@@ -156,7 +157,7 @@ def test_extract_docs_reassembles_split_frame():
 
 
 def test_extract_docs_discards_over_long_unterminated_buffer(monkeypatch):
-    monkeypatch.setattr(_naad_mod, "_MAX_BUFFER_BYTES", 32)
+    monkeypatch.setattr(_naad_mod, "_MAX_BUFFER_CHARS", 32)
     client = _make_client()
     buffer, docs = client._extract_docs("<alert>" + "x" * 100)
     assert docs == []
@@ -294,6 +295,53 @@ async def test_run_retries_connect_failures_with_bounded_backoff():
 
     # Two failed connects retried, third succeeds and stops the loop.
     assert len(attempts) == 3
+
+
+@pytest.mark.asyncio
+async def test_run_warns_once_per_connect_failure_streak_and_logs_recovery(caplog):
+    """A dead socket must be visible at default log level, but must not spam.
+
+    Without this, an endpoint that never accepts produces nothing above ``debug``
+    and the integration silently degrades to the 30-minute resync — the user sees
+    late alerts and an empty log.
+    """
+    attempts: list[int] = []
+    holder: dict[str, NAADStreamClient] = {}
+
+    async def connect():
+        attempts.append(1)
+        if len(attempts) >= 4:
+            holder["client"].stop()
+            return _reader(eof=True), _FakeWriter()
+        raise ConnectionRefusedError("nope")
+
+    client = _make_client(connect=connect, backoff_min_s=0, backoff_max_s=0)
+    holder["client"] = client
+    with caplog.at_level(logging.INFO):
+        await asyncio.wait_for(client.run(), timeout=1.0)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1, "three failed connects should warn once, not thrice"
+    assert "cannot connect" in warnings[0].getMessage()
+
+    infos = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert len(infos) == 1
+    assert "after 3 failed attempt(s)" in infos[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_run_does_not_warn_when_the_first_connect_succeeds(caplog):
+    """The healthy path stays quiet at default level."""
+
+    async def connect():
+        client.stop()
+        return _reader(eof=True), _FakeWriter()
+
+    client = _make_client(connect=connect)
+    with caplog.at_level(logging.INFO):
+        await asyncio.wait_for(client.run(), timeout=1.0)
+
+    assert [r for r in caplog.records if r.levelno >= logging.INFO] == []
 
 
 @pytest.mark.asyncio

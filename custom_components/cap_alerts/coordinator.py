@@ -15,6 +15,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_LATITUDE, ATTR_LONGITUDE
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
@@ -49,7 +50,7 @@ from .const import (
 from .geometry_store import GeometryStore
 from .model import CAPAlert
 from .normalize import normalize_alerts
-from .providers import AlertProvider
+from .providers import AlertProvider, BackfillProvider
 from .providers.cap import CAPDoc, parse_cap_alert
 from .providers.cap_content_cache import CAPContentCache
 from .providers.eccc import (
@@ -177,6 +178,12 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._streaming = provider.name == "eccc" and entry.options.get(
             CONF_STREAMING, True
         )
+        # The backfill needs the doc-level fetch, which the AlertProvider protocol
+        # deliberately doesn't carry. Narrow once here so the backfill is typed
+        # rather than reaching through an ignore on every call.
+        self._backfill_provider: BackfillProvider | None = (
+            provider if isinstance(provider, BackfillProvider) else None
+        )
         self._live_docs: dict[str, CAPDoc] = {}
         self._ingest_lock = asyncio.Lock()
         self._stream_client: NAADStreamClient | None = None
@@ -190,7 +197,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             _LOGGER,
             config_entry=entry,
             name=f"{DOMAIN}_{entry.entry_id}",
-            update_interval=self._resolve_update_interval(entry),
+            update_interval=self.resolve_update_interval(entry),
         )
 
     @staticmethod
@@ -209,8 +216,13 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         """Whether this coordinator ingests from the NAAD stream."""
         return self._streaming
 
-    def _resolve_update_interval(self, entry: ConfigEntry) -> timedelta:
-        """Poll interval: the GeoRSS scan interval, or the resync cadence when streaming."""
+    def resolve_update_interval(self, entry: ConfigEntry) -> timedelta:
+        """Poll interval: the GeoRSS scan interval, or the resync cadence when streaming.
+
+        Public because the options-update listener re-derives the interval from a
+        changed entry, and the streaming-vs-polling branch must not be duplicated
+        there.
+        """
         if self._streaming:
             return timedelta(seconds=DEFAULT_STREAM_RESYNC_INTERVAL)
         return timedelta(
@@ -221,6 +233,22 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     def provider(self) -> AlertProvider:
         """Expose provider for device_info model field."""
         return self._provider
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Device identity for every entity of this config entry.
+
+        Single source of truth: the sensor and button platforms both defer here,
+        so the device name/model cannot drift between them — a mismatch would
+        split one entry's entities across two devices in the registry.
+        """
+        model = self._provider.name.upper()
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.config_entry.entry_id)},
+            name=f"CAP Alerts {model}",
+            manufacturer="CAP Alerts",
+            model=model,
+        )
 
     def update_timeout(self, timeout: int) -> None:
         """Called by options update listener."""
@@ -449,6 +477,11 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         Runs under the ingest lock so it cannot interleave with a stream push.
         Raises UpdateFailed on fetch failure (drives availability, issue #16).
         """
+        provider = self._backfill_provider
+        if provider is None:  # pragma: no cover — guarded by the _streaming gate
+            raise UpdateFailed(
+                f"{self._provider.name}: provider cannot supply backfill documents"
+            )
         async with self._ingest_lock:
             # Stamped before the fetch, and whether or not it succeeds: what the
             # reconnect throttle has to bound is the ~7 MB transfer, which a
@@ -456,7 +489,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             self._last_backfill_at = datetime.now(timezone.utc)
             try:
                 async with asyncio.timeout(self._timeout):
-                    docs = await self._provider.async_fetch_docs(  # type: ignore[attr-defined]
+                    docs = await provider.async_fetch_docs(
                         async_get_clientsession(self.hass),
                         config,
                         options,

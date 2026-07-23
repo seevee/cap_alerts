@@ -19,7 +19,7 @@ from pytest_homeassistant_custom_component.common import (
 
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.const import ATTR_ENTITY_ID, EntityCategory, STATE_UNAVAILABLE
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 DOMAIN = "cap_alerts"
 FEED = "https://rss.alertready.ca/"
@@ -100,6 +100,34 @@ async def test_refresh_button_is_created_as_a_diagnostic_entity(
     ent = er.async_get(hass).async_get(_entity_id(hass, entry, "refresh", "button"))
 
     assert ent.entity_category == EntityCategory.DIAGNOSTIC
+
+
+@pytest.mark.asyncio
+async def test_button_and_sensors_share_one_provider_named_device(
+    hass, aioclient_mock, enable_custom_integrations
+):
+    """All platforms land on a single device whose name derives from the provider.
+
+    The button was a third copy of ``device_info``; identity now comes from the
+    coordinator. A drift between copies would split one entry's entities across
+    two registry devices. The entry title here ("ECCC: Ontario") deliberately
+    differs from the device name, pinning that device.name is decoupled from it.
+    """
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A", "Wind Warning"))
+
+    entry = await _setup(hass)
+
+    devices = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+    assert len(devices) == 1
+    device = devices[0]
+    assert device.name == "CAP Alerts ECCC"
+    assert device.model == "ECCC"
+    assert device.identifiers == {(DOMAIN, entry.entry_id)}
+
+    entities = er.async_entries_for_device(er.async_get(hass), device.id)
+    assert {e.domain for e in entities} == {"button", "sensor"}
 
 
 @pytest.mark.asyncio

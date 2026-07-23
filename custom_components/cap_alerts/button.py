@@ -7,7 +7,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from .const import DOMAIN
 from .coordinator import AlertsDataUpdateCoordinator
 
 
@@ -49,12 +48,7 @@ class RefreshButton(ButtonEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name=f"CAP Alerts {self._coordinator.provider.name.upper()}",
-            manufacturer="CAP Alerts",
-            model=self._coordinator.provider.name.upper(),
-        )
+        return self._coordinator.device_info
 
     async def async_press(self) -> None:
         """Request an off-cycle provider fetch.
