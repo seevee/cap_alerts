@@ -91,6 +91,25 @@ if _REAL_HA:
     _repo_cc = str(_REPO_ROOT / "custom_components")
     if _repo_cc not in custom_components.__path__:
         custom_components.__path__.append(_repo_cc)
+
+    # Stub-style test files (test_compute_device_title, test_sync_entities, …)
+    # fabricate any ``homeassistant.*`` submodule missing from sys.modules and
+    # only add attributes additively. That is safe solely when every module
+    # they touch is already the REAL one — a fabricated stand-in would shadow
+    # the real module for all later imports (e.g. a stub
+    # ``helpers.update_coordinator`` strips ``async_config_entry_first_refresh``
+    # from every coordinator in the lifecycle tests). The plugin imports fewer
+    # HA modules at startup as versions advance, so pre-import the full set
+    # those files reference.
+    import homeassistant.components.sensor  # noqa: F401
+    import homeassistant.config_entries  # noqa: F401
+    import homeassistant.const  # noqa: F401
+    import homeassistant.helpers.aiohttp_client  # noqa: F401
+    import homeassistant.helpers.device_registry  # noqa: F401
+    import homeassistant.helpers.entity_registry  # noqa: F401
+    import homeassistant.helpers.selector  # noqa: F401
+    import homeassistant.helpers.update_coordinator  # noqa: F401
+    import homeassistant.util  # noqa: F401
 else:
     # Stub mode (no plugin): alias ``custom_components.cap_alerts.*`` to the
     # pre-loaded copies so imports work without real HA.
