@@ -5,7 +5,7 @@ A Home Assistant custom integration that creates **one entity per active weather
 Alert data is modeled using [CAP (Common Alerting Protocol) 1.2](https://docs.oasis-open.org/emergency/cap/v1.2/CAP-v1.2.html) field names via a `CAPAlert` frozen dataclass. Ships with providers for:
 
 - **NWS** — U.S. National Weather Service (GeoJSON API)
-- **ECCC** — Environment and Climate Change Canada (NAAD Atom feed)
+- **ECCC** — Environment and Climate Change Canada (NAAD real-time streaming feed, GeoRSS as backfill)
 - **MeteoAlarm** — EUMETNET European aggregator (per-country CAP JSON, ~37 member services)
 - **WMO** — World Meteorological Organization Severe Weather Information Centre (per-source RSS → CAP XML), covering ~100 national services without a dedicated provider
 
@@ -47,6 +47,9 @@ Pick a provider, then a location mode:
 - **Scan interval** — 60–3600 s, default 300
 - **Timeout** — 5–120 s, default 30
 - **Language** — ECCC: `auto` / `en-CA` / `fr-CA`. MeteoAlarm: 2-letter prefix (`en`, `de`, `fr`, …) used to pick the primary `<cap:info>` block. NWS and WMO have no language option (English-only / one language per source).
+- **Real-time streaming** (ECCC) — ingest alerts the moment they are issued, over the NAAD TCP streaming feed; the GeoRSS feed becomes a startup/reconnect backfill plus periodic resync. Default on. Turning it off falls back to GeoRSS polling on the scan interval. A diagnostic binary sensor reports the socket state (see Entities).
+- **Feed source** (ECCC) — which NAAD GeoRSS host serves polling/backfill: `auto` (default; fetches both hosts and unions their entries, since neither alone carries every live alert), or pin `alertready` / `pelmorex` as an escape hatch.
+- **Exclude marine alerts** (NWS, ECCC) — opt-in filter that drops alerts carrying a marine zone code (NWS marine UGC area prefixes, ECCC CLC codes starting `00`). Default off.
 
 Polygons are **never** emitted in entity attributes — instead, each alert
 carries a `geometry_ref` handle plus a `bbox`. Fetch the full GeoJSON via:

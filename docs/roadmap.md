@@ -91,26 +91,12 @@ Breaking internal change — best done alongside a new provider that actually ne
 
 ## ECCC NAAD streaming socket (push ingestion)
 
-**Status: in progress — shipping as the ECCC default in 0.2.0** (branch `feat/eccc-realtime-streaming`). Implemented: `providers/naad_stream.py` (`NAADStreamClient` — TLS transport, frame reassembly, heartbeat watchdog, reconnect/backoff, injectable connect); the coordinator's push-mode ingest (`_live_docs` + `_ingest_lock`, `async_ingest_docs`, `_backfill`, `async_start/stop_stream`) rebuilding through the shared `build_alerts_from_cap_docs` extracted from `eccc.py`; the `CONF_STREAMING` options toggle (default on, GeoRSS-polling escape hatch). GeoRSS `async_fetch_docs` is the startup/reconnect/resync backfill. See `docs/architecture.md` → *ECCC — NAAD streaming*. Remaining rationale below is retained as design context.
+**Status: shipped in 0.2.0** as the ECCC default (`CONF_STREAMING` options toggle, default on, GeoRSS-polling escape hatch). The full design — endpoint, `NAADStreamClient` transport, coordinator ingest, availability semantics, backfill throttling, observability — lives in [`architecture.md`](architecture.md) → *ECCC — NAAD streaming*.
 
-The ECCC provider previously polled the `rss.alertready.ca` Atom feed, which is a single ~7 MB object with no server-side filtering, compression, range, or conditional-GET support (all verified against the live endpoint). The whole feed is pulled every poll. Because it's a large chunked response behind `istio-envoy` with no `Content-Length`, an early-terminated stream makes aiohttp return a partial/empty body *without raising*, which historically surfaced as a misleading Atom `ParseError`. That failure mode is now guarded in `eccc.py::_fetch_one_feed` (completeness check on `</feed>` + bounded retry, branch `fix/eccc-truncated-feed`) — but the guard only makes the symptom clean and retriable; it does not remove the 7 MB-per-poll transfer that *causes* the truncation window. HTTP/2 is **not** a fix: HA's shared session is aiohttp (HTTP/1.1-only), and even via `httpx`+`h2` the H2 response also carries no `Content-Length`, so a clean `END_STREAM` after partial data truncates silently just like the chunked case — it would only (sometimes) convert a silent cut into a clean error, which the completeness guard already does for every transport.
+Ends still open on this roadmap:
 
-This is not just the more robust option — it is the **documented-correct ingestion path**. The NAADS 2.0 LMD User Guide (updated January 2026, "NAAD System Feed Specifications") is explicit that the RSS feed is the *auxiliary* "Internet GeoRSS Feed" and that it *"should not be used to feed a 24/7 automated system"* / *"should not be used as a base for public display by LMDs"* (it carries only a geometry subset of each alert). The channel documented for automated systems is the **TCP Streaming Feed**:
-
-- Current target `streaming.alertready.ca:8443` — TLS 1.3, live and open (probed 2026-07-21: streamed a `NAADS-Heartbeat` `<alert>` within ~26s, no client cert or subscribe message needed). This is the governance doc's "new and more secure port" on the surviving alertready.ca domain. The LMD guide's older `streaming1`/`streaming2.naad-adna.pelmorex.com:8080` hosts (Oakville/Montreal, plain TCP) are deprecated with the Pelmorex domain (~Sept 2026 sunset) and now close the connection immediately — do **not** build against them.
-- Real-time CAP-CP alerts delimited by `<alert>…</alert>`, byte-identical to the RSS/GeoRSS version.
-- **Heartbeat every 60 seconds** carrying the last 10 alert ids (a `<references>` list of recent alert OIDs), so a client can detect a dropped connection and a missed alert.
-- A **48-hour HTTP short-term repository** for retrieving missed alerts (also archived at alertsarchive.pelmorex.com).
-
-Switching to it eliminates the giant per-poll download *and* moves us onto the sanctioned channel at the same time. (What we surface today is still authoritative — we fetch each alert's full CAP body via its link, which the guide says is byte-identical to the TCP version — so this is about the discovery mechanism, not the alert data.)
-
-**Scope of the change** (why it's roadmap, not a bugfix):
-
-- Push vs. HA's poll-based `DataUpdateCoordinator`: needs a long-lived background connection task with reconnect/backoff and heartbeat monitoring (miss ~2 heartbeats → reconnect), feeding the store out-of-band rather than on an `update_interval` tick.
-- Startup + gap backfill: on init and after any disconnect, the currently-active alert set must still be seeded from the 48h repository/archive (the socket only carries alerts issued *while connected*), so an initial fetch doesn't fully go away — but it becomes a recovery path, not the steady-state hot loop.
-- Filtering (province/GPS/tracker) and the CAP-body/SGC logic are reusable, but the "which entries exist right now" discovery moves from feed enumeration to socket events + heartbeat-driven backfill.
-
-Pairs naturally with the `#24` geocode container work and the deployment-scaling numbers parked in the RFC incident follow-ups. Keep the completeness-guard fix regardless — it's protocol-agnostic and still needed for the backfill fetch.
+- The NAADS **48-hour HTTP short-term repository** (and alertsarchive.pelmorex.com) is unused as a gap-backfill source — all backfill goes through the GeoRSS feed today, so the `_fetch_one_feed` truncation guard and the partial-feed tolerance below still matter.
+- Pelmorex host removal (next section) and the deployment-scaling numbers parked in the RFC incident follow-ups pair with this work.
 
 ---
 
