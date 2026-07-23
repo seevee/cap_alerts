@@ -113,6 +113,14 @@ class CAPAlert:
     # -- Normalization metadata (set by integration, not providers) --
     severity_normalized: str = ""
     phase: str = ""
+    # The one exception in this group: a provider-supplied *input* to
+    # ``normalize._compute_phase``, not an output of it. Carries provider-native
+    # lifecycle vocabulary — ECCC's ``ended`` / ``transitioned_out``, read from
+    # the ``Alert_Location_Status`` CAP parameter of the selected ``<info>``
+    # block — for feeds that signal termination somewhere other than
+    # ``msgType``. Empty for providers that publish no such signal, which keeps
+    # phase computation bit-identical for them.
+    lifecycle_status: str = ""
     icon: str = ""
 
     # -- State transition metadata (set by alert store) --

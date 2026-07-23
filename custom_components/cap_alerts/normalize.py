@@ -24,6 +24,15 @@ _ISO_YEAR_RE = re.compile(r"^(\d{4})(\D.*)$")
 # CAP canonical severity set (RFC §2.1). Anything outside clamps to "unknown".
 _CANONICAL_SEVERITIES = frozenset({"extreme", "severe", "moderate", "minor", "unknown"})
 
+# Provider-native ``lifecycle_status`` values that mean the alert has reached
+# end-of-life for the area it was selected for, whatever its ``msgType`` and
+# ``expires`` still say. Both are ECCC ``Alert_Location_Status`` tokens; the
+# vocabulary itself lives in ``providers/eccc.py``, this set is only the
+# integration-side reading of which tokens are terminal. Unknown values are
+# deliberately absent so an unfamiliar token degrades to msg_type handling
+# rather than silently retiring a live alert.
+_TERMINAL_LIFECYCLE_STATUSES: frozenset[str] = frozenset({"ended", "transitioned_out"})
+
 # VTEC significance → severity tier
 _VTEC_SIG_SEVERITY = {
     "W": "severe",  # Warning
@@ -85,7 +94,7 @@ def _normalize(alert: CAPAlert, now: datetime, entry_id: str = "") -> CAPAlert:
         expires=expires,
         event=_truncate_state(alert.event),
         severity_normalized=_normalize_severity(alert),
-        phase=_compute_phase(expires, alert.msg_type, now),
+        phase=_compute_phase(expires, alert.msg_type, now, alert.lifecycle_status),
         icon=icon_for(alert),
         bbox=_bbox_from_geometry(alert.geometry),
         geometry_ref=_geometry_ref(alert, entry_id),
@@ -168,10 +177,23 @@ def _gregorian(value: str) -> str:
     return f"{year - BUDDHIST_ERA_OFFSET:04d}{m.group(2)}"
 
 
-def _compute_phase(expires: str, msg_type: str, now: datetime) -> str:
-    """Lifecycle phase: ``expired`` if past ``expires``, else from msg_type."""
+def _compute_phase(
+    expires: str, msg_type: str, now: datetime, lifecycle_status: str = ""
+) -> str:
+    """Lifecycle phase: ``expired`` if past ``expires`` or terminated, else msg_type.
+
+    ``lifecycle_status`` is the provider-supplied termination hint (see
+    ``CAPAlert.lifecycle_status``). Some feeds never signal end-of-life through
+    ``msgType`` — ECCC keeps ``Update`` and marks the area group ``ended`` in a
+    CAP parameter instead, leaving an hour of ``expires`` still on the clock —
+    so a terminal status maps to ``expired`` regardless of ``msg_type``. Values
+    outside ``_TERMINAL_LIFECYCLE_STATUSES`` (including the empty default every
+    other provider supplies) fall through unchanged.
+    """
     expires_at = _parse_iso(expires)
     if expires_at is not None and now > expires_at:
+        return "expired"
+    if lifecycle_status in _TERMINAL_LIFECYCLE_STATUSES:
         return "expired"
     return _normalize_phase(msg_type)
 
