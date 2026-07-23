@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Every <info> block ended, which is what ECCC sends when an alert finishes for
+  the whole region: msgType stays "Update" (never "Cancel"), and each block
+  keeps an hour of <expires> on the clock. Without the Alert_Location_Status
+  rule this document builds a live entity whose headline reads "…- ended" and
+  which survives until that expiry — defect B of issue #45, in isolation.
+
+  Timestamps are pinned to 2099 for the reason given in
+  eccc_cap_mixed_area_groups.xml: the wall clock must not be what retires this
+  alert, or the test proves nothing about the lifecycle parameter.
+-->
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>urn:oid:2.49.0.1.124.test.2026.ALLENDED</identifier>
+  <sender>CWWG</sender>
+  <sent>2099-07-22T14:00:00-00:00</sent>
+  <status>Actual</status>
+  <msgType>Update</msgType>
+  <scope>Public</scope>
+  <references>CWWG,urn:oid:2.49.0.1.124.test.2026.ALLENDED.PRIOR,2099-07-22T12:00:00-00:00</references>
+  <info>
+    <language>en-CA</language>
+    <category>Met</category>
+    <event>severe thunderstorm</event>
+    <responseType>AllClear</responseType>
+    <urgency>Past</urgency>
+    <severity>Minor</severity>
+    <certainty>Observed</certainty>
+    <effective>2099-07-22T14:00:00-00:00</effective>
+    <expires>2099-07-22T15:00:00-00:00</expires>
+    <senderName>Environment and Climate Change Canada</senderName>
+    <headline>yellow warning - severe thunderstorm - ended</headline>
+    <description>The severe thunderstorm has weakened and the warning has ended.</description>
+    <web>https://www.weather.gc.ca/warnings/alert_en.html</web>
+    <eventCode>
+      <valueName>profile:CAP-CP:Event:0.4</valueName>
+      <value>severeThunderstorm</value>
+    </eventCode>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.0:Alert_Location_Status</valueName>
+      <value>ended</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>
+      <value>ended</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Name</valueName>
+      <value>yellow warning - severe thunderstorm</value>
+    </parameter>
+    <area>
+      <areaDesc>Calgary - Airdrie - Cochrane</areaDesc>
+      <polygon>51.8,-114.2 52.2,-114.2 52.0,-113.8 51.8,-114.2</polygon>
+      <geocode>
+        <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+        <value>480110</value>
+      </geocode>
+      <geocode>
+        <valueName>profile:CAP-CP:Location:0.3</valueName>
+        <value>4806016</value>
+      </geocode>
+    </area>
+  </info>
+  <info>
+    <language>fr-CA</language>
+    <category>Met</category>
+    <event>orage violent</event>
+    <responseType>AllClear</responseType>
+    <urgency>Past</urgency>
+    <severity>Minor</severity>
+    <certainty>Observed</certainty>
+    <effective>2099-07-22T14:00:00-00:00</effective>
+    <expires>2099-07-22T15:00:00-00:00</expires>
+    <senderName>Environnement et Changement climatique Canada</senderName>
+    <headline>avertissement jaune - orage violent - terminé</headline>
+    <description>L'orage violent s'est affaibli et l'avertissement est terminé.</description>
+    <web>https://www.weather.gc.ca/warnings/alert_fr.html</web>
+    <eventCode>
+      <valueName>profile:CAP-CP:Event:0.4</valueName>
+      <value>severeThunderstorm</value>
+    </eventCode>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.0:Alert_Location_Status</valueName>
+      <value>ended</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>
+      <value>ended</value>
+    </parameter>
+    <parameter>
+      <valueName>layer:EC-MSC-SMC:1.1:Alert_Name</valueName>
+      <value>avertissement jaune - orage violent</value>
+    </parameter>
+    <area>
+      <areaDesc>Calgary - Airdrie - Cochrane</areaDesc>
+      <polygon>51.8,-114.2 52.2,-114.2 52.0,-113.8 51.8,-114.2</polygon>
+      <geocode>
+        <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+        <value>480110</value>
+      </geocode>
+      <geocode>
+        <valueName>profile:CAP-CP:Location:0.3</valueName>
+        <value>4806016</value>
+      </geocode>
+    </area>
+  </info>
+</alert>

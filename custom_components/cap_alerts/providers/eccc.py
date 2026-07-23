@@ -296,13 +296,90 @@ def _pick_cap_link(entry: Element) -> tuple[str, str]:
 
 
 def _select_info(doc: CAPDoc, language: str) -> CAPInfoDoc:
-    """Pick the <info> block matching language; fall back to first."""
+    """Pick the <info> block matching language; fall back to first.
+
+    Language-only selection, with no notion of area groups — correct for a
+    single-area-group document, and still the right helper wherever the caller
+    has already decided which area group it means. Region-aware callers want
+    ``_select_region_info``.
+    """
     if not doc.infos:
         return CAPInfoDoc()
     for info in doc.infos:
         if info.language == language:
             return info
     return doc.infos[0]
+
+
+def _location_status(info: CAPInfoDoc) -> str:
+    """Return the ECCC ``Alert_Location_Status`` of an <info> block, or "".
+
+    Reads ``_ALERT_LOCATION_STATUS_PARAM_KEYS`` in precedence order (v1.1 before
+    v1.0). An empty result means the block carries no lifecycle signal, which is
+    read as active everywhere downstream.
+    """
+    for key in _ALERT_LOCATION_STATUS_PARAM_KEYS:
+        value = info.parameters.get(key, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _is_terminal_info(info: CAPInfoDoc) -> bool:
+    """Whether this area group has ended (``ended`` / ``transitioned_out``).
+
+    Fails open: an absent parameter, or a value outside
+    ``ECCC_TERMINAL_LOCATION_STATUSES``, is not terminal.
+    """
+    return _location_status(info) in ECCC_TERMINAL_LOCATION_STATUSES
+
+
+def _select_region_info(
+    doc: CAPDoc,
+    *,
+    language: str,
+    province: str,
+    gps_lat: float | None,
+    gps_lon: float | None,
+) -> CAPInfoDoc | None:
+    """Pick the <info> block for this region and language, preferring an active one.
+
+    ECCC emits one block per (language × area group), so "the block matching the
+    language" is ambiguous the moment a document covers areas at different
+    lifecycle stages — and taking the first match reads another area group's
+    expires, severity and headline (issue #45). The rule instead is: among the
+    blocks whose ``<area>`` matches the configured region, prefer a non-terminal
+    one; if *every* region-matching block has ended, the alert is terminal here
+    and that block is returned so its ``lifecycle_status`` can retire the entity.
+
+    Returns ``None`` when no block matches the region — the document does not
+    concern this configuration and is skipped, exactly as before.
+
+    Province mode keeps province granularity: an SGC prefix cannot distinguish
+    sub-province areas, so "any in-province block still active ⇒ still active"
+    is the intended reading. Announcing an all-clear to users in the part of the
+    province where the alert is still live would be the worse failure.
+    """
+    candidates = (
+        [info for info in doc.infos if info.language == language] if language else []
+    )
+    if not candidates:
+        # No block declares this language (single-language document, or a
+        # document with no <language> at all) — consider them all, preserving
+        # _select_info's fall-back-to-first behaviour.
+        candidates = list(doc.infos)
+
+    matches = [
+        info
+        for info in candidates
+        if _info_matches_region(info, province, gps_lat, gps_lon)
+    ]
+    if not matches:
+        return None
+    for info in matches:
+        if not _is_terminal_info(info):
+            return info
+    return matches[0]
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +399,29 @@ _ECCC_GENERIC_EVENTS: frozenset[str] = frozenset({"weather"})
 _ALERT_NAME_PARAM_KEYS: tuple[str, ...] = (
     "layer:EC-MSC-SMC:1.1:Alert_Name",
     "layer:EC-MSC-SMC:1.0:Alert_Name",
+)
+
+# ECCC segments one CAP document into an <info> block per (language × area
+# group), each with its own <area>, expires, severity and headline. This
+# parameter is the area-group discriminator. v1.1 preferred when both layers are
+# present, matching _ALERT_NAME_PARAM_KEYS precedence (a national snapshot taken
+# 2026-07-22 carried both on the same block with identical values).
+_ALERT_LOCATION_STATUS_PARAM_KEYS: tuple[str, ...] = (
+    "layer:EC-MSC-SMC:1.1:Alert_Location_Status",
+    "layer:EC-MSC-SMC:1.0:Alert_Location_Status",
+)
+
+# Values meaning the alert has reached end-of-life *for that area group*:
+# "ended" is a natural expiry, "transitioned_out" means the area moved to a
+# different alert (yellow → orange), which arrives as its own document. Neither
+# is visible through msgType — ECCC keeps `Update` and leaves up to an hour of
+# `expires` on the clock — so this parameter is the only termination signal the
+# feed offers (issue #45). Fail-open by design: a block with no such parameter,
+# or with an unrecognised value, is treated as active. 11 of 92 sampled
+# documents came from non-ECCC senders (Amber, flood, 911) and carry no
+# Alert_Location_Status at all; reading absence as terminal would drop them.
+ECCC_TERMINAL_LOCATION_STATUSES: frozenset[str] = frozenset(
+    {"ended", "transitioned_out"}
 )
 
 # Trailing separator chars left over after stripping a status suffix from a
@@ -521,6 +621,7 @@ def _build_alert_from_cap(
         references=tuple(ref_id for _, ref_id, _ in doc.references),
         parameters=merged_params if merged_params else None,
         language=info.language or atom_metadata.get("language", ""),
+        lifecycle_status=_location_status(info),
         provider="eccc",
     )
 
@@ -646,14 +747,21 @@ def doc_matches_region(
 
     The streaming admission test. The socket carries every alert in Canada, so
     the coordinator screens docs here — before they enter its live set — rather
-    than paying for national volume in memory and in every rebuild. Selects the
-    same ``<info>`` block ``build_alerts_from_cap_docs`` would, so admission and
-    the later build agree.
+    than paying for national volume in memory and in every rebuild.
+
+    Deliberately looser than the later build: a document matches when **any** of
+    its ``<info>`` blocks falls in the region, terminal or not, and the language
+    is ignored entirely (``preferred_lang`` is kept only for signature
+    compatibility with the coordinator's build kwargs). A document whose only
+    in-region block is ``ended`` is precisely the one that retires a tracked
+    alert; rejecting it at admission would mean the coordinator never learns the
+    alert ended and the entity lingers — issue #45 on the streaming path.
+    Terminality is resolved later, in ``build_alerts_from_cap_docs``.
     """
     if not is_actual(doc):
         return False
-    return _info_matches_region(
-        _select_info(doc, preferred_lang), province, gps_lat, gps_lon
+    return any(
+        _info_matches_region(info, province, gps_lat, gps_lon) for info in doc.infos
     )
 
 
@@ -670,10 +778,25 @@ def build_alerts_from_cap_docs(
     """Build merged bilingual ``CAPAlert``s from parsed CAP documents.
 
     The provider-neutral half of ingestion, shared by the GeoRSS ``async_fetch``
-    path and the real-time streaming path: drop non-``Actual`` documents, resolve
-    revision chains to leaves, filter each leaf against the configured region
-    purely from its CAP body (province via SGC geocode, GPS via CAP-body
-    polygon), then group by bilingual key and merge language siblings.
+    path and the real-time streaming path: drop non-``Actual`` documents,
+    de-duplicate by CAP ``identifier``, resolve revision chains to leaves, then
+    for each language the document carries select the ``<info>`` block covering
+    the configured region (province via SGC geocode, GPS via CAP-body polygon),
+    preferring one that has not ended. Selected blocks are grouped by bilingual
+    key and merged into one alert per document.
+
+    De-duplication matters because the GeoRSS envelope emits one Atom entry per
+    (language × area group) while all of them point at the *same* CAP body, so
+    ``async_fetch`` hands over the same document up to four times; the streaming
+    path can likewise re-deliver one. Left in, each copy resolved to the same
+    ``<info>``, the same bilingual key, and the merge would splice an alert with
+    itself — publishing the same language in both ``headline`` and
+    ``headline_alt``.
+
+    Language selection reads the CAP body only. The Atom entry's ``language``
+    category describes which entry happened to be last in feed order, not what
+    the user asked for, so ``preferred_lang`` is honoured directly against the
+    bodies (which carry both languages anyway).
 
     ``atom_meta_by_id`` / ``web_by_id`` (keyed by CAP ``identifier``) let the
     GeoRSS path supply Atom-envelope niceties (entry id, title, alternate web
@@ -683,6 +806,7 @@ def build_alerts_from_cap_docs(
     # Screen test/exercise traffic before chain resolution, so a test message's
     # <references> cannot suppress the real alert it points at.
     docs = [doc for doc in docs if is_actual(doc)]
+    docs = _dedupe_by_identifier(docs)
     leaf_ids = {d.identifier for d in resolve_chain_leaves(docs)}
     groups: dict[str, list[CAPAlert]] = defaultdict(list)
 
@@ -690,17 +814,67 @@ def build_alerts_from_cap_docs(
         if doc.identifier not in leaf_ids:
             continue
         meta = (atom_meta_by_id or {}).get(doc.identifier, {})
-        # Prefer the envelope's declared language; fall back to the preferred
-        # language so a single-<info> streaming doc still resolves its block.
-        info = _select_info(doc, meta.get("language") or preferred_lang)
-        if not _info_matches_region(info, province, gps_lat, gps_lon):
-            continue
-        alert_id = _bilingual_key(doc, info)
         web_url = (web_by_id or {}).get(doc.identifier, "")
-        alert = _build_alert_from_cap(doc, info, meta, web_url, alert_id)
-        groups[alert.id].append(alert)
+        for info in _select_region_infos(
+            doc, province=province, gps_lat=gps_lat, gps_lon=gps_lon
+        ):
+            alert_id = _bilingual_key(doc, info)
+            alert = _build_alert_from_cap(doc, info, meta, web_url, alert_id)
+            groups[alert.id].append(alert)
 
     return [_merge_languages(variants, preferred_lang) for variants in groups.values()]
+
+
+def _dedupe_by_identifier(docs: list[CAPDoc]) -> list[CAPDoc]:
+    """Drop repeated CAP documents, keeping the first occurrence of each.
+
+    Documents with an empty ``identifier`` cannot be keyed and are all kept —
+    an unidentifiable body is malformed, and silently collapsing several into
+    one would lose real alerts.
+    """
+    seen: set[str] = set()
+    unique: list[CAPDoc] = []
+    for doc in docs:
+        if doc.identifier:
+            if doc.identifier in seen:
+                continue
+            seen.add(doc.identifier)
+        unique.append(doc)
+    return unique
+
+
+def _select_region_infos(
+    doc: CAPDoc,
+    *,
+    province: str,
+    gps_lat: float | None,
+    gps_lon: float | None,
+) -> list[CAPInfoDoc]:
+    """Select one region-matching ``<info>`` block per language in the document.
+
+    One pass of ``_select_region_info`` per declared language, so a bilingual
+    document still yields the en/fr sibling pair the merge expects, and each
+    sibling resolves to its *own* language's block for the same area group.
+    A document declaring no language at all gets a single unconstrained pass.
+
+    Results are de-duplicated by identity: a document mixing language-tagged and
+    untagged blocks would otherwise reach the same block twice (once by tag,
+    once via the unconstrained fall-back) and hand the merge two copies of one
+    variant.
+    """
+    languages = sorted({info.language for info in doc.infos if info.language}) or [""]
+    selected: list[CAPInfoDoc] = []
+    for language in languages:
+        info = _select_region_info(
+            doc,
+            language=language,
+            province=province,
+            gps_lat=gps_lat,
+            gps_lon=gps_lon,
+        )
+        if info is not None and not any(info is chosen for chosen in selected):
+            selected.append(info)
+    return selected
 
 
 # ---------------------------------------------------------------------------
@@ -733,6 +907,14 @@ class ECCCProvider:
         closed (drops, cannot verify location), GPS/tracker mode surfaces a
         metadata-only alert (its location was already verified by the envelope
         polygon).
+
+        ``_collect`` returns one result per surviving *Atom entry*, and the feed
+        emits an entry per (language × area group) while all of them link to one
+        CAP body, so ``docs`` legitimately contains repeats — de-duplicating
+        them is ``build_alerts_from_cap_docs``'s job. The ``identifier``-keyed
+        metadata maps below are therefore last-write-wins across an entry group;
+        harmless, since selection no longer reads the entry's language and the
+        remaining keys (atom id, title, web link) are per-document.
         """
         preferred_lang = options.get(CONF_LANGUAGE, "en-CA")
         province = config.get(CONF_PROVINCE, "")
