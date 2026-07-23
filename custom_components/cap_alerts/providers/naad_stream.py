@@ -68,6 +68,7 @@ class NAADStreamClient:
         on_alert_doc: Callable[[str], Awaitable[None]],
         on_heartbeat: Callable[[], Awaitable[None]],
         on_backfill_needed: Callable[[], Awaitable[None]],
+        on_connection_change: Callable[[bool], None] | None = None,
         connect: ConnectFn | None = None,
         ssl_context: ssl.SSLContext | None = None,
         heartbeat_timeout_s: float = NAAD_STREAM_HEARTBEAT_TIMEOUT_S,
@@ -81,6 +82,11 @@ class NAADStreamClient:
         self._on_alert_doc = on_alert_doc
         self._on_heartbeat = on_heartbeat
         self._on_backfill_needed = on_backfill_needed
+        # Synchronous, unlike the other callbacks: a connection-state change only
+        # flips a flag and notifies entity listeners, so making it awaitable would
+        # add a suspension point to the reconnect path for no benefit.
+        self._on_connection_change = on_connection_change
+        self._connected = False
         self._connect = connect or self._default_connect
         self._ssl_context = ssl_context
         self._heartbeat_timeout_s = heartbeat_timeout_s
@@ -106,6 +112,28 @@ class NAADStreamClient:
             )
             self._ssl_context = ctx
         return await asyncio.open_connection(self._host, self._port, ssl=ctx)
+
+    @property
+    def connected(self) -> bool:
+        """Whether a connection is currently established and being read."""
+        return self._connected
+
+    def _set_connected(self, connected: bool) -> None:
+        """Record connection state, notifying only on an actual transition.
+
+        Edge-triggered so a reconnect storm doesn't rewrite entity state on every
+        attempt — the callback lands on a diagnostic entity whose ``last_changed``
+        is the point of it, and a redundant write would reset that.
+        """
+        if connected == self._connected:
+            return
+        self._connected = connected
+        if self._on_connection_change is None:
+            return
+        try:
+            self._on_connection_change(connected)
+        except Exception as err:  # noqa: BLE001 — a listener must not kill the loop
+            self._logger.debug("NAAD stream connection-state callback failed: %s", err)
 
     def stop(self) -> None:
         """Signal the run loop to stop and drop the current connection.
@@ -155,7 +183,18 @@ class NAADStreamClient:
         30-minute resync — slow, not broken — which is exactly the failure a user
         needs to see in the log without having to enable debug first, and exactly
         the one a per-attempt logger would bury.
+
+        Connection state is reported through ``on_connection_change`` on every
+        transition, including the final one: the ``finally`` guarantees a
+        disconnect is published even when the owning task is cancelled, so a
+        connectivity entity cannot be left reading "connected" after teardown.
         """
+        try:
+            await self._run()
+        finally:
+            self._set_connected(False)
+
+    async def _run(self) -> None:
         backoff = self._backoff_min_s
         first = True
         failures = 0
@@ -195,6 +234,7 @@ class NAADStreamClient:
                 )
 
             self._writer = writer
+            self._set_connected(True)
             if not first:
                 await self._safe_backfill()
             first = False
@@ -207,6 +247,7 @@ class NAADStreamClient:
             except Exception as err:  # noqa: BLE001 — transient read failure
                 self._logger.debug("NAAD stream read error: %s", err)
             finally:
+                self._set_connected(False)
                 await self._aclose_writer(writer)
 
             if self._stopped:

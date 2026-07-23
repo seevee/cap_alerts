@@ -188,6 +188,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._ingest_lock = asyncio.Lock()
         self._stream_client: NAADStreamClient | None = None
         self._stream_task: asyncio.Task[None] | None = None
+        self._stream_connected = False
         # When the last GeoRSS backfill was attempted, from either source, so a
         # reconnect-triggered one can be throttled against it.
         self._last_backfill_at: datetime | None = None
@@ -215,6 +216,27 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     def streaming(self) -> bool:
         """Whether this coordinator ingests from the NAAD stream."""
         return self._streaming
+
+    @property
+    def stream_connected(self) -> bool:
+        """Whether the NAAD socket is currently established.
+
+        Always ``False`` for a non-streaming entry. Distinct from availability:
+        the socket can be down while the entry is perfectly healthy on backfills,
+        which is precisely the state the connectivity entity exists to surface.
+        """
+        return self._stream_connected
+
+    @callback
+    def _on_stream_connection_change(self, connected: bool) -> None:
+        """Publish a socket connect/disconnect to entity listeners.
+
+        Only notifies listeners — it must not touch ``last_update_success``: a
+        dropped socket is not a failed data refresh (issue #16), and the entry
+        stays available on backfills while the client reconnects.
+        """
+        self._stream_connected = connected
+        self.async_update_listeners()
 
     def resolve_update_interval(self, entry: ConfigEntry) -> timedelta:
         """Poll interval: the GeoRSS scan interval, or the resync cadence when streaming.
@@ -603,6 +625,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             on_alert_doc=self._on_stream_alert_doc,
             on_heartbeat=self._on_stream_heartbeat,
             on_backfill_needed=self._on_backfill_needed,
+            on_connection_change=self._on_stream_connection_change,
             ssl_context=ssl_context,
             logger=_LOGGER,
         )
@@ -627,3 +650,8 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
                 pass
             except Exception as err:  # noqa: BLE001 — teardown best-effort
                 _LOGGER.debug("ECCC: stream task raised on teardown: %s", err)
+        # run()'s finally normally publishes the disconnect, but a client that
+        # never started (or a task cancelled before it ran) leaves the flag set
+        # from a previous connection. Clear it directly; entities are being torn
+        # down anyway, so no notification is needed.
+        self._stream_connected = False

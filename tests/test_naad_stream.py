@@ -466,6 +466,75 @@ async def test_default_connect_builds_ssl_context_off_the_event_loop(monkeypatch
     assert client._ssl_context is built
 
 
+@pytest.mark.asyncio
+async def test_run_reports_connection_transitions_only_on_change():
+    """Connect/disconnect are edge-triggered, so reconnect storms don't churn state.
+
+    The callback drives a connectivity entity whose ``last_changed`` is the point
+    of it; a write per attempt would keep resetting that.
+    """
+    states: list[bool] = []
+    connects: list[int] = []
+
+    async def connect():
+        connects.append(1)
+        if len(connects) >= 2:
+            client.stop()
+        return _reader(eof=True), _FakeWriter()
+
+    client = _make_client(connect=connect, on_connection_change=states.append)
+    await asyncio.wait_for(client.run(), timeout=1.0)
+
+    # Two connections, each up-then-down; no duplicate edges, and the final state
+    # is disconnected.
+    assert states == [True, False, True, False]
+    assert client.connected is False
+
+
+@pytest.mark.asyncio
+async def test_run_reports_disconnect_when_cancelled():
+    """Teardown must not leave a connectivity entity reading "connected"."""
+    states: list[bool] = []
+    connected = asyncio.Event()
+
+    async def connect():
+        connected.set()
+        return asyncio.StreamReader(), _FakeWriter()  # never fed, never eof
+
+    client = _make_client(connect=connect, on_connection_change=states.append)
+    task = asyncio.create_task(client.run())
+    await asyncio.wait_for(connected.wait(), timeout=1.0)
+    await asyncio.sleep(0)
+    assert states == [True]
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert states == [True, False]
+    assert client.connected is False
+
+
+@pytest.mark.asyncio
+async def test_connection_callback_failure_does_not_kill_the_loop():
+    """A misbehaving listener is not allowed to take the stream down."""
+    connects: list[int] = []
+
+    def _boom(_connected: bool) -> None:
+        raise RuntimeError("listener exploded")
+
+    async def connect():
+        connects.append(1)
+        if len(connects) >= 2:
+            client.stop()
+        return _reader(eof=True), _FakeWriter()
+
+    client = _make_client(connect=connect, on_connection_change=_boom)
+    await asyncio.wait_for(client.run(), timeout=1.0)
+
+    assert len(connects) == 2
+
+
 def test_stop_closes_writer():
     client = _make_client()
     writer = _FakeWriter()

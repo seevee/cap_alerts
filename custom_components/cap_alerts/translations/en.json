@@ -373,6 +373,11 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "stream_connected": {
+        "name": "Real-time stream"
+      }
+    },
     "button": {
       "refresh": {
         "name": "Refresh"

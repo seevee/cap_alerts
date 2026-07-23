@@ -23,7 +23,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er
 
 DOMAIN = "cap_alerts"
@@ -110,11 +110,13 @@ def _install_fake_stream(monkeypatch) -> dict:
             on_alert_doc,
             on_heartbeat,
             on_backfill_needed,
+            on_connection_change=None,
             **_kwargs,
         ) -> None:
             holder["on_alert_doc"] = on_alert_doc
             holder["on_heartbeat"] = on_heartbeat
             holder["on_backfill_needed"] = on_backfill_needed
+            holder["on_connection_change"] = on_connection_change
             holder["kwargs"] = _kwargs
             holder["client"] = self
             self._stopped = asyncio.Event()
@@ -139,11 +141,12 @@ def _count_id(hass, entry) -> str:
     return cid
 
 
-async def _setup(hass) -> MockConfigEntry:
+async def _setup(hass, **options) -> MockConfigEntry:
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="ECCC: Ontario",
         data={"provider": "eccc", "province": "ON"},
+        options=options or None,
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -513,6 +516,110 @@ async def test_streamed_revision_fires_incident_updated(
 
     assert hass.states.get(count_id).state == "1"  # superseded, not duplicated
     assert len(events) == 1
+
+
+def _stream_id(hass, entry) -> str | None:
+    return er.async_get(hass).async_get_entity_id(
+        "binary_sensor", DOMAIN, f"{entry.entry_id}_stream_connected"
+    )
+
+
+@pytest.mark.asyncio
+async def test_connectivity_entity_tracks_the_socket(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """Socket up/down is surfaced as a connectivity binary_sensor.
+
+    A "last stream event" timestamp cannot answer this: Canada is often quiet for
+    hours, so an idle healthy socket and a dead one produce the same reading.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    stream_id = _stream_id(hass, entry)
+    assert stream_id is not None
+    # Nothing has connected yet — the client is a stub that never dials.
+    assert hass.states.get(stream_id).state == STATE_OFF
+
+    holder["on_connection_change"](True)
+    await hass.async_block_till_done()
+    assert hass.states.get(stream_id).state == STATE_ON
+
+    holder["on_connection_change"](False)
+    await hass.async_block_till_done()
+    assert hass.states.get(stream_id).state == STATE_OFF
+
+
+@pytest.mark.asyncio
+async def test_connectivity_entity_survives_a_failed_backfill(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch, freezer
+):
+    """The socket's state must stay readable when the GeoRSS backfill is failing.
+
+    That is the exact moment a user is trying to work out *which* half is broken,
+    so this entity is deliberately not a CoordinatorEntity — that base would tie
+    its availability to ``last_update_success``.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    stream_id = _stream_id(hass, entry)
+    count_id = _count_id(hass, entry)
+    holder["on_connection_change"](True)
+    await hass.async_block_till_done()
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(FEED, status=503)
+    freezer.tick(timedelta(seconds=RESYNC_S + 60))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(count_id).state == STATE_UNAVAILABLE
+    assert hass.states.get(stream_id).state == STATE_ON
+
+
+@pytest.mark.asyncio
+async def test_polling_entry_has_no_connectivity_entity(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """With streaming off there is no socket to report on."""
+    _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass, streaming=False)
+
+    assert _stream_id(hass, entry) is None
+
+
+@pytest.mark.asyncio
+async def test_disabling_streaming_removes_a_stale_connectivity_entity(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """Turning streaming off cleans up the registry entry from the streaming run.
+
+    Otherwise it would linger as a permanently unavailable orphan on the device
+    page, with no socket behind it.
+    """
+    _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    assert _stream_id(hass, entry) is not None
+
+    hass.config_entries.async_update_entry(entry, options={"streaming": False})
+    await hass.async_block_till_done()
+
+    assert _stream_id(hass, entry) is None
 
 
 @pytest.mark.asyncio
