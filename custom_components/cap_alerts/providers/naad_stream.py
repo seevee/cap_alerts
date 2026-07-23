@@ -92,7 +92,17 @@ class NAADStreamClient:
     async def _default_connect(
         self,
     ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-        ctx = self._ssl_context or ssl.create_default_context()
+        ctx = self._ssl_context
+        if ctx is None:
+            # Building a context loads the CA bundle from disk, which must not
+            # happen on the event loop. Callers embedded in an event-loop host
+            # (the coordinator) inject a context built off-loop; this fallback
+            # keeps the module correct standalone, and caches the result so
+            # reconnects don't repeat the work.
+            ctx = await asyncio.get_running_loop().run_in_executor(
+                None, ssl.create_default_context
+            )
+            self._ssl_context = ctx
         return await asyncio.open_connection(self._host, self._port, ssl=ctx)
 
     def stop(self) -> None:

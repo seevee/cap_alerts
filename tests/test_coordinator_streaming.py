@@ -13,6 +13,7 @@ a failed reconnect backfill does not flip availability (issue #16).
 from __future__ import annotations
 
 import asyncio
+import ssl
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -113,6 +114,7 @@ def _install_fake_stream(monkeypatch) -> dict:
             holder["on_alert_doc"] = on_alert_doc
             holder["on_heartbeat"] = on_heartbeat
             holder["on_backfill_needed"] = on_backfill_needed
+            holder["kwargs"] = _kwargs
             holder["client"] = self
             self._stopped = asyncio.Event()
 
@@ -146,6 +148,25 @@ async def _setup(hass) -> MockConfigEntry:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return entry
+
+
+@pytest.mark.asyncio
+async def test_coordinator_injects_an_ssl_context_into_the_stream_client(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """The coordinator builds the TLS context and hands it to the client.
+
+    Without this the client would fall back to building one inside
+    ``_default_connect``; HA's blocking-call detector flags loading the CA
+    bundle on the event loop. Asserting the context is *injected* keeps that
+    work on the coordinator's executor hop.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    aioclient_mock.get(FEED, text=_atom())
+
+    await _setup(hass)
+
+    assert isinstance(holder["kwargs"].get("ssl_context"), ssl.SSLContext)
 
 
 @pytest.mark.asyncio

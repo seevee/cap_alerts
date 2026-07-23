@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import ssl
 import sys
+import threading
 import types
 from pathlib import Path
 
@@ -362,6 +364,58 @@ async def test_run_awaits_tls_shutdown_on_disconnect():
 
     assert writers[0].closed is True
     assert writers[0].awaited_closed is True
+
+
+@pytest.mark.asyncio
+async def test_default_connect_uses_an_injected_ssl_context(monkeypatch):
+    """An injected context is passed straight through — none is built."""
+    sentinel = ssl.create_default_context()
+    opened: list[tuple] = []
+
+    async def _fake_open_connection(host, port, ssl=None):
+        opened.append((host, port, ssl))
+        return object(), object()
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError("built an SSL context despite one being injected")
+
+    monkeypatch.setattr(asyncio, "open_connection", _fake_open_connection)
+    monkeypatch.setattr(ssl, "create_default_context", _forbidden)
+
+    client = _make_client(connect=None, ssl_context=sentinel)
+    await client._default_connect()
+
+    assert opened == [("host", 8443, sentinel)]
+
+
+@pytest.mark.asyncio
+async def test_default_connect_builds_ssl_context_off_the_event_loop(monkeypatch):
+    """The fallback context is built in an executor and reused across reconnects.
+
+    Loading the CA bundle is disk I/O; doing it inline trips Home Assistant's
+    blocking-call detector.
+    """
+    loop_thread = threading.get_ident()
+    build_threads: list[int] = []
+    built = ssl.create_default_context()
+
+    def _record() -> ssl.SSLContext:
+        build_threads.append(threading.get_ident())
+        return built
+
+    async def _fake_open_connection(host, port, ssl=None):
+        return object(), object()
+
+    monkeypatch.setattr(asyncio, "open_connection", _fake_open_connection)
+    monkeypatch.setattr(ssl, "create_default_context", _record)
+
+    client = _make_client(connect=None, ssl_context=None)
+    await client._default_connect()
+    await client._default_connect()
+
+    assert len(build_threads) == 1, "context rebuilt on reconnect"
+    assert build_threads[0] != loop_thread, "context built on the event loop"
+    assert client._ssl_context is built
 
 
 def test_stop_closes_writer():

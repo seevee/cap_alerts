@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
+from homeassistant.util.ssl import client_context
 
 from .const import (
     CONF_COUNTRY,
@@ -514,12 +515,20 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         """Start the NAAD stream background task (no-op unless streaming). Idempotent."""
         if not self._streaming or self._stream_task is not None:
             return
+        # Build the TLS context off the event loop: it reads the CA bundle from
+        # disk, and HA flags that as a blocking call. ``client_context`` is HA's
+        # certifi-backed client context and is itself cached, so entries after
+        # the first pay nothing. Note it advertises no ALPN protocol — the NAAD
+        # socket carries raw CAP, not HTTP, so ``get_default_context`` (which
+        # pins ALPN to http/1.1) would be wrong here.
+        ssl_context = await self.hass.async_add_executor_job(client_context)
         self._stream_client = NAADStreamClient(
             NAAD_STREAM_HOST,
             NAAD_STREAM_PORT,
             on_alert_doc=self._on_stream_alert_doc,
             on_heartbeat=self._on_stream_heartbeat,
             on_backfill_needed=self._on_backfill_needed,
+            ssl_context=ssl_context,
             logger=_LOGGER,
         )
         self._stream_task = self.hass.async_create_background_task(
