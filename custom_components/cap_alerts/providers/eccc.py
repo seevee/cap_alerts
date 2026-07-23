@@ -58,9 +58,6 @@ NAAD_FEED_HOSTS: dict[str, str] = {
 # because it serves CAP bodies over HTTPS (pelmorex serves them over plain HTTP)
 # and is the endpoint that survives the September 2026 sunset.
 NAAD_FEED_UNION_ORDER: tuple[str, ...] = ("alertready", "pelmorex")
-# Backwards-compatible alias for the sanctioned host (referenced by tests and
-# scripts/naad_feed_diff.py).
-NAAD_FEED_URL = NAAD_FEED_ALERTREADY
 
 # The alertready.ca feed is a large (~7 MB) chunked response with no
 # Content-Length, served behind istio-envoy. When the upstream stream is
@@ -1223,13 +1220,14 @@ class ECCCProvider:
                 root = await self._fetch_one_feed(session, source_id, url)
             except Exception as err:  # noqa: BLE001 — one host down must not sink the union
                 failures.append(f"{source_id} ({url}): {err}")
-                if not self._feed_warned.get(source_id):
+                # A pinned single host needs no warning here: its failure is the
+                # whole fetch failing, which the UpdateFailed below reports.
+                if len(sources) > 1 and not self._feed_warned.get(source_id):
                     _LOGGER.warning(
-                        "ECCC: NAAD host %s failed; %s",
+                        "ECCC: NAAD host %s failed (%s); continuing with the "
+                        "other host",
                         source_id,
-                        "continuing with the other host"
-                        if len(sources) > 1
-                        else "no other host configured",
+                        err,
                     )
                     self._feed_warned[source_id] = True
                 continue
