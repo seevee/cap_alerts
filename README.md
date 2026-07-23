@@ -11,7 +11,7 @@ Alert data is modeled using [CAP (Common Alerting Protocol) 1.2](https://docs.oa
 
 Additional providers (BoM, DWD, …) can be added behind the same `AlertProvider` protocol.
 
-A companion Lovelace card lives at [`weather_alerts_card`](../weather_alerts_card); its `cap.ts` adapter is a thin passthrough because normalization happens here.
+A companion Lovelace card lives at [`weather_alerts_card`](https://github.com/seevee/weather_alerts_card); its `cap.ts` adapter is a thin passthrough because normalization happens here.
 
 ---
 
