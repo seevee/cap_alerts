@@ -12,7 +12,7 @@ aiohttp>=3.10,<4
 defusedxml>=0.7
 
 ruff==0.15.22
-mypy==1.20.2
+mypy==2.3.0
 types-defusedxml>=0.7
 
 # Changelog generation (ships a prebuilt `git-cliff` binary as a wheel).
