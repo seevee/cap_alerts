@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import logging
 import sys
 import types
 from dataclasses import replace
@@ -78,6 +79,8 @@ _bbox_of_polygons = _eccc_mod._bbox_of_polygons
 _province_bbox_intersects = _eccc_mod._province_bbox_intersects
 build_alerts_from_cap_docs = _eccc_mod.build_alerts_from_cap_docs
 doc_matches_region = _eccc_mod.doc_matches_region
+_resolve_feed_urls = _eccc_mod._resolve_feed_urls
+_entry_oid = _eccc_mod._entry_oid
 _headline_to_event = _eccc_mod._headline_to_event
 _best_event_name = _eccc_mod._best_event_name
 CAPDoc = _cap_mod.CAPDoc
@@ -778,7 +781,7 @@ async def test_eccc_provider_full_flow():
     session = StubSession(responses)
     cache = CAPContentCache()
     config = {"province": "ON"}
-    options = {"language": "en-CA"}
+    options = {"language": "en-CA", "feed_source": "alertready"}
 
     provider = ECCCProvider()
     alerts = await provider.async_fetch(
@@ -833,7 +836,7 @@ async def test_eccc_provider_filters_expired_alert():
     session = StubSession(responses)
     provider = ECCCProvider()
     alerts = await provider.async_fetch(
-        session, {"province": "ON"}, {"language": "en-CA"}
+        session, {"province": "ON"}, {"language": "en-CA", "feed_source": "alertready"}
     )
 
     normalized = normalize_alerts(alerts)
@@ -861,7 +864,9 @@ async def test_eccc_provider_metadata_only_fallback_on_fetch_failure():
     provider = ECCCProvider()
     # GPS point inside the Ottawa entries' envelope polygon (lat 45–45.5, lon -76 to -75.5)
     alerts = await provider.async_fetch(
-        session, {"gps_loc": "45.2,-75.7"}, {"language": "en-CA"}
+        session,
+        {"gps_loc": "45.2,-75.7"},
+        {"language": "en-CA", "feed_source": "alertready"},
     )
 
     # Should surface 4 metadata-only alerts (one per Atom entry, no bilingual merge)
@@ -889,7 +894,7 @@ async def test_eccc_provider_filters_test_status():
     session = StubSession(responses)
     provider = ECCCProvider()
     alerts = await provider.async_fetch(
-        session, {"province": "ON"}, {"language": "en-CA"}
+        session, {"province": "ON"}, {"language": "en-CA", "feed_source": "alertready"}
     )
     # Test entry should not appear; only the ON freezing drizzle series
     assert all(alert.area_desc != "" for alert in alerts)
@@ -907,7 +912,7 @@ async def test_eccc_provider_filters_foreign_province():
     session = StubSession(responses)
     provider = ECCCProvider()
     alerts = await provider.async_fetch(
-        session, {"province": "ON"}, {"language": "en-CA"}
+        session, {"province": "ON"}, {"language": "en-CA", "feed_source": "alertready"}
     )
     assert not any("Vancouver" in (a.area_desc or "") for a in alerts)
     # Positive side: the in-province ON alert survives.
@@ -936,7 +941,11 @@ async def test_eccc_provider_raises_on_persistently_truncated_feed(monkeypatch):
     provider = ECCCProvider()
 
     with pytest.raises(_eccc_mod.UpdateFailed, match="truncated feed response"):
-        await provider.async_fetch(session, {"province": "ON"}, {"language": "en-CA"})
+        await provider.async_fetch(
+            session,
+            {"province": "ON"},
+            {"language": "en-CA", "feed_source": "alertready"},
+        )
 
     # Retried the full budget; no CAP bodies fetched on a never-parseable feed.
     assert (
@@ -960,7 +969,7 @@ async def test_eccc_provider_retries_then_succeeds_on_truncated_feed(monkeypatch
     provider = ECCCProvider()
 
     alerts = await provider.async_fetch(
-        session, {"province": "ON"}, {"language": "en-CA"}
+        session, {"province": "ON"}, {"language": "en-CA", "feed_source": "alertready"}
     )
 
     # Recovered to the same result as the clean full-flow case.
@@ -1044,7 +1053,7 @@ async def test_eccc_province_fails_closed_on_cap_fetch_failure():
     session = StubSession(responses)
     provider = ECCCProvider()
     alerts = await provider.async_fetch(
-        session, {"province": "ON"}, {"language": "en-CA"}
+        session, {"province": "ON"}, {"language": "en-CA", "feed_source": "alertready"}
     )
     assert alerts == []
 
@@ -1057,7 +1066,9 @@ async def test_eccc_provider_returns_empty_when_no_location_configured():
     }
     session = StubSession(responses)
     provider = ECCCProvider()
-    alerts = await provider.async_fetch(session, {}, {"language": "en-CA"})
+    alerts = await provider.async_fetch(
+        session, {}, {"language": "en-CA", "feed_source": "alertready"}
+    )
     assert alerts == []
 
 
@@ -1310,7 +1321,7 @@ async def test_async_fetch_docs_returns_region_relevant_docs():
     docs = await provider.async_fetch_docs(
         session,
         {"province": "ON"},
-        {"language": "en-CA"},
+        {"language": "en-CA", "feed_source": "alertready"},
         cap_content_cache=CAPContentCache(),
     )
     # ON entries (en/fr × new/update) parse; the BC body is bbox-gated pre-fetch.
@@ -1332,10 +1343,14 @@ async def test_async_fetch_equals_build_over_fetch_docs():
     provider = ECCCProvider()
 
     alerts = await provider.async_fetch(
-        StubSession(responses), {"province": "ON"}, {"language": "en-CA"}
+        StubSession(responses),
+        {"province": "ON"},
+        {"language": "en-CA", "feed_source": "alertready"},
     )
     docs = await provider.async_fetch_docs(
-        StubSession(responses), {"province": "ON"}, {"language": "en-CA"}
+        StubSession(responses),
+        {"province": "ON"},
+        {"language": "en-CA", "feed_source": "alertready"},
     )
     built = build_alerts_from_cap_docs(
         docs, province="ON", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
@@ -1701,3 +1716,326 @@ def test_doc_matches_region_matches_terminal_only_block():
         )
         is True
     )
+
+
+# ---------------------------------------------------------------------------
+# Multi-host feed union (issue #38)
+# ---------------------------------------------------------------------------
+
+# An Ontario polygon shared by the union fixtures: envelope georss text is
+# whitespace-separated "lat lon lat lon …"; the CAP-body form is comma-paired.
+_UNION_ON_GEORSS = "45.0 -76.0 45.0 -75.5 45.5 -75.5 45.5 -76.0 45.0 -76.0"
+_UNION_ON_CAP_POLY = "45.0,-76.0 45.0,-75.5 45.5,-75.5 45.5,-76.0 45.0,-76.0"
+
+
+def _atom_feed(authority: str, entries: list[dict[str, str]]) -> str:
+    """Build a NAAD-shaped Atom feed with live-shaped ``tag:<authority>`` ids.
+
+    Each entry dict carries: ``oid`` (embedded in the Atom ``<id>`` as
+    ``…/urn:oid:X``), ``cap_href``, ``polygon`` (georss text), and optional
+    ``lang`` / ``status`` / ``title`` / ``web``.
+    """
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<feed xmlns="http://www.w3.org/2005/Atom" '
+        'xmlns:georss="http://www.georss.org/georss">',
+        f"<id>tag:{authority},2026:feed.atom</id>",
+    ]
+    for e in entries:
+        lang = e.get("lang", "en-CA")
+        web = e.get("web", "https://www.weather.gc.ca/warnings/alert_en.html")
+        parts += [
+            "<entry>",
+            f"<id>tag:{authority},2026:feed.atom/{e['oid']}</id>",
+            f"<title>{e.get('title', 'Wind Warning in effect')}</title>",
+            f'<link rel="alternate" type="application/cap+xml" href="{e["cap_href"]}"/>',
+            f'<link rel="alternate" type="text/html" href="{web}"/>',
+            f'<category term="status={e.get("status", "Actual")}"/>',
+            '<category term="msgType=Alert"/>',
+            f'<category term="language={lang}"/>',
+            f"<georss:polygon>{e['polygon']}</georss:polygon>",
+            "</entry>",
+        ]
+    parts.append("</feed>")
+    return "".join(parts)
+
+
+def _union_cap(
+    identifier: str,
+    *,
+    sgc: str = "3506008",
+    polygon: str = _UNION_ON_CAP_POLY,
+    lang: str = "en-CA",
+    event: str = "Wind Warning",
+    event_code: str = "wind",
+    headline: str = "Wind Warning in effect",
+) -> str:
+    """A minimal single-info Ontario CAP body for the union tests.
+
+    ``event_code`` feeds the CAP-CP eventCode that ``_bilingual_key`` hashes, so
+    distinct values yield distinct alert identities (same sender/sent/polygon
+    would otherwise collapse into one).
+    """
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">'
+        f"<identifier>{identifier}</identifier>"
+        "<sender>CWTO</sender><sent>2099-07-22T12:00:00-00:00</sent>"
+        "<status>Actual</status><msgType>Alert</msgType><scope>Public</scope>"
+        f"<info><language>{lang}</language><category>Met</category>"
+        f"<event>{event}</event><severity>Moderate</severity>"
+        f"<headline>{headline}</headline>"
+        "<eventCode><valueName>profile:CAP-CP:Event:0.4</valueName>"
+        f"<value>{event_code}</value></eventCode>"
+        "<area><areaDesc>Somewhere</areaDesc>"
+        f"<polygon>{polygon}</polygon>"
+        "<geocode><valueName>profile:CAP-CP:Location:0.3</valueName>"
+        f"<value>{sgc}</value></geocode>"
+        "</area></info></alert>"
+    )
+
+
+def _atom_id_entry(atom_id: str) -> Element:
+    entry = Element(f"{{{NS_ATOM}}}entry")
+    SubElement(entry, f"{{{NS_ATOM}}}id").text = atom_id
+    return entry
+
+
+def test_resolve_feed_urls_auto_returns_both_in_order():
+    both = [
+        ("alertready", _eccc_mod.NAAD_FEED_ALERTREADY),
+        ("pelmorex", _eccc_mod.NAAD_FEED_PELMOREX),
+    ]
+    assert _resolve_feed_urls({}) == both  # absent option → auto
+    assert _resolve_feed_urls({"feed_source": "auto"}) == both
+
+
+def test_resolve_feed_urls_named_source():
+    assert _resolve_feed_urls({"feed_source": "pelmorex"}) == [
+        ("pelmorex", _eccc_mod.NAAD_FEED_PELMOREX)
+    ]
+    assert _resolve_feed_urls({"feed_source": "alertready"}) == [
+        ("alertready", _eccc_mod.NAAD_FEED_ALERTREADY)
+    ]
+
+
+def test_resolve_feed_urls_unrecognised_fails_open_to_both():
+    assert _resolve_feed_urls({"feed_source": "garbage"}) == _resolve_feed_urls({})
+
+
+def test_entry_oid_extracts_oid_across_hosts():
+    oid = "urn:oid:2.49.0.1.124.abc.2026"
+    ar = _atom_id_entry(f"tag:rsstrainingdqs.alertready.ca,2026:feed.atom/{oid}")
+    pel = _atom_id_entry(f"tag:rss.naad-adna.pelmorex.com,2026:feed.atom/{oid}")
+    assert _entry_oid(ar) == oid
+    assert _entry_oid(ar) == _entry_oid(pel)
+
+
+def test_entry_oid_fails_open_to_whole_id_without_oid():
+    # The synthetic eccc_naad_atom.xml fixture carries no OID in its ids.
+    atom_id = "https://www.naad-adna.pelmorex.com/uuid-en-new-1"
+    assert _entry_oid(_atom_id_entry(atom_id)) == atom_id
+
+
+@pytest.mark.asyncio
+async def test_union_merges_hosts_deduplicated_by_oid():
+    """auto unions both hosts; a shared OID is fetched once, from alertready."""
+    shared, ar_only, pel_only = (
+        "urn:oid:2.49.0.1.124.test.2026.SHARED",
+        "urn:oid:2.49.0.1.124.test.2026.AR",
+        "urn:oid:2.49.0.1.124.test.2026.PEL",
+    )
+    ar_shared = "https://cap.alertready.ca/shared.cap"
+    pel_shared = "http://capcp2.naad-adna.pelmorex.com/shared.cap"
+    ar_href = "https://cap.alertready.ca/ar_only.cap"
+    pel_href = "http://capcp2.naad-adna.pelmorex.com/pel_only.cap"
+
+    responses: dict[str, Any] = {
+        _eccc_mod.NAAD_FEED_ALERTREADY: _atom_feed(
+            "rsstrainingdqs.alertready.ca",
+            [
+                {"oid": shared, "cap_href": ar_shared, "polygon": _UNION_ON_GEORSS},
+                {"oid": ar_only, "cap_href": ar_href, "polygon": _UNION_ON_GEORSS},
+            ],
+        ),
+        _eccc_mod.NAAD_FEED_PELMOREX: _atom_feed(
+            "rss.naad-adna.pelmorex.com",
+            [
+                {"oid": shared, "cap_href": pel_shared, "polygon": _UNION_ON_GEORSS},
+                {"oid": pel_only, "cap_href": pel_href, "polygon": _UNION_ON_GEORSS},
+            ],
+        ),
+        ar_shared: _union_cap("urn:oid:cap.SHARED", event_code="shared"),
+        pel_shared: _union_cap("urn:oid:cap.SHARED", event_code="shared"),
+        ar_href: _union_cap("urn:oid:cap.AR", event_code="aronly"),
+        pel_href: _union_cap("urn:oid:cap.PEL", event_code="pelonly"),
+    }
+    session = StubSession(responses)
+    alerts = await ECCCProvider().async_fetch(
+        session, {"province": "ON"}, {"language": "en-CA"}
+    )
+    # shared + alertready-only + pelmorex-only = three distinct alerts.
+    assert len(alerts) == 3
+    # Decision 4: alertready's href wins the shared alert; the pelmorex (cleartext
+    # HTTP) href for the same alert is never fetched (risk 2).
+    assert ar_shared in session.requested
+    assert pel_shared not in session.requested
+    # Union still reaches the pelmorex-only alert.
+    assert pel_href in session.requested
+
+
+@pytest.mark.asyncio
+async def test_union_tolerates_one_host_failing_and_warns_once(caplog):
+    """One host down → alerts still come from the other, one warning per streak."""
+    pel_href = "http://capcp2.naad-adna.pelmorex.com/pel.cap"
+    pelmorex_feed = _atom_feed(
+        "rss.naad-adna.pelmorex.com",
+        [
+            {
+                "oid": "urn:oid:test.PEL",
+                "cap_href": pel_href,
+                "polygon": _UNION_ON_GEORSS,
+            }
+        ],
+    )
+    responses: dict[str, Any] = {
+        _eccc_mod.NAAD_FEED_ALERTREADY: (503, ""),
+        _eccc_mod.NAAD_FEED_PELMOREX: pelmorex_feed,
+        pel_href: _union_cap("urn:oid:cap.PEL"),
+    }
+    provider = ECCCProvider()
+
+    with caplog.at_level(logging.WARNING):
+        alerts = await provider.async_fetch(
+            StubSession(responses), {"province": "ON"}, {"language": "en-CA"}
+        )
+    assert len(alerts) == 1  # served by pelmorex despite alertready 503
+
+    def _alertready_warnings() -> list:
+        return [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "alertready" in r.getMessage()
+        ]
+
+    assert len(_alertready_warnings()) == 1
+
+    # A second consecutive failure logs nothing further.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        await provider.async_fetch(
+            StubSession(responses), {"province": "ON"}, {"language": "en-CA"}
+        )
+    assert _alertready_warnings() == []
+
+    # A success re-arms the warning for the next failure streak.
+    ok = dict(responses)
+    ok[_eccc_mod.NAAD_FEED_ALERTREADY] = _atom_feed("rsstrainingdqs.alertready.ca", [])
+    await provider.async_fetch(
+        StubSession(ok), {"province": "ON"}, {"language": "en-CA"}
+    )
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        await provider.async_fetch(
+            StubSession(responses), {"province": "ON"}, {"language": "en-CA"}
+        )
+    assert len(_alertready_warnings()) == 1
+
+
+@pytest.mark.asyncio
+async def test_union_all_hosts_failing_raises_naming_both():
+    responses: dict[str, Any] = {
+        _eccc_mod.NAAD_FEED_ALERTREADY: (503, ""),
+        _eccc_mod.NAAD_FEED_PELMOREX: (500, ""),
+    }
+    with pytest.raises(_eccc_mod.UpdateFailed) as excinfo:
+        await ECCCProvider().async_fetch(
+            StubSession(responses), {"province": "ON"}, {"language": "en-CA"}
+        )
+    message = str(excinfo.value)
+    assert "alertready" in message and "pelmorex" in message
+
+
+@pytest.mark.asyncio
+async def test_feed_source_override_fetches_only_pelmorex():
+    pel_href = "http://capcp2.naad-adna.pelmorex.com/pel.cap"
+    responses: dict[str, Any] = {
+        _eccc_mod.NAAD_FEED_ALERTREADY: _atom_feed("rsstrainingdqs.alertready.ca", []),
+        _eccc_mod.NAAD_FEED_PELMOREX: _atom_feed(
+            "rss.naad-adna.pelmorex.com",
+            [
+                {
+                    "oid": "urn:oid:test.P",
+                    "cap_href": pel_href,
+                    "polygon": _UNION_ON_GEORSS,
+                }
+            ],
+        ),
+        pel_href: _union_cap("urn:oid:cap.P"),
+    }
+    session = StubSession(responses)
+    alerts = await ECCCProvider().async_fetch(
+        session,
+        {"province": "ON"},
+        {"language": "en-CA", "feed_source": "pelmorex"},
+    )
+    assert len(alerts) == 1
+    assert _eccc_mod.NAAD_FEED_ALERTREADY not in session.requested
+    assert _eccc_mod.NAAD_FEED_PELMOREX in session.requested
+
+
+@pytest.mark.asyncio
+async def test_feed_source_alertready_parity_with_single_host_fixture():
+    """feed_source=alertready reproduces the pre-union single-host result exactly."""
+    responses: dict[str, Any] = {
+        "https://rss.alertready.ca/": _atom_xml(),
+        **_cap_responses(),
+    }
+    session = StubSession(responses)
+    alerts = await ECCCProvider().async_fetch(
+        session,
+        {"province": "ON"},
+        {"language": "en-CA", "feed_source": "alertready"},
+    )
+    assert len(alerts) == 1
+    assert alerts[0].event == "Freezing Drizzle Advisory"
+    # Pinned to one host: pelmorex is never contacted.
+    assert _eccc_mod.NAAD_FEED_PELMOREX not in session.requested
+
+
+@pytest.mark.asyncio
+async def test_union_dedup_runs_after_region_filter():
+    """Decision 3: dedup on survivors, not raw entries.
+
+    A document with four entries (en/fr × active/ended) carries a *different*
+    polygon per area group. The user's GPS sits in the ended group only, and the
+    active entries sort first. Deduplicating raw entries by OID would keep the
+    first (active) entry, whose polygon excludes the user, and drop the whole
+    document — even though the user's own (ended) area group matched. Fails
+    against a build that deduplicates before the region filter.
+    """
+    calgary = "51.8 -114.2 52.2 -114.2 52.0 -113.8 51.8 -114.2"  # active group
+    med_hat = "49.8 -112.2 50.2 -112.2 50.0 -111.8 49.8 -112.2"  # ended group
+    cap_href = "https://cap.alertready.ca/mixed.cap"
+    oid = "urn:oid:2.49.0.1.124.test.2026.MIXED"
+    feed = _atom_feed(
+        "rsstrainingdqs.alertready.ca",
+        [
+            {"oid": oid, "cap_href": cap_href, "polygon": calgary, "lang": "en-CA"},
+            {"oid": oid, "cap_href": cap_href, "polygon": calgary, "lang": "fr-CA"},
+            {"oid": oid, "cap_href": cap_href, "polygon": med_hat, "lang": "en-CA"},
+            {"oid": oid, "cap_href": cap_href, "polygon": med_hat, "lang": "fr-CA"},
+        ],
+    )
+    responses: dict[str, Any] = {
+        _eccc_mod.NAAD_FEED_ALERTREADY: feed,
+        cap_href: _fixture("eccc_cap_mixed_area_groups.xml"),
+    }
+    lat, lon = _MEDICINE_HAT
+    alerts = await ECCCProvider().async_fetch(
+        StubSession(responses),
+        {"gps_loc": f"{lat},{lon}"},
+        {"language": "en-CA", "feed_source": "alertready"},
+    )
+    assert len(alerts) == 1
+    assert alerts[0].lifecycle_status == "ended"

@@ -33,10 +33,23 @@ CONF_TIMEOUT = "timeout"
 CONF_LANGUAGE = "language"
 CONF_EXCLUDE_MARINE = "exclude_marine"
 CONF_STREAMING = "streaming"
+CONF_FEED_SOURCE = "feed_source"
 
 # Defaults
 DEFAULT_SCAN_INTERVAL = 300  # seconds
 DEFAULT_TIMEOUT = 30  # seconds
+
+# ECCC GeoRSS feed source (ECCC options flow only). "auto" fetches both NAAD
+# hosts and unions their entries deduplicated by CAP OID, because neither host
+# alone is complete: rss.alertready.ca persistently omits a handful of live
+# Actual alerts that rss.naad-adna.pelmorex.com carries (issue #38), while the
+# legacy pelmorex host retains a shorter (~13.5 h) window and drops older alerts
+# alertready still serves. The named values ("alertready" / "pelmorex") pin a
+# single host as an escape hatch. An absent option means "auto" so existing
+# entries get the fix without reconfiguring. The pelmorex host sunsets ~late
+# Sept 2026; removing it then is a cleanup task, not an outage (a failing host
+# is skipped as long as the other succeeds).
+DEFAULT_FEED_SOURCE = "auto"
 
 # ECCC/NAAD real-time streaming feed. The NAADS 2.0 LMD User Guide documents the
 # TCP streaming feed — not the auxiliary GeoRSS feed — as the correct channel for

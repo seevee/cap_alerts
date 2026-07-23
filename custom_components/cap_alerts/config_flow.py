@@ -30,6 +30,7 @@ from .const import (
     CONF_COUNTRY_ATTRIBUTE,
     CONF_COUNTRY_ENTITY,
     CONF_EXCLUDE_MARINE,
+    CONF_FEED_SOURCE,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
@@ -42,6 +43,7 @@ from .const import (
     CONF_TIMEOUT,
     CONF_TRACKER_ENTITY,
     CONF_ZONE_ID,
+    DEFAULT_FEED_SOURCE,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TIMEOUT,
     DOMAIN,
@@ -1209,6 +1211,14 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                     default=self.config_entry.options.get(CONF_STREAMING, True),
                 )
             ] = bool
+            schema[
+                vol.Optional(
+                    CONF_FEED_SOURCE,
+                    default=self.config_entry.options.get(
+                        CONF_FEED_SOURCE, DEFAULT_FEED_SOURCE
+                    ),
+                )
+            ] = vol.In(["auto", "alertready", "pelmorex"])
         elif provider == "meteoalarm":
             schema[
                 vol.Optional(
