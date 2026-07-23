@@ -13,7 +13,7 @@ body:
     id: version
     attributes:
       label: Integration Version
-      description: e.g. 1.0.0 (from manifest.json)
+      description: e.g. 0.2.0 (from manifest.json, or HACS → CAP Alerts)
     validations:
       required: true
   - type: input
@@ -29,18 +29,34 @@ body:
       options:
         - NWS (United States)
         - ECCC (Canada)
+        - MeteoAlarm (Europe)
+        - WMO (rest of world)
         - Other / not applicable
     validations:
       required: true
+  - type: input
+    id: location-mode
+    attributes:
+      label: Location Mode & Value
+      description: >-
+        How the entry is configured — e.g. NWS zone `ILZ014`, ECCC province
+        `ON`, MeteoAlarm country `FI` with region picker, WMO source
+        `mx-smn-es`, GPS, or device tracker. Redact precise coordinates if
+        you prefer.
   - type: textarea
     id: config
     attributes:
       label: Integration Configuration
-      description: Config entry data (redact zone/location codes if desired)
+      description: Config entry data and options (redact zone/location codes if desired)
       render: yaml
   - type: textarea
     id: logs
     attributes:
       label: Home Assistant Logs
-      description: Relevant lines from `home-assistant.log` (enable debug logging for `custom_components.cap_alerts` if possible)
+      description: >-
+        Relevant lines from `home-assistant.log`. Enable debug logging from
+        Settings → Devices & Services → CAP Alerts → Enable debug logging
+        (or `logger:` for `custom_components.cap_alerts`). For ECCC
+        streaming issues, include the state and history of
+        `binary_sensor.cap_alerts_eccc_real_time_stream`.
       render: text

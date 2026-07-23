@@ -1,12 +1,28 @@
 name: New Provider Request
-description: Request support for a new CAP alert source (e.g. BoM, MeteoAlarm, DWD, WMO)
+description: Request support for a new CAP alert source (e.g. BoM, DWD, JMA)
 labels: [enhancement, provider]
 body:
+  - type: checkboxes
+    id: coverage
+    attributes:
+      label: Existing Coverage Check
+      description: >-
+        Many national services are already reachable without a dedicated
+        provider — please check before requesting one.
+      options:
+        - label: >-
+            This source is not covered by the MeteoAlarm provider
+            (~37 European services)
+          required: true
+        - label: >-
+            This source is not in the WMO provider's source dropdown
+            (SWIC registry, ~100 services worldwide)
+          required: true
   - type: input
     id: provider-name
     attributes:
       label: Provider Name
-      description: e.g. MeteoAlarm, BoM, DWD
+      description: e.g. BoM, DWD, JMA
     validations:
       required: true
   - type: input
@@ -31,4 +47,7 @@ body:
     id: notes
     attributes:
       label: Additional Notes
-      description: Sample payloads, quirks, rate limits, licensing
+      description: >-
+        Sample payloads, quirks, rate limits, licensing. If the source
+        publishes multi-region or multi-language alerts, a sample of that
+        shape is especially useful.

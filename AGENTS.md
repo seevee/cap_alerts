@@ -120,17 +120,15 @@ This is a Home Assistant custom integration. It lives in `custom_components/cap_
 - Run tests before presenting results; fix any new failures introduced
 
 ### Git discipline
-- Never auto-commit, push, or open PRs — defer to the user or `/commit-push-pr`
+- Never auto-commit, push, or open PRs — defer to the user or `/commit`
 - Commit format: `type(scope): description` (types: feat, fix, docs, refactor, test, chore)
 - Branch format: `feat/<slug>`, `fix/<slug>`, `chore/<slug>`
 
 ### Skills Reference
-Claude Code skills for this repo live in `.claude/commands/`:
-- `/explore` — repository discovery and context reports
-- `/plan` — implementation plans (saves to `plans/<slug>.md`)
-- `/implement` — code implementation from an approved plan
-- `/fix` — lightweight bug fixes (skips full plan cycle)
-- `/review` — code review with confidence-based filtering
+Slash-command skills (`/explore`, `/plan`, `/implement`, `/fix`, `/review`,
+`/commit`, …) come from the developer's own environment, not this repo —
+`.claude/` is gitignored and intentionally empty of commands. `/plan` output
+goes to `plans/<slug>.md` (gitignored scratch).
 
 ## Workflow
 
