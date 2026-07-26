@@ -148,6 +148,18 @@ def _is_marine_eccc(clc: tuple[str, ...]) -> bool:
     return any(v.startswith(ECCC_MARINE_CLC_PREFIX) for v in clc)
 
 
+def _language_matches(info_lang: str, preferred: str) -> bool:
+    """Check language match with BCP 47 prefix fallback."""
+    if info_lang == preferred:
+        return True
+    # zh-Hans ↔ zh-CN: compare primary subtag
+    return (
+        "-" in preferred
+        and "-" in info_lang
+        and preferred.split("-", 1)[0].lower() == info_lang.split("-", 1)[0].lower()
+    )
+
+
 # ---------------------------------------------------------------------------
 # Feed source resolution + cross-host deduplication
 # ---------------------------------------------------------------------------
@@ -368,7 +380,7 @@ def _select_info(doc: CAPDoc, language: str) -> CAPInfoDoc:
     if not doc.infos:
         return CAPInfoDoc()
     for info in doc.infos:
-        if info.language == language:
+        if _language_matches(info.language, language):
             return info
     return doc.infos[0]
 
@@ -423,7 +435,7 @@ def _select_region_info(
     province where the alert is still live would be the worse failure.
     """
     candidates = (
-        [info for info in doc.infos if info.language == language] if language else []
+        [info for info in doc.infos if _language_matches(info.language, language)] if language else []
     )
     if not candidates:
         # No block declares this language (single-language document, or a
