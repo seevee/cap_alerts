@@ -163,9 +163,12 @@ def _parse_info(info_el: Element, ns: str) -> CAPInfoDoc:
                 and val_el is not None
                 and val_el.text
             ):
-                info.geocodes.setdefault(name_el.text.strip(), []).append(
-                    val_el.text.strip()
-                )
+                bucket = info.geocodes.setdefault(name_el.text.strip(), [])
+                value = val_el.text.strip()
+                # De-duplicate per scheme, order-preserving: a value repeated
+                # across ``<area>`` blocks is one code, not two.
+                if value not in bucket:
+                    bucket.append(value)
 
         for poly_el in area_el.findall(f"{{{ns}}}polygon"):
             if poly_el.text:

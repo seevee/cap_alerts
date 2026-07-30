@@ -34,7 +34,7 @@ from ..const import (
     WMO_SOURCES_URL,
     WMO_UNMIRRORED_SOURCES,
 )
-from ..model import CAPAlert
+from ..model import CAPAlert, geocodes_from
 from .cap import CAPDoc, CAPInfoDoc, parse_cap_alert, resolve_chain_leaves
 from .cap_content_cache import CAPContentCache
 
@@ -250,7 +250,7 @@ def _build_alert(doc: CAPDoc, info: CAPInfoDoc, url: str, alert_id: str) -> CAPA
         web=info.web,
         area_desc=info.area_desc,
         geometry=_geometry_from_polygons(info.polygons),
-        geocode_same=tuple(info.geocodes.get("SAME", ())),
+        geocodes=geocodes_from(info.geocodes),
         sender=doc.sender,
         sender_name=info.sender_name,
         references=tuple(ref_id for _, ref_id, _ in doc.references),

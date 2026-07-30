@@ -123,3 +123,34 @@ def test_parse_feature_marine_from_zone_uri_only():
 def test_parse_feature_no_geocodes_not_marine():
     alert = _parse_feature(_feature([]))
     assert alert.is_marine is False
+
+
+# ---------------------------------------------------------------------------
+# _parse_feature geocode container tests
+# ---------------------------------------------------------------------------
+
+
+def test_parse_feature_populates_geocodes_container_and_aliases():
+    # Every scheme NWS publishes lands in ``geocodes`` under its raw key; UGC
+    # and SAME are additionally promoted to their flat aliases.
+    feature = _feature(["OHC049", "OHC035"])
+    feature["properties"]["geocode"]["SAME"] = ["039049", "039035"]
+    alert = _parse_feature(feature)
+    assert alert.geocodes == {
+        "UGC": ("OHC049", "OHC035"),
+        "SAME": ("039049", "039035"),
+    }
+    assert alert.geocode_ugc == ("OHC049", "OHC035")
+    assert alert.geocode_same == ("039049", "039035")
+    attrs = alert.to_attributes()
+    assert attrs["geocode_ugc"] == ["OHC049", "OHC035"]
+    assert attrs["geocodes"]["SAME"] == ["039049", "039035"]
+
+
+def test_parse_feature_no_geocode_key_leaves_container_empty():
+    feature = _feature([])
+    del feature["properties"]["geocode"]
+    alert = _parse_feature(feature)
+    assert alert.geocodes == {}
+    assert alert.geocode_ugc == ()
+    assert "geocodes" not in alert.to_attributes()

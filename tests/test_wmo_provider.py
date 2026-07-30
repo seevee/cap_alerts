@@ -63,6 +63,8 @@ CAPContentCache = _cap_cache_mod.CAPContentCache
 WMOProvider = _wmo_mod.WMOProvider
 _parse_rss_links = _wmo_mod._parse_rss_links
 _compute_wmo_id = _wmo_mod._compute_wmo_id
+_build_alert = _wmo_mod._build_alert
+_parse_cap_alert = _cap_mod.parse_cap_alert
 
 from cap_alerts.const import CONF_GPS_LOC, CONF_SOURCE_ID  # noqa: E402
 from tests.conftest import StubSession  # noqa: E402 — after module setup
@@ -318,3 +320,67 @@ async def test_alert_identity_stable():
     ids_second = {a.identifier: a.id for a in second}
     assert ids_first == ids_second
     assert all(ids_first.values())
+
+
+# ---------------------------------------------------------------------------
+# _build_alert geocode container
+# ---------------------------------------------------------------------------
+
+
+def _cap_with_geocodes(geocodes: list[tuple[str, str]]) -> str:
+    """Minimal CAP 1.2 doc carrying the given (valueName, value) area geocodes."""
+    blocks = "\n".join(
+        f"      <geocode><valueName>{scheme}</valueName>"
+        f"<value>{value}</value></geocode>"
+        for scheme, value in geocodes
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>WMO-TEST-1</identifier>
+  <sender>test@wmo.int</sender>
+  <sent>2026-07-29T12:00:00-00:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <scope>Public</scope>
+  <info>
+    <language>es-MX</language>
+    <category>Met</category>
+    <event>Aviso</event>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Likely</certainty>
+    <area>
+      <areaDesc>Test Area</areaDesc>
+{blocks}
+    </area>
+  </info>
+</alert>
+"""
+
+
+def _alert_from_cap(xml: str) -> Any:
+    doc = _parse_cap_alert(xml)
+    assert doc is not None
+    return _build_alert(doc, doc.infos[0], _CAP_URL_1, "test-id")
+
+
+def test_build_alert_surfaces_non_same_geocode_schemes():
+    # WMO's sources are heterogeneous; a national scheme used to be dropped
+    # because only SAME was read.
+    alert = _alert_from_cap(
+        _cap_with_geocodes([("SMN-MX:Estado", "09"), ("SAME", "012345")])
+    )
+    assert alert.geocodes == {"SMN-MX:Estado": ("09",), "SAME": ("012345",)}
+    assert alert.to_attributes()["geocodes"]["SMN-MX:Estado"] == ["09"]
+
+
+def test_build_alert_same_scheme_still_promoted():
+    alert = _alert_from_cap(_cap_with_geocodes([("SAME", "012345")]))
+    assert alert.geocode_same == ("012345",)
+    assert alert.to_attributes()["geocode_same"] == ["012345"]
+
+
+def test_build_alert_without_geocodes_leaves_container_empty():
+    alert = _alert_from_cap(_cap_with_geocodes([]))
+    assert alert.geocodes == {}
+    assert alert.geocode_same == ()

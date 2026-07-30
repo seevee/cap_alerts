@@ -126,6 +126,44 @@ Keeps providers testable without a running HA instance.
 
 ECCC and WMO both carry standard CAP 1.2 documents inside different envelopes (Atom vs RSS), so the CAP body parser is factored into `providers/cap.py` — a provider-neutral module exposing the `CAPDoc` / `CAPInfoDoc` containers, `parse_cap_alert` (namespace-agnostic), and `resolve_chain_leaves`. It depends on nothing else in the package — providers import the parser, never each other — so a third CAP-based provider reuses it without touching ECCC. Envelope-specific concerns (Atom pre-filtering and bilingual merge in `eccc.py`, RSS link extraction and expiry pre-filter in `wmo.py`, event-name recovery) stay in their respective provider modules.
 
+### Area geocodes
+
+`CAPAlert.geocodes` is the **complete** area-geocode surface for every provider: a
+`{scheme: (codes…)}` container keyed by the raw CAP `valueName` (or raw GeoJSON geocode
+key for NWS) exactly as the feed publishes it — `UGC`, `SAME`, `EMMA_ID`, `NUTS3`,
+`layer:EC-MSC-SMC:1.0:CLC`, `profile:CAP-CP:Location:0.3`, whatever a source invents next.
+Raw keys are used deliberately: a normalization table would need editing per source and
+can mislabel a scheme (an `EMMA_ID` once shipped as `geocode_same` — issue #24), whereas a
+raw key cannot lie about its origin.
+
+Providers build the container with `model.geocodes_from()` — the one funnel, which
+de-duplicates values per scheme order-preserving (a value repeated across `<area>` blocks
+is one code), drops empty schemes and values, and returns an immutable mapping.
+`providers/cap.py` de-duplicates at parse time too, so `CAPInfoDoc.geocodes` is already
+clean for its non-model consumers (ECCC province matching, marine detection). Serialization
+is sparse: `geocodes` is omitted entirely when empty.
+
+Well-known schemes are additionally **promoted** to flat `geocode_*` attributes, declared
+once in `model.GEOCODE_SCHEME_ALIASES` and derived as read-only properties — never stored,
+so the container stays the single source of truth:
+
+| Alias | Scheme(s) | Consumer |
+| --- | --- | --- |
+| `geocode_ugc` | `UGC` | `weather_alerts_card` zone filter |
+| `geocode_same` | `SAME` | `weather_alerts_card` zone filter |
+| `geocode_clc` | `layer:EC-MSC-SMC:1.0:CLC` | ECCC marine detection (`00…` = water zone) |
+| `geocode_sgc` | `profile:CAP-CP:Location:0.3` | visibility into what ECCC province filtering matches |
+
+Promotion policy: **a new scheme needs no model change** — it lands in `geocodes` for free.
+An alias is only added when a scheme has a named consumer, which is what keeps "add a
+scheme" from meaning "add a field". Each alias maps to an *ordered accept-list* of
+`valueName`s (first non-empty wins) so a source bumping its scheme version
+(`…:1.0:CLC` → `…:1.1:CLC`) costs no provider edit.
+
+`is_marine` is **not** read back off the container — each provider computes it locally
+before constructing the alert (NWS from UGC + zone codes, ECCC from the CLC prefix), so
+the marine filter does not depend on promotion.
+
 ### Error contract
 
 - `UpdateFailed` for transient errors (network, 5xx, parse issues). HA handles retry.
@@ -162,7 +200,7 @@ ECCC and WMO both carry standard CAP 1.2 documents inside different envelopes (A
 | `properties.description` / `instruction` / `note` / `web` | same-named fields |
 | `properties.areaDesc` | `area_desc` |
 | `properties.affectedZones` | `affected_zone_uris` → extract codes → `affected_zones` |
-| `properties.geocode.UGC` / `SAME` | `geocode_ugc` / `geocode_same` |
+| `properties.geocode` (all schemes, keyed as published) | `geocodes`; promoted to `geocode_ugc` / `geocode_same` — see *Area geocodes* |
 | `properties.eventCode.NationalWeatherService[0]` | `event_code_nws` |
 | `properties.eventCode.SAME[0]` | `event_code_same` |
 | `properties.parameters.VTEC` | `vtec` → parsed → `vtec_{office,phenomena,significance,action,tracking}` |
@@ -241,11 +279,10 @@ Both a `1.0:` and a `1.1:` layer of the parameter occur (`1.1` preferred when bo
 | `<info>/<area>/<polygon>` | `geometry` (GeoJSON Polygon or MultiPolygon) |
 | `<info>/<eventCode>` blocks merged into `parameters` | `parameters` |
 | `<info>/<parameter>` blocks | `parameters` (merged; parameters win on key collision) |
-| `<info>/<area>/<geocode>` SAME values | `geocode_same` |
-| `<info>/<area>/<geocode>` `layer:EC-MSC-SMC:1.0:CLC` values | `geocode_clc` |
+| `<info>/<area>/<geocode>` (all schemes, keyed by `valueName`) | `geocodes`; promoted to `geocode_clc` / `geocode_sgc` / `geocode_same` — see *Area geocodes* |
 | `<info>/<parameter>` `Alert_Location_Status` (1.1 preferred over 1.0) | `lifecycle_status` (ECCC-native `active`/`ended`/`transitioned_out`; drives `phase`) |
 
-The mapped `<info>` is the region-matching block, preferring a non-terminal one — see *Area-group selection* above. Note: `event_code_same` and `event_code_nws` remain empty for ECCC. CAP-CP profile codes (e.g. `profile:CAP-CP:Event:0.4 → freezing-drizzle`) flow through `parameters` under their `valueName` keys. `geocode_clc` carries the Canadian Location Code (province-numbered for land, `00…` for marine/water zones); other ECCC area geocode schemes (`profile:CAP-CP:Location:0.3`) are not surfaced.
+The mapped `<info>` is the region-matching block, preferring a non-terminal one — see *Area-group selection* above. Note: `event_code_same` and `event_code_nws` remain empty for ECCC. CAP-CP profile codes (e.g. `profile:CAP-CP:Event:0.4 → freezing-drizzle`) flow through `parameters` under their `valueName` keys. Every area geocode scheme in the CAP body lands in `geocodes` (see *Area geocodes*): `geocode_clc` is the promoted Canadian Location Code (province-numbered for land, `00…` for marine/water zones), and `geocode_sgc` the promoted StatCan SGC code — the signal province filtering actually matches on, so a province mismatch is now inspectable from the entity attributes.
 
 ## ECCC — NAAD streaming
 
@@ -375,7 +412,7 @@ all other authorities are byte-for-byte unchanged.
 | `alert.info[].headline` / `description` / `instruction` / `web` | same-named fields |
 | `alert.info[].parameter[]` (valueName/value pairs) | `parameters` dict |
 | `alert.info[].area[].areaDesc` | `area_desc` (joined across area blocks) |
-| `alert.info[].area[].geocode[]` (all schemes, keyed by `valueName`) | `geocodes` — scheme-keyed container (`{"EMMA_ID": (...), "NUTS3": (...)}`); drives the region-picker filter. MeteoAlarm leaves `geocode_same` empty (EMMA_ID is not a SAME code), unlike NWS/ECCC/WMO |
+| `alert.info[].area[].geocode[]` (all schemes, keyed by `valueName`) | `geocodes` — scheme-keyed container (`{"EMMA_ID": (...), "NUTS3": (...)}`); drives the region-picker filter. MeteoAlarm publishes no `SAME` scheme, so `geocode_same` stays empty (EMMA_ID is not a SAME code) |
 | `alert.info[].area[].polygon` | `geometry` (GeoJSON Polygon or MultiPolygon, lon/lat) |
 | `sha256(identifier)[:12]` (or `sha256(uuid)[:12]` fallback) | `id` |
 
@@ -485,7 +522,7 @@ to hashing the CAP URL when the identifier is missing.
 | `<info>/<area>/<areaDesc>` | `area_desc` |
 | `<info>/<area>/<polygon>` | `geometry` (GeoJSON Polygon or MultiPolygon) |
 | `<info>/<eventCode>` + `<parameter>` blocks merged | `parameters` (parameters win on collision) |
-| `<info>/<area>/<geocode>` SAME values | `geocode_same` |
+| `<info>/<area>/<geocode>` (all schemes, keyed by `valueName`) | `geocodes`; promoted to `geocode_same` — see *Area geocodes*. WMO's sources are heterogeneous, so non-`SAME` schemes are surfaced rather than dropped |
 | RSS `<item>/<link>` (CAP XML URL) | `url`, identifier-fallback source for `id` |
 | `sha256(identifier)[:12]` (or `sha256(url)[:12]` fallback) | `id` |
 

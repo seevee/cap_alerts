@@ -507,6 +507,37 @@ def test_build_alert_from_cap_populates_geocode_clc():
     assert alert.geocode_clc == ("071100",)
 
 
+def test_build_alert_from_cap_populates_full_geocode_container():
+    # Every area geocode scheme in the CAP body is surfaced, keyed by its raw
+    # valueName — CLC and the StatCan SGC code that province filtering matches.
+    alert = _make_alert_from_update_fixture()
+    assert alert.geocodes == {
+        "layer:EC-MSC-SMC:1.0:CLC": ("071100",),
+        "profile:CAP-CP:Location:0.3": ("3506008",),
+    }
+
+
+def test_build_alert_from_cap_populates_geocode_sgc():
+    # 35 = Ontario; promoted so a province filter decision is inspectable from
+    # the entity attributes.
+    alert = _make_alert_from_update_fixture()
+    assert alert.geocode_sgc == ("3506008",)
+    assert alert.to_attributes()["geocode_sgc"] == ["3506008"]
+
+
+def test_build_alert_from_cap_geocode_sgc_absent_stays_sparse():
+    # The marine fixture carries CLC only -> no SGC alias, and no attribute key.
+    xml = _fixture("eccc_cap_en_marine.xml")
+    doc = _parse_cap_alert(xml)
+    assert doc is not None
+    info = _select_info(doc, "en-CA")
+    alert = _build_alert_from_cap(
+        doc, info, {"atom_id": "", "language": "en-CA"}, "", _bilingual_key(doc, info)
+    )
+    assert alert.geocode_sgc == ()
+    assert "geocode_sgc" not in alert.to_attributes()
+
+
 def test_build_alert_from_cap_geocode_clc_empty_when_absent():
     # No CLC geocode in the SPS fixture -> field stays an empty tuple (omitted
     # from to_attributes by the sparse serializer).
