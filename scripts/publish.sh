@@ -49,15 +49,17 @@ else
   git push origin "$TAG"
 fi
 
-# Generate release notes from git-cliff
+# Generate release notes from git-cliff. Install it outside the command
+# substitution: pip writes "Requirement already satisfied" to stdout, which
+# otherwise lands at the top of the release body.
+pip install "$(grep '^git-cliff' requirements_test.txt)" >/dev/null 2>&1 || true
+
 CLIFF_FLAGS=()
-if [ "$PRERELEASE" = true ]; then
-  NOTES=$(pip install "$(grep '^git-cliff' requirements_test.txt)" 2>/dev/null \
-    && git-cliff --config cliff.toml --latest --strip header)
-else
-  NOTES=$(pip install "$(grep '^git-cliff' requirements_test.txt)" 2>/dev/null \
-    && git-cliff --config cliff.toml --tag-pattern "^v[0-9]+\.[0-9]+\.[0-9]+$" --latest --strip header)
+if [ "$PRERELEASE" = false ]; then
+  CLIFF_FLAGS+=(--tag-pattern "^v[0-9]+\.[0-9]+\.[0-9]+$")
 fi
+
+NOTES=$(git-cliff --config cliff.toml "${CLIFF_FLAGS[@]}" --latest --strip header)
 
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Release $TAG already exists, skipping"
