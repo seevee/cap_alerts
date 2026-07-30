@@ -1,0 +1,6 @@
+# Review is auto-requested from the owner when a matching file changes.
+# Locale files are owned by their translator so edits reach someone who
+# reads the language. Deliberately scoped to the locale file rather than
+# strings.json, which would ping translators on every feature PR.
+
+/custom_components/cap_alerts/translations/zh-Hans.json @MF-142

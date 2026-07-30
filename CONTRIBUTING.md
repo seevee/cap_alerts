@@ -17,6 +17,32 @@ See the [Development section of the README](README.md#development) and [docs/arc
 2. Make changes; keep `pytest`, `ruff`, and `mypy` green
 3. Open a PR targeting `main`
 
+## Translations
+
+User-facing strings live in `custom_components/cap_alerts/strings.json`, with the
+English copy mirrored in `translations/en.json`. A PR that adds or renames a
+user-facing string must update **both** — that pair is enforced by
+`tests/test_translation_keys_in_sync.py` and will fail CI.
+
+Other locales are best-effort and **never block a PR**. Home Assistant falls back
+to English for any key a translation omits, so a lagging locale is cosmetic. When
+a locale falls behind, the test suite emits a `TranslationDriftWarning` listing
+the exact missing keys rather than failing:
+
+```bash
+pytest tests/test_translation_keys_in_sync.py   # missing keys appear in the warnings summary
+```
+
+Two things *are* enforced for every locale: the file must be valid JSON, and it
+must not contain keys absent from `strings.json` (a stale key left behind by a
+rename never renders, so it is dead weight).
+
+New translations are welcome as standalone PRs — copy `translations/en.json` to
+`translations/<code>.json` and translate the values, leaving the keys untouched.
+Use the Home Assistant locale code (`zh-Hans`, `pt-BR`, `nb`, …). Existing locales
+are listed in `.github/CODEOWNERS`; add yourself there so you are asked to review
+future edits to your file.
+
 ## Commit Messages
 
 Use conventional-style prefixes: `feat(scope):`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
