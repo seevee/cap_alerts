@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, fields
 from types import MappingProxyType
 from typing import Any
@@ -11,6 +11,54 @@ from typing import Any
 # would be rejected as a mutable default on a frozen/slots dataclass, so the
 # field uses ``default_factory`` returning this singleton.
 _EMPTY_GEOCODES: Mapping[str, tuple[str, ...]] = MappingProxyType({})
+
+# Promoted geocode schemes: attribute alias → ordered accept-list of CAP
+# ``valueName``s, first non-empty wins.
+#
+# ``geocodes`` is the complete area-geocode surface — every scheme a feed
+# publishes lands there under its raw ``valueName``, and a new scheme needs no
+# model change. An alias is a stable short name for a scheme that has a real
+# consumer:
+#   geocode_ugc / geocode_same  — the card's zone filter
+#   geocode_clc                 — ECCC marine detection (province-numbered for
+#                                 land zones, "00…" for marine/water zones)
+#   geocode_sgc                 — StatCan SGC codes, what ECCC province
+#                                 filtering matches on (makes it debuggable)
+# The accept-list absorbs a source bumping its scheme version (e.g.
+# ``…:1.0:CLC`` → ``…:1.1:CLC``) without a provider change.
+GEOCODE_SCHEME_ALIASES: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "geocode_ugc": ("UGC",),
+        "geocode_same": ("SAME",),
+        "geocode_clc": ("layer:EC-MSC-SMC:1.0:CLC",),
+        "geocode_sgc": ("profile:CAP-CP:Location:0.3",),
+    }
+)
+
+
+def geocodes_from(
+    raw: Mapping[str, Iterable[str]],
+) -> Mapping[str, tuple[str, ...]]:
+    """Normalize a provider's scheme→codes mapping into a ``geocodes`` container.
+
+    The single funnel every provider routes its area geocodes through: values
+    are de-duplicated order-preserving, empty schemes and empty values are
+    dropped, and the result is immutable. Returns the shared empty singleton
+    when nothing survives.
+    """
+    normalized: dict[str, tuple[str, ...]] = {}
+    for scheme, values in raw.items():
+        if not scheme:
+            continue
+        codes: list[str] = []
+        for value in values:
+            if value and value not in codes:
+                codes.append(value)
+        if codes:
+            normalized[scheme] = tuple(codes)
+    if not normalized:
+        return _EMPTY_GEOCODES
+    return MappingProxyType(normalized)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,16 +99,13 @@ class CAPAlert:
     area_desc: str = ""
     affected_zones: tuple[str, ...] = ()
     affected_zone_uris: tuple[str, ...] = ()
-    geocode_ugc: tuple[str, ...] = ()
-    geocode_same: tuple[str, ...] = ()
-    # ECCC Canadian Location Code (layer:EC-MSC-SMC:1.0:CLC). Province-numbered
-    # for land zones; "00…" for marine/water zones (drives marine detection).
-    geocode_clc: tuple[str, ...] = ()
-    # Per-scheme area geocodes keyed by CAP ``valueName`` (e.g. ``EMMA_ID``,
-    # ``NUTS3``, ``WARNCELLID``). Typed multi-scheme container for providers
-    # whose feeds carry a mix of schemes (MeteoAlarm); populated instead of the
-    # per-scheme named fields above where a single named field can't honestly
-    # hold "the" geocode. Serialized as ``{scheme: [codes]}``, omitted if empty.
+    # Every area geocode a feed publishes, keyed by raw CAP ``valueName`` (e.g.
+    # ``UGC``, ``SAME``, ``EMMA_ID``, ``NUTS3``, ``layer:EC-MSC-SMC:1.0:CLC``).
+    # The complete geocode surface for all providers — raw keys cannot mislabel
+    # a scheme, and well-known schemes are additionally promoted to the
+    # ``geocode_*`` aliases below (see ``GEOCODE_SCHEME_ALIASES``). Build it
+    # with ``geocodes_from()``. Serialized as ``{scheme: [codes]}``, omitted if
+    # empty.
     geocodes: Mapping[str, tuple[str, ...]] = field(
         default_factory=lambda: _EMPTY_GEOCODES
     )
@@ -127,12 +172,47 @@ class CAPAlert:
     previous_phase: str = ""
     phase_changed: bool = False
 
+    # -- Promoted geocode schemes (derived from ``geocodes``) --
+    # Read-only aliases, not fields: ``geocodes`` is the single source of truth,
+    # so a provider cannot populate an alias and the container inconsistently.
+
+    def _promoted_geocode(self, alias: str) -> tuple[str, ...]:
+        """Codes for the first accepted ``valueName`` of a promoted scheme."""
+        for scheme in GEOCODE_SCHEME_ALIASES[alias]:
+            codes = self.geocodes.get(scheme)
+            if codes:
+                return tuple(codes)
+        return ()
+
+    @property
+    def geocode_ugc(self) -> tuple[str, ...]:
+        """NWS Universal Geographic Code zones (``UGC``)."""
+        return self._promoted_geocode("geocode_ugc")
+
+    @property
+    def geocode_same(self) -> tuple[str, ...]:
+        """FIPS-based SAME/FIPS6 area codes (``SAME``)."""
+        return self._promoted_geocode("geocode_same")
+
+    @property
+    def geocode_clc(self) -> tuple[str, ...]:
+        """ECCC Canadian Location Codes (``layer:EC-MSC-SMC:1.0:CLC``)."""
+        return self._promoted_geocode("geocode_clc")
+
+    @property
+    def geocode_sgc(self) -> tuple[str, ...]:
+        """StatCan SGC location codes (``profile:CAP-CP:Location:0.3``)."""
+        return self._promoted_geocode("geocode_sgc")
+
     def to_attributes(self) -> dict[str, Any]:
         """Flat attribute dict. Omits empty/None/False values (except id).
 
         Full ``geometry`` is never included — consumers fetch polygons out-of-band
         via the ``geometry_ref`` handle (see websocket command ``cap_alerts/geometry``
         and REST endpoint ``/api/cap_alerts/geometry/{geometry_ref}``).
+
+        The promoted ``geocode_*`` aliases are added explicitly, since properties
+        do not appear in ``dataclasses.fields()``.
         """
         attrs: dict[str, Any] = {}
         for f in fields(self):
@@ -153,4 +233,8 @@ class CAPAlert:
                 attrs[f.name] = list(val)
             else:
                 attrs[f.name] = val
+        for alias in GEOCODE_SCHEME_ALIASES:
+            codes = self._promoted_geocode(alias)
+            if codes:
+                attrs[alias] = list(codes)
         return attrs

@@ -42,7 +42,7 @@ from ..const import (
     CONF_REGIONS,
     METEOALARM_COUNTRY_SLUGS,
 )
-from ..model import CAPAlert
+from ..model import CAPAlert, geocodes_from
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -217,25 +217,20 @@ def _join_areas(info: Mapping[str, Any]) -> str:
     return ", ".join(descs)
 
 
-def _scheme_geocodes(info: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
+def _scheme_geocodes(info: Mapping[str, Any]) -> Mapping[str, tuple[str, ...]]:
     """All area geocodes keyed by ``valueName`` (scheme).
 
     Collects every ``geocode`` across the info's area blocks into a
     scheme→values mapping, e.g. ``{"EMMA_ID": (...), "WARNCELLID": (...)}``.
-    Values are de-duplicated per scheme, order-preserving. Areas without any
-    geocode contribute nothing.
+    ``geocodes_from`` de-duplicates per scheme, order-preserving, and drops
+    empty schemes/values. Areas without any geocode contribute nothing.
     """
     collected: dict[str, list[str]] = {}
     for area in info.get("area") or []:
         for code in area.get("geocode") or []:
             scheme = code.get("valueName") or ""
-            value = code.get("value") or ""
-            if not scheme or not value:
-                continue
-            bucket = collected.setdefault(scheme, [])
-            if value not in bucket:
-                bucket.append(value)
-    return {scheme: tuple(values) for scheme, values in collected.items()}
+            collected.setdefault(scheme, []).append(code.get("value") or "")
+    return geocodes_from(collected)
 
 
 def _region_pairs(info: Mapping[str, Any]) -> list[tuple[str, str]]:

@@ -24,7 +24,7 @@ from ..const import (
     CONF_PROVINCE,
     DEFAULT_FEED_SOURCE,
 )
-from ..model import CAPAlert
+from ..model import CAPAlert, geocodes_from
 from .cap import CAPDoc, CAPInfoDoc, parse_cap_alert, resolve_chain_leaves
 from .cap_content_cache import CAPContentCache
 
@@ -695,8 +695,7 @@ def _build_alert_from_cap(
         web=info.web or fallback_web,
         area_desc=info.area_desc,
         geometry=geometry,
-        geocode_same=tuple(info.geocodes.get("SAME", ())),
-        geocode_clc=clc,
+        geocodes=geocodes_from(info.geocodes),
         is_marine=_is_marine_eccc(clc),
         sender=doc.sender,
         sender_name=info.sender_name,

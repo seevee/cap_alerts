@@ -13,7 +13,7 @@ import aiohttp
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import CONF_GPS_LOC, CONF_ZONE_ID
-from ..model import CAPAlert
+from ..model import CAPAlert, geocodes_from
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,10 +123,10 @@ def _parse_feature(feature: dict[str, Any]) -> CAPAlert:
     zone_uris = props.get("affectedZones", [])
     zone_codes = _extract_zone_codes(zone_uris)
 
-    # Geocodes
-    geocode = props.get("geocode") or {}
-    geocode_ugc = tuple(geocode.get("UGC", []))
-    geocode_same = tuple(geocode.get("SAME", []))
+    # Geocodes — every scheme the feature publishes; UGC is also read locally
+    # below for marine classification.
+    geocodes = geocodes_from(props.get("geocode") or {})
+    geocode_ugc = tuple(geocodes.get("UGC", ()))
 
     # Event codes
     event_codes = props.get("eventCode") or {}
@@ -173,8 +173,7 @@ def _parse_feature(feature: dict[str, Any]) -> CAPAlert:
         area_desc=props.get("areaDesc", ""),
         affected_zones=zone_codes,
         affected_zone_uris=tuple(zone_uris),
-        geocode_ugc=geocode_ugc,
-        geocode_same=geocode_same,
+        geocodes=geocodes,
         geometry=geometry,
         event_code_nws=nws_codes[0] if nws_codes else "",
         event_code_same=same_codes[0] if same_codes else "",

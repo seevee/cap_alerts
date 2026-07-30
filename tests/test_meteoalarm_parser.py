@@ -222,6 +222,15 @@ def test_emma_geocodes_collected(feed_de):
         assert code.startswith("DE")
 
 
+def test_parsed_geocodes_container_is_immutable(feed_de):
+    # The container is built by the shared ``geocodes_from`` funnel, so it is
+    # read-only on a frozen alert — pins MeteoAlarm to that one path.
+    alerts = _parse(feed_de)
+    gusts = next(a for a in alerts if a.event == "STURMBÖEN")
+    with pytest.raises(TypeError):
+        gusts.geocodes["EMMA_ID"] = ("nope",)
+
+
 def test_scheme_geocodes_multi_scheme(feed_de):
     # The DE fixture's areas carry EMMA_ID *and* WARNCELLID; both land in the
     # scheme-keyed container, keyed by their valueName.
