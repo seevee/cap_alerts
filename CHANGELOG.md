@@ -1,69 +1,39 @@
 # Changelog
 
-## 0.2.0-rc.1 — 2026-07-23
+## 0.2.0 — 2026-07-30
 
 ### Added
+- Surface CLC area geocode as geocode_clc (#19) (abe58f1…)
+- Generalize device-tracker location to all providers (#20) (2fc7b88…)
+- Add opt-in exclude-marine-alerts option (#18) (#23) (ad81b5e…)
+- Resolve region schemes into a typed geocode container (#29) (a872764…)
 - Stream NAAD alerts in real time, GeoRSS as backfill (#49) (f019d08…)
 
-### Fixed
-- Honor ended area groups so alerts don't linger until expiry (#45) (#51) (f9ecb7c…)
-- Union both NAAD hosts so no live alert is missed (#38) (#52) (3006d56…)
-
-## 0.2.0-alpha.7 — 2026-07-22
-
-### Fixed
-- Guard against truncated NAAD feed downloads (#46) (961c012…)
-
-## 0.2.0-alpha.6 — 2026-07-21
-
-### Fixed
-- Pre-filter province mode by polygon bbox (#43) (c2560e6…)
-
-## 0.2.0-alpha.5 — 2026-07-20
-
-### Fixed
-- Stabilize MeteoFrance alert entity ids (#37) (#41) (21fd560…)
-
-## 0.2.0-alpha.4 — 2026-07-20
-
-### Fixed
-- Use git-cliff CLI binary and add release workflow (67436dc…)
-- Use --tag flag when regenerating changelog in release workflow (719d475…)
-- Migrate feed to alertready.ca and rework province filter (#38) (#39) (3b5f8b6…)
-
-### Maintenance
-- Regenerate changelog for v0.2.0-alpha.3 (e1cb081…)
-- Remove GitHub Actions publish workflow, add venv activation to publish.sh (#35) (7ff168a…)
-
-## 0.2.0-alpha.3 — 2026-07-12
-
-### Added
-- Resolve region schemes into a typed geocode container (#29) (a872764…)
+### Documentation
+- Add CONTRIBUTING.md with AI-assisted contribution policy (#21) (70e0273…)
+- Extend incident RFC with non-weather grounding and ECCC field findings (#57) (fa44e5a…)
 
 ### Fixed
 - Reconcile prerelease version bump with commit history (#31) (33d7fa6…)
 - Activate venv before running tests and lint (#32) (f650e9e…)
 - Use git-cliff CLI binary instead of python -m git_cliff (#33) (69ca77b…)
-
-## 0.2.0-alpha.2 — 2026-07-04
-
-### Added
-- Add opt-in exclude-marine-alerts option (#18) (#23) (ad81b5e…)
-
-### Maintenance
-- Add generated changelog and generalize agent guidance (#22) (aad1fd9…)
-
-## 0.2.0-alpha.1 — 2026-07-03
-
-### Added
-- Surface CLC area geocode as geocode_clc (#19) (abe58f1…)
-- Generalize device-tracker location to all providers (#20) (2fc7b88…)
-
-### Documentation
-- Add CONTRIBUTING.md with AI-assisted contribution policy (#21) (70e0273…)
+- Use git-cliff CLI binary and add release workflow (67436dc…)
+- Use --tag flag when regenerating changelog in release workflow (719d475…)
+- Migrate feed to alertready.ca and rework province filter (#38) (#39) (3b5f8b6…)
+- Stabilize MeteoFrance alert entity ids (#37) (#41) (21fd560…)
+- Pre-filter province mode by polygon bbox (#43) (c2560e6…)
+- Guard against truncated NAAD feed downloads (#46) (961c012…)
+- Honor ended area groups so alerts don't linger until expiry (#45) (#51) (f9ecb7c…)
+- Union both NAAD hosts so no live alert is missed (#38) (#52) (3006d56…)
 
 ### Maintenance
 - Bump actions/checkout from 6 to 7 in the actions group (#17) (71431ac…)
+- Add generated changelog and generalize agent guidance (#22) (aad1fd9…)
+- Regenerate changelog for v0.2.0-alpha.3 (e1cb081…)
+- Remove GitHub Actions publish workflow, add venv activation to publish.sh (#35) (7ff168a…)
+- Bump actions/setup-python from 6 to 7 in the actions group (#50) (68d2019…)
+- Pre-0.2.0 docs, test pins, and HACS floor (#54) (4102659…)
+- Refresh GitHub templates, dependabot pip coverage, agent docs (#55) (c383a57…)
 
 ## 0.1.1 — 2026-06-27
 
