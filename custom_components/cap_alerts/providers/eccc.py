@@ -357,6 +357,24 @@ def _pick_cap_link(entry: Element) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def _language_matches(info_lang: str, preferred: str) -> bool:
+    """Check language match with BCP 47 primary-subtag fallback.
+
+    Exact match wins (``en-CA`` == ``en-CA``). When that fails, the primary
+    subtag (the part before the first ``-``) is compared so that a bare
+    ``en`` info block matches a preferred ``en-CA`` and vice-versa. This
+    hardens against CAP documents that declare a bare primary subtag
+    instead of the full region-tagged form the ECCC feed normally carries.
+    """
+    if not info_lang or not preferred:
+        return False
+    if info_lang == preferred:
+        return True
+    return (
+        preferred.split("-", 1)[0].casefold() == info_lang.split("-", 1)[0].casefold()
+    )
+
+
 def _select_info(doc: CAPDoc, language: str) -> CAPInfoDoc:
     """Pick the <info> block matching language; fall back to first.
 
@@ -368,7 +386,7 @@ def _select_info(doc: CAPDoc, language: str) -> CAPInfoDoc:
     if not doc.infos:
         return CAPInfoDoc()
     for info in doc.infos:
-        if info.language == language:
+        if _language_matches(info.language, language):
             return info
     return doc.infos[0]
 
@@ -423,7 +441,9 @@ def _select_region_info(
     province where the alert is still live would be the worse failure.
     """
     candidates = (
-        [info for info in doc.infos if info.language == language] if language else []
+        [info for info in doc.infos if _language_matches(info.language, language)]
+        if language
+        else []
     )
     if not candidates:
         # No block declares this language (single-language document, or a
@@ -731,7 +751,7 @@ def _merge_languages(variants: list[CAPAlert], preferred_lang: str) -> CAPAlert:
     primary = None
     alt = None
     for v in variants:
-        if v.language == preferred_lang:
+        if _language_matches(v.language, preferred_lang):
             primary = v
         else:
             alt = v
