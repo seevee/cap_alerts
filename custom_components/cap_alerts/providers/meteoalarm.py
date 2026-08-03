@@ -28,7 +28,7 @@ import hashlib
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 import aiohttp
@@ -44,6 +44,7 @@ from ..const import (
     METEOALARM_COUNTRY_SLUGS,
 )
 from ..model import CAPAlert, geocodes_from
+from ..normalize import SEVERITY_RANK, meteoalarm_awareness_severity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -204,6 +205,268 @@ def _compute_alert_id(
             sender, event_key, region_codes, window_key, fallback=identifier or uuid
         )
     return _default_id(identifier, uuid)
+
+
+# --- MeteoFrance episode merge (issue #37) --------------------------------
+#
+# MeteoFrance publishes one warning per calendar *day*, each running roughly
+# 00:00 → 00:00 local, and the next day's bulletin goes live alongside the
+# current day's for most of the day. With a forecast-day component in the id
+# (see ``_meteofrance_id``) a single multi-day heat or storm episode therefore
+# becomes one entity per day, and the id rolls over at midnight — breaking any
+# automation or dashboard card that referenced it.
+#
+# The merge below collapses a run of consecutive forecast days back into one
+# episode, keyed without the day component so it survives midnight. In
+# region-picker mode the bulletin is first exploded into one alert per
+# configured region, because the *set* of departments a bulletin covers moves
+# day to day (measured: a thunderstorm bulletin went from 83 departments to 54
+# overnight), so any set-derived key would split the episode anyway.
+
+
+def _ts_sort_key(value: str) -> tuple[int, float, str]:
+    """Total ordering over ISO timestamps: instant when parseable, else text.
+
+    Window edges within a run can carry different UTC offsets across a DST
+    boundary, so comparing the strings directly would mis-order them. Naive
+    values are read as UTC; unparseable ones sort last but stay deterministic.
+    """
+    parsed = _parse_ts(value)
+    if parsed is None:
+        return (1, 0.0, value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return (0, parsed.timestamp(), value)
+
+
+def _canonical_severity(alert: CAPAlert) -> str:
+    """Canonical severity for ranking, using normalization's own mapping.
+
+    MeteoAlarm severity lives in the ``awareness_level`` parameter rather than
+    CAP ``<severity>``, and the merge must rank days on the same ladder the
+    normalizer will later apply, or the entity's dominant day and its
+    ``severity_normalized`` could disagree.
+    """
+    severity = meteoalarm_awareness_severity(alert) or alert.severity.lower()
+    return severity if severity in SEVERITY_RANK else "unknown"
+
+
+def _severity_rank(alert: CAPAlert) -> int:
+    return SEVERITY_RANK[_canonical_severity(alert)]
+
+
+def _parse_day(value: str) -> date | None:
+    """Parse a ``YYYY-MM-DD`` forecast-day key, or ``None``."""
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _is_finished(alert: CAPAlert, now: datetime) -> bool:
+    """True once the warning's window has closed.
+
+    Finished days must leave the episode before the id drops its day
+    component, or a finished run and an upcoming run for the same key would
+    collide on one id — the alert store keys by id, so one would silently
+    overwrite the other.
+    """
+    expires = _parse_ts(alert.expires)
+    if expires is None:
+        return False
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return expires <= now
+
+
+def _area_geocodes(area: Mapping[str, Any]) -> Mapping[str, tuple[str, ...]]:
+    """Geocode container for a single ``<area>`` block, all schemes."""
+    collected: dict[str, list[str]] = {}
+    for code in area.get("geocode") or []:
+        scheme = code.get("valueName") or ""
+        collected.setdefault(scheme, []).append(code.get("value") or "")
+    return geocodes_from(collected)
+
+
+def _explode_mf_by_region(
+    alert: CAPAlert, info: Mapping[str, Any], wanted: set[str]
+) -> list[CAPAlert]:
+    """One MeteoFrance alert per configured region the bulletin covers.
+
+    A France bulletin carries one ``<area>`` per department, each with its own
+    ``areaDesc`` and NUTS3 code, so splitting on the area blocks gives each
+    resulting alert a single-department scope for free. That makes the episode
+    key stable (the bulletin's department set churns overnight; a single
+    configured department does not) and replaces an ``area_desc`` listing up to
+    83 departments with the one the user actually selected.
+
+    Ids are left alone here — the merge recomputes them.
+    """
+    out: list[CAPAlert] = []
+    seen: set[tuple[str, ...]] = set()
+    for area in info.get("area") or []:
+        desc = (area.get("areaDesc") or "").strip()
+        geocodes = _area_geocodes(area)
+        codes = _region_codes(geocodes, (desc,) if desc else ())
+        matched = tuple(c for c in codes if c in wanted)
+        if not matched or matched in seen:
+            continue
+        seen.add(matched)
+        out.append(replace(alert, area_desc=desc or alert.area_desc, geocodes=geocodes))
+    return out
+
+
+def _episode_group_key(alert: CAPAlert) -> tuple[str, str, str]:
+    """``(sender, phenomenon, region scope)`` — everything but the day.
+
+    The region component is whatever scope the alert already carries: a single
+    department after ``_explode_mf_by_region`` in region-picker mode, the
+    bulletin's full resolved set otherwise. Country-wide mode therefore still
+    splits an episode when the bulletin's footprint moves overnight; that is a
+    known limitation, kept because per-department explosion there would turn
+    France into roughly 150 entities.
+    """
+    event_key = _awareness_type_code(alert.parameters) or alert.event.casefold()
+    descs = tuple(d.strip() for d in alert.area_desc.split(",") if d.strip())
+    region_key = ";".join(sorted(_region_codes(alert.geocodes, descs)))
+    return (alert.sender, event_key, region_key)
+
+
+def _calendar_day_runs(alerts: list[CAPAlert]) -> list[list[CAPAlert]]:
+    """Split one group's alerts into runs of consecutive forecast days.
+
+    Two alerts on the same day are resolved by ``(severity, sent)`` — severity
+    first, so a lower-severity message can never displace a higher one on send
+    order alone. Live sampling says this should not happen (at most one live
+    warning per department, phenomenon and day across 203 samples), so it is
+    defensive; the ordering matters because the alternative silently picks by
+    upstream timing.
+
+    A gap of more than one calendar day starts a new run, on the reading that
+    MeteoFrance skipping a day means a genuinely separate episode. That case
+    has never been observed live, so a wrong reading here degrades to the
+    previous behaviour (two entities) rather than losing anything.
+    """
+    by_day: dict[str, CAPAlert] = {}
+    for alert in alerts:
+        day = _forecast_window_key(alert.onset, alert.effective, alert.sent)
+        current = by_day.get(day)
+        if current is None or (_severity_rank(alert), _ts_sort_key(alert.sent)) > (
+            _severity_rank(current),
+            _ts_sort_key(current.sent),
+        ):
+            by_day[day] = alert
+
+    runs: list[list[CAPAlert]] = []
+    run: list[CAPAlert] = []
+    previous: date | None = None
+    for day in sorted(by_day):
+        parsed = _parse_day(day)
+        contiguous = (
+            run
+            and parsed is not None
+            and previous is not None
+            and (parsed - previous).days <= 1
+        )
+        if run and not contiguous:
+            runs.append(run)
+            run = []
+        run.append(by_day[day])
+        previous = parsed
+    if run:
+        runs.append(run)
+    return runs
+
+
+def _episode_day(alert: CAPAlert) -> dict[str, str]:
+    """One ``episode_days`` entry: what this forecast day actually said."""
+    return {
+        "date": _forecast_window_key(alert.onset, alert.effective, alert.sent),
+        "onset": alert.onset,
+        "expires": alert.expires,
+        "severity": _canonical_severity(alert),
+        "awareness_level": (alert.parameters or {}).get("awareness_level", ""),
+        "event": alert.event,
+        "headline": alert.headline,
+        "area_desc": alert.area_desc,
+    }
+
+
+def _merge_run(
+    run: list[CAPAlert], key: tuple[str, str, str], window_key: str
+) -> CAPAlert:
+    """Collapse one run of forecast days into a single episode alert.
+
+    The most severe day supplies the content wholesale, tie-broken to the
+    earliest onset. Blending fields instead would let the record contradict
+    itself — ``severity_normalized`` comes from ``awareness_level`` and the
+    icon from ``event``, so a mixed record could read "Vigilance **jaune**
+    canicule" while carrying an **orange** level. Per-day truth goes to
+    ``episode_days``; the window is widened to span the whole run.
+
+    A single-day run leaves ``episode_days`` empty: the profile would only
+    restate the alert's own fields, and the attribute stays sparse.
+    """
+    sender, event_key, region_key = key
+    dominant = min(run, key=lambda a: (-_severity_rank(a), _ts_sort_key(a.onset)))
+    onsets = [a.onset for a in run if a.onset]
+    expiries = [a.expires for a in run if a.expires]
+    region_codes = tuple(region_key.split(";")) if region_key else ()
+    return replace(
+        dominant,
+        id=_meteofrance_id(
+            sender,
+            event_key,
+            region_codes,
+            window_key,
+            fallback=dominant.identifier or dominant.id,
+        ),
+        onset=min(onsets, key=_ts_sort_key) if onsets else dominant.onset,
+        expires=max(expiries, key=_ts_sort_key) if expiries else dominant.expires,
+        episode_days=tuple(_episode_day(a) for a in run) if len(run) > 1 else (),
+    )
+
+
+def _merge_meteofrance_episodes(
+    alerts: list[CAPAlert], *, now: datetime
+) -> list[CAPAlert]:
+    """Collapse MeteoFrance forecast days into episodes; pass everything else.
+
+    Runs last in ``async_fetch`` because it must precede the alert store, which
+    keys incoming alerts by id and would silently drop one of any pair sharing
+    the day-free id this produces.
+    """
+    if not any(a.sender == _MF_SENDER for a in alerts):
+        return alerts
+
+    passthrough = [a for a in alerts if a.sender != _MF_SENDER]
+    groups: dict[tuple[str, str, str], list[CAPAlert]] = {}
+    for alert in alerts:
+        if alert.sender != _MF_SENDER or _is_finished(alert, now):
+            continue
+        groups.setdefault(_episode_group_key(alert), []).append(alert)
+
+    merged: list[CAPAlert] = []
+    for key, members in groups.items():
+        runs = _calendar_day_runs(members)
+        for index, run in enumerate(runs):
+            # The earliest run keeps the day-free id — surviving midnight is
+            # the entire point. A *second* live run for one phenomenon and
+            # region needs MeteoFrance to skip a forecast day mid-episode,
+            # which 227 live samples never showed; but if it ever happens the
+            # runs must not collide on a single id, because the alert store
+            # keys by id and would silently drop one. Later runs therefore
+            # re-add their first day, which churns only the pending entity and
+            # never the one currently in effect.
+            first = run[0]
+            window_key = (
+                ""
+                if index == 0
+                else _forecast_window_key(first.onset, first.effective, first.sent)
+            )
+            merged.append(_merge_run(run, key, window_key))
+    merged.sort(key=lambda a: (_ts_sort_key(a.onset), a.event, a.id))
+    return passthrough + merged
 
 
 def _lang_prefix(value: str) -> str:
@@ -443,6 +706,24 @@ def _geometry_from_rings(
     return {"type": "MultiPolygon", "coordinates": [[ring] for ring in rings]}
 
 
+def _primary_info(
+    warning: Mapping[str, Any], preferred_prefix: str
+) -> Mapping[str, Any] | None:
+    """The info block ``_warning_to_alert`` selected, for callers needing areas.
+
+    ``_warning_to_alert`` flattens the area blocks into ``area_desc`` and a
+    de-duplicated ``geocodes`` container, which loses the pairing between a
+    department's code and its name. The region explosion needs that pairing, so
+    it re-selects the same block rather than trying to re-zip two independently
+    de-duplicated sequences.
+    """
+    infos = (warning.get("alert") or {}).get("info") or []
+    if not infos:
+        return None
+    primary, _alt = _pick_info_blocks(infos, preferred_prefix)
+    return primary
+
+
 def _warning_to_alert(
     warning: Mapping[str, Any], preferred_prefix: str
 ) -> CAPAlert | None:
@@ -653,8 +934,15 @@ class MeteoAlarmProvider:
         *,
         cap_content_cache=None,
         user_agent=None,
+        now: datetime | None = None,
     ) -> list[CAPAlert]:
-        """Fetch the country feed and return a ``CAPAlert`` per warning."""
+        """Fetch the country feed and return a ``CAPAlert`` per warning.
+
+        ``now`` is the clock the MeteoFrance episode merge uses to decide which
+        forecast days have finished; injected so tests never race the wall
+        clock. Extra keyword with a default, so the ``AlertProvider`` protocol
+        is still satisfied.
+        """
         country = (config.get(CONF_COUNTRY, "") or "").upper()
         if not country:
             raise UpdateFailed("MeteoAlarm: country not configured")
@@ -677,19 +965,33 @@ class MeteoAlarmProvider:
 
         preferred_prefix = _lang_prefix(options.get(CONF_LANGUAGE, "")) or "en"
 
+        gps_loc = config.get(CONF_GPS_LOC)
+        regions = config.get(CONF_REGIONS)
+        # Region-picker mode only: the configured scope MeteoFrance bulletins
+        # are exploded against (see ``_explode_mf_by_region``).
+        wanted = (
+            {str(r) for r in regions if r} if regions and not gps_loc else set[str]()
+        )
+
         alerts: list[CAPAlert] = []
         for warning in warnings:
             if not isinstance(warning, dict):
                 continue
             alert = _warning_to_alert(warning, preferred_prefix)
-            if alert is not None:
+            if alert is None:
+                continue
+            info = (
+                _primary_info(warning, preferred_prefix)
+                if wanted and alert.sender == _MF_SENDER
+                else None
+            )
+            if info is not None:
+                alerts.extend(_explode_mf_by_region(alert, info, wanted))
+            else:
                 alerts.append(alert)
 
         # Before any mode filter, so all three modes are equally protected.
         alerts = _drop_mf_non_warnings(alerts)
-
-        gps_loc = config.get(CONF_GPS_LOC)
-        regions = config.get(CONF_REGIONS)
 
         if gps_loc:
             # Fully-mobile mode (country resolved from a source entity) can
@@ -698,12 +1000,15 @@ class MeteoAlarmProvider:
             # than dropped. Explicit fixed-country GPS/tracker modes still
             # filter strictly and fail loud on zero polygons.
             mobile = CONF_COUNTRY_ENTITY in config
-            return self._filter_by_polygon(
+            alerts = self._filter_by_polygon(
                 alerts, gps_loc, country, keep_polygonless=mobile
             )
-        if regions:
-            return self._filter_by_regions(alerts, regions)
-        return alerts
+        elif regions:
+            alerts = self._filter_by_regions(alerts, regions)
+
+        return _merge_meteofrance_episodes(
+            alerts, now=now or datetime.now(timezone.utc)
+        )
 
     @staticmethod
     def _filter_by_polygon(
@@ -766,11 +1071,9 @@ class MeteoAlarmProvider:
         the shared scheme-priority resolver, so the values compared here are
         the same scheme the region picker offered (see ``_region_pairs``).
 
-        For MeteoFrance (issue #37), the kept alert's id is recomputed against
-        the *configured-region intersection* rather than the bulletin's full
-        department set, so a fixed department keeps a stable id even when other
-        departments enter or leave the bulletin between polls. Non-MeteoFrance
-        alerts are kept unchanged.
+        Pure filtering for every sender: MeteoFrance identity is owned by
+        ``_merge_meteofrance_episodes``, which runs after this and recomputes
+        the id from the exploded single-department scope.
         """
         wanted = {str(r) for r in regions if r}
         if not wanted:
@@ -779,21 +1082,6 @@ class MeteoAlarmProvider:
         for a in alerts:
             descs = tuple(d.strip() for d in a.area_desc.split(",") if d.strip())
             resolved = _region_codes(a.geocodes, descs)
-            if not wanted.intersection(resolved):
-                continue
-            if a.sender == _MF_SENDER:
-                matched = sorted(wanted & set(resolved))
-                event_key = _awareness_type_code(a.parameters) or a.event.casefold()
-                window_key = _forecast_window_key(a.onset, a.effective, a.sent)
-                a = replace(
-                    a,
-                    id=_meteofrance_id(
-                        a.sender,
-                        event_key,
-                        matched,
-                        window_key,
-                        fallback=a.identifier or a.id,
-                    ),
-                )
-            kept.append(a)
+            if wanted.intersection(resolved):
+                kept.append(a)
         return kept

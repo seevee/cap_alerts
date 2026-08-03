@@ -27,6 +27,18 @@ Event names match the RFC §2.3 `incident_*` contract.
 it when `phase` appears in `changed_fields`: the previous phase was whatever
 `phase` is now minus the transition.
 
+### MeteoFrance episodes
+
+The payload schema is unchanged, but the *cadence* differs for MeteoFrance
+alerts, whose forecast days are merged into one episode entity (see
+*architecture.md → MeteoAlarm → Identity*). An episode gaining a day surfaces as
+`incident_updated` with `expires` in `changed_fields` — where the previous
+behaviour was an `incident_created` for a whole new entity each day. An episode
+losing its earliest day is invisible: the merged window's `expires` does not
+move, so no allowlisted field changes. A finished MeteoFrance day is dropped by
+the provider, so it reaches the store as a silent disappearance and fires
+`incident_removed` with the inferred terminal phase `expired`.
+
 ## Terminal-phase semantics on `incident_removed`
 
 The removal event always carries a terminal `phase`:

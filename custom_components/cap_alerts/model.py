@@ -152,6 +152,17 @@ class CAPAlert:
     language: str = ""  # BCP-47 of primary content (e.g. "en-CA")
     language_alt: str = ""  # BCP-47 of alternate content (e.g. "fr-CA")
 
+    # -- Episode (MeteoFrance multi-day merge) --
+    # Per-day profile of a merged episode, ordered by date, one entry per
+    # forecast day. Populated only by the MeteoAlarm provider for MeteoFrance,
+    # which publishes one warning per calendar day rather than one per episode
+    # (issue #37); empty for every other sender and provider. The merged alert
+    # carries the dominant day's content, so this is where per-day truth lives.
+    # Keys: date, onset, expires, severity, awareness_level, event, headline,
+    # area_desc. Serialized by ``to_attributes``'s tuple branch as a list of
+    # objects, and omitted while empty.
+    episode_days: tuple[dict[str, str], ...] = ()
+
     # -- Provider --
     provider: str = "nws"
 

@@ -6,6 +6,7 @@ import importlib.util
 import json
 import sys
 import types
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -382,15 +383,22 @@ def _fr_payload() -> dict:
 async def test_region_picker_intersects_nuts3():
     # France filters on NUTS3 department codes (#25). Selecting FR614 keeps
     # only the warning covering Lot-et-Garonne.
+    #
+    # ``now`` is inside the fixture's window: the MeteoFrance episode merge
+    # drops forecast days that have already finished, so without it this
+    # asserts nothing once the fixture's dates fall into the past.
     session = _FakeSession(_fr_payload())
     provider = meteoalarm.MeteoAlarmProvider()
     alerts = await provider.async_fetch(
         session,
         config={"country": "FR", "regions": ["FR614"]},
         options={"language": "fr"},
+        now=datetime(2026, 7, 3, 12, tzinfo=timezone.utc),
     )
     assert len(alerts) == 1
-    assert "FR614" in alerts[0].geocodes["NUTS3"]
+    # The bulletin is exploded to the configured department, so the surviving
+    # alert's geocodes are scoped to FR614 alone rather than its full set.
+    assert alerts[0].geocodes["NUTS3"] == ("FR614",)
 
 
 @pytest.mark.asyncio
@@ -520,18 +528,28 @@ def _fr_green_markers_payload() -> dict:
     )
 
 
+# Inside the window of both real bulletins in that fixture (the orages one runs
+# 2026-08-03T16:04+02:00 → 2026-08-04T00:00+02:00).
+_GREEN_MARKERS_NOW = datetime(2026, 8, 3, 18, tzinfo=timezone.utc)
+
+
 @pytest.mark.asyncio
 async def test_fetch_drops_green_markers_in_region_mode():
     # End to end: the fixture's four warnings are one real canicule bulletin,
     # its zero-length green twin, one real orages bulletin, and its supersede
     # marker. Both markers share an id with the bulletin they refer to, so
     # without the drop the store keeps whichever arrives last.
+    #
+    # ``now`` sits inside both bulletins' windows: the episode merge drops
+    # finished forecast days, so leaving it to the wall clock makes this pass
+    # or fail depending on the hour the suite runs.
     session = _FakeSession(_fr_green_markers_payload())
     provider = meteoalarm.MeteoAlarmProvider()
     alerts = await provider.async_fetch(
         session,
         config={"country": "FR", "regions": ["FR101"]},
         options={"language": "fr"},
+        now=_GREEN_MARKERS_NOW,
     )
     assert len(alerts) == 2
     assert len({a.id for a in alerts}) == 2
@@ -547,6 +565,7 @@ async def test_fetch_drops_green_markers_in_country_mode():
         session,
         config={"country": "FR"},
         options={"language": "fr"},
+        now=_GREEN_MARKERS_NOW,
     )
     assert len(alerts) == 2
     assert {a.event for a in alerts} == {

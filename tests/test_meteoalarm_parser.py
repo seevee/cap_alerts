@@ -367,18 +367,17 @@ def test_non_meteofrance_sender_uses_identifier_hash(feed_de):
         assert a.id == expected
 
 
-def test_region_scope_stable_across_set_churn(feed_fr_regionset_churn):
-    # A bulletin covering {FR623, FR615, FR611} re-issued as {FR623, FR615,
-    # FR614} — a configured user watching FR623 must keep a stable id even as
-    # the bulletin's full department set churns. The unscoped base ids differ
-    # (full sets differ); _filter_by_regions scopes them to the FR623
-    # intersection, making them equal.
+def test_region_filter_is_pure_filtering(feed_fr_regionset_churn):
+    # _filter_by_regions no longer rewrites MeteoFrance ids: identity is owned
+    # by the episode merge, which runs after it and recomputes from the
+    # exploded single-department scope. This asserts the filter keeps the
+    # matching alert byte-identical, for every sender.
+    # Scope stability across a churning department set is covered end-to-end by
+    # test_meteoalarm_episodes.test_episode_stable_across_footprint_churn.
     a, b = _parse(feed_fr_regionset_churn, preferred_prefix="fr")
-    assert a.id != b.id  # base ids use full (differing) region sets
-    filtered_a = meteoalarm.MeteoAlarmProvider._filter_by_regions([a], ["FR623"])
-    filtered_b = meteoalarm.MeteoAlarmProvider._filter_by_regions([b], ["FR623"])
-    assert len(filtered_a) == 1 and len(filtered_b) == 1
-    assert filtered_a[0].id == filtered_b[0].id
+    for alert in (a, b):
+        (kept,) = meteoalarm.MeteoAlarmProvider._filter_by_regions([alert], ["FR623"])
+        assert kept == alert
 
 
 def test_non_meteofrance_region_filter_leaves_id_unchanged(feed_de):
