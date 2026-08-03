@@ -316,7 +316,9 @@ def test_escalation_keeps_id(feed_fr_reissue):
 
 def test_distinct_forecast_day_distinct_id(feed_fr_multiday):
     # Same department + phenomenon, different onset dates (J vs J+1) → distinct
-    # entities, so the 4-day outlook is not collapsed.
+    # parse-level ids. This covers per-warning parsing only: the episode merge
+    # runs afterwards and collapses consecutive days into one entity with a
+    # day-free id (see test_meteoalarm_episodes).
     j, j1 = _parse(feed_fr_multiday, preferred_prefix="fr")
     assert j.onset[:10] != j1.onset[:10]
     assert j.id != j1.id

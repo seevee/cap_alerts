@@ -87,8 +87,9 @@ def _forecast_window_key(onset: str, effective: str, sent: str) -> str:
 
     MeteoFrance re-issues a given day's warning several times but keeps the
     ``onset`` date stable, so the date (not the full timestamp) merges re-issues
-    while keeping the J/J+1/J+2/J+3 outlook days distinct. Returns ``""`` when
-    all three are empty.
+    while keeping forecast days distinct. The episode merge groups days on this
+    key; it reaches a shipped id only as the collision tie-breaker for a second
+    live run of one episode key. Returns ``""`` when all three are empty.
     """
     for value in (onset, effective, sent):
         if value:
@@ -173,11 +174,14 @@ def _meteofrance_id(
 
     Keys on sender + phenomenon + forecast-region set + forecast day so a
     re-issue (fresh per-message identifier, same logical warning) keeps one
-    stable id, while distinct phenomena, regions, and forecast days stay
-    distinct entities. Severity/color is intentionally excluded so an
-    orange→red escalation updates the existing entity rather than spawning a
-    new one. Falls back to hashing ``fallback`` when every key component is
-    empty (degenerate warning).
+    stable id, while distinct phenomena and regions stay distinct entities.
+    Shipped ids are minted by ``_merge_meteofrance_episodes`` with an *empty*
+    ``window_key`` so they survive midnight; the day component survives only
+    as the collision tie-breaker for a second live run of one episode key.
+    Severity/color is intentionally excluded so an orange→red escalation
+    updates the existing entity rather than spawning a new one. Falls back to
+    hashing ``fallback`` when every key component is empty (degenerate
+    warning).
     """
     region_key = ";".join(sorted(region_codes))
     if not (sender or event_key or region_key or window_key):
@@ -198,7 +202,9 @@ def _compute_alert_id(
 
     MeteoFrance gets the re-issue-stable content key; every other authority
     keeps the per-message identifier hash (byte-for-byte unchanged from before
-    issue #37's fix).
+    issue #37's fix). The MeteoFrance id minted here is provisional —
+    ``_merge_meteofrance_episodes`` recomputes every live MeteoFrance id
+    before ``async_fetch`` returns.
     """
     if sender == _MF_SENDER:
         return _meteofrance_id(

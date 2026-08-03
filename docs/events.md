@@ -34,9 +34,14 @@ alerts, whose forecast days are merged into one episode entity (see
 *architecture.md → MeteoAlarm → Identity*). An episode gaining a day surfaces as
 `incident_updated` with `expires` in `changed_fields` — where the previous
 behaviour was an `incident_created` for a whole new entity each day. An episode
-losing its earliest day is invisible: the merged window's `expires` does not
-move, so no allowlisted field changes. A finished MeteoFrance day is dropped by
-the provider, so it reaches the store as a silent disappearance and fires
+losing its earliest finished day keeps its id and usually also fires
+`incident_updated`: the dominant-day tie-break prefers the earliest day, so
+when that day finishes the content flips to the next day's
+`headline`/`description` (and `severity_normalized` falls if the finished day
+was the more severe one). The roll-off passes without an event only when the
+surviving day already supplied the content — `onset` moves, but it is not an
+allowlisted field. Once the *whole* episode has finished, the provider drops
+it, so it reaches the store as a silent disappearance and fires
 `incident_removed` with the inferred terminal phase `expired`.
 
 ## Terminal-phase semantics on `incident_removed`

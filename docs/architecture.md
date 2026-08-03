@@ -396,7 +396,10 @@ live alongside the current day's for most of the day (live sampling: an
 in-effect/pending overlap in 170 of 227 samples, throughout the day rather than
 in an afternoon window). With `window_key` in the id, one multi-day heat or storm
 episode became one entity per day and the id rolled over at midnight — the defect
-reported in #37.
+reported in #37. Per-day publication is MeteoFrance's deliberate product model
+(the vigilance map is two panels, today and tomorrow, each department colored per
+day), not a feed quirk; the defect was in this integration's 1:1 mapping of that
+model onto durable HA entities, and the merge re-maps it rather than corrects it.
 
 `_merge_meteofrance_episodes` therefore collapses a run of consecutive forecast
 days into a single alert, keyed *without* the day component:
