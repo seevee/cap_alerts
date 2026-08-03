@@ -28,6 +28,7 @@ import hashlib
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from datetime import datetime
 from typing import Any
 
 import aiohttp
@@ -92,6 +93,62 @@ def _forecast_window_key(onset: str, effective: str, sent: str) -> str:
         if value:
             return value[:10]
     return ""
+
+
+def _parse_ts(value: str) -> datetime | None:
+    """Parse an ISO-8601 timestamp, or ``None`` when absent or unparseable."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _is_live_mf_warning(alert: CAPAlert) -> bool:
+    """False for a MeteoFrance "no warning" marker, True for a real bulletin.
+
+    MeteoFrance encodes green/no-warning as an ``Actual``/``Update`` with a
+    degenerate window, in two shapes: ``expires < onset`` (supersede marker,
+    ``expires`` is the replacement's issue time) and ``expires == onset``
+    (zero-length). Both are non-warnings, but they carry the same ``event``
+    text, ``awareness_type``, and areas as the real bulletin for that
+    department-day — and ``_meteofrance_id`` deliberately excludes severity, so
+    a marker and the bulletin it refers to hash to the *same* id. The alert
+    store keys incoming alerts by id, so whichever arrives last wins and the
+    real warning can be silently displaced by a green one (issue #37).
+
+    The ``>`` is load-bearing and must not be "tidied" to ``>=``: the
+    zero-length shape is a third of a live France feed, its ``expires`` is a
+    future day boundary (so a plain ``expires <= now`` check never catches it),
+    and it is sent seconds apart from the genuine bulletin.
+
+    Fails open — an absent or unparseable window keeps the warning, so a feed
+    format change can never silently drop real alerts. Callers gate on
+    ``sender == _MF_SENDER``; the shape is unverified for other authorities.
+    """
+    onset = _parse_ts(alert.onset)
+    expires = _parse_ts(alert.expires)
+    if onset is None or expires is None:
+        return True
+    try:
+        return expires > onset
+    except TypeError:
+        # Mixed offset-aware/naive timestamps — not comparable, fail open.
+        return True
+
+
+def _drop_mf_non_warnings(alerts: list[CAPAlert]) -> list[CAPAlert]:
+    """Drop MeteoFrance green markers, leaving every other sender untouched."""
+    kept = [a for a in alerts if a.sender != _MF_SENDER or _is_live_mf_warning(a)]
+    dropped = len(alerts) - len(kept)
+    if dropped:
+        _LOGGER.debug(
+            "MeteoAlarm: dropped %d MeteoFrance no-warning marker(s) of %d",
+            dropped,
+            len(alerts),
+        )
+    return kept
 
 
 def _default_id(identifier: str, uuid: str) -> str:
@@ -627,6 +684,9 @@ class MeteoAlarmProvider:
             alert = _warning_to_alert(warning, preferred_prefix)
             if alert is not None:
                 alerts.append(alert)
+
+        # Before any mode filter, so all three modes are equally protected.
+        alerts = _drop_mf_non_warnings(alerts)
 
         gps_loc = config.get(CONF_GPS_LOC)
         regions = config.get(CONF_REGIONS)

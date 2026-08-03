@@ -131,6 +131,13 @@ def feed_fr_regionset_churn() -> dict:
     )
 
 
+@pytest.fixture
+def feed_fr_green_markers() -> dict:
+    return json.loads(
+        (_FIXTURE_DIR / "meteoalarm_fr_green_markers.json").read_text(encoding="utf-8")
+    )
+
+
 def _parse(feed: dict, preferred_prefix: str = "de"):
     """Run the provider's per-warning conversion across a JSON payload."""
     alerts = []
@@ -381,3 +388,144 @@ def test_non_meteofrance_region_filter_leaves_id_unchanged(feed_de):
     region = target.geocodes["EMMA_ID"][0]
     (kept,) = meteoalarm.MeteoAlarmProvider._filter_by_regions([target], [region])
     assert kept.id == target.id
+
+
+# --- MeteoFrance green "no warning" markers (issue #37) -------------------
+
+
+def _mf_warning(
+    *,
+    uuid: str,
+    sender: str = "vigilance@meteo.fr",
+    onset: str,
+    expires: str,
+    level: str = "1; green; Minor",
+) -> dict:
+    """Minimal one-area warning, for shapes not worth a whole fixture file."""
+    return {
+        "uuid": uuid,
+        "alert": {
+            "identifier": f"identifier-{uuid}",
+            "sender": sender,
+            "sent": "2026-08-03T16:05:31+02:00",
+            "status": "Actual",
+            "msgType": "Update",
+            "info": [
+                {
+                    "language": "fr-FR",
+                    "event": "Vigilance jaune canicule",
+                    "onset": onset,
+                    "expires": expires,
+                    "parameter": [{"valueName": "awareness_level", "value": level}],
+                    "area": [
+                        {
+                            "areaDesc": "Paris",
+                            "geocode": [{"valueName": "NUTS3", "value": "FR101"}],
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+
+
+def test_green_marker_shares_id_with_real_warning(feed_fr_green_markers):
+    # The mechanism behind the bug: the zero-length green Update and the real
+    # yellow Alert for the same department-day have the same awareness_type
+    # and areas, and _meteofrance_id excludes severity, so they hash alike.
+    # The alert store keys on id, so one silently displaces the other.
+    alerts = _parse(feed_fr_green_markers, preferred_prefix="fr")
+    real = next(a for a in alerts if a.parameters["awareness_level"].startswith("2;"))
+    green = next(
+        a
+        for a in alerts
+        if a.parameters["awareness_level"].startswith("1;") and a.expires == a.onset
+    )
+    assert real.id == green.id
+
+
+def test_green_zero_length_marker_dropped(feed_fr_green_markers):
+    # expires == onset: a future day boundary, so no expires-vs-now check
+    # catches it. Only the onset comparison does.
+    alerts = _parse(feed_fr_green_markers, preferred_prefix="fr")
+    kept = meteoalarm._drop_mf_non_warnings(alerts)
+    assert not any(a.expires == a.onset for a in kept)
+
+
+def test_supersede_marker_dropped(feed_fr_green_markers):
+    alerts = _parse(feed_fr_green_markers, preferred_prefix="fr")
+    kept = meteoalarm._drop_mf_non_warnings(alerts)
+    assert not any(a.expires < a.onset for a in kept)
+
+
+def test_green_marker_never_displaces_live_warning(feed_fr_green_markers):
+    # The fixture sends the green marker two seconds *after* the real bulletin,
+    # so any "latest sent wins" rule would seat the non-warning here.
+    alerts = _parse(feed_fr_green_markers, preferred_prefix="fr")
+    kept = meteoalarm._drop_mf_non_warnings(alerts)
+    canicule = [a for a in kept if a.event == "Vigilance jaune canicule"]
+    assert len(canicule) == 1
+    survivor = normalize_alerts(canicule)[0]
+    assert survivor.parameters["awareness_level"].startswith("2;")
+    assert survivor.severity_normalized == "moderate"
+    assert survivor.expires > survivor.onset
+
+
+def test_live_ids_unique_after_green_drop(feed_fr_green_markers):
+    alerts = _parse(feed_fr_green_markers, preferred_prefix="fr")
+    assert len({a.id for a in alerts}) < len(alerts)  # collides before the drop
+    kept = meteoalarm._drop_mf_non_warnings(alerts)
+    assert len({a.id for a in kept}) == len(kept) == 2
+
+
+def test_non_meteofrance_degenerate_window_kept():
+    # The degenerate-window convention is MeteoFrance's and is unverified for
+    # other authorities, so the drop must never reach them.
+    payload = {
+        "warnings": [
+            _mf_warning(
+                uuid="de-zero-length",
+                sender="dwd@dwd.de",
+                onset="2026-08-04T00:00:00+02:00",
+                expires="2026-08-04T00:00:00+02:00",
+            )
+        ]
+    }
+    alerts = _parse(payload, preferred_prefix="de")
+    assert meteoalarm._drop_mf_non_warnings(alerts) == alerts
+
+
+def test_unparseable_window_fails_open():
+    # A feed format change must never silently drop real warnings.
+    payload = {
+        "warnings": [
+            _mf_warning(
+                uuid="fr-bad-window",
+                onset="2026-08-04T00:00:00+02:00",
+                expires="not-a-timestamp",
+            ),
+            _mf_warning(
+                uuid="fr-no-window",
+                onset="",
+                expires="",
+            ),
+        ]
+    }
+    alerts = _parse(payload, preferred_prefix="fr")
+    assert len(meteoalarm._drop_mf_non_warnings(alerts)) == len(alerts) == 2
+
+
+def test_naive_and_aware_timestamps_fail_open():
+    # Mixed offset-aware/naive values are not comparable; keep the warning
+    # rather than raising out of the fetch.
+    payload = {
+        "warnings": [
+            _mf_warning(
+                uuid="fr-mixed-tz",
+                onset="2026-08-04T00:00:00",
+                expires="2026-08-04T00:00:00+02:00",
+            )
+        ]
+    }
+    alerts = _parse(payload, preferred_prefix="fr")
+    assert len(meteoalarm._drop_mf_non_warnings(alerts)) == 1

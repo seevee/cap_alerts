@@ -509,3 +509,47 @@ async def test_fetch_regions_raises_when_both_paths_fail():
 
     with pytest.raises(UpdateFailed):
         await meteoalarm.fetch_regions_for_country(session, "DE")
+
+
+# ── MeteoFrance green "no warning" markers (issue #37) ─────────────
+
+
+def _fr_green_markers_payload() -> dict:
+    return json.loads(
+        (_FIXTURE_DIR / "meteoalarm_fr_green_markers.json").read_text(encoding="utf-8")
+    )
+
+
+@pytest.mark.asyncio
+async def test_fetch_drops_green_markers_in_region_mode():
+    # End to end: the fixture's four warnings are one real canicule bulletin,
+    # its zero-length green twin, one real orages bulletin, and its supersede
+    # marker. Both markers share an id with the bulletin they refer to, so
+    # without the drop the store keeps whichever arrives last.
+    session = _FakeSession(_fr_green_markers_payload())
+    provider = meteoalarm.MeteoAlarmProvider()
+    alerts = await provider.async_fetch(
+        session,
+        config={"country": "FR", "regions": ["FR101"]},
+        options={"language": "fr"},
+    )
+    assert len(alerts) == 2
+    assert len({a.id for a in alerts}) == 2
+    for a in alerts:
+        assert a.parameters["awareness_level"].startswith("2;")
+
+
+@pytest.mark.asyncio
+async def test_fetch_drops_green_markers_in_country_mode():
+    session = _FakeSession(_fr_green_markers_payload())
+    provider = meteoalarm.MeteoAlarmProvider()
+    alerts = await provider.async_fetch(
+        session,
+        config={"country": "FR"},
+        options={"language": "fr"},
+    )
+    assert len(alerts) == 2
+    assert {a.event for a in alerts} == {
+        "Vigilance jaune canicule",
+        "Vigilance jaune orages",
+    }
