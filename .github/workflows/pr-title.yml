@@ -9,8 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check PR title follows conventional commits
+        # The title is untrusted input: it reaches this runner verbatim from
+        # whoever opened the PR. Passing it through ``env`` keeps it a shell
+        # *value*; interpolating ``${{ … }}`` into the script body instead
+        # would splice it into the source text, so a title containing a quote,
+        # backtick or $(…) is parsed as shell. Do not inline it.
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
         run: |
-          TITLE="${{ github.event.pull_request.title }}"
           PATTERN='^(feat|fix|perf|refactor|docs|chore|test|ci|build|style|revert)(\(.+\))?!?: .+'
           if [[ ! "$TITLE" =~ $PATTERN ]]; then
             echo "::error::PR title must follow conventional commits format: type(scope): description"
