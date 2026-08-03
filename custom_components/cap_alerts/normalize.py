@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
+from types import MappingProxyType
 
 from .const import BUDDHIST_ERA_OFFSET, MIN_BUDDHIST_ERA_YEAR
 from .icons import icon_for
@@ -23,6 +25,15 @@ _ISO_YEAR_RE = re.compile(r"^(\d{4})(\D.*)$")
 
 # CAP canonical severity set (RFC §2.1). Anything outside clamps to "unknown".
 _CANONICAL_SEVERITIES = frozenset({"extreme", "severe", "moderate", "minor", "unknown"})
+
+# Canonical severity ordering, ascending. Public because providers that have to
+# pick the most severe of several records (the MeteoAlarm episode merge) must
+# rank with the same ladder normalization uses — two ladders would drift apart
+# silently. Note "unknown" sits at the bottom, so a MeteoAlarm green (which maps
+# to "unknown", not "minor") can never outrank a real warning.
+SEVERITY_RANK: Mapping[str, int] = MappingProxyType(
+    {"unknown": 0, "minor": 1, "moderate": 2, "severe": 3, "extreme": 4}
+)
 
 # Provider-native ``lifecycle_status`` values that mean the alert has reached
 # end-of-life for the area it was selected for, whatever its ``msgType`` and
@@ -116,7 +127,7 @@ def _normalize_severity(alert: CAPAlert) -> str:
     if alert.provider == "nws":
         raw = _nws_severity(alert)
     elif alert.provider == "meteoalarm" and (
-        awareness := _meteoalarm_awareness_severity(alert)
+        awareness := meteoalarm_awareness_severity(alert)
     ):
         raw = awareness
     elif alert.severity:
@@ -126,7 +137,7 @@ def _normalize_severity(alert: CAPAlert) -> str:
     return raw if raw in _CANONICAL_SEVERITIES else "unknown"
 
 
-def _meteoalarm_awareness_severity(alert: CAPAlert) -> str | None:
+def meteoalarm_awareness_severity(alert: CAPAlert) -> str | None:
     """Map MeteoAlarm ``awareness_level`` to a canonical severity, or None.
 
     The parameter format published by EUMETNET members is ``"N; color; Label"``

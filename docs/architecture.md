@@ -381,13 +381,69 @@ a fresh identifier — hashing it spawned a duplicate entity each poll. For
   department is stable even as other departments enter/leave the bulletin);
   the full resolved set otherwise,
 - `window_key` = the `YYYY-MM-DD` date of `onset` (then `effective`, then
-  `sent`) — the forecast day, stable across a day's re-issues, distinct across
-  the J/J+1/J+2/J+3 outlook.
+  `sent`) — the forecast day. **Empty for a merged episode** (see below); it
+  survives only as a tie-breaker when one region and phenomenon somehow carry
+  two live, non-adjacent runs.
 
 Severity/color (`awareness_level`) is deliberately excluded so an orange→red
 escalation updates the existing entity rather than spawning a new one. Existing
 MeteoFrance entities recompute once on upgrade (stale ones are safe to delete);
 all other authorities are byte-for-byte unchanged.
+
+**MeteoFrance episode merge**: MeteoFrance publishes one warning per calendar
+*day*, each running roughly 00:00 → 00:00 local, and the next day's bulletin goes
+live alongside the current day's for most of the day (live sampling: an
+in-effect/pending overlap in 170 of 227 samples, throughout the day rather than
+in an afternoon window). With `window_key` in the id, one multi-day heat or storm
+episode became one entity per day and the id rolled over at midnight — the defect
+reported in #37. Per-day publication is MeteoFrance's deliberate product model
+(the vigilance map is two panels, today and tomorrow, each department colored per
+day), not a feed quirk; the defect was in this integration's 1:1 mapping of that
+model onto durable HA entities, and the merge re-maps it rather than corrects it.
+
+`_merge_meteofrance_episodes` therefore collapses a run of consecutive forecast
+days into a single alert, keyed *without* the day component:
+
+- **Region-picker mode explodes first.** The bulletin is split into one alert per
+  configured department, using the `<area>` blocks (each carries one `areaDesc`
+  and one NUTS3 code), so the episode key is `(sender, phenomenon, one
+  department)`. This is what makes it stable: the *set* of departments a bulletin
+  covers moves overnight — a thunderstorm bulletin was measured going from 83
+  departments to 54 — so any set-derived key, including an intersection with a
+  multi-department config, would split the episode anyway. It also replaces an
+  `area_desc` listing up to 83 departments with the one the user selected.
+- **The most severe day supplies the content wholesale**, tie-broken to the
+  earliest onset; `onset`/`expires` widen to span the run. Blending fields would
+  let the record contradict itself, since `severity_normalized` derives from
+  `awareness_level` and the icon from `event`. Per-day truth goes to the new
+  `episode_days` attribute (`date`, `onset`, `expires`, `severity`,
+  `awareness_level`, `event`, `headline`, `area_desc`), which stays absent for a
+  single-day run because it would only restate the alert's own fields.
+- **Finished days are dropped before merging.** Without that, a finished run and
+  an upcoming run for the same key collide on the day-free id, and the alert
+  store — which keys by id — would silently drop one. This makes the provider
+  clock-dependent, so `async_fetch` takes an injectable `now`.
+- **A gap of more than one calendar day starts a new run**, read as a genuinely
+  separate episode. That has never been observed live (0 of 227 samples), so the
+  reading is unproven; getting it wrong degrades to two entities rather than
+  losing anything. The *second* and later runs re-add their first day to the key
+  so two live runs can never collide — churning only the pending entity, never
+  the one in effect.
+- **Country-wide mode keeps the full-set key** and therefore still splits an
+  episode when the footprint moves. Known limitation, accepted because exploding
+  per department there would turn France into roughly 150 entities.
+
+Measured against a live France feed at a fixed instant: 256 entities across 88
+departments become 149, the most any one department carries drops from 6 to 3,
+and no (department, phenomenon) cell is lost.
+
+A horizon/outlook filter was considered and **rejected** — the merge subsumes it.
+Live depth is two forecast days, not the four the J/J+1/J+2/J+3 framing suggests
+(the larger figure counted superseded messages), and both days are collapsed
+rather than hidden.
+
+MeteoFrance entity ids change once on upgrade for a second time; stale entities
+are safe to delete.
 
 **MeteoFrance "no warning" markers**: MeteoFrance encodes green/no-warning as an
 `Actual` message with a degenerate window, in two shapes — `expires < onset`
