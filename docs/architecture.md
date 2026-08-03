@@ -389,6 +389,26 @@ escalation updates the existing entity rather than spawning a new one. Existing
 MeteoFrance entities recompute once on upgrade (stale ones are safe to delete);
 all other authorities are byte-for-byte unchanged.
 
+**MeteoFrance "no warning" markers**: MeteoFrance encodes green/no-warning as an
+`Actual` message with a degenerate window, in two shapes — `expires < onset`
+(supersede marker, where `expires` carries the *replacement's* issue time) and
+`expires == onset` (zero-length). Roughly three quarters of a live France feed is
+one shape or the other. Neither is a warning, but both carry the same `event`
+text, `awareness_type`, and areas as the bulletin they refer to, so the content
+key above — which excludes severity by design — hashes a marker and its bulletin
+to the *same* id. Since `AlertStore.process` keys incoming alerts by id, whichever
+arrived last won, and a green marker could silently displace a live warning
+(observed: markers and bulletins issued 2 seconds apart, so the outcome hung on
+upstream send order).
+
+Both shapes are therefore dropped for `sender == vigilance@meteo.fr` before any
+mode filter, via `expires > onset` on parsed timestamps. The comparison must stay
+strict: a zero-length marker's `expires` is a *future* day boundary, so no
+`expires <= now` liveness check catches it. An absent or unparseable window fails
+open (the warning is kept) so a feed format change can never silently drop real
+alerts, and the rule is gated on the sender — the convention is unverified for
+other MeteoAlarm authorities, whose degenerate windows are left alone.
+
 **Field mapping**:
 
 | MeteoAlarm JSON path | CAPAlert field |
