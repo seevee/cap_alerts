@@ -42,7 +42,7 @@ custom_components/cap_alerts/
   __init__.py       # entry setup, coordinator wiring, platform forwarding
   const.py          # domain, defaults, user-agent format
   config_flow.py    # setup flow + reconfigure flow + options flow
-  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info + NAAD stream lifecycle
+  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info + NAAD stream lifecycle; provider-neutral post-fetch filters (marine, geocode-prefix)
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
   button.py         # RefreshButton: on-demand provider fetch (all providers)
   binary_sensor.py  # StreamConnectivitySensor: NAAD socket state (ECCC streaming only)
@@ -66,7 +66,7 @@ custom_components/cap_alerts/
 - `CAPAlert` dataclass has all fields optional except `id` — accommodates providers with varying completeness
 - `to_attributes()` serializes only non-empty fields (sparse attributes)
 - Dynamic entity lifecycle: alert entities are created/removed per coordinator update via `_sync_alert_entities()` callback
-- Reconfigure flow for identity/location, options flow for behavior (polling interval, timeout, language)
+- Reconfigure flow for identity/location, options flow for behavior (polling interval, timeout, language, area-code narrowing)
 - No `CONF_NAME` — entry title derived programmatically from config data
 - `entry.runtime_data` (typed as `CAPAlertsConfigEntry`) instead of `hass.data[DOMAIN]` dict
 - `async_config_entry_first_refresh()` for proper startup error handling

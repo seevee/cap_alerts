@@ -164,6 +164,52 @@ scheme" from meaning "add a field". Each alias maps to an *ordered accept-list* 
 before constructing the alert (NWS from UGC + zone codes, ECCC from the CLC prefix), so
 the marine filter does not depend on promotion.
 
+### Geocode-prefix filter (issue #73)
+
+An opt-in, **provider-neutral** narrowing keyed on the container above:
+`geocode_prefixes` (options flow, `list[str]`, absent by default) keeps only alerts
+carrying an area code that starts with one of the configured prefixes. It runs in
+`coordinator._apply` beside the marine filter — normalize → marine → geocode → geometry →
+store — so it applies to every provider and to every ingestion path (poll, stream, backfill)
+identically. It is a *layer*, not a mode: it narrows whatever the entry's location filter
+already returned rather than replacing it.
+
+Motivating case: WMO SWIC sources that publish no per-alert geometry have exactly one
+usable location mode, country-wide. `cn-cma-xx` (China, CMA) is the confirmed one — 0 of 60
+sampled bodies carried a `<polygon>`, so GPS mode tripped the fail-loud guard on every poll
+and the entry never initialized, while country-wide yielded 234 active alerts for a single
+entry (enough to destabilize the frontend: *"Client unable to keep up with pending messages"*).
+The same source carries the `zh-CN` `<info>` blocks issues #59/#72 exist to select, so
+Chinese-language users were forced into that mode. Measured 2026-08-04, prefixes reduce the
+234 to 1 (`11`, Beijing), 4 (`31`, Shanghai), 9 (`44`, Guangdong), 21 (`37`, Shandong),
+28 (`13`, Hebei).
+
+Design points:
+
+- **Prefix, not exact match.** Area codes are hierarchical, so a prefix is a scope:
+  `13` = Hebei, `1307` = Zhangjiakou, `130709000000` = Chongli. Exact matching would make
+  a user enumerate every county code — 28 of them for Hebei alone.
+- **Scheme-agnostic.** There is no cross-provider scheme-priority registry to resolve
+  "the" code from (MeteoAlarm's is country-scoped; WMO sources publish arbitrary schemes —
+  CMA's `CPEAS Geographic Code` appears in no existing table), so every value under every
+  `valueName` is compared. A colliding prefix over-matches — keeping extra alerts — rather
+  than dropping wanted ones.
+- **Variable code lengths.** Of 488 sampled CMA codes, 481 were 12 characters and 7 were 6
+  (Chongqing districts). Matching is a plain `startswith` with no zero-padding in either
+  direction; the consequence — a pasted full-length code will not match a shorter sibling —
+  is documented in the field description rather than worked around, and locked by a test.
+- **Fail-loud only on a capability failure.** `UpdateFailed` when the feed returned alerts
+  but *none* carry any geocode, the exact parallel of "this source publishes no per-alert
+  geometry" in the GPS filters. Zero *matches* is not a failure: "no alerts in my area" is
+  the normal steady state, and failing there would leave the entry unavailable most of the
+  time, inverting what unavailability means. A typo'd prefix instead surfaces as a one-shot
+  `WARNING` (naming codes the feed actually publishes, re-armed on the first match), the
+  same pattern as `_tracker_resolve_warned`.
+- **Free-text, not a picker.** Building a picker would need a full CAP-body sweep (~500
+  fetches for CMA) to enumerate areas, since the RSS envelope carries no geocode.
+  Unacceptable latency inside a config flow. Worth revisiting if SWIC ever exposes an area
+  index.
+
 ### Error contract
 
 - `UpdateFailed` for transient errors (network, 5xx, parse issues). HA handles retry.
@@ -558,12 +604,18 @@ is exposed.
 
 **Location matching** (mutually exclusive, picked in the config flow):
 - **Country-wide** — return every alert published by the source.
-- **GPS polygon** — parses each alert's CAP `<polygon>` into a GeoJSON ring and
-  keeps alerts whose ring contains the configured point. Fails loud with
-  `UpdateFailed` when the feed has alerts but none carry polygons (the source
-  does not publish per-alert geometry); matches the ECCC/MeteoAlarm GPS-mode
-  contract. WMO CAP has no standardized sub-country region code, so there is no
-  area-code filter and no GPS-tracker mode.
+- **GPS polygon / GPS tracker** — parses each alert's CAP `<polygon>` into a
+  GeoJSON ring and keeps alerts whose ring contains the configured point (static
+  coordinates, or a `device_tracker` resolved per poll by the coordinator). Fails
+  loud with `UpdateFailed` when the feed has alerts but none carry polygons (the
+  source does not publish per-alert geometry); matches the ECCC/MeteoAlarm
+  GPS-mode contract.
+
+WMO CAP has no standardized sub-country region code, so there is no *mode* keyed
+on area codes. Sources that publish neither geometry nor a known region scheme —
+`cn-cma-xx` is the confirmed case — are narrowed instead by the provider-neutral
+`geocode_prefixes` option, which layers on top of any of the modes above (see
+*Area geocodes → Geocode-prefix filter*).
 
 **Language**: SWIC bodies are frequently multilingual and document order is not
 language order — of the 110 sources sampled on 2026-08-03, 46 carried more than

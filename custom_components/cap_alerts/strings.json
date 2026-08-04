@@ -151,7 +151,8 @@
         "menu_options": {
           "wmo_country_wide": "All alerts (country-wide)",
           "wmo_gps_loc": "GPS Coordinates",
-          "wmo_gps_tracker": "GPS Tracker Entity"
+          "wmo_gps_tracker": "GPS Tracker Entity",
+          "wmo_geocode": "Area codes (prefix match)"
         }
       },
       "wmo_gps_loc": {
@@ -319,7 +320,8 @@
         "menu_options": {
           "reconfigure_wmo_country_wide": "All alerts (country-wide)",
           "reconfigure_wmo_gps_loc": "GPS Coordinates",
-          "reconfigure_wmo_gps_tracker": "GPS Tracker Entity"
+          "reconfigure_wmo_gps_tracker": "GPS Tracker Entity",
+          "reconfigure_wmo_geocode": "Area codes (prefix match)"
         }
       },
       "reconfigure_wmo_gps_loc": {
@@ -336,6 +338,24 @@
         "data": {
           "tracker_entity": "Tracker Entity"
         }
+      },
+      "wmo_geocode": {
+        "title": "WMO Area Codes",
+        "data": {
+          "geocode_prefixes": "Area codes (prefix match)"
+        },
+        "data_description": {
+          "geocode_prefixes": "Comma-separated area-code prefixes (e.g. 13,37). Fetches the whole country, then keeps only alerts whose area codes start with one of them. Codes are hierarchical, so a shorter prefix covers a wider area (13 = Hebei, 1307 = Zhangjiakou). Use this for sources that publish no per-alert polygons, where GPS filtering cannot work. Code lengths vary, so prefer the leading digits over pasting a full code. Editable later under Configure."
+        }
+      },
+      "reconfigure_wmo_geocode": {
+        "title": "WMO Area Codes",
+        "data": {
+          "geocode_prefixes": "Area codes (prefix match)"
+        },
+        "data_description": {
+          "geocode_prefixes": "Comma-separated area-code prefixes (e.g. 13,37). Fetches the whole country, then keeps only alerts whose area codes start with one of them. Codes are hierarchical, so a shorter prefix covers a wider area (13 = Hebei, 1307 = Zhangjiakou). Use this for sources that publish no per-alert polygons, where GPS filtering cannot work. Code lengths vary, so prefer the leading digits over pasting a full code. Editable later under Configure."
+        }
       }
     },
     "error": {
@@ -346,7 +366,8 @@
       "invalid_wmo_source": "Invalid WMO source ID. Select from the list or enter a valid source ID (e.g. mx-smn-es).",
       "cannot_connect": "Could not connect to the weather service.",
       "cannot_fetch_regions": "Could not load regions for this country. Try again or pick a different filter mode.",
-      "no_regions_selected": "Select at least one region."
+      "no_regions_selected": "Select at least one region.",
+      "invalid_geocode_prefix": "Invalid area code prefix. Enter a comma-separated list of codes made up of letters, digits, and : _ . - (max 32 characters each)."
     },
     "abort": {
       "reconfigure_successful": "Configuration updated successfully."
@@ -361,7 +382,8 @@
           "language": "Language",
           "streaming": "Real-time streaming",
           "feed_source": "Alert feed source",
-          "exclude_marine": "Exclude marine alerts"
+          "exclude_marine": "Exclude marine alerts",
+          "geocode_prefixes": "Area codes (prefix match)"
         },
         "data_description": {
           "scan_interval": "How often to check for new alerts (60–3600). ECCC: applies only when real-time streaming is off.",
@@ -369,9 +391,13 @@
           "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes. WMO: auto, or any BCP 47 tag the source publishes (e.g. zh-Hans); the source falls back to English when it does not carry your language.",
           "streaming": "Stream ECCC alerts over the NAAD real-time feed for near-instant updates (recommended). When off, alerts are polled from the GeoRSS feed on the polling interval. ECCC only.",
           "feed_source": "Which NAAD GeoRSS host(s) to fetch. 'auto' combines both feeds so no alert carried by only one is missed (recommended). The legacy host retires around September 2026; pin a single host only to work around a specific feed issue. ECCC only.",
-          "exclude_marine": "Hide alerts issued for marine/water zones (boating, open water). NWS and ECCC only."
+          "exclude_marine": "Hide alerts issued for marine/water zones (boating, open water). NWS and ECCC only.",
+          "geocode_prefixes": "Optional. Comma-separated area-code prefixes (e.g. 13,37). Keeps only alerts whose area codes start with one of them, on top of the location filter chosen at setup. Codes are hierarchical, so a shorter prefix covers a wider area (13 = Hebei, 1307 = Zhangjiakou). Matched against every code scheme the source publishes. Code lengths vary within a scheme, so pasting a full code may match nothing — prefer the leading digits. Leave empty to disable."
         }
       }
+    },
+    "error": {
+      "invalid_geocode_prefix": "Invalid area code prefix. Use a comma-separated list of codes made up of letters, digits, and : _ . - (max 32 characters each)."
     }
   },
   "entity": {

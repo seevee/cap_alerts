@@ -31,6 +31,7 @@ from .const import (
     CONF_COUNTRY_ENTITY,
     CONF_EXCLUDE_MARINE,
     CONF_FEED_SOURCE,
+    CONF_GEOCODE_PREFIXES,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
@@ -104,6 +105,11 @@ _ZONE_RE = re.compile(r"^[A-Za-z]{2}[CZ]\d{3}(,[A-Za-z]{2}[CZ]\d{3})*$")
 # sources sampled disagree with their CAP body's first <info> block. Body
 # language is selected at fetch time (providers/wmo.py:_select_info).
 _WMO_SOURCE_RE = re.compile(r"^[a-z]{2}(-[a-z0-9]+){2,4}$")
+# One area-code prefix. Deliberately not numeric-only: the filter compares
+# against every geocode scheme a feed publishes, which includes alphabetic ones
+# (NWS ``UGC`` "OHZ049", MeteoAlarm ``EMMA_ID`` "DE123"), so a digits-only rule
+# would make the feature China-specific.
+_GEOCODE_PREFIX_RE = re.compile(r"^[A-Za-z0-9:_.-]{1,32}$")
 
 
 def _tracker_schema(default: str | None = None) -> vol.Schema:
@@ -248,6 +254,28 @@ def _validate_wmo_source(value: str) -> tuple[str, str | None]:
     if cleaned not in WMO_SOURCE_NAMES and not _WMO_SOURCE_RE.match(cleaned):
         return value, "invalid_wmo_source"
     return cleaned, None
+
+
+def _validate_geocode_prefixes(value: str) -> tuple[list[str], str | None]:
+    """Parse a comma-separated area-code prefix list.
+
+    Returns ``(prefixes, error_key_or_None)``. Empty input is *valid* and
+    yields ``[]`` — this is an optional narrowing, and clearing the field is
+    how a user turns it back off. Tokens are stripped, empties dropped, and
+    duplicates collapsed order-preservingly. Stored verbatim rather than
+    upper-cased so the user's input stays recognisable when the form is
+    re-rendered; the filter casefolds at comparison time.
+    """
+    prefixes: list[str] = []
+    for token in value.split(","):
+        cleaned = token.strip()
+        if not cleaned:
+            continue
+        if not _GEOCODE_PREFIX_RE.match(cleaned):
+            return [], "invalid_geocode_prefix"
+        if cleaned not in prefixes:
+            prefixes.append(cleaned)
+    return prefixes, None
 
 
 def _wmo_source_selector(options: list[tuple[str, str]]) -> SelectSelector:
@@ -670,7 +698,12 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="wmo_filter",
-            menu_options=["wmo_country_wide", "wmo_gps_loc", "wmo_gps_tracker"],
+            menu_options=[
+                "wmo_country_wide",
+                "wmo_gps_loc",
+                "wmo_gps_tracker",
+                "wmo_geocode",
+            ],
         )
 
     async def async_step_wmo_country_wide(
@@ -718,6 +751,42 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="wmo_gps_tracker",
             data_schema=_tracker_schema(),
+        )
+
+    async def async_step_wmo_geocode(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Country-wide fetch narrowed by area-code prefixes.
+
+        The prefixes are an *option*, not entry data — the filter is
+        provider-neutral and editable later in the options flow. This step only
+        exists so a high-volume source can be narrowed **before** the first
+        refresh: setting it afterwards means creating hundreds of entities and
+        immediately removing most of them (``cn-cma-xx`` publishes ~260 active
+        alerts country-wide, ~30 for prefix ``13``).
+        """
+        errors: dict[str, str] = {}
+        source_id = getattr(self, "_wmo_source_id", "")
+        if user_input is not None:
+            prefixes, err = _validate_geocode_prefixes(
+                str(user_input.get(CONF_GEOCODE_PREFIXES, "") or "")
+            )
+            # Unlike the options-flow field, empty is rejected here: the user
+            # picked this mode, so an empty value is a mistake rather than
+            # "filter off".
+            if err or not prefixes:
+                errors["base"] = err or "invalid_geocode_prefix"
+            else:
+                data = {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
+                return self.async_create_entry(
+                    title=_compute_device_title(data),
+                    data=data,
+                    options={CONF_GEOCODE_PREFIXES: prefixes},
+                )
+        return self.async_show_form(
+            step_id="wmo_geocode",
+            data_schema=vol.Schema({vol.Required(CONF_GEOCODE_PREFIXES): str}),
+            errors=errors,
         )
 
     # ── Reconfigure flow ──
@@ -1135,6 +1204,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 "reconfigure_wmo_country_wide",
                 "reconfigure_wmo_gps_loc",
                 "reconfigure_wmo_gps_tracker",
+                "reconfigure_wmo_geocode",
             ],
         )
 
@@ -1200,6 +1270,45 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             ),
         )
 
+    async def async_step_reconfigure_wmo_geocode(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Switch to country-wide fetch narrowed by area-code prefixes."""
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+        source_id = getattr(self, "_wmo_source_id", "")
+        if user_input is not None:
+            prefixes, err = _validate_geocode_prefixes(
+                str(user_input.get(CONF_GEOCODE_PREFIXES, "") or "")
+            )
+            if err or not prefixes:
+                errors["base"] = err or "invalid_geocode_prefix"
+            else:
+                new_data = {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data=new_data,
+                    # Merged, not replaced: `options=` overwrites the whole
+                    # mapping, which would silently drop scan_interval,
+                    # timeout, and the language selection.
+                    options={**entry.options, CONF_GEOCODE_PREFIXES: prefixes},
+                    title=_compute_device_title(new_data),
+                )
+        return self.async_show_form(
+            step_id="reconfigure_wmo_geocode",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_GEOCODE_PREFIXES,
+                        default=",".join(
+                            entry.options.get(CONF_GEOCODE_PREFIXES, []) or []
+                        ),
+                    ): str,
+                }
+            ),
+            errors=errors,
+        )
+
 
 class CAPAlertsOptionsFlowHandler(OptionsFlow):
     """Handle options flow for CAP Alerts."""
@@ -1207,8 +1316,22 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            prefixes, err = _validate_geocode_prefixes(
+                str(user_input.get(CONF_GEOCODE_PREFIXES, "") or "")
+            )
+            if err:
+                errors["base"] = err
+            else:
+                data = {**user_input}
+                # Absent rather than empty when unset, so the coordinator's
+                # `.get(...) or []` short-circuits and options stay tidy.
+                if prefixes:
+                    data[CONF_GEOCODE_PREFIXES] = prefixes
+                else:
+                    data.pop(CONF_GEOCODE_PREFIXES, None)
+                return self.async_create_entry(title="", data=data)
 
         provider = self.config_entry.data.get(CONF_PROVIDER)
         schema: dict[vol.Optional, Any] = {
@@ -1270,7 +1393,20 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                 )
             ] = bool
 
+        # Area-code narrowing is provider-neutral: every provider populates
+        # CAPAlert.geocodes, so this is offered for all of them. Re-rendered
+        # from the rejected input rather than the stored value, so a typo is
+        # shown back to the user to correct instead of silently reverting.
+        stored_prefixes = self.config_entry.options.get(CONF_GEOCODE_PREFIXES) or []
+        prefix_default = (
+            str(user_input.get(CONF_GEOCODE_PREFIXES, "") or "")
+            if user_input is not None
+            else ",".join(stored_prefixes)
+        )
+        schema[vol.Optional(CONF_GEOCODE_PREFIXES, default=prefix_default)] = str
+
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(schema),
+            errors=errors,
         )

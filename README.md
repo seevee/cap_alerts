@@ -46,10 +46,11 @@ Pick a provider, then a location mode:
 
 - **Scan interval** — 60–3600 s, default 300
 - **Timeout** — 5–120 s, default 30
-- **Language** — ECCC: `auto` / `en-CA` / `fr-CA`. MeteoAlarm: 2-letter prefix (`en`, `de`, `fr`, …) used to pick the primary `<cap:info>` block. NWS and WMO have no language option (English-only / one language per source).
+- **Language** — ECCC: `auto` / `en-CA` / `fr-CA`. MeteoAlarm: 2-letter prefix (`en`, `de`, `fr`, …) used to pick the primary `<cap:info>` block. WMO: `auto` or any BCP 47 tag the source publishes (e.g. `zh-Hans`), matched against each `<info>` block's language. NWS has no language option (English-only).
 - **Real-time streaming** (ECCC) — ingest alerts the moment they are issued, over the NAAD TCP streaming feed; the GeoRSS feed becomes a startup/reconnect backfill plus periodic resync. Default on. Turning it off falls back to GeoRSS polling on the scan interval. A diagnostic binary sensor reports the socket state (see Entities).
 - **Feed source** (ECCC) — which NAAD GeoRSS host serves polling/backfill: `auto` (default; fetches both hosts and unions their entries, since neither alone carries every live alert), or pin `alertready` / `pelmorex` as an escape hatch.
 - **Exclude marine alerts** (NWS, ECCC) — opt-in filter that drops alerts carrying a marine zone code (NWS marine UGC area prefixes, ECCC CLC codes starting `00`). Default off.
+- **Area codes (prefix match)** (all providers) — opt-in narrowing on top of the location filter chosen at setup. Comma-separated prefixes (e.g. `13,37`); an alert is kept when any area code it publishes starts with one of them. Codes are hierarchical, so a shorter prefix covers a wider area (`13` = Hebei, `1307` = Zhangjiakou). Mainly for sources with no per-alert geometry and no region picker — notably WMO's `cn-cma-xx`, where it cuts a country-wide entry from ~234 alerts to ~28 for Hebei. Code lengths vary within a scheme, so prefer the leading digits over pasting a full code. Empty by default.
 
 Polygons are **never** emitted in entity attributes — instead, each alert
 carries a `geometry_ref` handle plus a `bbox`. Fetch the full GeoJSON via:
