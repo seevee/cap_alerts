@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -27,6 +27,7 @@ from .const import (
     CONF_COUNTRY_ATTRIBUTE,
     CONF_COUNTRY_ENTITY,
     CONF_EXCLUDE_MARINE,
+    CONF_GEOCODE_PREFIXES,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
@@ -75,6 +76,64 @@ def exclude_marine_alerts(alerts: list[CAPAlert], enabled: bool) -> list[CAPAler
     if not enabled:
         return alerts
     return [a for a in alerts if not a.is_marine]
+
+
+def matches_geocode_prefixes(alert: CAPAlert, prefixes: Sequence[str]) -> bool:
+    """Whether any of the alert's area geocodes starts with any of ``prefixes``.
+
+    Scheme-agnostic: every value in the ``geocodes`` container is compared,
+    whatever its CAP ``valueName``. There is no cross-provider scheme-priority
+    registry to derive a single "the" code from (MeteoAlarm's is country-scoped
+    and WMO sources publish arbitrary schemes), and a colliding prefix
+    over-matches — keeping extra alerts — rather than dropping wanted ones.
+
+    Comparison is casefolded and whitespace-stripped on both sides, so
+    alphabetic schemes (``UGC``, ``EMMA_ID``) behave like the numeric ones.
+    ``prefixes`` is expected pre-folded by the caller.
+    """
+    for codes in alert.geocodes.values():
+        for code in codes:
+            folded = code.strip().casefold()
+            if folded and any(folded.startswith(p) for p in prefixes):
+                return True
+    return False
+
+
+def filter_by_geocode_prefixes(
+    alerts: list[CAPAlert], prefixes: Sequence[str]
+) -> list[CAPAlert]:
+    """Keep alerts whose area geocodes match one of the configured prefixes.
+
+    Provider-neutral narrowing on top of whatever location mode the entry uses:
+    every provider populates ``CAPAlert.geocodes``, so this composes with NWS
+    zones, ECCC provinces, MeteoAlarm regions, and WMO country-wide/GPS modes
+    alike. Returns the list unchanged when no prefixes are configured (the
+    default), so existing entries are untouched.
+
+    A prefix is a *scope* because area codes are hierarchical: ``13`` is Hebei,
+    ``1307`` Zhangjiakou, ``130709000000`` Chongli. Codes vary in length within
+    one scheme — of 488 sampled CMA codes on 2026-08-04, 481 were 12 characters
+    and 7 were 6 — so the match is a plain ``startswith`` with no zero-padding
+    in either direction.
+
+    Fails loud only on a *source capability* failure: the feed returned alerts
+    but not one of them carries any geocode at all, so prefix filtering cannot
+    work here (the parallel of "this source publishes no per-alert geometry" in
+    the GPS filters). Zero *matches* is not a failure — "no alerts in my area"
+    is the normal steady state, and failing there would leave the entry
+    unavailable most of the time, inverting what unavailability means. The
+    caller logs a one-shot warning for that case instead, which is where a
+    typo'd prefix surfaces.
+    """
+    wanted = tuple(p.strip().casefold() for p in prefixes if p and p.strip())
+    if not wanted or not alerts:
+        return alerts
+    if not any(a.geocodes for a in alerts):
+        raise UpdateFailed(
+            f"geocode filter requested but none of {len(alerts)} alerts carry "
+            "area geocodes; this source does not publish them"
+        )
+    return [a for a in alerts if matches_geocode_prefixes(a, wanted)]
 
 
 def _doc_sent_before(doc: CAPDoc, cutoff: datetime) -> bool:
@@ -170,6 +229,9 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._tracker_resolve_warned = False
         self._country_resolve_warned = False
         self._stream_backfill_warned = False
+        # Same guard for a geocode-prefix filter that matches nothing — the
+        # only signal distinguishing a typo'd prefix from a quiet period.
+        self._geocode_no_match_warned = False
 
         # Real-time streaming (ECCC only, default on). When enabled, a background
         # NAAD stream client pushes CAP docs into _live_docs and the GeoRSS feed
@@ -387,9 +449,10 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     async def _apply(self, alerts: list[CAPAlert]) -> dict[str, CAPAlert]:
         """Run the shared post-fetch pipeline and index the active set by ID.
 
-        Normalize → marine filter → geometry externalization → store diff. Used by
-        both the polling path and the streaming ingest/backfill paths so their
-        transition detection, event firing, and geometry handling are identical.
+        Normalize → marine filter → geocode filter → geometry externalization →
+        store diff. Used by both the polling path and the streaming
+        ingest/backfill paths so their transition detection, event firing, and
+        geometry handling are identical.
 
         Deliberately does *not* stamp ``last_update_success_time``: the streaming
         path runs this pipeline on every heartbeat with no network I/O, and the
@@ -407,6 +470,12 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # incident_removed) when the toggle is flipped on.
         exclude_marine = self.config_entry.options.get(CONF_EXCLUDE_MARINE, False)
         alerts = exclude_marine_alerts(alerts, exclude_marine)
+        # Opt-in area-code narrowing, layered on the entry's location mode.
+        prefixes = self.config_entry.options.get(CONF_GEOCODE_PREFIXES) or []
+        if prefixes:
+            kept = filter_by_geocode_prefixes(alerts, prefixes)
+            self._warn_geocode_no_match(alerts, kept, prefixes)
+            alerts = kept
         # Externalize geometry for alerts that will remain active. Skipping
         # terminal-phase alerts avoids caching polygons we're about to drop.
         active_refs: set[str] = set()
@@ -423,6 +492,48 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         alerts = self._store.process(alerts)
         # Index by ID for O(1) lookup
         return {a.id: a for a in alerts}
+
+    def _warn_geocode_no_match(
+        self,
+        before: list[CAPAlert],
+        after: list[CAPAlert],
+        prefixes: Sequence[str],
+    ) -> None:
+        """Warn once when a geocode prefix filters everything out.
+
+        The filter deliberately does not fail on zero matches, which leaves a
+        mistyped prefix indistinguishable from a genuinely quiet area — the
+        entry stays healthy and simply reports no alerts, forever. One WARNING
+        per no-match streak surfaces that without flapping entity availability;
+        the flag resets on the first poll that matches something.
+        """
+        if after:
+            self._geocode_no_match_warned = False
+            return
+        if not before or self._geocode_no_match_warned:
+            return
+        self._geocode_no_match_warned = True
+        _LOGGER.warning(
+            "%s: geocode prefixes %s matched none of %d alerts. Alerts are "
+            "published for codes such as %s — check the prefix, and note that "
+            "a shorter prefix covers a wider area",
+            self._provider.name,
+            ",".join(prefixes),
+            len(before),
+            ", ".join(sorted(self._sample_geocodes(before))) or "(none)",
+        )
+
+    @staticmethod
+    def _sample_geocodes(alerts: list[CAPAlert], limit: int = 5) -> set[str]:
+        """A few distinct area codes from ``alerts``, to make the warning actionable."""
+        sample: set[str] = set()
+        for alert in alerts:
+            for codes in alert.geocodes.values():
+                for code in codes:
+                    sample.add(code)
+                    if len(sample) >= limit:
+                        return sample
+        return sample
 
     # ------------------------------------------------------------------
     # Streaming ingestion (ECCC)

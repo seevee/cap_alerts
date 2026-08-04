@@ -151,7 +151,8 @@
         "menu_options": {
           "wmo_country_wide": "所有警报（全国范围）",
           "wmo_gps_loc": "GPS 坐标",
-          "wmo_gps_tracker": "GPS 追踪器实体"
+          "wmo_gps_tracker": "GPS 追踪器实体",
+          "wmo_geocode": "区域代码（前缀匹配）"
         }
       },
       "wmo_gps_loc": {
@@ -319,7 +320,8 @@
         "menu_options": {
           "reconfigure_wmo_country_wide": "所有警报（全国范围）",
           "reconfigure_wmo_gps_loc": "GPS 坐标",
-          "reconfigure_wmo_gps_tracker": "GPS 追踪器实体"
+          "reconfigure_wmo_gps_tracker": "GPS 追踪器实体",
+          "reconfigure_wmo_geocode": "区域代码（前缀匹配）"
         }
       },
       "reconfigure_wmo_gps_loc": {
@@ -336,6 +338,24 @@
         "data": {
           "tracker_entity": "追踪器实体"
         }
+      },
+      "wmo_geocode": {
+        "title": "WMO 区域代码",
+        "data": {
+          "geocode_prefixes": "区域代码（前缀匹配）"
+        },
+        "data_description": {
+          "geocode_prefixes": "以逗号分隔的区域代码前缀（例如 13,37）。将获取整个国家的警报，然后仅保留区域代码以其中之一开头的警报。代码具有层级结构，因此前缀越短覆盖范围越大（13 = 河北，1307 = 张家口）。适用于不发布逐条警报多边形、因而无法使用 GPS 过滤的数据源。代码长度可能不同，因此建议使用开头的数字而非粘贴完整代码。之后可在“配置”中修改。"
+        }
+      },
+      "reconfigure_wmo_geocode": {
+        "title": "WMO 区域代码",
+        "data": {
+          "geocode_prefixes": "区域代码（前缀匹配）"
+        },
+        "data_description": {
+          "geocode_prefixes": "以逗号分隔的区域代码前缀（例如 13,37）。将获取整个国家的警报，然后仅保留区域代码以其中之一开头的警报。代码具有层级结构，因此前缀越短覆盖范围越大（13 = 河北，1307 = 张家口）。适用于不发布逐条警报多边形、因而无法使用 GPS 过滤的数据源。代码长度可能不同，因此建议使用开头的数字而非粘贴完整代码。之后可在“配置”中修改。"
+        }
       }
     },
     "error": {
@@ -346,7 +366,8 @@
       "invalid_wmo_source": "无效的 WMO 来源 ID。请从列表中选择或输入有效的来源 ID（例如 mx-smn-es）。",
       "cannot_connect": "无法连接到气象服务。",
       "cannot_fetch_regions": "无法加载该国的区域。请重试或选择其他过滤模式。",
-      "no_regions_selected": "请至少选择一个区域。"
+      "no_regions_selected": "请至少选择一个区域。",
+      "invalid_geocode_prefix": "区域代码前缀无效。请输入以逗号分隔的代码列表，仅可包含字母、数字以及 : _ . - （每个最多 32 个字符）。"
     },
     "abort": {
       "reconfigure_successful": "配置更新成功。"
@@ -361,7 +382,8 @@
           "language": "语言",
           "streaming": "实时流传输",
           "feed_source": "警报源",
-          "exclude_marine": "排除海洋警报"
+          "exclude_marine": "排除海洋警报",
+          "geocode_prefixes": "区域代码（前缀匹配）"
         },
         "data_description": {
           "scan_interval": "检查新警报的频率（60–3600）。ECCC：仅在关闭实时流传输时适用。",
@@ -369,9 +391,13 @@
           "language": "首选警报语言。ECCC：auto/en-CA/fr-CA。MeteoAlarm：auto 加上 2 字母 ISO 代码。WMO：auto，或该数据源发布的任意 BCP 47 语言标签（例如 zh-Hans）；若该数据源未提供所选语言，则回退到英语。",
           "streaming": "通过 NAAD 实时馈送传输 ECCC 警报以获得近乎即时的更新（推荐）。关闭时，将按轮询间隔从 GeoRSS 馈送中轮询警报。仅适用于 ECCC。",
           "feed_source": "要获取的 NAAD GeoRSS 主机。'auto' 会合并两个馈送，确保不会遗漏仅由其中一个馈送承载的警报（推荐）。旧版主机将于 2026 年 9 月左右退役；仅在解决特定馈送问题时才固定使用单个主机。仅适用于 ECCC。",
-          "exclude_marine": "隐藏针对海洋/水域区域（划船、开阔水域）发布的警报。仅适用于 NWS 和 ECCC。"
+          "exclude_marine": "隐藏针对海洋/水域区域（划船、开阔水域）发布的警报。仅适用于 NWS 和 ECCC。",
+          "geocode_prefixes": "可选。以逗号分隔的区域代码前缀（例如 13,37）。在设置时所选位置过滤的基础上，仅保留区域代码以其中之一开头的警报。代码具有层级结构，因此前缀越短覆盖范围越大（13 = 河北，1307 = 张家口）。将与该数据源发布的所有代码方案进行匹配。同一方案内的代码长度可能不同，因此粘贴完整代码可能匹配不到任何内容——建议使用开头的数字。留空则停用。"
         }
       }
+    },
+    "error": {
+      "invalid_geocode_prefix": "区域代码前缀无效。请使用以逗号分隔的代码列表，仅可包含字母、数字以及 : _ . - （每个最多 32 个字符）。"
     }
   },
   "entity": {
