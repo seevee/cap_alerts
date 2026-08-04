@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0-alpha.3 — 2026-08-04
+
+### Fixed
+- Let the update listener own reload decisions (#77) (220ffcc…)
+- Offer every region code of a multi-geocode area (#78) (c7eaef4…)
+- Stop offering each region once per feed language (#80) (aa1e8f0…)
+
 ## 0.3.0-alpha.2 — 2026-08-04
 
 ### Added
