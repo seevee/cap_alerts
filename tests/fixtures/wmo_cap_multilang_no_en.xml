@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Shaped after mo-smg-xx: multilingual with no English <info> block, so the
+     selection ladder falls through to document order. -->
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>urn:wmo:mo-smg:2026:007</identifier>
+  <sender>smg.gov.mo</sender>
+  <sent>2026-08-01T09:00:00+08:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <scope>Public</scope>
+  <info>
+    <language>zh-mo</language>
+    <category>Met</category>
+    <event>暴雨</event>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Likely</certainty>
+    <effective>2026-08-01T09:00:00+08:00</effective>
+    <expires>2099-08-01T21:00:00+08:00</expires>
+    <senderName>地球物理暨氣象局</senderName>
+    <headline>暴雨警告信號</headline>
+    <description>預料未來數小時本澳有大雨。</description>
+    <instruction>市民應留意最新天氣消息。</instruction>
+    <area>
+      <areaDesc>澳門</areaDesc>
+      <polygon>22.1,113.5 22.1,113.6 22.2,113.6 22.2,113.5 22.1,113.5</polygon>
+    </area>
+  </info>
+  <info>
+    <language>pt-PT</language>
+    <category>Met</category>
+    <event>Chuva forte</event>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Likely</certainty>
+    <effective>2026-08-01T09:00:00+08:00</effective>
+    <expires>2099-08-01T21:00:00+08:00</expires>
+    <senderName>Direccao dos Servicos Meteorologicos e Geofisicos</senderName>
+    <headline>Sinal de aviso de chuva forte</headline>
+    <description>Preve-se chuva forte em Macau nas proximas horas.</description>
+    <instruction>Mantenha-se atento a informacao meteorologica mais recente.</instruction>
+    <area>
+      <areaDesc>Macau</areaDesc>
+      <polygon>22.1,113.5 22.1,113.6 22.2,113.6 22.2,113.5 22.1,113.5</polygon>
+    </area>
+  </info>
+</alert>

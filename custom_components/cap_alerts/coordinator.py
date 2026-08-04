@@ -281,7 +281,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
 
         - Tracker mode: resolves tracker entity -> lat/lon coordinates.
         - Country-source mode: resolves a country entity -> ISO-2 country.
-        - Language "auto": resolves to concrete "en-CA" or "fr-CA".
+        - Language "auto": resolves to a concrete tag, per provider.
         """
         config = dict(self.config_entry.data)
         options = dict(self.config_entry.options)
@@ -331,10 +331,15 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
                 self._country_resolve_warned = False
                 config[CONF_COUNTRY] = code
 
-        # Resolve language "auto" -> concrete code. ECCC is bilingual EN/FR;
-        # MeteoAlarm spans ~35 locales — pass the 2-letter prefix of
-        # hass.config.language so the provider's language-prefix matcher
-        # finds the closest <cap:info> block.
+        # Resolve language "auto" -> concrete code, three ways:
+        # - MeteoAlarm spans ~35 locales but one region set per country, so the
+        #   2-letter prefix of hass.config.language is enough for its
+        #   language-prefix matcher to find the closest <cap:info> block;
+        # - WMO bodies carry full tags (en-GB vs en-US, pt-PT vs pt-BR,
+        #   zh-CN vs zh-HK), so the tag is passed verbatim — truncating first
+        #   would discard the distinction and pick arbitrarily. Its matcher
+        #   casefolds and degrades to the primary subtag on its own;
+        # - ECCC is bilingual EN/FR, so it resolves to one of two full tags.
         lang = options.get(CONF_LANGUAGE, "auto")
         if lang == "auto":
             provider = config.get(CONF_PROVIDER, "")
@@ -342,6 +347,8 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
                 options[CONF_LANGUAGE] = (
                     self.hass.config.language.split("-", 1)[0].lower() or "en"
                 )
+            elif provider == "wmo":
+                options[CONF_LANGUAGE] = self.hass.config.language.strip() or "en"
             else:
                 options[CONF_LANGUAGE] = (
                     "fr-CA" if self.hass.config.language.startswith("fr") else "en-CA"

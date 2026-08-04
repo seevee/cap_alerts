@@ -294,3 +294,49 @@ WMO_SOURCE_NAMES: dict[str, str] = {
     "sn-anacim-fr": "Senegal (ANACIM, French)",
     "tz-tma-en": "Tanzania (TMA, English)",
 }
+
+# Primary subtags observed in live SWIC CAP bodies (all 140 registry sources
+# swept 2026-08-03). Seeds the options-flow language dropdown, which accepts a
+# custom value — this is a convenience list, not an exhaustive or validated
+# set, and a tag absent from it (or carrying script/region subtags, e.g.
+# "zh-Hans", "pt-BR") is still accepted and matched by the provider.
+WMO_LANGUAGES: tuple[str, ...] = (
+    "auto",
+    "ar",
+    "bg",
+    "bs",
+    "cnr",
+    "cs",
+    "da",
+    "de",
+    "el",
+    "en",
+    "es",
+    "et",
+    "fi",
+    "fr",
+    "he",
+    "hr",
+    "hu",
+    "id",
+    "is",
+    "it",
+    "kl",
+    "lt",
+    "lv",
+    "mk",
+    "mt",
+    "nl",
+    "no",
+    "pl",
+    "pt",
+    "rm",
+    "ro",
+    "ru",
+    "sk",
+    "sl",
+    "sr",
+    "sv",
+    "th",
+    "zh",
+)

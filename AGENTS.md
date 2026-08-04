@@ -56,7 +56,7 @@ custom_components/cap_alerts/
     nws.py                # NWS GeoJSON API — zone/GPS/tracker
     eccc.py               # Environment Canada NAAD Atom feed
     meteoalarm.py         # MeteoAlarm (EUMETNET) per-country CAP JSON
-    wmo.py                # WMO SWIC per-source RSS → CAP XML
+    wmo.py                # WMO SWIC per-source RSS → CAP XML; per-language <info> selection
   manifest.json
   translations/
 ```

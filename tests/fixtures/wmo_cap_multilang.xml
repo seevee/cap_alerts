@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+	<identifier>37061441600000_20260801133303</identifier>
+	<sender>Penglai_District_Meteorological_Observatory</sender>
+	<sent>2026-08-01T13:31:00+08:00</sent>
+	<status>Actual</status>
+	<msgType>Update</msgType>
+	<scope>Public</scope>
+	<note/>
+	<references>Penglai_District_Meteorological_Observatory,37061441600000_20260727120039,2026-08-01T13:31:00+08:00</references>
+	<info>
+		<language>en-US</language>
+		<category>Met</category>
+		<event>high temperature</event>
+		<urgency>Unknown</urgency>
+		<severity>Extreme</severity>
+		<certainty>Unknown</certainty>
+		<effective>2026-08-01T13:31:00+08:00</effective>
+		<expires>2026-08-02T13:32:19+08:00</expires>
+		<senderName>Bo Xiaohu</senderName>
+		<headline>Penglai District Meteorological Observatory issues a red warning signal for high temperatures [Level I/Particularly Severe]</headline>
+		<description>At 13:31 on August 1, 2026, the Penglai District Meteorological Observatory upgraded the high temperature orange warning signal to a high temperature red warning signal: Currently, the highest temperature in villages and towns in our district has exceeded 39 ℃. It is expected that all towns and streets in our district will still experience high temperatures of 36-38 ℃ and locally above 40 ℃ from this afternoon to tomorrow. The temperature is high, the humidity is high, and I feel stuffy and hot. Please pay attention to preventing the adverse effects of sustained high temperatures on agricultural production, human health, outdoor work, and urban life.</description>
+		<instruction/>
+		<area>
+			<areaDesc>Penglai</areaDesc>
+			<geocode>
+				<valueName>CPEAS Geographic Code</valueName>
+				<value>370614000000</value>
+			</geocode>
+		</area>
+	</info>
+	<info>
+		<language>zh-CN</language>
+		<category>Met</category>
+		<event>高温</event>
+		<urgency>Unknown</urgency>
+		<severity>Extreme</severity>
+		<certainty>Unknown</certainty>
+		<effective>2026-08-01T13:31:00+08:00</effective>
+		<expires>2026-08-02T13:32:19+08:00</expires>
+		<senderName>薄晓虎</senderName>
+		<headline>蓬莱区气象台变更发布高温红色预警信号[Ⅰ级/特别严重]</headline>
+		<description>蓬莱区气象台2026年08月01日13时31分将高温橙色预警信号升级为高温红色预警信号：目前，我区村里集镇最高气温已超过39℃，预计今天下午到明天我区全部镇街仍将出现36～38℃、局部40℃以上的高温天气。气温高，湿度大，体感闷热。请注意防范持续高温对农业生产、人体健康、户外作业和城市生活的不利影响。</description>
+		<area>
+			<areaDesc>蓬莱</areaDesc>
+			<geocode>
+				<valueName>CPEAS Geographic Code</valueName>
+				<value>370614000000</value>
+			</geocode>
+		</area>
+	</info>
+</alert>
