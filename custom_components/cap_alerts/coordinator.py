@@ -222,6 +222,11 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._user_agent = user_agent
         self._cap_content_cache = cap_content_cache
         self._timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+        # Snapshot of the entry data this coordinator was built from. The
+        # reconfigure flow no longer reloads the entry itself (see
+        # __init__._async_entry_updated), so this is what tells the update
+        # listener that a rebuild is required rather than an in-place tweak.
+        self._entry_data = dict(entry.data)
         self.last_update_success_time: datetime | None = None
         # Guard a single warning per failure streak when a tracker or
         # MeteoAlarm country-source entity can't be resolved, so the
@@ -273,6 +278,16 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         return entry.data.get(CONF_PROVIDER) == "eccc" and entry.options.get(
             CONF_STREAMING, True
         )
+
+    def entry_data_changed(self, entry: ConfigEntry) -> bool:
+        """Whether ``entry`` data differs from what this coordinator was built from.
+
+        Provider, location, source id, and filter mode are all read once at
+        construction, so a reconfigure that rewrites them needs a rebuild — the
+        update listener's cue to reload. Compares the whole mapping rather than
+        named keys so a newly added data key cannot silently skip the reload.
+        """
+        return dict(entry.data) != self._entry_data
 
     @property
     def streaming(self) -> bool:
