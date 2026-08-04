@@ -16,7 +16,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -28,6 +29,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
     BUDDHIST_ERA_OFFSET,
+    CONF_GEOCODE_PREFIXES,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_SOURCE_ID,
@@ -90,7 +92,69 @@ def _item_expires(item: Any) -> datetime | None:
     return None
 
 
-def _parse_rss_links(xml_text: str, *, now: datetime | None = None) -> list[str]:
+# An RSS <guid> whose leading digits are the item's area code followed by a
+# per-alert serial, then "_<timestamp>" — e.g. "52272741600000_20260804103516",
+# where 522727 is Pingtang County (GB/T 2260) and the CAP body's geocode is
+# "522727000000". Observed on every one of cn-cma-xx's 500 items (2026-08-04).
+# Used only to skip CAP-body fetches that the geocode filter would discard
+# anyway; see _prefilter_by_guid for why this can never drop a wanted alert.
+_GUID_AREA_CODE_RE = re.compile(r"^(\d{6})\d*_\d+$")
+
+# Width of the area code embedded in the guid above. Prefixes longer than this
+# reach into the serial digits, where guid and geocode diverge, so the
+# pre-filter disengages rather than guess.
+_GUID_AREA_CODE_WIDTH = 6
+
+
+def _prefilter_by_guid(items: list[Any], prefixes: Sequence[str]) -> set[int] | None:
+    """Indices of items whose guid area code matches a prefix, or ``None``.
+
+    A pure optimization layered under the authoritative post-fetch geocode
+    filter: it exists so a narrowed entry does not pay for CAP bodies it is
+    about to discard. cn-cma-xx publishes 501 CAP URLs per poll at ~89 KiB
+    each, which costs ~32 s and blows the default 30 s timeout; with a
+    province prefix this fetches ~30 of them instead.
+
+    Returns ``None`` — meaning "fetch everything, decide after parsing" —
+    whenever the guid cannot be trusted to answer the question, so the
+    optimization can only ever be lossless:
+
+    * any configured prefix is non-numeric or longer than the embedded area
+      code, where guid and geocode provably diverge (a full 12-digit code
+      matches the body's ``130709000000`` but never the guid's
+      ``13070941600000``);
+    * any item's guid does not match the expected shape, i.e. this is not a
+      feed whose guids carry area codes;
+    * the filter would keep nothing, which is far more likely to mean the guid
+      convention changed than that the user has zero alerts.
+
+    Under those guards a kept/dropped decision on ``guid[:6]`` is identical to
+    one on ``geocode[:6]``, because both are the same GB/T 2260 code.
+    """
+    wanted = [p.strip() for p in prefixes if p and p.strip()]
+    if not wanted:
+        return None
+    if any(not p.isdigit() or len(p) > _GUID_AREA_CODE_WIDTH for p in wanted):
+        return None
+
+    kept: set[int] = set()
+    for index, item in enumerate(items):
+        guid = (item.findtext("guid") or "").strip()
+        match = _GUID_AREA_CODE_RE.match(guid)
+        if match is None:
+            return None
+        code = match.group(1)
+        if any(code.startswith(p) for p in wanted):
+            kept.add(index)
+    return kept or None
+
+
+def _parse_rss_links(
+    xml_text: str,
+    *,
+    now: datetime | None = None,
+    geocode_prefixes: Sequence[str] | None = None,
+) -> list[str]:
     """Extract per-item ``<link>`` CAP XML URLs for currently-active alerts.
 
     RSS 2.0 ``<link>`` is a plain-text element (the URL is the element text,
@@ -105,8 +169,15 @@ def _parse_rss_links(xml_text: str, *, now: datetime | None = None) -> list[str]
     """
     cutoff = now or datetime.now(timezone.utc)
     root = ET.fromstring(xml_text)
+    items = list(root.iter("item"))
+    # Optional area-code gate, applied before any CAP body is fetched. Returns
+    # None whenever the guid cannot answer the question, in which case every
+    # item is kept and the post-fetch geocode filter decides as before.
+    allowed = _prefilter_by_guid(items, geocode_prefixes or ())
     links: list[str] = []
-    for item in root.iter("item"):
+    for index, item in enumerate(items):
+        if allowed is not None and index not in allowed:
+            continue
         link = item.findtext("link")
         if not (link and link.strip()):
             continue
@@ -461,7 +532,9 @@ class WMOProvider:
             rss_text = await resp.text()
 
         try:
-            cap_urls = _parse_rss_links(rss_text)
+            cap_urls = _parse_rss_links(
+                rss_text, geocode_prefixes=options.get(CONF_GEOCODE_PREFIXES)
+            )
         except ET.ParseError as err:
             raise UpdateFailed(f"WMO {source_id}: failed to parse RSS: {err}") from err
 
