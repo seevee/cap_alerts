@@ -20,13 +20,22 @@ Three filter modes selectable via config-flow:
   priority (``METEOALARM_REGION_SCHEMES``) so a country's coarsest
   administrative scheme (e.g. ``EMMA_ID`` for DE, ``NUTS3`` for FR) is what
   both the picker offers and the filter matches.
+
+The picker list itself is derived from the warnings feed (the regions endpoint
+is 404 for every country as of 2026-08-04, but is still probed first). An area
+may publish several region codes under a single ``areaDesc`` — FMI names four
+sea areas in one string — so ``_region_pairs`` offers every code of the area's
+scheme and labels each from the most specific honest source available:
+per-code names when the description zips 1:1 with the codes, the block name
+qualified by the code when it carries a single name, the bare code otherwise.
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
-from collections.abc import Mapping, Sequence
+import re
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from typing import Any
@@ -59,6 +68,12 @@ METEOALARM_REGIONS_URL = "https://feeds.meteoalarm.org/api/v1/regions/feeds-{cou
 # ``geocodes`` but never offered in the picker. ``areaDesc`` is a last resort
 # when a feed names areas but carries no region-selectable scheme.
 METEOALARM_REGION_SCHEMES: tuple[str, ...] = ("EMMA_ID", "NUTS3", "NUTS2")
+
+# ``Region (District, District, …)`` — the Czech areaDesc shape, where the
+# parenthesized list names the area's individual region codes and the prefix
+# names the block they belong to. Requires balanced, non-nested parentheses so
+# a name that merely contains a bracket never reaches the split.
+_PARENTHETICAL = re.compile(r"^[^()]+\(([^()]+)\)$")
 
 # MeteoFrance publishes via MeteoAlarm with a per-message CAP identifier that
 # embeds an issue timestamp, so every re-issue of the same logical warning mints
@@ -559,37 +574,155 @@ def _scheme_geocodes(info: Mapping[str, Any]) -> Mapping[str, tuple[str, ...]]:
     return geocodes_from(collected)
 
 
+def _split_area_names(desc: str, count: int) -> tuple[str, ...]:
+    """Per-code region names derived from an ``areaDesc``, or ``()``.
+
+    An area may carry several region codes under a single ``areaDesc`` that
+    names each of them, e.g. FMI's ``"Pohjois-Itämeren itäosa, Pohjois-Itämeren
+    länsiosa, Ahvenanmeri, Saaristomeri"`` over four ``EMMA_ID`` values. The
+    CAP profile lists those names in geocode order separated by ``", "``, so a
+    split that yields exactly ``count`` names zips 1:1 with the codes.
+
+    A label must never claim to name a code it does not name, so the split is
+    only trusted when it is unambiguous:
+
+    * ``count <= 1`` — no derivation at all. The single code keeps the whole
+      ``areaDesc`` byte for byte, which protects names that legitimately
+      contain a comma or parentheses (``"Ibiza y Formentera (Illes
+      Balears)"``).
+    * ``Region (District, District, …)`` — the parenthesized list is used when
+      it yields exactly ``count`` names.
+    * otherwise the whole ``desc`` is split, and accepted only when it yields
+      exactly ``count`` names **and** no part contains a bracket. A stray
+      bracket means the split cut through a structural name, not between two
+      region names.
+
+    Anything else (notably the elided ``"Etelä-, Keski- ja
+    Pohjois-Pohjanmaa"``, 2 parts over 3 codes) returns ``()`` so the caller
+    can fall back to a label that stays true.
+    """
+    if count <= 1:
+        return (desc,) if desc else ()
+
+    match = _PARENTHETICAL.match(desc)
+    if match:
+        inner = _split_names(match.group(1))
+        if len(inner) == count:
+            return inner
+
+    parts = _split_names(desc)
+    if len(parts) == count and not any("(" in p or ")" in p for p in parts):
+        return parts
+    return ()
+
+
+def _split_names(desc: str) -> tuple[str, ...]:
+    """Split a comma-separated name list, stripped, empties dropped."""
+    return tuple(part.strip() for part in desc.split(",") if part.strip())
+
+
+def _qualified_labels(desc: str, codes: Sequence[str]) -> tuple[str, ...]:
+    """``"{name} ({code})"`` per code when ``desc`` carries exactly one name.
+
+    An area whose ``areaDesc`` holds a single name over several codes names
+    the *block* the codes were published under (Denmark's ``"All areas"``,
+    Czechia's bare ``"Karlovarský kraj"``, Germany's shared ``"Kreis
+    Göttingen"``), not any individual code. The code is appended because the
+    name is true of the block rather than of the code alone — and because a
+    dropdown holding 28 options that all read ``"All areas"`` is unusable.
+
+    Returns ``()`` when ``desc`` is empty or splits to more than one name;
+    those shapes have no honest per-code mapping and fall through to the bare
+    code.
+    """
+    names = _split_names(desc)
+    if len(names) != 1:
+        return ()
+    return tuple(f"{names[0]} ({code})" for code in codes)
+
+
+def _label_tier(code: str, label: str) -> int:
+    """Rank a label's specificity: 1 per-code, 2 block-qualified, 3 bare code.
+
+    Inferred from the label's shape rather than tracked alongside it, which
+    keeps ``_region_pairs``' ``(code, label)`` contract unchanged. The shapes
+    read here are the ones ``_qualified_labels`` produces one function
+    earlier; a feed name that happens to end in its own parenthesized code
+    would only shift a preference between two labels, never invent one.
+    """
+    if label == code:
+        return 3
+    if label.endswith(f" ({code})"):
+        return 2
+    return 1
+
+
+def _merge_region_pairs(pairs: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+    """De-duplicate ``(code, label)`` pairs by code, keeping the best label.
+
+    The same code can be labeled differently by two warnings — named on its
+    own in one area and block-qualified in another — so the most specific
+    label wins (``_label_tier``), ties going to the first seen. Empty codes are
+    dropped and an empty label falls back to the code. First-appearance order
+    is preserved; sorting is the caller's business.
+    """
+    best: dict[str, str] = {}
+    for code, label in pairs:
+        if not code:
+            continue
+        resolved = label or code
+        current = best.get(code)
+        if current is None or _label_tier(code, resolved) < _label_tier(code, current):
+            best[code] = resolved
+    return list(best.items())
+
+
 def _region_pairs(info: Mapping[str, Any]) -> list[tuple[str, str]]:
     """``(code, label)`` region-picker pairs for the info's areas.
 
-    Per area, pick the first scheme present in ``METEOALARM_REGION_SCHEMES``
-    with a non-empty value → ``(value, areaDesc or value)``. If no
-    region-selectable scheme is present but ``areaDesc`` is set, fall back to
-    ``(areaDesc, areaDesc)`` so named-but-schemeless feeds still populate the
-    picker. Document order; de-duplicated by code (first label wins).
+    Per area, take **every** value of the first scheme present in
+    ``METEOALARM_REGION_SCHEMES`` — an area may carry several region codes
+    under one ``areaDesc`` (issue #48), and the region filter matches on all of
+    them, so the picker has to offer all of them. Labels come from the first
+    tier that applies:
+
+    1. per-code names, when ``areaDesc`` splits 1:1 with the codes
+       (``_split_area_names``);
+    2. the block name qualified by the code, when ``areaDesc`` carries a single
+       name (``_qualified_labels``);
+    3. the bare code, when neither mapping is honest.
+
+    If no region-selectable scheme is present but ``areaDesc`` is set, fall
+    back to ``(areaDesc, areaDesc)`` so named-but-schemeless feeds still
+    populate the picker. Document order; de-duplicated by code.
     """
     out: list[tuple[str, str]] = []
-    seen: set[str] = set()
     for area in info.get("area") or []:
         desc = area.get("areaDesc") or ""
-        by_scheme: dict[str, str] = {}
+        by_scheme: dict[str, list[str]] = {}
         for code in area.get("geocode") or []:
             scheme = code.get("valueName") or ""
             value = code.get("value") or ""
-            if scheme and value and scheme not in by_scheme:
-                by_scheme[scheme] = value
-        code_value = ""
+            if scheme and value:
+                values = by_scheme.setdefault(scheme, [])
+                if value not in values:
+                    values.append(value)
+        codes: tuple[str, ...] = ()
         for scheme in METEOALARM_REGION_SCHEMES:
             if by_scheme.get(scheme):
-                code_value = by_scheme[scheme]
+                codes = tuple(by_scheme[scheme])
                 break
-        if not code_value and desc:
-            code_value = desc
-        if not code_value or code_value in seen:
+        if not codes:
+            if desc:
+                out.append((desc, desc))
             continue
-        seen.add(code_value)
-        out.append((code_value, desc or code_value))
-    return out
+        labels = (
+            _split_area_names(desc, len(codes))
+            or _qualified_labels(desc, codes)
+            or codes
+        )
+        out.extend(zip(codes, labels))
+    return _merge_region_pairs(out)
 
 
 def _region_codes(
@@ -853,11 +986,7 @@ async def fetch_regions_for_country(
         regions = await _fetch_regions_from_warnings(session, slug, country)
     if not regions:
         raise UpdateFailed(f"MeteoAlarm: failed to load regions for {country}")
-    seen: dict[str, str] = {}
-    for code, label in regions:
-        if code and code not in seen:
-            seen[code] = label or code
-    return sorted(seen.items(), key=lambda item: item[1].lower())
+    return sorted(_merge_region_pairs(regions), key=lambda item: item[1].lower())
 
 
 async def _fetch_regions_endpoint(

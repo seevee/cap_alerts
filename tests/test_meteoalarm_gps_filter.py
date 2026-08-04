@@ -435,6 +435,221 @@ def test_emma_id_preferred_over_secondary_schemes():
     assert codes == ("DE343",)
 
 
+# ── multi-geocode areas (issue #48) ────────────────────────────────
+
+
+def test_split_area_names_zips_names_to_codes():
+    # FMI names every sea area of a multi-code block, in geocode order.
+    assert meteoalarm._split_area_names(
+        "Pohjois-Itämeren itäosa, Pohjois-Itämeren länsiosa, Ahvenanmeri, Saaristomeri",
+        4,
+    ) == (
+        "Pohjois-Itämeren itäosa",
+        "Pohjois-Itämeren länsiosa",
+        "Ahvenanmeri",
+        "Saaristomeri",
+    )
+
+
+def test_split_area_names_uses_parenthesized_district_list():
+    # Czech shape: the prefix names the kraj, the parenthesized list names the
+    # individual codes. A plain comma split here would yield "Plzeňský kraj
+    # (Blovice" as a region name.
+    desc = "Plzeňský kraj (Blovice, Domažlice, Sušice)"
+    assert meteoalarm._split_area_names(desc, 3) == ("Blovice", "Domažlice", "Sušice")
+
+
+def test_split_area_names_rejects_count_mismatch():
+    # One block name over many codes: no per-code mapping exists.
+    assert meteoalarm._split_area_names("Středočeský kraj", 26) == ()
+    assert meteoalarm._split_area_names("All areas", 28) == ()
+    # Parenthesized list whose length disagrees with the code count.
+    assert meteoalarm._split_area_names("Karlovarský kraj (Cheb, Sokolov)", 7) == ()
+
+
+def test_split_area_names_rejects_elided_names():
+    # "Etelä-, Keski- ja Pohjois-Pohjanmaa" is three regions written with an
+    # elision, so the comma split yields two parts for three codes.
+    assert meteoalarm._split_area_names("Etelä-, Keski- ja Pohjois-Pohjanmaa", 3) == ()
+
+
+def test_split_area_names_rejects_bracket_in_a_part():
+    # Count matches, but a bracket in a part means the split cut through a
+    # structural name rather than between two region names.
+    assert meteoalarm._split_area_names("Alpha (x, y), Beta", 2) == ()
+
+
+def test_split_area_names_leaves_single_code_areas_untouched():
+    # No derivation at count <= 1 — this is what protects names that contain a
+    # comma or parentheses in the 33 one-code-per-area countries.
+    assert meteoalarm._split_area_names("Ibiza y Formentera (Illes Balears)", 1) == (
+        "Ibiza y Formentera (Illes Balears)",
+    )
+    assert meteoalarm._split_area_names("", 1) == ()
+    assert meteoalarm._split_area_names("", 3) == ()
+
+
+def test_qualified_labels_appends_the_code():
+    assert meteoalarm._qualified_labels("All areas", ("DK001", "DK002")) == (
+        "All areas (DK001)",
+        "All areas (DK002)",
+    )
+    # Two names over three codes has no honest mapping in either direction.
+    assert meteoalarm._qualified_labels("Etelä-, Keski- ja Pohjanmaa", ("A", "B")) == ()
+    assert meteoalarm._qualified_labels("", ("A", "B")) == ()
+
+
+def test_merge_region_pairs_prefers_the_most_specific_label():
+    # Bare code loses to a real name, in either insertion order.
+    assert meteoalarm._merge_region_pairs([("A", "A"), ("A", "Alpha")]) == [
+        ("A", "Alpha")
+    ]
+    assert meteoalarm._merge_region_pairs([("A", "Alpha"), ("A", "A")]) == [
+        ("A", "Alpha")
+    ]
+    # A per-code name beats a block-qualified one, in either order.
+    qualified = ("DK004", "All areas (DK004)")
+    named = ("DK004", "Østjylland")
+    assert meteoalarm._merge_region_pairs([qualified, named]) == [named]
+    assert meteoalarm._merge_region_pairs([named, qualified]) == [named]
+    # Same tier: first seen wins. Empty codes drop; empty labels fall back.
+    assert meteoalarm._merge_region_pairs(
+        [("A", "First"), ("A", "Second"), ("", "X"), ("B", "")]
+    ) == [("A", "First"), ("B", "B")]
+
+
+def test_region_pairs_offers_every_code_of_a_multi_geocode_area():
+    # The issue: FMI publishes one area with one areaDesc naming four regions
+    # and one geocode per region. All four must be selectable, each named.
+    info = {
+        "area": [
+            {
+                "areaDesc": (
+                    "Pohjois-Itämeren itäosa, Pohjois-Itämeren länsiosa, "
+                    "Ahvenanmeri, Saaristomeri"
+                ),
+                "geocode": [
+                    {"valueName": "EMMA_ID", "value": "FI812"},
+                    {"valueName": "EMMA_ID", "value": "FI803"},
+                    {"valueName": "EMMA_ID", "value": "FI813"},
+                    {"valueName": "EMMA_ID", "value": "FI811"},
+                ],
+            }
+        ]
+    }
+    assert meteoalarm._region_pairs(info) == [
+        ("FI812", "Pohjois-Itämeren itäosa"),
+        ("FI803", "Pohjois-Itämeren länsiosa"),
+        ("FI813", "Ahvenanmeri"),
+        ("FI811", "Saaristomeri"),
+    ]
+
+
+def test_region_pairs_qualifies_a_single_block_name():
+    info = {
+        "area": [
+            {
+                "areaDesc": "All areas",
+                "geocode": [
+                    {"valueName": "EMMA_ID", "value": "DK001"},
+                    {"valueName": "EMMA_ID", "value": "DK002"},
+                    {"valueName": "EMMA_ID", "value": "DK003"},
+                ],
+            }
+        ]
+    }
+    assert meteoalarm._region_pairs(info) == [
+        ("DK001", "All areas (DK001)"),
+        ("DK002", "All areas (DK002)"),
+        ("DK003", "All areas (DK003)"),
+    ]
+
+
+def test_region_pairs_recovers_czech_district_names():
+    info = {
+        "area": [
+            {
+                "areaDesc": "Plzeňský kraj (Blovice, Domažlice, Sušice)",
+                "geocode": [
+                    {"valueName": "CISORP", "value": "3201"},
+                    {"valueName": "EMMA_ID", "value": "CZ03201"},
+                    {"valueName": "EMMA_ID", "value": "CZ03202"},
+                    {"valueName": "EMMA_ID", "value": "CZ03203"},
+                ],
+            }
+        ]
+    }
+    # EMMA_ID wins over the sub-region cell scheme, and each code keeps its own
+    # district name.
+    assert meteoalarm._region_pairs(info) == [
+        ("CZ03201", "Blovice"),
+        ("CZ03202", "Domažlice"),
+        ("CZ03203", "Sušice"),
+    ]
+
+
+def test_region_pairs_falls_back_to_bare_codes_on_an_elision():
+    info = {
+        "area": [
+            {
+                "areaDesc": "Etelä-, Keski- ja Pohjois-Pohjanmaa",
+                "geocode": [
+                    {"valueName": "EMMA_ID", "value": "FI101"},
+                    {"valueName": "EMMA_ID", "value": "FI102"},
+                    {"valueName": "EMMA_ID", "value": "FI103"},
+                ],
+            }
+        ]
+    }
+    # Two names over three codes: no label may claim to name a code, so the
+    # codes stand alone rather than guess.
+    assert meteoalarm._region_pairs(info) == [
+        ("FI101", "FI101"),
+        ("FI102", "FI102"),
+        ("FI103", "FI103"),
+    ]
+
+
+def test_region_pairs_single_code_area_label_unchanged():
+    # The 33 single-geocode countries must be byte-for-byte unaffected, even
+    # when the name itself contains a comma or parentheses.
+    info = {
+        "area": [
+            {
+                "areaDesc": "Ibiza y Formentera (Illes Balears)",
+                "geocode": [{"valueName": "EMMA_ID", "value": "ES531"}],
+            }
+        ]
+    }
+    assert meteoalarm._region_pairs(info) == [
+        ("ES531", "Ibiza y Formentera (Illes Balears)")
+    ]
+
+
+def test_region_pairs_prefers_a_named_code_over_a_qualified_one():
+    # DMI names four regions individually and lumps the rest under "All areas";
+    # a code appearing in both keeps its real name regardless of order.
+    info = {
+        "area": [
+            {
+                "areaDesc": "All areas",
+                "geocode": [
+                    {"valueName": "EMMA_ID", "value": "DK004"},
+                    {"valueName": "EMMA_ID", "value": "DK005"},
+                ],
+            },
+            {
+                "areaDesc": "Østjylland",
+                "geocode": [{"valueName": "EMMA_ID", "value": "DK004"}],
+            },
+        ]
+    }
+    assert meteoalarm._region_pairs(info) == [
+        ("DK004", "Østjylland"),
+        ("DK005", "All areas (DK005)"),
+    ]
+
+
 def test_region_pairs_areadesc_fallback():
     # Named area with no region-selectable scheme falls back to areaDesc so the
     # picker is still populated for polygon-only-but-named feeds.
@@ -503,6 +718,63 @@ async def test_fetch_regions_nuts3_from_warnings():
         assert code.startswith("FR")
     labels = [label for _code, label in regions]
     assert labels == sorted(labels, key=str.lower)
+
+
+def _fi_payload() -> dict:
+    return json.loads((_FIXTURE_DIR / "meteoalarm_fi.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.asyncio
+async def test_fetch_regions_lists_every_code_of_a_multi_geocode_area():
+    # Finland has no regions endpoint, and every FMI warning packs several
+    # EMMA_IDs into one area (#48): the picker must offer all six codes of the
+    # two warnings, not the two first-of-area codes it used to.
+    session = _RoutedFakeSession(
+        {
+            "/api/v1/regions/": ({}, 404),
+            "/api/v1/warnings/": (_fi_payload(), 200),
+        }
+    )
+    regions = await meteoalarm.fetch_regions_for_country(session, "FI")
+    codes = {code for code, _label in regions}
+    assert codes == {"FI812", "FI803", "FI813", "FI811", "FI810", "FI809"}
+    # Each code carries its own name, taken from the first info block's
+    # language rather than blurred into the whole areaDesc.
+    assert ("FI811", "Saaristomeri") in regions
+    assert ("FI809", "Perämeren pohjoisosa") in regions
+    labels = [label for _code, label in regions]
+    assert labels == sorted(labels, key=str.lower)
+
+
+@pytest.mark.asyncio
+async def test_region_filter_matches_a_non_first_geocode():
+    # Locks in _region_codes' union behavior, which this change deliberately
+    # does not touch: selecting any one code of a multi-region alert keeps it.
+    provider = meteoalarm.MeteoAlarmProvider()
+    alerts = await provider.async_fetch(
+        _FakeSession(_fi_payload()),
+        config={"country": "FI", "regions": ["FI809"]},
+        options={"language": "fi"},
+    )
+    assert [a.event for a in alerts] == ["Ukkoskuuroja"]
+
+    alerts = await provider.async_fetch(
+        _FakeSession(_fi_payload()),
+        config={"country": "FI", "regions": ["FI813"]},
+        options={"language": "fi"},
+    )
+    assert [a.event for a in alerts] == ["Kova tuuli merialueella"]
+
+
+@pytest.mark.asyncio
+async def test_region_filter_drops_a_foreign_code():
+    provider = meteoalarm.MeteoAlarmProvider()
+    alerts = await provider.async_fetch(
+        _FakeSession(_fi_payload()),
+        config={"country": "FI", "regions": ["FI999"]},
+        options={"language": "fi"},
+    )
+    assert alerts == []
 
 
 @pytest.mark.asyncio

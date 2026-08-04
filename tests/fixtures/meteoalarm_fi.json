@@ -1,0 +1,194 @@
+{
+  "warnings": [
+    {
+      "uuid": "fi-uuid-1",
+      "alert": {
+        "identifier": "2.49.0.1.246.0.FI.1",
+        "sender": "cap@fmi.fi",
+        "sent": "2026-08-03T09:00:00+03:00",
+        "status": "Actual",
+        "msgType": "Alert",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "fi-FI",
+            "category": ["Met"],
+            "event": "Kova tuuli merialueella",
+            "severity": "Moderate",
+            "urgency": "Expected",
+            "certainty": "Likely",
+            "onset": "2026-08-03T12:00:00+03:00",
+            "expires": "2026-08-04T00:00:00+03:00",
+            "headline": "Kovan tuulen varoitus merialueella",
+            "description": "Merialueilla puhaltaa kovaa tuulta.",
+            "parameter": [
+              {
+                "valueName": "awareness_level",
+                "value": "2; yellow; Moderate"
+              },
+              {
+                "valueName": "awareness_type",
+                "value": "1; Wind"
+              }
+            ],
+            "area": [
+              {
+                "areaDesc": "Pohjois-Itämeren itäosa, Pohjois-Itämeren länsiosa, Ahvenanmeri, Saaristomeri",
+                "geocode": [
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI812"
+                  },
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI803"
+                  },
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI813"
+                  },
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI811"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "language": "en-GB",
+            "category": ["Met"],
+            "event": "Strong wind at sea",
+            "severity": "Moderate",
+            "urgency": "Expected",
+            "certainty": "Likely",
+            "onset": "2026-08-03T12:00:00+03:00",
+            "expires": "2026-08-04T00:00:00+03:00",
+            "headline": "Strong wind warning at sea",
+            "description": "Strong wind over the sea areas.",
+            "parameter": [
+              {
+                "valueName": "awareness_level",
+                "value": "2; yellow; Moderate"
+              },
+              {
+                "valueName": "awareness_type",
+                "value": "1; Wind"
+              }
+            ],
+            "area": [
+              {
+                "areaDesc": "Eastern part of the Northern Baltic, Western part of the Northern Baltic, Sea of Åland, Archipelago Sea",
+                "geocode": [
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI812"
+                  },
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI803"
+                  },
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI813"
+                  },
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI811"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "uuid": "fi-uuid-2",
+      "alert": {
+        "identifier": "2.49.0.1.246.0.FI.2",
+        "sender": "cap@fmi.fi",
+        "sent": "2026-08-03T09:30:00+03:00",
+        "status": "Actual",
+        "msgType": "Alert",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "fi-FI",
+            "category": ["Met"],
+            "event": "Ukkoskuuroja",
+            "severity": "Moderate",
+            "urgency": "Expected",
+            "certainty": "Likely",
+            "onset": "2026-08-03T14:00:00+03:00",
+            "expires": "2026-08-03T22:00:00+03:00",
+            "headline": "Ukkosvaroitus Perämerelle",
+            "description": "Perämerellä ukkoskuuroja.",
+            "parameter": [
+              {
+                "valueName": "awareness_level",
+                "value": "2; yellow; Moderate"
+              },
+              {
+                "valueName": "awareness_type",
+                "value": "3; Thunderstorm"
+              }
+            ],
+            "area": [
+              {
+                "areaDesc": "Perämeren eteläosa, Perämeren pohjoisosa",
+                "geocode": [
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI810"
+                  },
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI809"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "language": "en-GB",
+            "category": ["Met"],
+            "event": "Thunderstorms",
+            "severity": "Moderate",
+            "urgency": "Expected",
+            "certainty": "Likely",
+            "onset": "2026-08-03T14:00:00+03:00",
+            "expires": "2026-08-03T22:00:00+03:00",
+            "headline": "Thunderstorm warning for the Bay of Bothnia",
+            "description": "Thunderstorms over the Bay of Bothnia.",
+            "parameter": [
+              {
+                "valueName": "awareness_level",
+                "value": "2; yellow; Moderate"
+              },
+              {
+                "valueName": "awareness_type",
+                "value": "3; Thunderstorm"
+              }
+            ],
+            "area": [
+              {
+                "areaDesc": "Southern part of the Bay of Bothnia, Northern part of the Bay of Bothnia",
+                "geocode": [
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI810"
+                  },
+                  {
+                    "valueName": "EMMA_ID",
+                    "value": "FI809"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

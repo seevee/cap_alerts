@@ -262,6 +262,18 @@ def test_meteoalarm_region_picker_multi():
     assert _compute(data) == "CAP Alerts METEOALARM (DE — Bavaria +2)"
 
 
+def test_meteoalarm_region_picker_counts_regions_not_labels():
+    # An entry written before every selection was labeled can carry fewer
+    # labels than regions; the "+N" must count the authoritative selection.
+    data = {
+        CONF_PROVIDER: "meteoalarm",
+        CONF_COUNTRY: "DE",
+        CONF_REGIONS: ["DE100", "DE200", "DE300"],
+        CONF_REGION_LABELS: {"DE100": "Saxony", "DE200": "Bavaria"},
+    }
+    assert _compute(data) == "CAP Alerts METEOALARM (DE — Bavaria +2)"
+
+
 def test_meteoalarm_region_picker_legacy_no_labels():
     data = {
         CONF_PROVIDER: "meteoalarm",
