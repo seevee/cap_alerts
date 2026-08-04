@@ -384,17 +384,42 @@ not `Actual` are skipped at parse time.
   publish per-warning geometry); matches the ECCC GPS-mode contract.
 - **Region picker** — multi-select of region codes. Feeds carry a mix of
   area-geocode schemes across countries (`EMMA_ID` for most, `NUTS3` for
-  FR/BG/RO/MK, `NUTS2` for HU; sub-region cell schemes `WARNCELLID`/`CISORP`
+  FR/BG/RO/MK, `NUTS2` for HU/BE; sub-region cell schemes `WARNCELLID`/`CISORP`
   co-occur with these). A single scheme-priority resolver
   (`METEOALARM_REGION_SCHEMES = ("EMMA_ID", "NUTS3", "NUTS2")`, `areaDesc` as
   last resort) drives **both** picker population and the per-warning filter, so
   the value stored in `CONF_REGIONS` and the value matched at fetch time are
-  always the same scheme for a given feed. The config flow probes the regions
-  endpoint first and derives the list from the warnings feed when that fails.
-  The endpoint returned 404 for **all 37 countries** when last probed
-  (2026-08-04), so the derived path is what actually runs everywhere today; the
-  probe is kept deliberately, since deleting it would make an upstream
-  restoration invisible.
+  always the same scheme for a given feed. Eleven countries (CH, EE, IE, IL,
+  LU, NO, SE, SI, UA, UK, LV) publish no region-selectable scheme at all and
+  land on the `areaDesc` fallback in both places.
+
+  The list is derived from the **warnings feed**; there is no regions endpoint
+  to consult. `feeds.meteoalarm.org/api/v1/regions/feeds-{slug}` is 404 for all
+  38 countries, the official successor `api.meteoalarm.org/metadata/v1` needs a
+  re-user API key an integration cannot ship, and the public endpoint behind
+  meteoalarm.org's own map keys areas by internal UUID rather than by any CAP
+  geocode (all verified 2026-08-04). Deriving from warnings is not the
+  degradation it reads as: members publish green/no-warning entries for every
+  area, so a live feed enumerates the country's full administrative tree —
+  measured the same day at DE 408 regions, PL 383, ES 233, CZ 206, CH 151,
+  AT 116, FR 90, SK 72. Only Iceland and Malta named nothing, and the flow
+  aborts with `no_regions_available` there rather than offering an empty form.
+
+  A **static bundled catalog was considered and rejected**: it would have to be
+  per-country namespace-aware (an `EMMA_ID` entry for a `NUTS3` or `areaDesc`
+  country produces a selection that silently matches nothing), and the only
+  public `EMMA_ID` list is GPL-3.0 and stale against live feeds (0 of 206 codes
+  matched for CZ, 0/28 BG, 0/42 RO, 0/7 HU, 4/90 FR).
+
+  Harvesting reads **one `<info>` block per warning**, chosen by the configured
+  language via `_pick_info_blocks` — the same selection `async_fetch` makes.
+  Reading every block instead would offer each region once per published
+  language, and for the `areaDesc` countries those repeats are distinct codes
+  no de-duplication can merge (Norway offered 26 entries for 13 regions before
+  this). One consequence to know: for those countries the stored code *is* a
+  localized string, so changing the language option after setup can leave a
+  stored selection matching nothing. Reconfigure harvests in the configured
+  language, so the fix is a re-pick.
 
   An area may publish **several region codes under one `areaDesc`** — FMI names
   four sea areas in a single string with one `EMMA_ID` per area — and the filter

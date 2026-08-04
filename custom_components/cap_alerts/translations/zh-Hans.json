@@ -370,7 +370,8 @@
       "invalid_geocode_prefix": "区域代码前缀无效。请输入以逗号分隔的代码列表，仅可包含字母、数字以及 : _ . - （每个最多 32 个字符）。"
     },
     "abort": {
-      "reconfigure_successful": "配置更新成功。"
+      "reconfigure_successful": "配置更新成功。",
+      "no_regions_available": "该国的 MeteoAlarm 数据源未提供可选区域。请重新添加集成并改选“全国范围”。"
     }
   },
   "options": {

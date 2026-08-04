@@ -370,7 +370,8 @@
       "invalid_geocode_prefix": "Invalid area code prefix. Enter a comma-separated list of codes made up of letters, digits, and : _ . - (max 32 characters each)."
     },
     "abort": {
-      "reconfigure_successful": "Configuration updated successfully."
+      "reconfigure_successful": "Configuration updated successfully.",
+      "no_regions_available": "This country's MeteoAlarm feed names no regions to pick from. Set the integration up again and choose Country-wide instead."
     }
   },
   "options": {

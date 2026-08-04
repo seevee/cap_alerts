@@ -39,7 +39,7 @@ Pick a provider, then a location mode:
 |---|---|
 | NWS         | Zone ID (e.g. `ILZ014`, or comma-separated), GPS (`lat,lon`), `device_tracker` entity |
 | ECCC        | Province code (`AB`, `BC`, `ON`, …), GPS (`lat,lon`) |
-| MeteoAlarm  | Country (ISO 3166-1 alpha-2, e.g. `DE`), with optional GPS polygon filter or `EMMA_ID` region multi-select |
+| MeteoAlarm  | Country (ISO 3166-1 alpha-2, e.g. `DE`), with optional GPS polygon filter or region multi-select (`EMMA_ID` for most countries, `NUTS3`/`NUTS2` for some, area names where a feed publishes no geocodes) |
 | WMO         | Source ID picked from the live SWIC registry (e.g. `mx-smn-es`; custom IDs accepted), country-wide or with optional GPS polygon filter |
 
 ### Options (per entry)

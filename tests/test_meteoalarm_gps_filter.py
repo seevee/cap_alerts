@@ -663,53 +663,31 @@ def test_region_pairs_areadesc_fallback():
 
 
 @pytest.mark.asyncio
-async def test_fetch_regions_uses_endpoint():
-    regions_payload = json.loads(
-        (_FIXTURE_DIR / "meteoalarm_regions_de.json").read_text(encoding="utf-8")
-    )
-    session = _RoutedFakeSession({"/api/v1/regions/": (regions_payload, 200)})
-    regions = await meteoalarm.fetch_regions_for_country(session, "DE")
-    codes = [code for code, _label in regions]
-    assert "DE100" in codes
-    assert "DE500" in codes
-    # Sorted by label, case-insensitive.
-    labels = [label for _code, label in regions]
-    assert labels == sorted(labels, key=str.lower)
-
-
-@pytest.mark.asyncio
-async def test_fetch_regions_falls_back_to_warnings():
+async def test_fetch_regions_from_warnings():
     warnings_payload = json.loads(
         (_FIXTURE_DIR / "meteoalarm_de.json").read_text(encoding="utf-8")
     )
-    session = _RoutedFakeSession(
-        {
-            "/api/v1/regions/": ({}, 404),
-            "/api/v1/warnings/": (warnings_payload, 200),
-        }
-    )
+    session = _RoutedFakeSession({"/api/v1/warnings/": (warnings_payload, 200)})
     regions = await meteoalarm.fetch_regions_for_country(session, "DE")
     codes = {code for code, _label in regions}
     # Fixture has multiple EMMA_IDs starting with DE.
     assert codes
     for code in codes:
         assert code.startswith("DE")
+    # Sorted by label, case-insensitive.
+    labels = [label for _code, label in regions]
+    assert labels == sorted(labels, key=str.lower)
 
 
 @pytest.mark.asyncio
 async def test_fetch_regions_nuts3_from_warnings():
-    # France has no regions endpoint; the picker is derived from the warnings
-    # feed's NUTS3 areas (#25). Pairs use department names as labels and are
-    # sorted case-insensitively by label.
+    # The picker is derived from the warnings feed's NUTS3 areas (#25). Pairs
+    # use department names as labels and are sorted case-insensitively by
+    # label.
     warnings_payload = json.loads(
         (_FIXTURE_DIR / "meteoalarm_fr.json").read_text(encoding="utf-8")
     )
-    session = _RoutedFakeSession(
-        {
-            "/api/v1/regions/": ({}, 404),
-            "/api/v1/warnings/": (warnings_payload, 200),
-        }
-    )
+    session = _RoutedFakeSession({"/api/v1/warnings/": (warnings_payload, 200)})
     regions = await meteoalarm.fetch_regions_for_country(session, "FR")
     assert ("FR614", "Lot-et-Garonne") in regions
     codes = {code for code, _label in regions}
@@ -726,24 +704,29 @@ def _fi_payload() -> dict:
 
 @pytest.mark.asyncio
 async def test_fetch_regions_lists_every_code_of_a_multi_geocode_area():
-    # Finland has no regions endpoint, and every FMI warning packs several
-    # EMMA_IDs into one area (#48): the picker must offer all six codes of the
-    # two warnings, not the two first-of-area codes it used to.
-    session = _RoutedFakeSession(
-        {
-            "/api/v1/regions/": ({}, 404),
-            "/api/v1/warnings/": (_fi_payload(), 200),
-        }
-    )
+    # Every FMI warning packs several EMMA_IDs into one area (#48): the picker
+    # must offer all six codes of the two warnings, not the two first-of-area
+    # codes it used to.
+    session = _RoutedFakeSession({"/api/v1/warnings/": (_fi_payload(), 200)})
     regions = await meteoalarm.fetch_regions_for_country(session, "FI")
     codes = {code for code, _label in regions}
     assert codes == {"FI812", "FI803", "FI813", "FI811", "FI810", "FI809"}
-    # Each code carries its own name, taken from the first info block's
-    # language rather than blurred into the whole areaDesc.
-    assert ("FI811", "Saaristomeri") in regions
-    assert ("FI809", "Perämeren pohjoisosa") in regions
+    # Each code carries its own name rather than the whole areaDesc, in the
+    # requested language — English by default.
+    assert ("FI811", "Archipelago Sea") in regions
+    assert ("FI809", "Northern part of the Bay of Bothnia") in regions
     labels = [label for _code, label in regions]
     assert labels == sorted(labels, key=str.lower)
+
+
+@pytest.mark.asyncio
+async def test_fetch_regions_labels_follow_the_requested_language():
+    # Same codes, Finnish names: labels track the configured language rather
+    # than the feed's document order.
+    session = _RoutedFakeSession({"/api/v1/warnings/": (_fi_payload(), 200)})
+    regions = await meteoalarm.fetch_regions_for_country(session, "FI", language="fi")
+    assert ("FI811", "Saaristomeri") in regions
+    assert ("FI809", "Perämeren pohjoisosa") in regions
 
 
 @pytest.mark.asyncio

@@ -21,13 +21,24 @@ Three filter modes selectable via config-flow:
   administrative scheme (e.g. ``EMMA_ID`` for DE, ``NUTS3`` for FR) is what
   both the picker offers and the filter matches.
 
-The picker list itself is derived from the warnings feed (the regions endpoint
-is 404 for every country as of 2026-08-04, but is still probed first). An area
-may publish several region codes under a single ``areaDesc`` — FMI names four
-sea areas in one string — so ``_region_pairs`` offers every code of the area's
-scheme and labels each from the most specific honest source available:
-per-code names when the description zips 1:1 with the codes, the block name
-qualified by the code when it carries a single name, the bare code otherwise.
+The picker list itself is derived from the warnings feed. No usable regions
+endpoint exists: ``feeds.meteoalarm.org/api/v1/regions/feeds-{slug}`` is 404
+for all 38 countries, the official successor ``api.meteoalarm.org/metadata/v1``
+needs a re-user API key, and the public endpoint behind meteoalarm.org's own
+map keys areas by internal UUID rather than by any CAP geocode. Deriving from
+warnings is not the fallback it reads as — members publish green/no-warning
+entries for every area, so a live feed enumerates the country's full
+administrative tree (measured 2026-08-04: DE 408 regions, PL 383, ES 233).
+
+An area may publish several region codes under a single ``areaDesc`` — FMI
+names four sea areas in one string — so ``_region_pairs`` offers every code of
+the area's scheme and labels each from the most specific honest source
+available: per-code names when the description zips 1:1 with the codes, the
+block name qualified by the code when it carries a single name, the bare code
+otherwise. Harvesting reads one ``<info>`` block per warning, chosen by
+language, because a feed whose areas carry no region-selectable scheme falls
+back to ``areaDesc`` — there the code *is* the label, so reading every block
+would offer each region once per published language.
 """
 
 from __future__ import annotations
@@ -58,7 +69,6 @@ from ..normalize import SEVERITY_RANK, meteoalarm_awareness_severity
 _LOGGER = logging.getLogger(__name__)
 
 METEOALARM_FEED_URL = "https://feeds.meteoalarm.org/api/v1/warnings/feeds-{country}"
-METEOALARM_REGIONS_URL = "https://feeds.meteoalarm.org/api/v1/regions/feeds-{country}"
 
 # Region-selectable geocode schemes in priority order: EUMETNET canonical
 # region id first, then NUTS3 (department/county) preferred over NUTS2 (region)
@@ -963,94 +973,74 @@ def _alert_polygons(alert: CAPAlert) -> list[list[list[float]]]:
 
 
 async def fetch_regions_for_country(
-    session: aiohttp.ClientSession, country_iso: str
+    session: aiohttp.ClientSession, country_iso: str, *, language: str = ""
 ) -> list[tuple[str, str]]:
     """Return ``[(region_code, label), ...]`` for the given country.
 
     ``region_code`` is in the country's region-selectable scheme (EMMA_ID for
-    most, NUTS3 for FR/BG/RO/MK, NUTS2 for HU) — the same namespace the
-    per-alert region filter matches against.
+    most, NUTS3 for FR/BG/RO/MK, NUTS2 for HU/BE) — the same namespace the
+    per-alert region filter matches against. Countries whose feeds carry no
+    region-selectable scheme at all (CH, EE, IE, IL, LU, NO, SE, SI, UA, UK,
+    LV) fall back to ``areaDesc`` strings in both places.
 
-    Tries the regions endpoint first; on any failure (HTTP error, JSON
-    error, empty response, unexpected shape) falls back to deriving the
-    region list from the warnings feed. Raises ``UpdateFailed`` only when
-    both paths fail.
+    ``language`` picks the ``<info>`` block labels are read from; defaults to
+    English, matching ``async_fetch``. It is load-bearing for the ``areaDesc``
+    countries, where the label *is* the code.
+
+    Returns ``[]`` when the feed is reachable but names no regions — a real
+    state for a single-zone or currently-quiet country, and the caller's
+    business to present. Raises ``UpdateFailed`` for an unsupported country or
+    a feed that could not be read.
     """
     country = (country_iso or "").upper()
     slug = METEOALARM_COUNTRY_SLUGS.get(country)
     if slug is None:
         raise UpdateFailed(f"MeteoAlarm: unsupported country {country}")
 
-    regions = await _fetch_regions_endpoint(session, slug)
-    if not regions:
-        regions = await _fetch_regions_from_warnings(session, slug, country)
-    if not regions:
-        raise UpdateFailed(f"MeteoAlarm: failed to load regions for {country}")
+    preferred_prefix = _lang_prefix(language) or "en"
+    regions = await _fetch_regions_from_warnings(session, slug, preferred_prefix)
     return sorted(_merge_region_pairs(regions), key=lambda item: item[1].lower())
 
 
-async def _fetch_regions_endpoint(
-    session: aiohttp.ClientSession, slug: str
-) -> list[tuple[str, str]]:
-    """Probe the regions endpoint. Returns ``[]`` on any failure."""
-    url = METEOALARM_REGIONS_URL.format(country=slug)
-    try:
-        async with session.get(url) as resp:
-            if resp.status != 200:
-                return []
-            try:
-                payload = await resp.json(content_type=None)
-            except (aiohttp.ContentTypeError, ValueError):
-                return []
-    except aiohttp.ClientError:
-        return []
-
-    entries: list[Any] = []
-    if isinstance(payload, list):
-        entries = payload
-    elif isinstance(payload, dict):
-        candidate = payload.get("regions")
-        if isinstance(candidate, list):
-            entries = candidate
-
-    out: list[tuple[str, str]] = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        code = str(entry.get("code") or entry.get("EMMA_ID") or "").strip()
-        label = str(entry.get("name") or entry.get("areaDesc") or "").strip()
-        if code:
-            out.append((code, label or code))
-    return out
-
-
 async def _fetch_regions_from_warnings(
-    session: aiohttp.ClientSession, slug: str, country: str
+    session: aiohttp.ClientSession, slug: str, preferred_prefix: str
 ) -> list[tuple[str, str]]:
-    """Derive the region list from the warnings feed."""
+    """Derive the region list from the warnings feed.
+
+    Reads one info block per warning — the one ``_pick_info_blocks`` selects
+    for ``preferred_prefix`` — rather than all of them. A multi-language feed
+    repeats its areas per language, and for the ``areaDesc`` fallback those
+    repeats are distinct codes that no de-duplication can merge (Norway
+    published 26 entries for 13 regions on 2026-08-04).
+
+    Raises ``UpdateFailed`` on any failure to read the feed, so the caller can
+    tell a broken fetch from a country that genuinely names no regions.
+    """
     url = METEOALARM_FEED_URL.format(country=slug)
     try:
         async with session.get(url) as resp:
             if resp.status != 200:
-                return []
+                raise UpdateFailed(f"MeteoAlarm {slug}: HTTP {resp.status}")
             try:
                 payload = await resp.json(content_type=None)
-            except (aiohttp.ContentTypeError, ValueError):
-                return []
-    except aiohttp.ClientError:
-        return []
+            except (aiohttp.ContentTypeError, ValueError) as err:
+                raise UpdateFailed(f"MeteoAlarm {slug}: invalid JSON: {err}") from err
+    except aiohttp.ClientError as err:
+        raise UpdateFailed(f"MeteoAlarm {slug}: {err}") from err
 
     warnings = payload.get("warnings") if isinstance(payload, dict) else None
     if not isinstance(warnings, list):
-        return []
+        raise UpdateFailed(f"MeteoAlarm {slug}: feed missing 'warnings' array")
 
     out: list[tuple[str, str]] = []
     for warning in warnings:
         if not isinstance(warning, dict):
             continue
-        alert = warning.get("alert") or {}
-        for info in alert.get("info") or []:
-            out.extend(_region_pairs(info))
+        infos = (warning.get("alert") or {}).get("info") or []
+        if not infos:
+            continue
+        primary, _alt = _pick_info_blocks(infos, preferred_prefix)
+        out.extend(_region_pairs(primary))
     return out
 
 
