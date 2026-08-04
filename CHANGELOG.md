@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0-alpha.2 — 2026-08-04
+
+### Added
+- Select the CAP <info> block by language (#72) (1514db8…)
+- Filter alerts by area-code prefix (#74) (7c0379a…)
+
+### Fixed
+- Make high-volume sources fit inside the poll timeout (#75) (5e8c177…)
+
 ## 0.3.0-alpha.1 — 2026-08-03
 
 ### Added
