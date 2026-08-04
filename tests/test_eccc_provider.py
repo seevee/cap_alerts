@@ -1178,7 +1178,9 @@ async def test_cache_serves_cached_url():
 
 @pytest.mark.asyncio
 async def test_cache_evicts_when_over_capacity():
-    cache = CAPContentCache(max_entries=2)
+    # Budget sized to exactly two bodies: eviction is by bytes, not entries,
+    # because CAP body size spans two orders of magnitude across sources.
+    cache = CAPContentCache(max_bytes=2 * sys.getsizeof("url1"))
 
     class FixedSession:
         def get(self, url: str, **kw: Any) -> Any:
