@@ -14,7 +14,7 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     EntitySelector,
@@ -344,11 +344,11 @@ def _region_selector(
     """Multi-select dropdown for region codes, accepting typed-in codes.
 
     The list can only offer regions named by warnings currently in the feed
-    (the regions endpoint is 404 for every country), so ``custom_value``
-    lets a user enter a code no live warning mentions — e.g. an ``EMMA_ID``
-    whose warning has expired. ``extra`` carries already-configured codes that
-    the current fetch does not offer, so reconfigure renders them as real
-    options instead of dropping them.
+    (no usable regions endpoint exists — see the provider docstring), so
+    ``custom_value`` lets a user enter a code no live warning mentions — e.g.
+    an ``EMMA_ID`` whose warning has expired. ``extra`` carries
+    already-configured codes that the current fetch does not offer, so
+    reconfigure renders them as real options instead of dropping them.
     """
     options = [
         SelectOptionDict(value=code, label=label) for code, label in [*regions, *extra]
@@ -362,6 +362,22 @@ def _region_selector(
             sort=True,
         )
     )
+
+
+def _picker_language(hass: HomeAssistant, entry: ConfigEntry | None = None) -> str:
+    """Language the MeteoAlarm region picker harvests labels in.
+
+    Mirrors the coordinator's ``"auto"`` resolution (see
+    ``_resolved_config``) so the picker agrees with the alert entities the
+    entry will produce. That is cosmetic for the geocoded countries and
+    load-bearing for the ``areaDesc``-namespace ones, where the label *is*
+    the stored region code. Setup has no entry yet, so it takes the HA
+    locale — which is what ``"auto"`` resolves to anyway.
+    """
+    configured = entry.options.get(CONF_LANGUAGE, "auto") if entry else "auto"
+    if configured and configured != "auto":
+        return str(configured)
+    return hass.config.language or "en"
 
 
 def _normalize_region_selection(selected: list[Any]) -> list[str]:
@@ -655,7 +671,9 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
         try:
             regions = await fetch_regions_for_country(
-                async_get_clientsession(self.hass), country
+                async_get_clientsession(self.hass),
+                country,
+                language=_picker_language(self.hass),
             )
         except UpdateFailed:
             return self.async_show_form(
@@ -663,6 +681,13 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 data_schema=vol.Schema({}),
                 errors={"base": "cannot_fetch_regions"},
             )
+
+        if not regions:
+            # The feed was read fine and named no regions — a single-zone
+            # country, or one with nothing live. Retrying (what
+            # ``cannot_fetch_regions`` invites) cannot change that, so name
+            # the mode that does work instead of looping on an empty form.
+            return self.async_abort(reason="no_regions_available")
 
         if user_input is not None:
             selected = _normalize_region_selection(user_input.get(CONF_REGIONS) or [])
@@ -1157,7 +1182,9 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
         try:
             regions = await fetch_regions_for_country(
-                async_get_clientsession(self.hass), country
+                async_get_clientsession(self.hass),
+                country,
+                language=_picker_language(self.hass, entry),
             )
         except UpdateFailed:
             return self.async_show_form(
@@ -1168,6 +1195,16 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
 
         fetched = dict(regions)
         stored = dict(entry.data.get(CONF_REGION_LABELS) or {})
+        # Carry every stored selection forward, including codes the current
+        # fetch doesn't offer (typed-in, or their warning has since expired):
+        # they are injected as options so the form can render them as selected.
+        existing = _normalize_region_selection(entry.data.get(CONF_REGIONS) or [])
+
+        if not regions and not existing:
+            # Nothing to offer and nothing to preserve — same dead end as
+            # setup. A quiet feed alone must not abort, or a reconfigure
+            # would strand an entry whose regions are simply not live now.
+            return self.async_abort(reason="no_regions_available")
 
         if user_input is not None:
             selected = _normalize_region_selection(user_input.get(CONF_REGIONS) or [])
@@ -1184,10 +1221,6 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                     entry, data=new_data, title=_compute_device_title(new_data)
                 )
 
-        # Carry every stored selection forward, including codes the current
-        # fetch doesn't offer (typed-in, or their warning has since expired):
-        # they are injected as options so the form can render them as selected.
-        existing = _normalize_region_selection(entry.data.get(CONF_REGIONS) or [])
         extra = [
             (code, stored.get(code) or code) for code in existing if code not in fetched
         ]

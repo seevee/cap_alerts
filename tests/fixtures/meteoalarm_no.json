@@ -1,0 +1,193 @@
+{
+  "warnings": [
+    {
+      "alert": {
+        "identifier": "2.49.0.1.578.0.20260730172858.042",
+        "sender": "meteorologi@met.no",
+        "sent": "2026-07-30T17:34:56+00:00",
+        "status": "Actual",
+        "msgType": "Update",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "no",
+            "event": "Mye lyn",
+            "headline": "Mye lyn, gult nivå, Østlandet og deler av Agder, 2026-07-30T09:30:00+00:00, 2026-07-30T22:00:00+00:00",
+            "severity": "Moderate",
+            "urgency": "Future",
+            "certainty": "Likely",
+            "onset": "2026-07-30T09:30:00+00:00",
+            "expires": "2026-07-30T22:00:00+00:00",
+            "parameter": [
+              {
+                "value": "2; yellow; Moderate",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "3; Thunderstorm",
+                "valueName": "awareness_type"
+              }
+            ],
+            "area": [
+              {
+                "areaDesc": "Østlandet og deler av Agder"
+              }
+            ]
+          },
+          {
+            "language": "en-GB",
+            "event": "Frequent lightning",
+            "headline": "Frequent lightning, yellow level, Oestlandet and parts of Agder, 2026-07-30T09:30:00+00:00, 2026-07-30T22:00:00+00:00",
+            "severity": "Moderate",
+            "urgency": "Future",
+            "certainty": "Likely",
+            "onset": "2026-07-30T09:30:00+00:00",
+            "expires": "2026-07-30T22:00:00+00:00",
+            "parameter": [
+              {
+                "value": "2; yellow; Moderate",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "3; Thunderstorm",
+                "valueName": "awareness_type"
+              }
+            ],
+            "area": [
+              {
+                "areaDesc": "Oestlandet and parts of Agder"
+              }
+            ]
+          }
+        ]
+      },
+      "uuid": "0f8327da-577f-48d3-834f-a54afe5506d6"
+    },
+    {
+      "alert": {
+        "identifier": "2.49.0.1.578.0.20260731064724.016",
+        "sender": "meteorologi@met.no",
+        "sent": "2026-07-31T06:49:17+00:00",
+        "status": "Actual",
+        "msgType": "Update",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "no",
+            "event": "Kuling",
+            "headline": "Kuling, gult nivå, Svinøy - Frøya, 2026-07-31T05:00:00+00:00, 2026-08-01T07:00:00+00:00",
+            "severity": "Moderate",
+            "urgency": "Future",
+            "certainty": "Likely",
+            "onset": "2026-07-31T05:00:00+00:00",
+            "expires": "2026-08-01T07:00:00+00:00",
+            "parameter": [
+              {
+                "value": "2; yellow; Moderate",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "1; Wind",
+                "valueName": "awareness_type"
+              }
+            ],
+            "area": [
+              {
+                "areaDesc": "Svinøy - Frøya"
+              }
+            ]
+          },
+          {
+            "language": "en-GB",
+            "event": "Gale",
+            "headline": "Gale, yellow level, Svinoey - Froeya, 2026-07-31T05:00:00+00:00, 2026-08-01T07:00:00+00:00",
+            "severity": "Moderate",
+            "urgency": "Future",
+            "certainty": "Likely",
+            "onset": "2026-07-31T05:00:00+00:00",
+            "expires": "2026-08-01T07:00:00+00:00",
+            "parameter": [
+              {
+                "value": "2; yellow; Moderate",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "1; Wind",
+                "valueName": "awareness_type"
+              }
+            ],
+            "area": [
+              {
+                "areaDesc": "Svinoey - Froeya"
+              }
+            ]
+          }
+        ]
+      },
+      "uuid": "d14ee653-ef76-4efb-ba27-36f295185bc0"
+    },
+    {
+      "alert": {
+        "identifier": "2.49.0.1.578.0.20260731071929.055",
+        "sender": "meteorologi@met.no",
+        "sent": "2026-07-31T07:23:21+00:00",
+        "status": "Actual",
+        "msgType": "Alert",
+        "scope": "Public",
+        "info": [
+          {
+            "language": "no",
+            "event": "Kuling",
+            "headline": "Kuling, gult nivå, Lyngør - Torungen, 2026-07-31T14:00:00+00:00, 2026-07-31T16:00:00+00:00",
+            "severity": "Moderate",
+            "urgency": "Future",
+            "certainty": "Likely",
+            "onset": "2026-07-31T14:00:00+00:00",
+            "expires": "2026-07-31T16:00:00+00:00",
+            "parameter": [
+              {
+                "value": "2; yellow; Moderate",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "1; Wind",
+                "valueName": "awareness_type"
+              }
+            ],
+            "area": [
+              {
+                "areaDesc": "Lyngør - Torungen"
+              }
+            ]
+          },
+          {
+            "language": "en-GB",
+            "event": "Gale",
+            "headline": "Gale, yellow level, Lyngoer - Torungen, 2026-07-31T14:00:00+00:00, 2026-07-31T16:00:00+00:00",
+            "severity": "Moderate",
+            "urgency": "Future",
+            "certainty": "Likely",
+            "onset": "2026-07-31T14:00:00+00:00",
+            "expires": "2026-07-31T16:00:00+00:00",
+            "parameter": [
+              {
+                "value": "2; yellow; Moderate",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "1; Wind",
+                "valueName": "awareness_type"
+              }
+            ],
+            "area": [
+              {
+                "areaDesc": "Lyngoer - Torungen"
+              }
+            ]
+          }
+        ]
+      },
+      "uuid": "0210e7ae-3e6e-4e9c-bd7f-48832354bd21"
+    }
+  ]
+}
