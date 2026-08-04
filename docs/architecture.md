@@ -389,13 +389,30 @@ not `Actual` are skipped at parse time.
   (`METEOALARM_REGION_SCHEMES = ("EMMA_ID", "NUTS3", "NUTS2")`, `areaDesc` as
   last resort) drives **both** picker population and the per-warning filter, so
   the value stored in `CONF_REGIONS` and the value matched at fetch time are
-  always the same scheme for a given feed. The config flow populates the picker
-  by calling the regions endpoint, falling back to deriving the list from the
-  warnings feed itself when the regions endpoint is unavailable (the only path
-  for NUTS3 countries like France, which have no regions endpoint). Selected
+  always the same scheme for a given feed. The config flow probes the regions
+  endpoint first and derives the list from the warnings feed when that fails.
+  The endpoint returned 404 for **all 37 countries** when last probed
+  (2026-08-04), so the derived path is what actually runs everywhere today; the
+  probe is kept deliberately, since deleting it would make an upstream
+  restoration invisible.
+
+  An area may publish **several region codes under one `areaDesc`** — FMI names
+  four sea areas in a single string with one `EMMA_ID` per area — and the filter
+  matches on all of them, so the picker offers all of them (#48). Labels come
+  from the most specific source that stays honest: per-code names when the
+  description splits 1:1 with the codes (including the Czech
+  `Kraj (Okres, Okres, …)` shape), the block name qualified by the code
+  (`Kreis Göttingen (DE151)`) when the description carries a single name for
+  several codes, and the bare code when neither mapping holds. Single-code
+  areas skip the derivation entirely, so names that contain a comma or
+  parentheses (`Ibiza y Formentera (Illes Balears)`) are untouched.
+
+  The derived list can only name regions that a **currently live warning**
+  mentions, so the selector accepts typed-in codes; reconfigure carries stored
+  codes forward even when the current fetch doesn't offer them. Selected
   `code → label` pairs are persisted as `CONF_REGION_LABELS` so the device
   title can show readable region names (e.g. `MeteoAlarm DE — Bavaria +2`)
-  without re-fetching.
+  without re-fetching; a code with no known name maps to itself.
 
 **Severity**: when an `info` block carries an `awareness_level` parameter
 (format `"N; color; Label"`, e.g. `"3; orange; Severe"`), the color token

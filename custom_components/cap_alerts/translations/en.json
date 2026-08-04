@@ -134,7 +134,7 @@
           "regions": "Regions"
         },
         "data_description": {
-          "regions": "Select one or more regions to filter alerts."
+          "regions": "Select one or more regions to filter alerts. You can also type a region code (e.g. EMMA_ID FI810) that isn't listed \u2014 the list only shows regions named by warnings currently in the feed."
         }
       },
       "wmo_source": {
@@ -303,7 +303,7 @@
           "regions": "Regions"
         },
         "data_description": {
-          "regions": "Select one or more regions to filter alerts."
+          "regions": "Select one or more regions to filter alerts. You can also type a region code (e.g. EMMA_ID FI810) that isn't listed \u2014 the list only shows regions named by warnings currently in the feed."
         }
       },
       "reconfigure_wmo_source": {

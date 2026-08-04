@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import Any
 
 import voluptuous as vol
@@ -188,7 +189,9 @@ def _compute_device_title(data: dict[str, Any]) -> str:
         labels = data.get(CONF_REGION_LABELS) or {}
         if labels:
             sorted_labels = sorted(labels.values())
-            extra = len(sorted_labels) - 1
+            # Counted from the authoritative selection, not the label map:
+            # a legacy entry may carry fewer labels than selected regions.
+            extra = len(data[CONF_REGIONS]) - 1
             suffix = f" +{extra}" if extra > 0 else ""
             location = f"{country_code} — {sorted_labels[0]}{suffix}"
         else:
@@ -333,17 +336,58 @@ def _country_selector() -> SelectSelector:
     )
 
 
-def _region_selector(regions: list[tuple[str, str]]) -> SelectSelector:
-    """Multi-select dropdown for ``EMMA_ID`` codes."""
-    options = [SelectOptionDict(value=code, label=label) for code, label in regions]
+def _region_selector(
+    regions: list[tuple[str, str]],
+    *,
+    extra: Sequence[tuple[str, str]] = (),
+) -> SelectSelector:
+    """Multi-select dropdown for region codes, accepting typed-in codes.
+
+    The list can only offer regions named by warnings currently in the feed
+    (the regions endpoint is 404 for every country), so ``custom_value``
+    lets a user enter a code no live warning mentions — e.g. an ``EMMA_ID``
+    whose warning has expired. ``extra`` carries already-configured codes that
+    the current fetch does not offer, so reconfigure renders them as real
+    options instead of dropping them.
+    """
+    options = [
+        SelectOptionDict(value=code, label=label) for code, label in [*regions, *extra]
+    ]
     return SelectSelector(
         SelectSelectorConfig(
             options=options,
             mode=SelectSelectorMode.DROPDOWN,
             multiple=True,
+            custom_value=True,
             sort=True,
         )
     )
+
+
+def _normalize_region_selection(selected: list[Any]) -> list[str]:
+    """Clean a region multi-select: stringify, strip, drop empties, de-dup.
+
+    Typed-in values arrive as free text, so they can carry stray whitespace or
+    be entered twice; codes span several namespaces (``EMMA_ID``, ``NUTS3``,
+    ``NUTS2``, and the ``areaDesc`` fallback) and are deliberately not
+    validated beyond this — any pattern tight enough to catch a typo would
+    reject a legitimate namespace, and a wrong code simply matches nothing.
+    """
+    out: list[str] = []
+    for value in selected:
+        code = str(value).strip()
+        if code and code not in out:
+            out.append(code)
+    return out
+
+
+def _region_label_map(
+    selected: list[str],
+    fetched: dict[str, str],
+    stored: dict[str, str],
+) -> dict[str, str]:
+    """Label every selected code: fetched label, else stored, else the code."""
+    return {code: fetched.get(code) or stored.get(code) or code for code in selected}
 
 
 class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
@@ -621,19 +665,15 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             )
 
         if user_input is not None:
-            selected = user_input.get(CONF_REGIONS) or []
+            selected = _normalize_region_selection(user_input.get(CONF_REGIONS) or [])
             if not selected:
                 errors["base"] = "no_regions_selected"
             else:
-                selected_set = set(selected)
-                labels = {
-                    code: label for code, label in regions if code in selected_set
-                }
                 data = {
                     CONF_PROVIDER: "meteoalarm",
                     CONF_COUNTRY: country,
-                    CONF_REGIONS: list(selected),
-                    CONF_REGION_LABELS: labels,
+                    CONF_REGIONS: selected,
+                    CONF_REGION_LABELS: _region_label_map(selected, dict(regions), {}),
                 }
                 return self.async_create_entry(
                     title=_compute_device_title(data), data=data
@@ -1126,35 +1166,37 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 errors={"base": "cannot_fetch_regions"},
             )
 
+        fetched = dict(regions)
+        stored = dict(entry.data.get(CONF_REGION_LABELS) or {})
+
         if user_input is not None:
-            selected = user_input.get(CONF_REGIONS) or []
+            selected = _normalize_region_selection(user_input.get(CONF_REGIONS) or [])
             if not selected:
                 errors["base"] = "no_regions_selected"
             else:
-                selected_set = set(selected)
-                labels = {
-                    code: label for code, label in regions if code in selected_set
-                }
                 new_data = {
                     CONF_PROVIDER: "meteoalarm",
                     CONF_COUNTRY: country,
-                    CONF_REGIONS: list(selected),
-                    CONF_REGION_LABELS: labels,
+                    CONF_REGIONS: selected,
+                    CONF_REGION_LABELS: _region_label_map(selected, fetched, stored),
                 }
                 return self.async_update_and_abort(
                     entry, data=new_data, title=_compute_device_title(new_data)
                 )
 
-        existing = entry.data.get(CONF_REGIONS, []) or []
-        # Only carry forward selections that still exist in the fetched set.
-        valid_codes = {code for code, _label in regions}
-        default = [code for code in existing if code in valid_codes]
+        # Carry every stored selection forward, including codes the current
+        # fetch doesn't offer (typed-in, or their warning has since expired):
+        # they are injected as options so the form can render them as selected.
+        existing = _normalize_region_selection(entry.data.get(CONF_REGIONS) or [])
+        extra = [
+            (code, stored.get(code) or code) for code in existing if code not in fetched
+        ]
         return self.async_show_form(
             step_id="reconfigure_meteoalarm_region_picker",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_REGIONS, default=default): _region_selector(
-                        regions
+                    vol.Required(CONF_REGIONS, default=existing): _region_selector(
+                        regions, extra=extra
                     ),
                 }
             ),
