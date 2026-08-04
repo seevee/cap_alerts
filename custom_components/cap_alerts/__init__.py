@@ -57,7 +57,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) ->
     # backfill, so the stream only needs to carry live updates + reconnect gaps.
     await coordinator.async_start_stream()
     entry.async_on_unload(coordinator.async_stop_stream)
-    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
     return True
 
 
@@ -66,11 +66,30 @@ async def async_unload_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) -
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
-async def _async_options_updated(
+async def _async_entry_updated(
     hass: HomeAssistant, entry: CAPAlertsConfigEntry
 ) -> None:
-    """Apply options changes without reloading."""
+    """Apply an entry update, reloading only when the change requires it.
+
+    This listener is the **sole** owner of reload decisions. The reconfigure
+    flow deliberately calls ``async_update_and_abort`` rather than
+    ``async_update_reload_and_abort``: pairing a reloading flow method with an
+    update listener reloads the entry twice and can race, which Home Assistant
+    deprecated in 2026.6 and makes an error in 2026.12. So anything the flow
+    used to reload for has to be recognised here instead.
+
+    Cheap options — poll interval, timeout — are applied in place. That is the
+    reason the listener exists at all rather than reloading unconditionally:
+    a reload tears down and re-establishes the ECCC NAAD stream socket, which
+    is far too heavy a price for nudging a scan interval.
+    """
     coordinator: AlertsDataUpdateCoordinator = entry.runtime_data
+    # A reconfigure rewrites entry data — provider, location, source, filter
+    # mode — all of which are read once when the coordinator is constructed.
+    # Nothing short of a rebuild picks them up.
+    if coordinator.entry_data_changed(entry):
+        hass.config_entries.async_schedule_reload(entry.entry_id)
+        return
     # Toggling real-time streaming changes ingestion wiring captured when the
     # coordinator was built (the stream task, the poll-vs-resync interval), so a
     # clean reload is simpler and safer than in-place re-wiring.

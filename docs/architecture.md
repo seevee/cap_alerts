@@ -692,8 +692,31 @@ Holds the previous poll's alerts in memory and diffs incoming alerts to detect n
 
 Split into two concerns, both wired in `config_flow.py`:
 
-- **Reconfigure flow** — identity (provider, zone / GPS / tracker / province / country / regions). Triggers full reload via `async_update_reload_and_abort`. Shows the same top-level provider menu as initial setup, so NWS / ECCC / MeteoAlarm switches work without remove/re-add.
-- **Options flow** — behavior (scan interval, timeout, language). Applied live via an update listener: updates `coordinator.update_interval` and timeout in place and calls `async_request_refresh()`. No reload, no coordinator teardown.
+- **Reconfigure flow** — identity (provider, zone / GPS / tracker / province / country / regions / area-code prefixes). Shows the same top-level provider menu as initial setup, so NWS / ECCC / MeteoAlarm switches work without remove/re-add.
+- **Options flow** — behavior (scan interval, timeout, language, area-code prefixes). Applied live: updates `coordinator.update_interval` and timeout in place and calls `async_request_refresh()`. No reload, no coordinator teardown.
+
+### The update listener owns every reload decision
+
+`_async_entry_updated` in `__init__.py` is the single place that decides whether
+an entry update needs a rebuild. The reconfigure flow deliberately calls
+`async_update_and_abort`, **not** `async_update_reload_and_abort`.
+
+This is not stylistic. Home Assistant deprecated pairing a config-entry update
+listener with a reloading config-flow method in 2026.6 — the entry reloads twice
+and the two paths can race — and makes it an error in 2026.12. Of the sanctioned
+migrations, keeping the listener and dropping the flow's reload is the one that
+fits: the alternative, removing the listener and letting the flow reload
+unconditionally, would tear down and re-establish the ECCC NAAD stream socket
+every time someone nudges a scan interval.
+
+So the listener reloads when entry **data** changed (compared against the
+snapshot the coordinator was built from, `entry_data_changed`) or when the
+streaming toggle flipped, and otherwise applies options in place. Anything read
+once at construction — provider, location, source id, stream wiring — belongs in
+the first category; anything read per-poll in `_apply`, such as
+`exclude_marine` and `geocode_prefixes`, belongs in the second. A test asserts
+`async_update_reload_and_abort` appears nowhere in `config_flow.py`, since
+reintroducing it would break every reconfigure flow on HA 2026.12.
 
 Entry title is derived programmatically from config data (`_compute_device_title`) — no `CONF_NAME` field. Shared by initial setup and reconfigure so the device name stays in sync.
 

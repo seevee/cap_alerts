@@ -828,7 +828,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 errors["base"] = err
             else:
                 new_data = {CONF_PROVIDER: "nws", CONF_ZONE_ID: zone_id}
-                return self.async_update_reload_and_abort(
+                return self.async_update_and_abort(
                     entry, data=new_data, title=_compute_device_title(new_data)
                 )
         return self.async_show_form(
@@ -854,7 +854,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 errors["base"] = err
             else:
                 new_data = {CONF_PROVIDER: "nws", CONF_GPS_LOC: gps}
-                return self.async_update_reload_and_abort(
+                return self.async_update_and_abort(
                     entry, data=new_data, title=_compute_device_title(new_data)
                 )
         return self.async_show_form(
@@ -878,7 +878,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_PROVIDER: "nws",
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_update_reload_and_abort(
+            return self.async_update_and_abort(
                 entry, data=new_data, title=_compute_device_title(new_data)
             )
         return self.async_show_form(
@@ -911,7 +911,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 errors["base"] = err
             else:
                 new_data = {CONF_PROVIDER: "eccc", CONF_PROVINCE: province}
-                return self.async_update_reload_and_abort(
+                return self.async_update_and_abort(
                     entry, data=new_data, title=_compute_device_title(new_data)
                 )
         return self.async_show_form(
@@ -937,7 +937,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 errors["base"] = err
             else:
                 new_data = {CONF_PROVIDER: "eccc", CONF_GPS_LOC: gps}
-                return self.async_update_reload_and_abort(
+                return self.async_update_and_abort(
                     entry, data=new_data, title=_compute_device_title(new_data)
                 )
         return self.async_show_form(
@@ -961,7 +961,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_PROVIDER: "eccc",
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_update_reload_and_abort(
+            return self.async_update_and_abort(
                 entry, data=new_data, title=_compute_device_title(new_data)
             )
         return self.async_show_form(
@@ -1027,7 +1027,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
         country = getattr(self, "_meteoalarm_country", "")
         new_data = {CONF_PROVIDER: "meteoalarm", CONF_COUNTRY: country}
-        return self.async_update_reload_and_abort(
+        return self.async_update_and_abort(
             entry, data=new_data, title=_compute_device_title(new_data)
         )
 
@@ -1047,7 +1047,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                     CONF_COUNTRY: country,
                     CONF_GPS_LOC: gps,
                 }
-                return self.async_update_reload_and_abort(
+                return self.async_update_and_abort(
                     entry, data=new_data, title=_compute_device_title(new_data)
                 )
         return self.async_show_form(
@@ -1073,7 +1073,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_COUNTRY: country,
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_update_reload_and_abort(
+            return self.async_update_and_abort(
                 entry, data=new_data, title=_compute_device_title(new_data)
             )
         return self.async_show_form(
@@ -1096,7 +1096,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             attribute = (user_input.get(CONF_COUNTRY_ATTRIBUTE) or "").strip()
             if attribute:
                 new_data[CONF_COUNTRY_ATTRIBUTE] = attribute
-            return self.async_update_reload_and_abort(
+            return self.async_update_and_abort(
                 entry, data=new_data, title=_compute_device_title(new_data)
             )
         return self.async_show_form(
@@ -1141,7 +1141,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                     CONF_REGIONS: list(selected),
                     CONF_REGION_LABELS: labels,
                 }
-                return self.async_update_reload_and_abort(
+                return self.async_update_and_abort(
                     entry, data=new_data, title=_compute_device_title(new_data)
                 )
 
@@ -1214,7 +1214,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
         source_id = getattr(self, "_wmo_source_id", "")
         new_data = {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
-        return self.async_update_reload_and_abort(
+        return self.async_update_and_abort(
             entry, data=new_data, title=_compute_device_title(new_data)
         )
 
@@ -1234,7 +1234,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                     CONF_SOURCE_ID: source_id,
                     CONF_GPS_LOC: gps,
                 }
-                return self.async_update_reload_and_abort(
+                return self.async_update_and_abort(
                     entry, data=new_data, title=_compute_device_title(new_data)
                 )
         return self.async_show_form(
@@ -1260,7 +1260,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_SOURCE_ID: source_id,
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_update_reload_and_abort(
+            return self.async_update_and_abort(
                 entry, data=new_data, title=_compute_device_title(new_data)
             )
         return self.async_show_form(
@@ -1285,7 +1285,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 errors["base"] = err or "invalid_geocode_prefix"
             else:
                 new_data = {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
-                return self.async_update_reload_and_abort(
+                return self.async_update_and_abort(
                     entry,
                     data=new_data,
                     # Merged, not replaced: `options=` overwrites the whole
