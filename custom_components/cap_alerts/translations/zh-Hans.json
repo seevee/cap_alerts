@@ -366,7 +366,7 @@
         "data_description": {
           "scan_interval": "检查新警报的频率（60–3600）。ECCC：仅在关闭实时流传输时适用。",
           "timeout": "单次请求的 API 超时时间（5–120）",
-          "language": "首选警报语言。ECCC：auto/en-CA/fr-CA。MeteoAlarm：auto 加上 2 字母 ISO 代码。",
+          "language": "首选警报语言。ECCC：auto/en-CA/fr-CA。MeteoAlarm：auto 加上 2 字母 ISO 代码。WMO：auto，或该数据源发布的任意 BCP 47 语言标签（例如 zh-Hans）；若该数据源未提供所选语言，则回退到英语。",
           "streaming": "通过 NAAD 实时馈送传输 ECCC 警报以获得近乎即时的更新（推荐）。关闭时，将按轮询间隔从 GeoRSS 馈送中轮询警报。仅适用于 ECCC。",
           "feed_source": "要获取的 NAAD GeoRSS 主机。'auto' 会合并两个馈送，确保不会遗漏仅由其中一个馈送承载的警报（推荐）。旧版主机将于 2026 年 9 月左右退役；仅在解决特定馈送问题时才固定使用单个主机。仅适用于 ECCC。",
           "exclude_marine": "隐藏针对海洋/水域区域（划船、开阔水域）发布的警报。仅适用于 NWS 和 ECCC。"

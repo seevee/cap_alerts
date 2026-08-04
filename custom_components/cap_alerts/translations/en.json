@@ -366,7 +366,7 @@
         "data_description": {
           "scan_interval": "How often to check for new alerts (60–3600). ECCC: applies only when real-time streaming is off.",
           "timeout": "Per-request API timeout (5–120)",
-          "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes.",
+          "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes. WMO: auto, or any BCP 47 tag the source publishes (e.g. zh-Hans); the source falls back to English when it does not carry your language.",
           "streaming": "Stream ECCC alerts over the NAAD real-time feed for near-instant updates (recommended). When off, alerts are polled from the GeoRSS feed on the polling interval. ECCC only.",
           "feed_source": "Which NAAD GeoRSS host(s) to fetch. 'auto' combines both feeds so no alert carried by only one is missed (recommended). The legacy host retires around September 2026; pin a single host only to work around a specific feed issue. ECCC only.",
           "exclude_marine": "Hide alerts issued for marine/water zones (boating, open water). NWS and ECCC only."

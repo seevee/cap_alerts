@@ -50,6 +50,7 @@ from .const import (
     ECCC_PROVINCES,
     METEOALARM_COUNTRIES,
     METEOALARM_COUNTRY_NAMES,
+    WMO_LANGUAGES,
     WMO_SOURCE_NAMES,
 )
 from .providers.meteoalarm import fetch_regions_for_country
@@ -97,8 +98,12 @@ _METEOALARM_LANGUAGES = (
 
 _GPS_RE = re.compile(r"^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$")
 _ZONE_RE = re.compile(r"^[A-Za-z]{2}[CZ]\d{3}(,[A-Za-z]{2}[CZ]\d{3})*$")
-# WMO SWIC source IDs: {country}-{agency}-{lang} (e.g. mx-smn-es).
-_WMO_SOURCE_RE = re.compile(r"^[a-z]{2}-[a-z0-9]+-[a-z]{2}$")
+# WMO SWIC source IDs: {country}-{agency}[-{extra}…] (e.g. mx-smn-es,
+# us-noaa-nws-en-marine). The trailing segment is NOT a reliable language —
+# 17 registry IDs end in "-xx", one ends in "-marine", and 15 of the 110
+# sources sampled disagree with their CAP body's first <info> block. Body
+# language is selected at fetch time (providers/wmo.py:_select_info).
+_WMO_SOURCE_RE = re.compile(r"^[a-z]{2}(-[a-z0-9]+){2,4}$")
 
 
 def _tracker_schema(default: str | None = None) -> vol.Schema:
@@ -234,7 +239,7 @@ def _validate_wmo_source(value: str) -> tuple[str, str | None]:
     """Validate a WMO source ID. Returns (cleaned, error_key_or_None).
 
     Accepts both catalog entries and free-text that matches the
-    ``{country}-{agency}-{lang}`` source-ID shape, so advanced users can
+    ``{country}-{agency}[-{extra}…]`` source-ID shape, so advanced users can
     enter sources not yet in ``WMO_SOURCE_NAMES``.
     """
     cleaned = value.strip().lower()
@@ -260,6 +265,27 @@ def _wmo_source_selector(options: list[tuple[str, str]]) -> SelectSelector:
             mode=SelectSelectorMode.DROPDOWN,
             custom_value=True,
             sort=True,
+        )
+    )
+
+
+def _wmo_language_selector() -> SelectSelector:
+    """Dropdown of WMO body languages, allowing any custom BCP 47 tag.
+
+    ``WMO_LANGUAGES`` seeds the list with the primary subtags actually seen in
+    SWIC bodies, but a source may publish a script- or region-tagged form
+    (``zh-Hans``, ``pt-BR``, ``sr-Latn``), so free text is accepted too — the
+    provider's matcher falls back to English then document order for anything
+    a document does not carry. ``sort=False`` keeps ``auto`` first.
+    """
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=[
+                SelectOptionDict(value=code, label=code) for code in WMO_LANGUAGES
+            ],
+            mode=SelectSelectorMode.DROPDOWN,
+            custom_value=True,
+            sort=False,
         )
     )
 
@@ -1226,6 +1252,13 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                     default=self.config_entry.options.get(CONF_LANGUAGE, "auto"),
                 )
             ] = vol.In(list(_METEOALARM_LANGUAGES))
+        elif provider == "wmo":
+            schema[
+                vol.Optional(
+                    CONF_LANGUAGE,
+                    default=self.config_entry.options.get(CONF_LANGUAGE, "auto"),
+                )
+            ] = _wmo_language_selector()
 
         # Marine-alert exclusion is only meaningful for providers that classify
         # marine zones (NWS UGC prefixes, ECCC CLC "00…").

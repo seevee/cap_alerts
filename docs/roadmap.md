@@ -77,7 +77,7 @@ class CAPAlert:
     headline: str = ""  # resolved from infos by coordinator
 ```
 
-Breaking internal change — best done alongside a new provider that actually needs it. The shipped WMO provider did *not* trigger this: SWIC sources publish one language each, so the flat `_alt`-sibling shape still suffices. The card adapter and attribute shape shouldn't need to change if resolved flat fields are kept.
+Breaking internal change — best done alongside a new provider that actually needs it. The shipped WMO provider did *not* trigger this: SWIC bodies are frequently multilingual (46 of the 110 sources sampled 2026-08-03), but two languages fit the flat `_alt`-sibling shape, and the provider selects one `<info>` block plus one alternate (issue #59). What would force the nested shape is a source emitting one `<info>` *per area group* — `ca-aema-xx` does, and so does ECCC (#45). The card adapter and attribute shape shouldn't need to change if resolved flat fields are kept.
 
 ---
 

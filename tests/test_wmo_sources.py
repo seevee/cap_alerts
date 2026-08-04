@@ -119,11 +119,69 @@ async def test_includes_sources_sorted():
 
 @pytest.mark.asyncio
 async def test_label_format():
-    """Labels are '{countryName} ({AUTHORITYABBREV}, {lang})'."""
+    """Labels are '{countryName} ({AUTHORITYABBREV}, {langs})' from byLanguage.
+
+    The source-ID trailing segment is not the body language: ``cn-cma-xx``
+    ends ``-xx`` yet publishes ``zh-CN``.
+    """
     session = StubSession(_responses(_fixture("wmo_sources.json")))
     sources = dict(await fetch_wmo_sources(session))
-    assert sources["cn-cma-xx"] == "China (CMA, xx)"
+    assert sources["cn-cma-xx"] == "China (CMA, zh)"
     assert sources["mx-smn-es"] == "Mexico (SMN, es)"
+
+
+def test_label_lists_every_language_of_a_multilingual_source():
+    """Multi-valued labels flag the sources worth setting a language on."""
+    assert (
+        _wmo_source_label(
+            {
+                "sourceId": "at-zamg-en",
+                "countryName": "Austria",
+                "authorityAbbrev": "ZAMG",
+                "byLanguage": [{"code": "de-DE"}, {"code": "en-GB"}],
+            }
+        )
+        == "Austria (ZAMG, de/en)"
+    )
+
+
+def test_label_deduplicates_language_subtags():
+    assert (
+        _wmo_source_label(
+            {
+                "sourceId": "ca-aema-xx",
+                "countryName": "Canada",
+                "authorityAbbrev": "AEMA",
+                "byLanguage": [{"code": "en-CA"}, {"code": "fr-CA"}, {"code": "en-US"}],
+            }
+        )
+        == "Canada (AEMA, en/fr)"
+    )
+
+
+def test_label_without_bylanguage_omits_the_segment():
+    """No languages → no trailing comma."""
+    assert (
+        _wmo_source_label(
+            {
+                "sourceId": "xx-foo-en",
+                "countryName": "Country",
+                "authorityAbbrev": "ABC",
+            }
+        )
+        == "Country (ABC)"
+    )
+    assert (
+        _wmo_source_label(
+            {
+                "sourceId": "xx-foo-en",
+                "countryName": "Country",
+                "authorityAbbrev": "ABC",
+                "byLanguage": [],
+            }
+        )
+        == "Country (ABC)"
+    )
 
 
 def test_label_falls_back_to_bylanguage_name():

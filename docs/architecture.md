@@ -565,6 +565,25 @@ is exposed.
   contract. WMO CAP has no standardized sub-country region code, so there is no
   area-code filter and no GPS-tracker mode.
 
+**Language**: SWIC bodies are frequently multilingual and document order is not
+language order — of the 110 sources sampled on 2026-08-03, 46 carried more than
+one `<info>` block and 25 of those led with a non-English one. The source-ID's
+trailing segment is *not* a language: `at-zamg-en` leads with `de-DE`,
+`ch-meteoswiss-de` leads with `en`, 17 IDs end in `-xx`, one ends in `-marine`,
+and 15 of the 110 disagree with their body's first block. `_select_info`
+therefore matches the `language` option (or `hass.config.language`, passed
+verbatim so `en-GB`/`en-US` and `pt-PT`/`pt-BR` stay distinct) against each
+block's `<language>`: casefolded exact, then BCP 47 primary subtag, then any
+English block, then document order. The English step is what makes the fallback
+predictable when a document lacks the preferred language; ECCC deliberately has
+no such step, since a French Canadian must not silently receive English. The
+first non-selected block populates the `*_alt` fields, as ECCC and MeteoAlarm
+already do. Duplicate tags resolve first-match-wins, which is why a source
+emitting one `<info>` per *area group* (`ca-aema-xx`) still surfaces only its
+first group — the pre-existing limitation ECCC #45 covers, not a language
+concern. All three multi-language providers now select a block; their ladders
+differ by design and stay per provider.
+
 **Severity**: standard CAP `<severity>` passthrough — WMO has no dedicated
 branch in `_normalize_severity`, so it falls through to the generic non-NWS
 path (lowercase the CAP value, clamp off-axis values to `unknown`).

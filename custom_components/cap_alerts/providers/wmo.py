@@ -29,6 +29,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from ..const import (
     BUDDHIST_ERA_OFFSET,
     CONF_GPS_LOC,
+    CONF_LANGUAGE,
     CONF_SOURCE_ID,
     MIN_BUDDHIST_ERA_YEAR,
     WMO_SOURCES_URL,
@@ -121,20 +122,47 @@ def _parse_rss_links(xml_text: str, *, now: datetime | None = None) -> list[str]
 # ---------------------------------------------------------------------------
 
 
+def _source_languages(source: Mapping[str, Any]) -> str:
+    """Join a registry record's ``byLanguage`` primary subtags, e.g. ``de/en``.
+
+    The source-ID's trailing segment is *not* the body language and must not
+    be used here: 15 of the 110 sources sampled on 2026-08-03 disagree with
+    their CAP body's first ``<info>`` block (``at-zamg-en`` leads with
+    ``de-DE``, ``ch-meteoswiss-de`` leads with ``en``), 17 end in ``-xx``, and
+    one ends in ``-marine``. ``byLanguage`` is itself only a hint — it
+    over-claims for 35 of those 110 and under-claims for 20 — so it seeds the
+    display label only, never selection (see ``_select_info``). Registry order
+    is preserved, duplicates collapsed. Returns ``""`` when absent or empty.
+    """
+    by_language = source.get("byLanguage")
+    if not isinstance(by_language, list):
+        return ""
+    codes: list[str] = []
+    for entry in by_language:
+        if not isinstance(entry, Mapping):
+            continue
+        code = str(entry.get("code") or "").strip().split("-", 1)[0].lower()
+        if code and code not in codes:
+            codes.append(code)
+    return "/".join(codes)
+
+
 def _wmo_source_label(source: Mapping[str, Any]) -> str:
     """Build a compact dropdown label from a registry source record.
 
-    Prefers ``"{countryName} ({AUTHORITYABBREV}, {lang})"`` (the language is
-    the source-ID's trailing segment, e.g. ``mx-smn-es`` → ``es``). Falls
-    back to the first ``byLanguage`` name, then the bare source ID.
+    Prefers ``"{countryName} ({AUTHORITYABBREV}, {langs})"``, where ``langs``
+    are the record's ``byLanguage`` primary subtags (``mx-smn-es`` → ``es``,
+    ``at-zamg-en`` → ``de/en``) — multi-valued labels also signal which
+    sources are multilingual, and so worth setting a language option on.
+    Falls back to the first ``byLanguage`` name, then the bare source ID.
     """
     sid = str(source.get("sourceId") or "").strip()
     country = str(source.get("countryName") or "").strip()
     abbrev = str(source.get("authorityAbbrev") or "").strip()
-    lang = sid.rsplit("-", 1)[-1] if "-" in sid else ""
+    langs = _source_languages(source)
     if country and abbrev:
         head = f"{country} ({abbrev.upper()}"
-        return f"{head}, {lang})" if lang else f"{head})"
+        return f"{head}, {langs})" if langs else f"{head})"
     by_language = source.get("byLanguage")
     if isinstance(by_language, list) and by_language:
         first = by_language[0]
@@ -208,9 +236,77 @@ def _compute_wmo_id(identifier: str, fallback_url: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _select_info(doc: CAPDoc) -> CAPInfoDoc:
-    """Pick the first ``<info>`` block (WMO feeds carry one language each)."""
-    return doc.infos[0] if doc.infos else CAPInfoDoc()
+def _normalize_lang(value: str) -> str:
+    """Strip and casefold a BCP 47 tag for comparison."""
+    return value.strip().casefold()
+
+
+def _language_matches(info_lang: str, preferred: str) -> bool:
+    """Check language match with BCP 47 primary-subtag fallback.
+
+    Casefolded exact match wins (``EN-us`` == ``en-US``); failing that the
+    primary subtag (before the first ``-``) is compared, so ``zh-Hans``
+    matches ``zh-CN`` and a bare ``en`` matches ``en-GB``. An empty tag on
+    either side never matches.
+
+    The primary-subtag step is script-blind: a ``zh-Hans`` (Simplified)
+    preference matches a ``zh-HK``/``zh-mo`` (Traditional) block. That is
+    deliberate — a user only reaches those sources by choosing them
+    explicitly, and the related script beats an unrelated language.
+    """
+    if not info_lang or not preferred:
+        return False
+    info_norm = _normalize_lang(info_lang)
+    pref_norm = _normalize_lang(preferred)
+    if not info_norm or not pref_norm:
+        return False
+    if info_norm == pref_norm:
+        return True
+    return info_norm.split("-", 1)[0] == pref_norm.split("-", 1)[0]
+
+
+def _select_info(doc: CAPDoc, language: str) -> CAPInfoDoc:
+    """Pick the ``<info>`` block matching ``language``.
+
+    SWIC bodies are frequently multilingual and document order is *not*
+    language order: of the 110 sources sampled on 2026-08-03, 46 carried more
+    than one ``<info>`` block and 25 of those led with a non-English one.
+    ``at-zamg-en`` leads with ``de-DE``, so reading ``infos[0]`` served German
+    from the source whose ID ends ``-en``.
+
+    Preference order:
+    1. first block whose language matches (``_language_matches``);
+    2. first block whose primary subtag is ``en`` — a predictable fallback
+       when the document lacks the preferred language, rather than an
+       arbitrary one (a German user on ``mo-smg-xx`` gets ``en-US``, not
+       ``zh-mo``);
+    3. ``infos[0]``, so single-language documents, documents whose blocks
+       declare no ``<language>``, and an unset language option all behave
+       exactly as before.
+
+    First match wins on duplicate tags. ``ca-aema-xx`` emits one ``<info>``
+    per *area group* (``en-CA``/``fr-CA``/``en-CA``/``fr-CA``), so only its
+    first group survives — the same pre-existing limitation ``infos[0]`` had,
+    and the same defect class as ECCC issue #45.
+    """
+    if not doc.infos:
+        return CAPInfoDoc()
+    if language:
+        for info in doc.infos:
+            if _language_matches(info.language, language):
+                return info
+    for info in doc.infos:
+        if _normalize_lang(info.language).split("-", 1)[0] == "en":
+            return info
+    return doc.infos[0]
+
+
+def _select_alt_info(doc: CAPDoc, primary: CAPInfoDoc) -> CAPInfoDoc | None:
+    """Return the first ``<info>`` block that is not the selected one."""
+    for info in doc.infos:
+        if info is not primary:
+            return info
+    return None
 
 
 def _geometry_from_polygons(
@@ -224,8 +320,19 @@ def _geometry_from_polygons(
     return {"type": "MultiPolygon", "coordinates": [[ring] for ring in polygons]}
 
 
-def _build_alert(doc: CAPDoc, info: CAPInfoDoc, url: str, alert_id: str) -> CAPAlert:
-    """Build a ``CAPAlert`` from a parsed WMO CAP document."""
+def _build_alert(
+    doc: CAPDoc,
+    info: CAPInfoDoc,
+    url: str,
+    alert_id: str,
+    alt: CAPInfoDoc | None = None,
+) -> CAPAlert:
+    """Build a ``CAPAlert`` from a parsed WMO CAP document.
+
+    ``alt`` is the non-selected ``<info>`` block on a multilingual document;
+    its text populates the ``*_alt`` fields, matching what ECCC and MeteoAlarm
+    already publish. Every other field comes from ``info``.
+    """
     merged_params: dict[str, str] = {**info.event_codes, **info.parameters}
     return CAPAlert(
         id=alert_id,
@@ -256,6 +363,10 @@ def _build_alert(doc: CAPDoc, info: CAPInfoDoc, url: str, alert_id: str) -> CAPA
         references=tuple(ref_id for _, ref_id, _ in doc.references),
         parameters=merged_params if merged_params else None,
         language=info.language,
+        headline_alt=alt.headline if alt is not None else "",
+        description_alt=alt.description if alt is not None else "",
+        instruction_alt=(alt.instruction or None) if alt is not None else None,
+        language_alt=alt.language if alt is not None else "",
         provider="wmo",
     )
 
@@ -336,7 +447,8 @@ class WMOProvider:
         (c) Fetches CAP XML for each via a shared cache (bounded concurrency).
         (d) Parses CAP XML in the thread pool executor.
         (e) Resolves revision chains to leaf revisions.
-        (f) Builds CAPAlert objects and applies the optional GPS filter.
+        (f) Selects the preferred-language ``<info>`` block, builds CAPAlert
+            objects, and applies the optional GPS filter.
         """
         source_id = (config.get(CONF_SOURCE_ID) or "").strip()
         if not source_id:
@@ -386,13 +498,15 @@ class WMOProvider:
         leaf_ids = {d.identifier for d in resolve_chain_leaves([d for _, d in parsed])}
 
         # (f) Build CAPAlert objects for the leaf revisions.
+        language = str(options.get(CONF_LANGUAGE, "") or "").strip()
         alerts: list[CAPAlert] = []
         for cap_url, doc in parsed:
             if doc.identifier and doc.identifier not in leaf_ids:
                 continue
-            info = _select_info(doc)
+            info = _select_info(doc, language)
+            alt = _select_alt_info(doc, info)
             alert_id = _compute_wmo_id(doc.identifier, cap_url)
-            alerts.append(_build_alert(doc, info, cap_url, alert_id))
+            alerts.append(_build_alert(doc, info, cap_url, alert_id, alt))
 
         gps_loc = config.get(CONF_GPS_LOC)
         if gps_loc:
