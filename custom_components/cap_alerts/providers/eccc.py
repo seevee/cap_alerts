@@ -776,6 +776,7 @@ def _merge_languages(variants: list[CAPAlert], preferred_lang: str) -> CAPAlert:
 
     return replace(
         primary,
+        event_alt=alt.event,
         headline_alt=alt.headline,
         description_alt=alt.description,
         instruction_alt=alt.instruction,

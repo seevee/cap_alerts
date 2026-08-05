@@ -81,9 +81,16 @@ _METEOALARM_EVENT_SUBSTRINGS: tuple[tuple[str, str], ...] = (
     ("fire", "mdi:fire"),
     ("thunderstorm", "mdi:weather-lightning"),
     ("snow/ice", "mdi:snowflake"),
+    # Must precede ``snow``: WMO consults this table before the ECCC list, so
+    # the broad needle would otherwise shadow ECCC's specific "snow squall"
+    # mapping below and a squall warning would draw the plain snow icon.
+    ("snow squall", "mdi:snowflake-alert"),
     ("snow", "mdi:snowflake"),
     ("ice", "mdi:snowflake-melt"),
     ("frost", "mdi:snowflake-thermometer"),
+    # Must precede ``rain``, for the same reason ``snow squall`` precedes
+    # ``snow``: a WMO "Freezing Rain Warning" is ice, not a downpour.
+    ("freezing rain", "mdi:snowflake-melt"),
     ("rain flood", "mdi:home-flood"),
     ("flood", "mdi:home-flood"),
     ("rain", "mdi:weather-pouring"),
@@ -94,15 +101,52 @@ _METEOALARM_EVENT_SUBSTRINGS: tuple[tuple[str, str], ...] = (
     ("extreme low temp", "mdi:snowflake-thermometer"),
     ("high temperature", "mdi:weather-sunny-alert"),
     ("low temperature", "mdi:snowflake-thermometer"),
+    # Must precede ``wave``: several services spell the hazard "Heat wave",
+    # which otherwise matches the coastal needle and yields ``mdi:waves`` for
+    # a temperature alert (observed live on a MeteoAlarm CH entry).
+    ("heat", "mdi:weather-sunny-alert"),
     ("coastal event", "mdi:waves"),
     ("coastal", "mdi:waves"),
     ("wave", "mdi:waves"),
 )
 
 
+def _is_english(tag: str) -> bool:
+    """Whether a BCP 47 tag's primary subtag is English."""
+    return tag.strip().lower().split("-", 1)[0] == "en"
+
+
+def classification_event(alert: CAPAlert) -> str:
+    """Return the event text to classify on, which may not be the displayed one.
+
+    CAP 1.2 §3.2.1 makes ``<event>`` human-readable free text, so a feed
+    presenting a localized block carries an event no keyword table can match —
+    ``高温`` and ``Hitzewelle`` are the same hazard as ``high temperature`` and
+    match nothing. Multilingual sources publish a second ``<info>`` block, and
+    when it is English its event is classifiable while the user goes on reading
+    their own language (issue #91).
+
+    Guarded on the alternate *being* English rather than merely existing:
+    ``*_alt`` holds the first non-selected block, which on a document ordered
+    ``zh``/``pt``/``en`` is Portuguese — no more matchable than the Chinese it
+    would replace.
+
+    This is deliberately provider-neutral. WMO surfaced it, but MeteoAlarm
+    relays 38 mostly non-English services and publishes the same alternate
+    block, so a German user hits the identical defect.
+    """
+    if (
+        alert.event_alt
+        and not _is_english(alert.language)
+        and _is_english(alert.language_alt)
+    ):
+        return alert.event_alt
+    return alert.event
+
+
 def icon_for(alert: CAPAlert) -> str:
     """Return an ``mdi:*`` icon for ``alert`` based on provider + event."""
-    event = (alert.event or "").strip().lower()
+    event = (classification_event(alert) or "").strip().lower()
     if not event:
         return FALLBACK_ICON
 
@@ -110,18 +154,25 @@ def icon_for(alert: CAPAlert) -> str:
         if (icon := _NWS_EVENT_ICONS.get(event)) is not None:
             return icon
 
-    if alert.provider == "meteoalarm":
-        # MeteoAlarm services emit hyphenated/underscored compound terms
-        # (e.g. ``high-temperature``, ``snow_ice``); fold separators to
-        # spaces so substring needles match across naming styles.
-        normalized = event.replace("-", " ").replace("_", " ")
+    # MeteoAlarm services emit hyphenated/underscored compound terms (e.g.
+    # ``high-temperature``, ``snow_ice``); fold separators to spaces so
+    # substring needles match across naming styles. Harmless for the other
+    # providers, whose vocabularies carry no separators.
+    normalized = event.replace("-", " ").replace("_", " ")
+
+    # WMO relays ~140 national services, so its vocabulary is international
+    # rather than Canadian — "high temperature", "heavy rain" and "gale" are
+    # in the EUMETNET taxonomy and absent from ECCC's. Both consult it first,
+    # then fall through rather than stopping: the early return here used to
+    # hide ``tsunami``, ``tornado`` and ``smog`` from MeteoAlarm even though
+    # ECCC's list below carries all three.
+    if alert.provider in ("meteoalarm", "wmo"):
         for needle, icon in _METEOALARM_EVENT_SUBSTRINGS:
             if needle in normalized:
                 return icon
-        return FALLBACK_ICON
 
     for needle, icon in _ECCC_EVENT_SUBSTRINGS:
-        if needle in event:
+        if needle in normalized:
             return icon
 
     return FALLBACK_ICON

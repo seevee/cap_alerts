@@ -932,6 +932,7 @@ def _warning_to_alert(
         sender_name=_info_text(primary, "senderName"),
         parameters=parameters or None,
         language=_info_text(primary, "language"),
+        event_alt=_info_text(alt, "event"),
         headline_alt=_info_text(alt, "headline"),
         description_alt=_info_text(alt, "description"),
         instruction_alt=_info_text(alt, "instruction") or None,
