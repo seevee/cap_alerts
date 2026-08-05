@@ -125,6 +125,22 @@ This is a Home Assistant custom integration. It lives in `custom_components/cap_
 - Commit format: `type(scope): description` (types: feat, fix, docs, refactor, test, chore)
 - Branch format: `feat/<slug>`, `fix/<slug>`, `chore/<slug>`
 
+### Prose line wrapping
+
+Wrap by surface, not by habit:
+
+- **Commit messages** — hard-wrap the body at ~72–78 columns. `git log` is a
+  fixed-width surface, and `cliff.toml` only interpolates the *subject* into
+  `CHANGELOG.md`, so body length is otherwise free.
+- **Markdown in the repo** (`AGENTS.md`, `docs/`, `README.md`) — hard-wrap at
+  ~80. These are read in editors and reviewed as diffs, where wrapping keeps
+  changes line-granular.
+- **GitHub issue bodies, PR bodies, and comments** — do *not* hard-wrap. One
+  line per paragraph. Markdown reflows the rendered output either way, so
+  wrapping buys nothing there; meanwhile tables and long URLs can't be wrapped
+  (leaving one document in two styles), and editing a wrapped body in GitHub's
+  soft-wrapping web editor re-wraps it raggedly.
+
 ### Skills Reference
 Slash-command skills (`/explore`, `/plan`, `/implement`, `/fix`, `/review`,
 `/commit`, …) come from the developer's own environment, not this repo —
