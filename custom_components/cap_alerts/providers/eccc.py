@@ -27,7 +27,13 @@ from ..const import (
 from ..conventions import ECCC_MARINE_CLC_PREFIX as _ECCC_MARINE_CLC_PREFIX
 from ..conventions import conventions_for, is_marine_code
 from ..model import CAPAlert, geocodes_from
-from .cap import CAPDoc, CAPInfoDoc, parse_cap_alert, resolve_chain_leaves
+from .cap import (
+    CAPDoc,
+    CAPInfoDoc,
+    parse_cap_alert,
+    resolve_chain_leaves,
+    ring_from_lat_lon_pairs,
+)
 from .cap_content_cache import CAPContentCache
 from .geometry import (
     geometry_from_polygons,
@@ -224,21 +230,23 @@ def _parse_georss_polygons(entry: Element) -> list[list[list[float]]]:
 
 
 def _parse_georss_polygon(poly_el: Element[str]) -> list[list[float]] | None:
-    """Parse <georss:polygon> into a list of [lon, lat] coordinate pairs."""
+    """Parse <georss:polygon> into a list of [lon, lat] coordinate pairs.
+
+    GeoRSS writes a flat ``lat lon lat lon`` run rather than CAP's ``lat,lon``
+    tokens, so only the tokenizing differs; the pair count, numeric parsing,
+    and fail-closed behaviour are shared with the CAP parser so the two cannot
+    drift (issue #85).
+    """
     if not poly_el.text:
         return None
     parts = poly_el.text.strip().split()
-    if len(parts) < 6 or len(parts) % 2 != 0:
+    # An odd token count is malformed GeoRSS specifically — a dangling
+    # latitude with no longitude — so it is checked here rather than shared.
+    if len(parts) % 2 != 0:
         return None
-    coords = []
-    for i in range(0, len(parts), 2):
-        try:
-            lat = float(parts[i])
-            lon = float(parts[i + 1])
-            coords.append([lon, lat])
-        except ValueError:
-            return None
-    return coords
+    return ring_from_lat_lon_pairs(
+        (parts[i], parts[i + 1]) for i in range(0, len(parts), 2)
+    )
 
 
 def _point_in_polygons(
