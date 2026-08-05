@@ -1659,7 +1659,9 @@ def test_all_ended_document_is_terminal():
     assert len(alerts) == 1
     assert alerts[0].lifecycle_status == "ended"
     (normalized,) = normalize_alerts(alerts)
-    assert normalized.phase == "expired"
+    # "cancel" because expires is still an hour out: this alert was ended
+    # early rather than run to completion (issue #95).
+    assert normalized.phase == "cancel"
 
 
 def test_mixed_area_groups_province_prefers_active():
@@ -1700,7 +1702,8 @@ def test_gps_inside_ended_group_yields_a_terminal_alert():
     assert len(alerts) == 1
     assert alerts[0].lifecycle_status == "ended"
     (normalized,) = normalize_alerts(alerts)
-    assert normalized.phase == "expired"
+    # Ended early, so "cancel" rather than "expired" (issue #95).
+    assert normalized.phase == "cancel"
 
 
 def test_build_alerts_deduplicates_repeated_documents():

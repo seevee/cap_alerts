@@ -138,13 +138,29 @@ def _compute_phase(
     lifecycle_status: str = "",
     terminal_statuses: frozenset[str] = frozenset(),
 ) -> str:
-    """Lifecycle phase: ``expired`` if past ``expires`` or terminated, else msg_type.
+    """Lifecycle phase: terminal if past ``expires`` or ended early, else msg_type.
 
     ``lifecycle_status`` is the provider-supplied termination hint (see
     ``CAPAlert.lifecycle_status``). Some feeds never signal end-of-life through
     ``msgType`` — ECCC keeps ``Update`` and marks the area group ``ended`` in a
     CAP parameter instead, leaving an hour of ``expires`` still on the clock —
-    so a terminal status maps to ``expired`` regardless of ``msg_type``.
+    so a terminal status retires the alert regardless of ``msg_type``.
+
+    The two terminal phases are not interchangeable, and which one applies is
+    decided by the clock rather than by the signal that revealed it (issue #95):
+
+    * ``expired`` — the alert ran to its ``expires`` timestamp. Checked first,
+      so an alert already past its expiry stays ``expired`` even if the feed
+      also marks it ended.
+    * ``cancel`` — the alert ended before that timestamp. A consumer cannot
+      infer this from ``expires`` alone, which is exactly why it has to survive
+      into the event payload: ending early is news, reaching a published expiry
+      is not.
+
+    This mirrors ``store._infer_terminal_phase``, which already calls a silently
+    vanished alert ``cancel`` when its ``expires`` is still in the future. A
+    provider that *announces* an early end must not land on a worse phase than
+    one that simply drops the record.
 
     ``terminal_statuses`` comes from the source's convention table entry, so
     one feed's vocabulary can never retire another's alerts. Values outside it
@@ -155,7 +171,7 @@ def _compute_phase(
     if expires_at is not None and now > expires_at:
         return "expired"
     if lifecycle_status and lifecycle_status in terminal_statuses:
-        return "expired"
+        return "cancel"
     return _normalize_phase(msg_type)
 
 

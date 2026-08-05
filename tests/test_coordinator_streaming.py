@@ -582,7 +582,10 @@ async def test_streamed_ended_document_removes_entity(
 
     assert hass.states.get(count_id).state == "0"
     assert len(removed) == 1
-    assert removed[0].data["phase"] == "expired"
+    # The payload carries the *reason* it went away, and this one ended before
+    # its expires timestamp, so an automation can tell it from a run to
+    # completion (issue #95).
+    assert removed[0].data["phase"] == "cancel"
 
 
 def _stream_id(hass, entry) -> str | None:
