@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.cap_alerts.providers.cap import _parse_cap_polygon_text
+from custom_components.cap_alerts.providers.cap import parse_cap_polygon_text
 from custom_components.cap_alerts.providers.eccc import _point_in_polygons
+from custom_components.cap_alerts.providers.meteoalarm import _extract_geometries
 from custom_components.cap_alerts.providers.geometry import (
     geometry_from_polygons,
     normalize_ring,
@@ -108,7 +109,7 @@ def test_all_rings_invalid_yields_no_geometry():
     ],
 )
 def test_cap_polygon_text_always_reaches_geojson_closed(text):
-    geom = geometry_from_polygons([_parse_cap_polygon_text(text)])
+    geom = geometry_from_polygons([parse_cap_polygon_text(text)])
     ring = geom["coordinates"][0]
     assert ring[0] == ring[-1] and len(ring) >= 4
 
@@ -116,6 +117,27 @@ def test_cap_polygon_text_always_reaches_geojson_closed(text):
 # ---------------------------------------------------------------------------
 # The invariant closure must not disturb
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# MeteoAlarm shares the one parser
+# ---------------------------------------------------------------------------
+
+
+def test_meteoalarm_degenerate_polygon_still_yields_no_geometry():
+    # MeteoAlarm used to reject this in its own parser via a distinct-vertex
+    # check. That check was redundant once normalize_ring existed — the
+    # point-in-polygon path reads back from alert.geometry, so it is normalized
+    # too — and the duplicate parser is gone. Outcome must be unchanged.
+    info = {"area": [{"polygon": "1,1 1,1 1,1"}]}
+    assert geometry_from_polygons(_extract_geometries(info)) is None
+
+
+def test_meteoalarm_unclosed_polygon_is_closed_like_any_other():
+    info = {"area": [{"polygon": "1,1 2,2 3,1"}]}
+    geom = geometry_from_polygons(_extract_geometries(info))
+    ring = geom["coordinates"][0]
+    assert ring[0] == ring[-1] and len(ring) == 4
 
 
 @pytest.mark.parametrize(
