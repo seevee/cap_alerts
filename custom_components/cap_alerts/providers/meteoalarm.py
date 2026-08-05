@@ -510,30 +510,65 @@ def _lang_prefix(value: str) -> str:
     return value.split("-", 1)[0].lower()
 
 
+# Language prefixes that mean the same language to a reader, so a block tagged
+# with one satisfies a request for another. Norwegian is the one case that
+# matters: met.no tags its blocks ``no`` (the macrolanguage), while Home
+# Assistant only offers ``nb`` (Bokmål) and ``nn`` (Nynorsk) — ``no`` is not in
+# ``homeassistant.generated.languages.LANGUAGES`` — so exact prefix matching
+# never fires and a Norwegian install silently reads English (issue #79).
+# Checked against every ``<info>`` language published across all 38 country
+# feeds on 2026-08-04: the other unreachable tags (``cnr``, ``rm``, ``kl``) have
+# no HA locale to be reached *from*, so no group would help them.
+_LANG_EQUIVALENCE_GROUPS: tuple[frozenset[str], ...] = (frozenset({"no", "nb", "nn"}),)
+_LANG_EQUIVALENTS: Mapping[str, frozenset[str]] = {
+    prefix: group for group in _LANG_EQUIVALENCE_GROUPS for prefix in group
+}
+
+
+def _lang_matches(info_prefix: str, preferred_prefix: str) -> bool:
+    """Check whether an info block's language prefix satisfies the request."""
+    if not info_prefix or not preferred_prefix:
+        return False
+    if info_prefix == preferred_prefix:
+        return True
+    return info_prefix in _LANG_EQUIVALENTS.get(preferred_prefix, frozenset())
+
+
 def _pick_info_blocks(
     infos: list[dict[str, Any]], preferred_prefix: str
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Pick the primary info block by language and an alternate if any.
 
     Preference order:
-    1. info with a ``language`` whose 2-letter prefix matches
+    1. info with a ``language`` whose 2-letter prefix equals
        ``preferred_prefix``;
-    2. info whose language prefix is ``en`` (generic fallback);
-    3. first info block in document order.
+    2. info whose prefix is equivalent to it (``_LANG_EQUIVALENTS``);
+    3. info whose language prefix is ``en`` (generic fallback);
+    4. first info block in document order.
+
+    Exact beats equivalent so that a feed publishing both members of a group
+    still honours the requested one; no live feed does today, but document
+    order is the wrong tie-breaker for a language choice.
 
     The alternate is the first remaining block, if any.
     """
     primary_idx: int | None = None
+    equiv_idx: int | None = None
     en_idx: int | None = None
     for idx, info in enumerate(infos):
         prefix = _lang_prefix(info.get("language", ""))
-        if preferred_prefix and prefix == preferred_prefix and primary_idx is None:
-            primary_idx = idx
+        if prefix and prefix == preferred_prefix:
+            if primary_idx is None:
+                primary_idx = idx
+        elif _lang_matches(prefix, preferred_prefix) and equiv_idx is None:
+            equiv_idx = idx
         if prefix == "en" and en_idx is None:
             en_idx = idx
 
     if primary_idx is None:
-        primary_idx = en_idx if en_idx is not None else 0
+        primary_idx = equiv_idx if equiv_idx is not None else en_idx
+    if primary_idx is None:
+        primary_idx = 0
 
     primary = infos[primary_idx]
     alt: dict[str, Any] | None = None
