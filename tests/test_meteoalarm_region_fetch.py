@@ -74,11 +74,26 @@ async def test_areadesc_regions_are_not_duplicated_per_language():
 
 @pytest.mark.asyncio
 async def test_language_selects_the_matching_info_block():
-    # met.no tags its Norwegian block ``no``, not ``nb`` — the tag has to be
-    # the feed's, since ``_pick_info_blocks`` matches on the 2-letter prefix
-    # and treats a near-miss as no match at all.
     session = _RecordingSession(_no_payload())
     regions = await meteoalarm.fetch_regions_for_country(session, "NO", language="no")
+    labels = [label for _code, label in regions]
+    assert len(regions) == 3
+    assert "Østlandet og deler av Agder" in labels
+    assert "Oestlandet and parts of Agder" not in labels
+
+
+@pytest.mark.parametrize("language", ["nb", "nn", "nb-NO"])
+@pytest.mark.asyncio
+async def test_norwegian_ha_locales_select_the_no_block(language):
+    # met.no tags its Norwegian block ``no``; Home Assistant only offers ``nb``
+    # and ``nn``, which is also what ``auto`` resolves to on a Norwegian
+    # install. The equivalence group makes them reach it (issue #79) — for the
+    # ``areaDesc`` countries the label *is* the region code, so an unreachable
+    # block means English codes stored in CONF_REGIONS.
+    session = _RecordingSession(_no_payload())
+    regions = await meteoalarm.fetch_regions_for_country(
+        session, "NO", language=language
+    )
     labels = [label for _code, label in regions]
     assert len(regions) == 3
     assert "Østlandet og deler av Agder" in labels

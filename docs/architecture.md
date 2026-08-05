@@ -375,6 +375,14 @@ remaining block in `headline_alt` / `description_alt` /
 `instruction_alt` / `language_alt`. Warnings whose `status` is set and
 not `Actual` are skipped at parse time.
 
+A small equivalence table (`_LANG_EQUIVALENTS`) lets one prefix satisfy a
+request for another, an exact match still winning. It holds a single group,
+`{no, nb, nn}`: met.no tags its blocks with the Norwegian macrolanguage `no`,
+which is not a Home Assistant locale, so a Norwegian install — whose
+`language` option resolves to `nb` or `nn` — read English until the group was
+added (issue #79). The other feed languages no HA locale can reach (`cnr`,
+`rm`, `kl`) have no locale to be reached *from*, so they get no group.
+
 **Location matching** (mutually exclusive, picked in the config flow):
 - **Country-wide** — return every `Actual` warning for the country.
 - **GPS polygon** — parses each warning's `area.polygon` (CAP whitespace-

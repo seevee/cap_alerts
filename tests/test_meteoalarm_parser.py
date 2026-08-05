@@ -104,6 +104,11 @@ def feed_with_polygons() -> dict:
 
 
 @pytest.fixture
+def feed_no() -> dict:
+    return json.loads((_FIXTURE_DIR / "meteoalarm_no.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
 def feed_fr() -> dict:
     return json.loads((_FIXTURE_DIR / "meteoalarm_fr.json").read_text(encoding="utf-8"))
 
@@ -190,6 +195,30 @@ def test_language_merge_en_primary_when_preferred_missing(feed_de):
     gusts = next(a for a in alerts if a.event == "gale-force gusts")
     # No fr in fixture; falls back to en (the generic English fallback rule).
     assert gusts.language.startswith("en")
+
+
+@pytest.mark.parametrize("preferred_prefix", ["nb", "nn", "no"])
+def test_norwegian_ha_locales_read_the_no_block(feed_no, preferred_prefix):
+    # met.no tags its Norwegian blocks ``no``, a language Home Assistant does
+    # not have — it offers ``nb`` and ``nn``, and ``auto`` resolves to one of
+    # them on a Norwegian install. Without the equivalence group all three
+    # alerts came back in English (issue #79).
+    alerts = _parse(feed_no, preferred_prefix=preferred_prefix)
+    assert len(alerts) == 3
+    lightning = next(a for a in alerts if a.event == "Mye lyn")
+    assert lightning.language == "no"
+    assert lightning.headline.startswith("Mye lyn")
+    # The English block is still carried as the alternate.
+    assert lightning.language_alt == "en-GB"
+    assert lightning.headline_alt.startswith("Frequent lightning")
+
+
+def test_non_norwegian_language_still_falls_back_to_english(feed_no):
+    # The group is Norwegian-only: an unrelated locale must not be widened
+    # into it.
+    alerts = _parse(feed_no, preferred_prefix="nl")
+    lightning = next(a for a in alerts if a.event == "Frequent lightning")
+    assert lightning.language == "en-GB"
 
 
 def test_no_geometry_when_polygon_absent(feed_de):
