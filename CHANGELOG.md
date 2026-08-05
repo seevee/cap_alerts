@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0-alpha.4 — 2026-08-05
+
+### Added
+- Parse <circle> geometry and publish point locations (#84) (fe54692…)
+
+### Changed
+- Centralize provider-specific rules in a table (#83) (3ea9e97…)
+- Share one CAP polygon parser (#87) (94f894c…)
+- Share the coordinate-ring builder with GeoRSS (#89) (ae30d6b…)
+
+### Fixed
+- Close linear rings before emitting GeoJSON (#86) (d4586a2…)
+- Reach Norwegian info blocks from HA's nb/nn locales (#90) (80116c5…)
+- Classify multilingual alerts on their English block (#93) (64892f6…)
+
+### Maintenance
+- Add a live geometry conformance check (#92) (0e0c0e8…)
+
 ## 0.3.0-alpha.3 — 2026-08-04
 
 ### Fixed
