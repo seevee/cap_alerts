@@ -45,15 +45,61 @@ def points_from_circles(
     return [[lon, lat] for lon, lat, radius in circles if radius <= POINT_RADIUS_KM]
 
 
+# Coordinate precision for the distinct-vertex test, ~0.1 m at the equator.
+# Matches what the MeteoAlarm parser already used, so rings that were accepted
+# before are accepted now.
+_VERTEX_PRECISION = 6
+
+
+def normalize_ring(ring: list[list[float]]) -> list[list[float]] | None:
+    """Return ``ring`` as a valid GeoJSON linear ring, or ``None`` if it isn't one.
+
+    Closes the ring when its first and last positions differ, and rejects it
+    when fewer than three *distinct* vertices remain — the actual validity
+    condition, since three distinct points closed is the smallest real polygon
+    (4 positions) and a repeated coordinate is not an area at all.
+
+    Both CAP 1.2 §3.2.4 and RFC 7946 §3.1.6 require a closed ring of 4+
+    positions, but feeds do not reliably send one. Repairing beats rejecting
+    here — a ring one position short of closure still describes the area the
+    sender meant — which matches the fail-open posture used for marine
+    classification and unknown lifecycle tokens.
+
+    This is the choke point every ring passes through on its way to GeoJSON,
+    whichever of the three parsers produced it (CAP XML, CAP-over-JSON,
+    GeoRSS), so the guard cannot drift between them again (issue #85).
+    """
+    if not ring:
+        return None
+    distinct = {
+        (round(pos[0], _VERTEX_PRECISION), round(pos[1], _VERTEX_PRECISION))
+        for pos in ring
+    }
+    if len(distinct) < 3:
+        return None
+    if ring[0] != ring[-1]:
+        return [*ring, list(ring[0])]
+    return ring
+
+
 def geometry_from_polygons(
     polygons: list[list[list[float]]],
 ) -> dict[str, Any] | None:
-    """Build a GeoJSON geometry from one or more polygon rings."""
-    if not polygons:
+    """Build a GeoJSON geometry from one or more polygon rings.
+
+    Rings are closed and validated on the way through; ones that cannot be a
+    polygon are dropped rather than emitted as malformed GeoJSON.
+    """
+    rings = [
+        normalized
+        for normalized in (normalize_ring(ring) for ring in polygons)
+        if normalized is not None
+    ]
+    if not rings:
         return None
-    if len(polygons) == 1:
-        return {"type": "Polygon", "coordinates": [polygons[0]]}
-    return {"type": "MultiPolygon", "coordinates": [[ring] for ring in polygons]}
+    if len(rings) == 1:
+        return {"type": "Polygon", "coordinates": [rings[0]]}
+    return {"type": "MultiPolygon", "coordinates": [[ring] for ring in rings]}
 
 
 def geometry_from_points(points: list[list[float]]) -> dict[str, Any] | None:
