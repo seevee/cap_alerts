@@ -77,6 +77,95 @@ def test_meteoalarm_events(alert_factory, event, expected):
     assert icon_for(alert_factory(event=event, provider="meteoalarm")) == expected
 
 
+@pytest.mark.parametrize(
+    ("awareness_type", "expected"),
+    [
+        ("1; Wind", "mdi:weather-windy"),
+        ("2; snow-ice", "mdi:snowflake"),
+        ("3; Thunderstorm", "mdi:weather-lightning"),
+        ("4; Fog", "mdi:weather-fog"),
+        ("5; high-temperature", "mdi:weather-sunny-alert"),
+        ("6; low-temperature", "mdi:snowflake-thermometer"),
+        ("7; coastalevent", "mdi:waves"),
+        ("8; forest-fire", "mdi:fire"),
+        ("9; avalanches", "mdi:snowflake-alert"),
+        ("10; Rain", "mdi:weather-pouring"),
+        ("12; flooding", "mdi:home-flood"),
+        ("13; rain-flood", "mdi:home-flood"),
+        ("14; Marine-Hazard", "mdi:waves"),
+        ("15; Drought", "mdi:water-off"),
+        # Members spell the label however they like; only the code is stable.
+        ("1; wind", "mdi:weather-windy"),
+        ("5; High-temperature", "mdi:weather-sunny-alert"),
+        (
+            "5; high-temperature may threat public safety and/or damage infrastructure",
+            "mdi:weather-sunny-alert",
+        ),
+    ],
+)
+def test_meteoalarm_awareness_type_classifies(alert_factory, awareness_type, expected):
+    """The EUMETNET code decides, whatever language the event is written in."""
+    alert = alert_factory(
+        event="Tuulivaroitus maa-alueille",
+        language="fi-FI",
+        provider="meteoalarm",
+        parameters={"awareness_type": awareness_type},
+    )
+    assert icon_for(alert) == expected
+
+
+def test_finnish_alert_with_swedish_alternate(alert_factory):
+    """Issue #97: FMI publishes fi/sv/en, so the alternate block is Swedish.
+
+    The #91 English-alternate path can't reach the English event here, and some
+    FMI alerts carry no English block at all — the awareness code does.
+    """
+    alert = alert_factory(
+        event="Metsäpalovaroitus",
+        event_alt="Skogsbrandsvarning",
+        language="fi-FI",
+        language_alt="sv-FI",
+        provider="meteoalarm",
+        parameters={"awareness_type": "8; forest-fire"},
+    )
+    assert icon_for(alert) == "mdi:fire"
+
+
+def test_awareness_type_beats_the_event_tables(alert_factory):
+    """A coded hazard wins over matchable event text, in any language.
+
+    MeteoFrance green markers are ``Vent`` bulletins whose event text mentions
+    the season, so a text match is the less authoritative signal even when it
+    fires.
+    """
+    alert = alert_factory(
+        event="Heat wave",
+        provider="meteoalarm",
+        parameters={"awareness_type": "1; Wind"},
+    )
+    assert icon_for(alert) == "mdi:weather-windy"
+
+
+def test_unknown_awareness_code_falls_through_to_event(alert_factory):
+    """A code we don't know (profile revision) still gets the event tables."""
+    alert = alert_factory(
+        event="Thunderstorm",
+        provider="meteoalarm",
+        parameters={"awareness_type": "99; something-new"},
+    )
+    assert icon_for(alert) == "mdi:weather-lightning"
+
+
+def test_awareness_type_ignored_off_meteoalarm(alert_factory):
+    """WMO and ECCC publish no ``awareness_type``; nothing else may read it."""
+    alert = alert_factory(
+        event="Tornado Warning",
+        provider="wmo",
+        parameters={"awareness_type": "8; forest-fire"},
+    )
+    assert icon_for(alert) == "mdi:weather-tornado"
+
+
 def test_meteoalarm_unknown_event_falls_back(alert_factory):
     assert (
         icon_for(alert_factory(event="Volcanic ash plume", provider="meteoalarm"))

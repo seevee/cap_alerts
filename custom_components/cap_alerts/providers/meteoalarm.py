@@ -63,7 +63,10 @@ from ..const import (
     CONF_REGIONS,
     METEOALARM_COUNTRY_SLUGS,
 )
-from ..conventions import meteoalarm_awareness_severity
+from ..conventions import (
+    meteoalarm_awareness_severity,
+    meteoalarm_awareness_type_code,
+)
 from ..model import CAPAlert, geocodes_from
 from .cap import parse_cap_polygon_text
 from .geometry import geometry_from_polygons
@@ -95,18 +98,6 @@ _PARENTHETICAL = re.compile(r"^[^()]+\(([^()]+)\)$")
 # per-message identifier hash, whose collisions there are genuinely-distinct
 # concurrent warnings, not re-issues.
 _MF_SENDER = "vigilance@meteo.fr"
-
-
-def _awareness_type_code(parameters: Mapping[str, str] | None) -> str:
-    """Language-independent phenomenon key: the leading token of the
-    ``awareness_type`` parameter (``"3; Thunderstorm"`` → ``"3"``).
-
-    Returns ``""`` when the parameter (or the whole mapping) is absent.
-    """
-    if not parameters:
-        return ""
-    raw = parameters.get("awareness_type") or ""
-    return raw.split(";", 1)[0].strip()
 
 
 def _forecast_window_key(onset: str, effective: str, sent: str) -> str:
@@ -360,7 +351,9 @@ def _episode_group_key(alert: CAPAlert) -> tuple[str, str, str]:
     known limitation, kept because per-department explosion there would turn
     France into roughly 150 entities.
     """
-    event_key = _awareness_type_code(alert.parameters) or alert.event.casefold()
+    event_key = (
+        meteoalarm_awareness_type_code(alert.parameters) or alert.event.casefold()
+    )
     descs = tuple(d.strip() for d in alert.area_desc.split(",") if d.strip())
     region_key = ";".join(sorted(_region_codes(alert.geocodes, descs)))
     return (alert.sender, event_key, region_key)
@@ -898,7 +891,7 @@ def _warning_to_alert(
     onset = _info_text(primary, "onset")
     sent = alert.get("sent") or ""
     area_descs = tuple(d.strip() for d in _join_areas(primary).split(",") if d.strip())
-    event_key = _awareness_type_code(parameters) or event.casefold()
+    event_key = meteoalarm_awareness_type_code(parameters) or event.casefold()
     window_key = _forecast_window_key(onset, "", sent)
     region_codes = _region_codes(geocodes, area_descs)
 
