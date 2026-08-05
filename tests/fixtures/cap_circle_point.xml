@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>urn:test:circle:1</identifier>
+  <sender>test@example.org</sender>
+  <sent>2026-08-05T10:00:00+10:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <scope>Public</scope>
+  <info>
+    <language>en-AU</language>
+    <category>Fire</category>
+    <event>Bush Fire</event>
+    <urgency>Immediate</urgency>
+    <severity>Severe</severity>
+    <certainty>Observed</certainty>
+    <effective>2026-08-05T10:00:00+10:00</effective>
+    <expires>2099-08-05T22:00:00+10:00</expires>
+    <senderName>Test Fire Service</senderName>
+    <headline>Bush Fire - Test Road</headline>
+    <description>Point-located incident.</description>
+    <area>
+      <!-- Circle-only area: the location lives nowhere else. Radius 0 = point. -->
+      <areaDesc>12 Test Road, Sampleville</areaDesc>
+      <circle>-33.8688,151.2093 0</circle>
+    </area>
+    <area>
+      <!-- Both shapes: a fire-ground polygon and a location marker. -->
+      <areaDesc>Sampleville State Forest</areaDesc>
+      <polygon>-34.0,151.0 -34.0,151.5 -33.5,151.5 -33.5,151.0 -34.0,151.0</polygon>
+      <circle>-33.7500,151.2500 0</circle>
+    </area>
+    <area>
+      <!-- A real radius, not a point: no lossless GeoJSON form, so dropped. -->
+      <areaDesc>Evacuation radius</areaDesc>
+      <circle>-33.9000,151.1000 12.5</circle>
+    </area>
+  </info>
+</alert>

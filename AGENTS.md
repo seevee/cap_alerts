@@ -54,6 +54,7 @@ custom_components/cap_alerts/
     __init__.py           # AlertProvider protocol + get_provider() factory
     cap.py                # shared, provider-neutral CAP 1.2 XML parsing (CAPDoc/CAPInfoDoc, parse_cap_alert, resolve_chain_leaves)
     cap_content_cache.py  # LRU cache for fetched CAP XML bodies (shared: eccc + wmo)
+    geometry.py           # shared CAP shapes → GeoJSON; polygon/point selection, zero-radius circles
     nws.py                # NWS GeoJSON API — zone/GPS/tracker
     eccc.py               # Environment Canada NAAD Atom feed
     meteoalarm.py         # MeteoAlarm (EUMETNET) per-country CAP JSON
@@ -124,6 +125,22 @@ This is a Home Assistant custom integration. It lives in `custom_components/cap_
 - Never auto-commit, push, or open PRs — defer to the user or `/commit`
 - Commit format: `type(scope): description` (types: feat, fix, docs, refactor, test, chore)
 - Branch format: `feat/<slug>`, `fix/<slug>`, `chore/<slug>`
+
+### Prose line wrapping
+
+Wrap by surface, not by habit:
+
+- **Commit messages** — hard-wrap the body at ~72–78 columns. `git log` is a
+  fixed-width surface, and `cliff.toml` only interpolates the *subject* into
+  `CHANGELOG.md`, so body length is otherwise free.
+- **Markdown in the repo** (`AGENTS.md`, `docs/`, `README.md`) — hard-wrap at
+  ~80. These are read in editors and reviewed as diffs, where wrapping keeps
+  changes line-granular.
+- **GitHub issue bodies, PR bodies, and comments** — do *not* hard-wrap. One
+  line per paragraph. Markdown reflows the rendered output either way, so
+  wrapping buys nothing there; meanwhile tables and long URLs can't be wrapped
+  (leaving one document in two styles), and editing a wrapped body in GitHub's
+  soft-wrapping web editor re-wraps it raggedly.
 
 ### Skills Reference
 Slash-command skills (`/explore`, `/plan`, `/implement`, `/fix`, `/review`,

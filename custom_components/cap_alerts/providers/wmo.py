@@ -40,6 +40,7 @@ from ..const import (
 from ..model import CAPAlert, geocodes_from
 from .cap import CAPDoc, CAPInfoDoc, parse_cap_alert, resolve_chain_leaves
 from .cap_content_cache import CAPContentCache
+from .geometry import geometry_from_shapes, points_from_circles
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -380,17 +381,6 @@ def _select_alt_info(doc: CAPDoc, primary: CAPInfoDoc) -> CAPInfoDoc | None:
     return None
 
 
-def _geometry_from_polygons(
-    polygons: list[list[list[float]]],
-) -> dict[str, Any] | None:
-    """Build a GeoJSON geometry from one or more polygon rings."""
-    if not polygons:
-        return None
-    if len(polygons) == 1:
-        return {"type": "Polygon", "coordinates": [polygons[0]]}
-    return {"type": "MultiPolygon", "coordinates": [[ring] for ring in polygons]}
-
-
 def _build_alert(
     doc: CAPDoc,
     info: CAPInfoDoc,
@@ -405,6 +395,7 @@ def _build_alert(
     already publish. Every other field comes from ``info``.
     """
     merged_params: dict[str, str] = {**info.event_codes, **info.parameters}
+    points = points_from_circles(info.circles)
     return CAPAlert(
         id=alert_id,
         url=url,
@@ -427,7 +418,8 @@ def _build_alert(
         instruction=info.instruction or None,
         web=info.web,
         area_desc=info.area_desc,
-        geometry=_geometry_from_polygons(info.polygons),
+        geometry=geometry_from_shapes(info.polygons, points),
+        points=tuple((lon, lat) for lon, lat in points),
         geocodes=geocodes_from(info.geocodes),
         sender=doc.sender,
         sender_name=info.sender_name,

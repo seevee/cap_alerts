@@ -194,8 +194,12 @@ def _bbox_from_geometry(
 ) -> tuple[float, float, float, float] | None:
     """Return ``(min_lon, min_lat, max_lon, max_lat)`` from a GeoJSON geometry.
 
-    Supports Point, LineString, Polygon, MultiPolygon. Returns ``None`` when
-    geometry is missing, malformed, or contains no usable coordinates.
+    Supports Point, MultiPoint, LineString, Polygon, MultiPolygon. Returns
+    ``None`` when geometry is missing, malformed, or contains no usable
+    coordinates.
+
+    A point-only alert yields a degenerate bbox (``[lon, lat, lon, lat]``),
+    which is the shape the card derives a location from (issue #27).
     """
     if not geometry:
         return None
@@ -208,7 +212,7 @@ def _bbox_from_geometry(
     try:
         if gtype == "Point":
             points.append((float(coords[0]), float(coords[1])))
-        elif gtype == "LineString":
+        elif gtype in ("MultiPoint", "LineString"):
             for c in coords:
                 points.append((float(c[0]), float(c[1])))
         elif gtype == "Polygon":

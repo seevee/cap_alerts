@@ -65,6 +65,7 @@ from ..const import (
 )
 from ..conventions import meteoalarm_awareness_severity
 from ..model import CAPAlert, geocodes_from
+from .geometry import geometry_from_polygons
 from ..normalize import SEVERITY_RANK
 
 _LOGGER = logging.getLogger(__name__)
@@ -842,20 +843,6 @@ def _extract_geometries(info: Mapping[str, Any]) -> list[list[list[float]]]:
     return rings
 
 
-def _geometry_from_rings(
-    rings: list[list[list[float]]],
-) -> dict[str, Any] | None:
-    """Build a GeoJSON geometry from one or more polygon rings.
-
-    Single ring → ``Polygon``; multiple rings → ``MultiPolygon``; empty → ``None``.
-    """
-    if not rings:
-        return None
-    if len(rings) == 1:
-        return {"type": "Polygon", "coordinates": [rings[0]]}
-    return {"type": "MultiPolygon", "coordinates": [[ring] for ring in rings]}
-
-
 def _primary_info(
     warning: Mapping[str, Any], preferred_prefix: str
 ) -> Mapping[str, Any] | None:
@@ -897,7 +884,7 @@ def _warning_to_alert(
     parameters = _flatten_parameters(primary)
     geocodes = _scheme_geocodes(primary)
     rings = _extract_geometries(primary)
-    geometry = _geometry_from_rings(rings)
+    geometry = geometry_from_polygons(rings)
 
     sender = alert.get("sender") or ""
     event = _info_text(primary, "event")
