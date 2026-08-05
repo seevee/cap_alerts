@@ -63,8 +63,9 @@ from ..const import (
     CONF_REGIONS,
     METEOALARM_COUNTRY_SLUGS,
 )
+from ..conventions import meteoalarm_awareness_severity
 from ..model import CAPAlert, geocodes_from
-from ..normalize import SEVERITY_RANK, meteoalarm_awareness_severity
+from ..normalize import SEVERITY_RANK
 
 _LOGGER = logging.getLogger(__name__)
 

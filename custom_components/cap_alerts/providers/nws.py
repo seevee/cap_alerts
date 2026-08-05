@@ -13,6 +13,8 @@ import aiohttp
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import CONF_GPS_LOC, CONF_ZONE_ID
+from ..conventions import NWS_MARINE_UGC_PREFIXES as _NWS_MARINE_UGC_PREFIXES
+from ..conventions import conventions_for, is_marine_code
 from ..model import CAPAlert, geocodes_from
 
 _LOGGER = logging.getLogger(__name__)
@@ -20,36 +22,16 @@ _LOGGER = logging.getLogger(__name__)
 NWS_API_BASE = "https://api.weather.gov/alerts/active"
 MAX_PAGINATION_FOLLOWS = 5
 
-# UGC area prefixes (first two chars of a zone code) that denote marine/water
-# zones — coastal/offshore waters, Great Lakes, and high-seas areas. These are
-# disjoint from the US state/territory postal codes used for land zones, so a
-# prefix test never misclassifies a land alert. A newly minted marine-area code
-# would need to be added here; until then such an alert classifies as land
-# (fail-open — a marine alert is shown, never a non-marine alert hidden).
-NWS_MARINE_UGC_PREFIXES: frozenset[str] = frozenset(
-    {
-        "AM",  # Western North Atlantic / Caribbean / Gulf offshore
-        "AN",  # Atlantic coastal/offshore
-        "GM",  # Gulf of Mexico
-        "LC",  # Lake St. Clair
-        "LE",  # Lake Erie
-        "LH",  # Lake Huron
-        "LM",  # Lake Michigan
-        "LO",  # Lake Ontario
-        "LS",  # Lake Superior
-        "PH",  # Hawaiian coastal/offshore
-        "PK",  # Alaskan coastal
-        "PM",  # Western Pacific (Marianas)
-        "PS",  # American Samoa
-        "PZ",  # Pacific coastal/offshore
-        "SL",  # St. Lawrence River
-    }
-)
+# The marine-prefix vocabulary itself lives in the convention table; re-bound
+# here so the parse site below reads in NWS terms.
+NWS_MARINE_UGC_PREFIXES = _NWS_MARINE_UGC_PREFIXES
+
+_NWS_CONVENTIONS = conventions_for("nws")
 
 
 def _is_marine_nws(codes: tuple[str, ...]) -> bool:
     """Return True if any UGC/zone code is a marine-area code."""
-    return any(c[:2] in NWS_MARINE_UGC_PREFIXES for c in codes)
+    return is_marine_code(codes, _NWS_CONVENTIONS)
 
 
 # VTEC regex: /P.ACTION.OFFICE.PP.S.NNNN.YYMMDDTHHMMZ-YYMMDDTHHMMZ/
