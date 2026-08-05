@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 — 2026-08-05
+
+### Fixed
+- Classify MeteoAlarm on the awareness_type code (#101) (3974ef1…)
+
 ## 0.3.0 — 2026-08-05
 
 ### Added
