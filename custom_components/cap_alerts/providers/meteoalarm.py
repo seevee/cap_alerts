@@ -65,6 +65,7 @@ from ..const import (
 )
 from ..conventions import meteoalarm_awareness_severity
 from ..model import CAPAlert, geocodes_from
+from .cap import parse_cap_polygon_text
 from .geometry import geometry_from_polygons
 from ..normalize import SEVERITY_RANK
 
@@ -773,35 +774,6 @@ def _info_text(info: Mapping[str, Any] | None, key: str) -> str:
     return str(info.get(key) or "")
 
 
-def _parse_cap_polygon(text: str) -> list[list[float]] | None:
-    """Parse a CAP ``polygon`` string into ``[[lon, lat], ...]``.
-
-    CAP-1.2 polygon syntax is whitespace-separated ``lat,lon`` pairs.
-    Returns ``None`` for empty input, malformed pairs, or rings with
-    fewer than 3 distinct points.
-    """
-    if not text:
-        return None
-    pairs = text.strip().split()
-    if len(pairs) < 3:
-        return None
-    coords: list[list[float]] = []
-    for pair in pairs:
-        if "," not in pair:
-            return None
-        lat_s, _, lon_s = pair.partition(",")
-        try:
-            lat = float(lat_s)
-            lon = float(lon_s)
-        except ValueError:
-            return None
-        coords.append([lon, lat])
-    distinct = {(round(c[0], 6), round(c[1], 6)) for c in coords}
-    if len(distinct) < 3:
-        return None
-    return coords
-
-
 def _point_in_polygon(lat: float, lon: float, polygon: list[list[float]]) -> bool:
     """Ray-casting point-in-polygon test. Polygon is ``[[lon, lat], ...]``."""
     n = len(polygon)
@@ -837,7 +809,7 @@ def _extract_geometries(info: Mapping[str, Any]) -> list[list[list[float]]]:
         else:
             candidates = []
         for text in candidates:
-            ring = _parse_cap_polygon(text)
+            ring = parse_cap_polygon_text(text)
             if ring is not None:
                 rings.append(ring)
     return rings

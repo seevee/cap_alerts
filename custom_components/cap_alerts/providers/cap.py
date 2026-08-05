@@ -78,8 +78,18 @@ class CAPDoc:
 # ---------------------------------------------------------------------------
 
 
-def _parse_cap_polygon_text(text: str) -> list[list[float]] | None:
-    """Parse CAP polygon (``lat,lon`` pairs) into ``[[lon, lat], ...]``."""
+def parse_cap_polygon_text(text: str) -> list[list[float]] | None:
+    """Parse CAP polygon (``lat,lon`` pairs) into ``[[lon, lat], ...]``.
+
+    Public because CAP polygon syntax turns up outside CAP XML: MeteoAlarm
+    publishes CAP over JSON, where the polygon field is still this format.
+    One parser keeps the two from drifting the way their validity checks did
+    (issue #85).
+
+    Faithful to the text, not to GeoJSON: rings are returned exactly as
+    published, including unclosed ones. ``providers/geometry.normalize_ring``
+    closes and validates them when they become GeoJSON.
+    """
     if not text:
         return None
     pairs = text.strip().split()
@@ -199,7 +209,7 @@ def _parse_info(info_el: Element, ns: str) -> CAPInfoDoc:
 
         for poly_el in area_el.findall(f"{{{ns}}}polygon"):
             if poly_el.text:
-                ring = _parse_cap_polygon_text(poly_el.text.strip())
+                ring = parse_cap_polygon_text(poly_el.text.strip())
                 if ring:
                     info.polygons.append(ring)
 
