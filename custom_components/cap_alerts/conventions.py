@@ -100,6 +100,27 @@ _METEOALARM_AWARENESS_TO_SEVERITY = {
 
 
 # ---------------------------------------------------------------------------
+# Parameter accessors
+# ---------------------------------------------------------------------------
+
+
+def meteoalarm_awareness_type_code(parameters: Mapping[str, str] | None) -> str:
+    """Language-independent phenomenon key: the leading token of the
+    ``awareness_type`` parameter (``"3; Thunderstorm"`` → ``"3"``).
+
+    MeteoAlarm CAP Profile v2.0 §2.2.17 defines the value as ``code + "; " +
+    label``, and the label is the same hazard spelled however the member
+    service prefers — live feeds carry both ``"1; Wind"`` and ``"1; wind"`` —
+    so the code is the only stable key. Returns ``""`` when the parameter (or
+    the whole mapping) is absent.
+    """
+    if not parameters:
+        return ""
+    raw = parameters.get("awareness_type") or ""
+    return raw.split(";", 1)[0].strip()
+
+
+# ---------------------------------------------------------------------------
 # Severity derivations
 # ---------------------------------------------------------------------------
 #

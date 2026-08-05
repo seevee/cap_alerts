@@ -7,9 +7,39 @@ back to ``mdi:alert``.
 
 from __future__ import annotations
 
+from .conventions import meteoalarm_awareness_type_code
 from .model import CAPAlert
 
 FALLBACK_ICON = "mdi:alert"
+
+# MeteoAlarm ``awareness_type`` code → mdi (issue #97). The code is the
+# EUMETNET hazard key: language-independent, REQUIRED on every MeteoAlarm
+# alert, and therefore the only classifier that reaches the 30-odd non-English
+# member services. Event text can't — a Finnish reader on the FMI feed gets
+# ``Tuulivaroitus maa-alueille``, and the English-alternate path (#91) doesn't
+# save it because FMI's alternate block is Swedish and some of its alerts carry
+# no English block at all.
+#
+# Pinned to MeteoAlarm CAP Profile v2.0 §2.2.17 (September 2025), which is also
+# where the gap at 11 comes from — the profile skips it. 14/15 arrived with the
+# profile's marine and drought hazards; the rest were cross-checked against a
+# live sweep of 33 member feeds.
+_METEOALARM_AWARENESS_ICONS: dict[str, str] = {
+    "1": "mdi:weather-windy",  # Wind
+    "2": "mdi:snowflake",  # Snow or Ice
+    "3": "mdi:weather-lightning",  # Thunderstorm
+    "4": "mdi:weather-fog",  # Fog
+    "5": "mdi:weather-sunny-alert",  # High Temperature
+    "6": "mdi:snowflake-thermometer",  # Low Temperature
+    "7": "mdi:waves",  # Coastal Event
+    "8": "mdi:fire",  # Forest Fire
+    "9": "mdi:snowflake-alert",  # Avalanche
+    "10": "mdi:weather-pouring",  # Rain
+    "12": "mdi:home-flood",  # Flood
+    "13": "mdi:home-flood",  # Rain Flood
+    "14": "mdi:waves",  # Marine Hazard
+    "15": "mdi:water-off",  # Drought
+}
 
 # NWS event-name (CAP ``event``) → mdi. Keys are case-insensitive matched.
 _NWS_EVENT_ICONS: dict[str, str] = {
@@ -146,6 +176,17 @@ def classification_event(alert: CAPAlert) -> str:
 
 def icon_for(alert: CAPAlert) -> str:
     """Return an ``mdi:*`` icon for ``alert`` based on provider + event."""
+    # MeteoAlarm carries a coded hazard, so classify on that before touching
+    # free text — it beats the event tables in every language, including
+    # English. Deliberately not applied to the other providers: WMO and ECCC
+    # publish no ``awareness_type``, so they keep the English-alternate path.
+    # Codes outside the table (a profile revision we haven't seen) fall
+    # through to the event tables rather than to the fallback icon.
+    if alert.provider == "meteoalarm":
+        code = meteoalarm_awareness_type_code(alert.parameters)
+        if (icon := _METEOALARM_AWARENESS_ICONS.get(code)) is not None:
+            return icon
+
     event = (classification_event(alert) or "").strip().lower()
     if not event:
         return FALLBACK_ICON

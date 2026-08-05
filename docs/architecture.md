@@ -808,6 +808,8 @@ The integration implements the `IncidentEntity` contract from `rfc.md` §2.2, §
 
 Every alert entity exposes `icon: mdi:…` derived from the event type. The taxonomy lives in `icons.py` — NWS entries match full event names; ECCC and MeteoAlarm entries match substrings against their respective hazard vocabularies. Unknown events fall back to `mdi:alert`. Severity still drives entity state; the icon indicates hazard.
 
+MeteoAlarm is classified on its `awareness_type` code first, and only falls through to the event tables when the code is absent or unrecognized. Event text is free-form CAP prose, so it classifies nothing on the 30-odd non-English member services; the code is the EUMETNET hazard key and is REQUIRED on every MeteoAlarm alert. The code-to-icon table is pinned to MeteoAlarm CAP Profile v2.0 §2.2.17, which is why it has no entry 11 (the profile skips it). No other provider publishes the parameter, so WMO and ECCC keep classifying on their English alternate `<info>` block.
+
 ### Platform version
 
 `PLATFORM_VERSION = "1.0"` is exposed on every alert entity as the `incident_platform_version` attribute. Card consumers can branch on this when the contract evolves.
