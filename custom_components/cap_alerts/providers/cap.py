@@ -15,6 +15,7 @@ import the parser, never the reverse.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from xml.etree.ElementTree import Element
 
@@ -74,8 +75,41 @@ class CAPDoc:
 
 
 # ---------------------------------------------------------------------------
-# CAP XML parsing
+# Coordinate rings
 # ---------------------------------------------------------------------------
+#
+# Ring *syntax* differs by wire format — CAP writes ``lat,lon`` tokens, GeoRSS
+# writes a flat ``lat lon lat lon`` run — but everything after tokenizing is
+# the same: flip to GeoJSON order, fail closed on a value that is not a number,
+# and require enough pairs to be a ring at all. That shared part lives here so
+# the validity rule exists once; drifting copies of it are what issue #85 was.
+#
+# It sits in this module rather than in ``geometry.py`` to preserve the
+# invariant in the module docstring: this file depends on nothing else in the
+# package, and providers import it rather than the reverse.
+
+
+def ring_from_lat_lon_pairs(
+    pairs: Iterable[tuple[str, str]],
+) -> list[list[float]] | None:
+    """Build ``[[lon, lat], ...]`` from ``(lat, lon)`` string pairs.
+
+    Returns ``None`` when any value is unparseable or fewer than three pairs
+    are present — three distinct vertices being the minimum for an area, and
+    the closing position being ``geometry.normalize_ring``'s job.
+
+    Faithful to the input, not to GeoJSON: rings come back exactly as
+    published, including unclosed ones.
+    """
+    coords: list[list[float]] = []
+    for lat_s, lon_s in pairs:
+        try:
+            coords.append([float(lon_s), float(lat_s)])
+        except ValueError:
+            return None
+    if len(coords) < 3:
+        return None
+    return coords
 
 
 def parse_cap_polygon_text(text: str) -> list[list[float]] | None:
@@ -85,26 +119,17 @@ def parse_cap_polygon_text(text: str) -> list[list[float]] | None:
     publishes CAP over JSON, where the polygon field is still this format.
     One parser keeps the two from drifting the way their validity checks did
     (issue #85).
-
-    Faithful to the text, not to GeoJSON: rings are returned exactly as
-    published, including unclosed ones. ``providers/geometry.normalize_ring``
-    closes and validates them when they become GeoJSON.
     """
     if not text:
         return None
-    pairs = text.strip().split()
-    if len(pairs) < 3:
-        return None
-    coords: list[list[float]] = []
-    for pair in pairs:
-        if "," not in pair:
+    tokens = text.strip().split()
+    pairs: list[tuple[str, str]] = []
+    for token in tokens:
+        if "," not in token:
             return None
-        lat_s, _, lon_s = pair.partition(",")
-        try:
-            coords.append([float(lon_s), float(lat_s)])
-        except ValueError:
-            return None
-    return coords
+        lat_s, _, lon_s = token.partition(",")
+        pairs.append((lat_s, lon_s))
+    return ring_from_lat_lon_pairs(pairs)
 
 
 def _parse_cap_circle_text(text: str) -> tuple[float, float, float] | None:
