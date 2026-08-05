@@ -870,6 +870,9 @@ async def test_eccc_provider_full_flow():
     assert "maintenu" in alert.headline_alt or "verglaçante" in alert.headline_alt
     assert alert.language == "en-CA"
     assert alert.language_alt == "fr-CA"
+    # The sibling's event name rides along so a French-presented alert can
+    # still be classified for an icon (#91).
+    assert alert.event_alt != ""
 
 
 @pytest.mark.asyncio

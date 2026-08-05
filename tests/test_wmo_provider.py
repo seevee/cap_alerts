@@ -540,13 +540,19 @@ def test_build_alert_populates_alt_language_fields():
     assert alert.headline_alt.startswith("Penglai District Meteorological Observatory")
     # The en-US block carries an empty <instruction/>; "" must normalize to None.
     assert alert.instruction_alt is None
+    # The English event is retained so icon dispatch has something matchable —
+    # the presented zh-CN one is free text no keyword table can classify (#91).
+    assert alert.event == "高温"
+    assert alert.event_alt == "high temperature"
 
 
 def test_build_alert_single_block_omits_alt_attributes():
     alert = _alert_from_cap(_fixture("wmo_cap_1.xml"))
     assert alert.language_alt == "" and alert.headline_alt == ""
+    assert alert.event_alt == ""
     attrs = alert.to_attributes()
     assert "language_alt" not in attrs and "headline_alt" not in attrs
+    assert "event_alt" not in attrs
 
 
 def test_language_choice_does_not_change_geometry_or_severity():

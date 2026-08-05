@@ -426,6 +426,7 @@ def _build_alert(
         references=tuple(ref_id for _, ref_id, _ in doc.references),
         parameters=merged_params if merged_params else None,
         language=info.language,
+        event_alt=(alt.event or alt.headline) if alt is not None else "",
         headline_alt=alt.headline if alt is not None else "",
         description_alt=alt.description if alt is not None else "",
         instruction_alt=(alt.instruction or None) if alt is not None else None,

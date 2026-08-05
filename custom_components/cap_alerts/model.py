@@ -159,6 +159,11 @@ class CAPAlert:
     parameters: dict | None = None
 
     # -- Alternate language content (populated when available) --
+    # ``event_alt`` exists for classification, not display: ``<event>`` is CAP
+    # free text, so a localized one matches no icon keyword. Keeping the
+    # alternate block's event lets ``icons.icon_for`` classify on English while
+    # the user still reads their own language (issue #91).
+    event_alt: str = ""
     headline_alt: str = ""
     description_alt: str = ""
     instruction_alt: str | None = None
