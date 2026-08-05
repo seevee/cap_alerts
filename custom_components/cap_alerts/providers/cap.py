@@ -52,6 +52,11 @@ class CAPInfoDoc:
     area_desc: str = ""
     geocodes: dict[str, list[str]] = field(default_factory=dict)
     polygons: list[list[list[float]]] = field(default_factory=list)
+    # ``<circle>`` elements as ``(lon, lat, radius_km)``, reproduced verbatim
+    # from the feed. The radius is kept even when zero so this stays a faithful
+    # record of what was published; deciding that a zero-radius circle is a
+    # point is interpretation, and belongs to ``providers/geometry.py``.
+    circles: list[tuple[float, float, float]] = field(default_factory=list)
 
 
 @dataclass
@@ -90,6 +95,28 @@ def _parse_cap_polygon_text(text: str) -> list[list[float]] | None:
         except ValueError:
             return None
     return coords
+
+
+def _parse_cap_circle_text(text: str) -> tuple[float, float, float] | None:
+    """Parse a CAP circle into ``(lon, lat, radius_km)``.
+
+    CAP 1.2 §3.2.4 defines the value as a WGS-84 ``lat,lon`` pair, a space, and
+    a radius in kilometres. Coordinate order is flipped to GeoJSON's on the way
+    out; the radius is passed through in kilometres, unconverted.
+    """
+    if not text:
+        return None
+    parts = text.split()
+    if len(parts) != 2:
+        return None
+    centre, radius_s = parts
+    if "," not in centre:
+        return None
+    lat_s, _, lon_s = centre.partition(",")
+    try:
+        return (float(lon_s), float(lat_s), float(radius_s))
+    except ValueError:
+        return None
 
 
 def _parse_references(refs_text: str) -> list[tuple[str, str, str]]:
@@ -175,6 +202,15 @@ def _parse_info(info_el: Element, ns: str) -> CAPInfoDoc:
                 ring = _parse_cap_polygon_text(poly_el.text.strip())
                 if ring:
                     info.polygons.append(ring)
+
+        # Both elements are 0..* and coequal (CAP 1.2 §3.2.4), so circles are
+        # collected the same way polygons are rather than as an alternative
+        # to them.
+        for circle_el in area_el.findall(f"{{{ns}}}circle"):
+            if circle_el.text:
+                circle = _parse_cap_circle_text(circle_el.text.strip())
+                if circle is not None:
+                    info.circles.append(circle)
 
     info.area_desc = ", ".join(area_descs)
     return info

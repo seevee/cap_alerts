@@ -54,6 +54,7 @@ custom_components/cap_alerts/
     __init__.py           # AlertProvider protocol + get_provider() factory
     cap.py                # shared, provider-neutral CAP 1.2 XML parsing (CAPDoc/CAPInfoDoc, parse_cap_alert, resolve_chain_leaves)
     cap_content_cache.py  # LRU cache for fetched CAP XML bodies (shared: eccc + wmo)
+    geometry.py           # shared CAP shapes → GeoJSON; polygon/point selection, zero-radius circles
     nws.py                # NWS GeoJSON API — zone/GPS/tracker
     eccc.py               # Environment Canada NAAD Atom feed
     meteoalarm.py         # MeteoAlarm (EUMETNET) per-country CAP JSON

@@ -112,6 +112,19 @@ class CAPAlert:
     geometry: dict | None = None
     geometry_ref: str = ""
     bbox: tuple[float, float, float, float] | None = None
+    # Point locations the feed published, as ``(lon, lat)`` pairs derived from
+    # zero-radius CAP ``<circle>`` elements (issue #27). A list because
+    # ``<circle>`` is 0..* per ``<area>`` (CAP 1.2 §3.2.4).
+    #
+    # Deliberately *not* named for what a point means: CAP defines circles as
+    # part of the affected area, unioned with any polygons, so reading one as
+    # "where the incident is" is a sender's convention (NSW RFS publishes a
+    # street-address incident marker this way) and not something the standard
+    # blesses. This field records the geometry; consumers decide the meaning.
+    #
+    # Published alongside ``geometry`` rather than replacing it, so an alert
+    # carrying both a fire-ground polygon and a location point keeps each.
+    points: tuple[tuple[float, float], ...] = ()
     # Marine/water-zone classification, set per-provider (NWS UGC marine-area
     # prefix, ECCC CLC "00…"). Drives the opt-in exclude-marine filter and is
     # surfaced as an attribute only when True.

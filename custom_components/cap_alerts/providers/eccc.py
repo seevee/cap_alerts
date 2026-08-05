@@ -29,6 +29,11 @@ from ..conventions import conventions_for, is_marine_code
 from ..model import CAPAlert, geocodes_from
 from .cap import CAPDoc, CAPInfoDoc, parse_cap_alert, resolve_chain_leaves
 from .cap_content_cache import CAPContentCache
+from .geometry import (
+    geometry_from_polygons,
+    geometry_from_shapes,
+    points_from_circles,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -659,15 +664,8 @@ def _build_alert_from_cap(
     alert_id: str,
 ) -> CAPAlert:
     """Build CAPAlert from CAP body fields."""
-    if len(info.polygons) == 1:
-        geometry: dict | None = {"type": "Polygon", "coordinates": [info.polygons[0]]}
-    elif len(info.polygons) > 1:
-        geometry = {
-            "type": "MultiPolygon",
-            "coordinates": [[ring] for ring in info.polygons],
-        }
-    else:
-        geometry = None
+    points = points_from_circles(info.circles)
+    geometry = geometry_from_shapes(info.polygons, points)
 
     # Merge event_codes into parameters (parameters win on collision)
     merged_params: dict[str, str] = {**info.event_codes, **info.parameters}
@@ -702,6 +700,7 @@ def _build_alert_from_cap(
         web=info.web or fallback_web,
         area_desc=info.area_desc,
         geometry=geometry,
+        points=tuple((lon, lat) for lon, lat in points),
         geocodes=geocodes_from(info.geocodes),
         is_marine=_is_marine_eccc(clc),
         sender=doc.sender,
@@ -721,9 +720,7 @@ def _build_fallback_alert(
 ) -> CAPAlert:
     """Build a metadata-only CAPAlert from Atom envelope on CAP fetch failure."""
     polygon = atom_metadata.get("polygon")
-    geometry: dict | None = (
-        {"type": "Polygon", "coordinates": [polygon]} if polygon else None
-    )
+    geometry = geometry_from_polygons([polygon] if polygon else [])
     event_raw = atom_metadata.get("event", "")
     title_raw = atom_metadata.get("title", "")
     event = _best_event_name(event_raw, "", title_raw)
