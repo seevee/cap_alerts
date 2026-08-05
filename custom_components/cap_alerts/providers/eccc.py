@@ -24,6 +24,8 @@ from ..const import (
     CONF_PROVINCE,
     DEFAULT_FEED_SOURCE,
 )
+from ..conventions import ECCC_MARINE_CLC_PREFIX as _ECCC_MARINE_CLC_PREFIX
+from ..conventions import conventions_for, is_marine_code
 from ..model import CAPAlert, geocodes_from
 from .cap import CAPDoc, CAPInfoDoc, parse_cap_alert, resolve_chain_leaves
 from .cap_content_cache import CAPContentCache
@@ -81,7 +83,9 @@ NS_CAP = "urn:oasis:names:tc:emergency:cap:1.2"
 # live CAP files (summer/squall-heavy sample — re-verify against winter
 # gale/storm warnings). Fail-open: a mis-prefixed marine zone stays visible.
 _CLC_GEOCODE_KEY = "layer:EC-MSC-SMC:1.0:CLC"
-ECCC_MARINE_CLC_PREFIX = "00"
+# The "00" prefix itself lives in the convention table; re-bound here so this
+# module still names the scheme it belongs to.
+ECCC_MARINE_CLC_PREFIX = _ECCC_MARINE_CLC_PREFIX
 
 # ECCC CAP bodies carry a Statistics Canada SGC location code under this
 # geocode valueName; the first two digits are the province/territory SGC code.
@@ -143,9 +147,12 @@ _PROVINCE_BBOX: dict[str, tuple[float, float, float, float]] = {
 _PROVINCE_BBOX_PAD_DEG = 0.5
 
 
+_ECCC_CONVENTIONS = conventions_for("eccc")
+
+
 def _is_marine_eccc(clc: tuple[str, ...]) -> bool:
     """Return True if any CLC area geocode is a marine/water zone ("00…")."""
-    return any(v.startswith(ECCC_MARINE_CLC_PREFIX) for v in clc)
+    return is_marine_code(clc, _ECCC_CONVENTIONS)
 
 
 # ---------------------------------------------------------------------------

@@ -55,6 +55,7 @@ from .const import (
     WMO_LANGUAGES,
     WMO_SOURCE_NAMES,
 )
+from .conventions import conventions_for
 from .providers.meteoalarm import fetch_regions_for_country
 from .providers.wmo import fetch_wmo_sources
 
@@ -1459,8 +1460,10 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
             ] = _wmo_language_selector()
 
         # Marine-alert exclusion is only meaningful for providers that classify
-        # marine zones (NWS UGC prefixes, ECCC CLC "00…").
-        if provider in ("nws", "eccc"):
+        # marine zones (NWS UGC prefixes, ECCC CLC "00…"). Asked of the
+        # convention table rather than re-listing them here, so a provider that
+        # gains a marine discriminator gets the toggle without a second edit.
+        if conventions_for(provider or "").classifies_marine:
             schema[
                 vol.Optional(
                     CONF_EXCLUDE_MARINE,

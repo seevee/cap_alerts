@@ -47,6 +47,7 @@ custom_components/cap_alerts/
   button.py         # RefreshButton: on-demand provider fetch (all providers)
   binary_sensor.py  # StreamConnectivitySensor: NAAD socket state (ECCC streaming only)
   model.py          # CAPAlert dataclass + to_attributes()
+  conventions.py    # per-source convention table: marine prefixes, terminal lifecycle tokens, severity derivations
   normalize.py      # shared normalization: severity, phase, Buddhist-Era year fix, state truncation
   store.py          # alert store: inter-poll diffing, transition detection, HA event firing
   providers/

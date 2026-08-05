@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 
 from .const import BUDDHIST_ERA_OFFSET, MIN_BUDDHIST_ERA_YEAR
+from .conventions import SourceConventions, conventions_for
 from .icons import icon_for
 from .model import CAPAlert
 
@@ -34,36 +35,6 @@ _CANONICAL_SEVERITIES = frozenset({"extreme", "severe", "moderate", "minor", "un
 SEVERITY_RANK: Mapping[str, int] = MappingProxyType(
     {"unknown": 0, "minor": 1, "moderate": 2, "severe": 3, "extreme": 4}
 )
-
-# Provider-native ``lifecycle_status`` values that mean the alert has reached
-# end-of-life for the area it was selected for, whatever its ``msgType`` and
-# ``expires`` still say. Both are ECCC ``Alert_Location_Status`` tokens; the
-# vocabulary itself lives in ``providers/eccc.py``, this set is only the
-# integration-side reading of which tokens are terminal. Unknown values are
-# deliberately absent so an unfamiliar token degrades to msg_type handling
-# rather than silently retiring a live alert.
-_TERMINAL_LIFECYCLE_STATUSES: frozenset[str] = frozenset({"ended", "transitioned_out"})
-
-# VTEC significance → severity tier
-_VTEC_SIG_SEVERITY = {
-    "W": "severe",  # Warning
-    "A": "moderate",  # Watch
-    "Y": "minor",  # Advisory
-    "S": "unknown",  # Statement
-}
-
-# Phenomena codes that escalate a Warning to "extreme"
-_VTEC_EXTREME_PHENOMENA = {"TO", "EW"}  # Tornado, Extreme Wind
-
-# MeteoAlarm awareness color → CAP canonical tier. Green has no analogue on
-# the canonical axis (no "none" tier), so it lands on the neutral "unknown"
-# rather than the misleading "minor".
-_METEOALARM_AWARENESS_TO_SEVERITY = {
-    "green": "unknown",
-    "yellow": "moderate",
-    "orange": "severe",
-    "red": "extreme",
-}
 
 
 def normalize_alerts(alerts: list[CAPAlert], entry_id: str = "") -> list[CAPAlert]:
@@ -97,6 +68,7 @@ def _normalize(alert: CAPAlert, now: datetime, entry_id: str = "") -> CAPAlert:
     effective = _gregorian(alert.effective)
     onset = _gregorian(alert.onset)
     expires = _gregorian(alert.expires)
+    conventions = conventions_for(alert.provider, alert.sender)
     return replace(
         alert,
         sent=sent,
@@ -104,8 +76,14 @@ def _normalize(alert: CAPAlert, now: datetime, entry_id: str = "") -> CAPAlert:
         onset=onset,
         expires=expires,
         event=_truncate_state(alert.event),
-        severity_normalized=_normalize_severity(alert),
-        phase=_compute_phase(expires, alert.msg_type, now, alert.lifecycle_status),
+        severity_normalized=_normalize_severity(alert, conventions),
+        phase=_compute_phase(
+            expires,
+            alert.msg_type,
+            now,
+            alert.lifecycle_status,
+            conventions.terminal_lifecycle_statuses,
+        ),
         icon=icon_for(alert),
         bbox=_bbox_from_geometry(alert.geometry),
         geometry_ref=_geometry_ref(alert, entry_id),
@@ -116,57 +94,22 @@ def _normalize(alert: CAPAlert, now: datetime, entry_id: str = "") -> CAPAlert:
     )
 
 
-def _normalize_severity(alert: CAPAlert) -> str:
+def _normalize_severity(alert: CAPAlert, conventions: SourceConventions) -> str:
     """Map provider-native severity to lowercase CAP canonical value.
 
     CAP canonical: extreme, severe, moderate, minor, unknown. Any value
     outside that set — including provider-specific strings — clamps to
     "unknown" so the entity state stays on the five-value axis that the
     frontend styles against (RFC §2.1).
+
+    A source's own derivation (NWS VTEC, MeteoAlarm awareness colour) gets
+    first refusal via the convention table; returning ``None`` — no such
+    signal, or an unrecognized one — falls through to CAP ``severity``.
     """
-    if alert.provider == "nws":
-        raw = _nws_severity(alert)
-    elif alert.provider == "meteoalarm" and (
-        awareness := meteoalarm_awareness_severity(alert)
-    ):
-        raw = awareness
-    elif alert.severity:
-        raw = alert.severity.lower()
-    else:
-        raw = "unknown"
+    raw = conventions.severity(alert) if conventions.severity else None
+    if raw is None:
+        raw = alert.severity.lower() if alert.severity else "unknown"
     return raw if raw in _CANONICAL_SEVERITIES else "unknown"
-
-
-def meteoalarm_awareness_severity(alert: CAPAlert) -> str | None:
-    """Map MeteoAlarm ``awareness_level`` to a canonical severity, or None.
-
-    The parameter format published by EUMETNET members is ``"N; color; Label"``
-    (e.g. ``"3; orange; Severe"``). The color token is the contract; the
-    numeric prefix and trailing label are ignored. Returns ``None`` for
-    missing, malformed, or unrecognized values so the caller falls back to
-    CAP ``severity``.
-    """
-    if alert.parameters is None:
-        return None
-    raw = alert.parameters.get("awareness_level")
-    if not raw:
-        return None
-    parts = raw.split(";")
-    if len(parts) < 2:
-        return None
-    color = parts[1].strip().lower()
-    return _METEOALARM_AWARENESS_TO_SEVERITY.get(color)
-
-
-def _nws_severity(alert: CAPAlert) -> str:
-    """Derive severity from VTEC codes (authoritative for NWS)."""
-    sig = alert.vtec_significance
-    if not sig:
-        return alert.severity.lower() if alert.severity else "unknown"
-    # Tornado/Extreme Wind warnings are "extreme", not just "severe"
-    if sig == "W" and alert.vtec_phenomena in _VTEC_EXTREME_PHENOMENA:
-        return "extreme"
-    return _VTEC_SIG_SEVERITY.get(sig, "unknown")
 
 
 def _gregorian(value: str) -> str:
@@ -189,7 +132,11 @@ def _gregorian(value: str) -> str:
 
 
 def _compute_phase(
-    expires: str, msg_type: str, now: datetime, lifecycle_status: str = ""
+    expires: str,
+    msg_type: str,
+    now: datetime,
+    lifecycle_status: str = "",
+    terminal_statuses: frozenset[str] = frozenset(),
 ) -> str:
     """Lifecycle phase: ``expired`` if past ``expires`` or terminated, else msg_type.
 
@@ -197,14 +144,17 @@ def _compute_phase(
     ``CAPAlert.lifecycle_status``). Some feeds never signal end-of-life through
     ``msgType`` — ECCC keeps ``Update`` and marks the area group ``ended`` in a
     CAP parameter instead, leaving an hour of ``expires`` still on the clock —
-    so a terminal status maps to ``expired`` regardless of ``msg_type``. Values
-    outside ``_TERMINAL_LIFECYCLE_STATUSES`` (including the empty default every
-    other provider supplies) fall through unchanged.
+    so a terminal status maps to ``expired`` regardless of ``msg_type``.
+
+    ``terminal_statuses`` comes from the source's convention table entry, so
+    one feed's vocabulary can never retire another's alerts. Values outside it
+    — including the empty default every source without such a signal supplies
+    — fall through unchanged.
     """
     expires_at = _parse_iso(expires)
     if expires_at is not None and now > expires_at:
         return "expired"
-    if lifecycle_status in _TERMINAL_LIFECYCLE_STATUSES:
+    if lifecycle_status and lifecycle_status in terminal_statuses:
         return "expired"
     return _normalize_phase(msg_type)
 

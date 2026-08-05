@@ -48,6 +48,7 @@ def test_lifecycle_status_ended_is_terminal(alert_factory):
     (out,) = normalize_alerts(
         [
             alert_factory(
+                provider="eccc",
                 msg_type="Update",
                 expires="2099-01-01T00:00:00Z",
                 lifecycle_status="ended",
@@ -63,6 +64,7 @@ def test_lifecycle_status_transitioned_out_is_terminal(alert_factory):
     (out,) = normalize_alerts(
         [
             alert_factory(
+                provider="eccc",
                 msg_type="Update",
                 expires="2099-01-01T00:00:00Z",
                 lifecycle_status="transitioned_out",
@@ -80,6 +82,7 @@ def test_unknown_lifecycle_status_is_not_terminal(alert_factory):
         (out,) = normalize_alerts(
             [
                 alert_factory(
+                    provider="eccc",
                     msg_type="Update",
                     expires="2099-01-01T00:00:00Z",
                     lifecycle_status=status,
@@ -87,6 +90,24 @@ def test_unknown_lifecycle_status_is_not_terminal(alert_factory):
             ]
         )
         assert out.phase == "update", status
+
+
+def test_terminal_tokens_are_scoped_to_their_source(alert_factory):
+    # Terminal vocabulary is read from the source's convention table entry
+    # (issue #82), so ECCC's tokens cannot retire another source's alerts.
+    # No other provider sets lifecycle_status today, which is what makes this
+    # scoping inert in production rather than a behaviour change.
+    (out,) = normalize_alerts(
+        [
+            alert_factory(
+                provider="nws",
+                msg_type="Update",
+                expires="2099-01-01T00:00:00Z",
+                lifecycle_status="ended",
+            )
+        ]
+    )
+    assert out.phase == "update"
 
 
 def test_empty_lifecycle_status_leaves_phase_unchanged(alert_factory):
