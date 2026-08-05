@@ -45,6 +45,10 @@ def test_lifecycle_status_ended_is_terminal(alert_factory):
     # leaves an hour of expires on the clock, marking the area group "ended" in
     # a CAP parameter instead (issue #45). Without honouring that, the alert
     # stays live with a headline that literally says it ended.
+    #
+    # "cancel", not "expired": expires is still in the future, so the alert
+    # ended early (issue #95). A consumer that only sees "expired" cannot tell
+    # this from an alert that ran its full course.
     (out,) = normalize_alerts(
         [
             alert_factory(
@@ -55,7 +59,7 @@ def test_lifecycle_status_ended_is_terminal(alert_factory):
             )
         ]
     )
-    assert out.phase == "expired"
+    assert out.phase == "cancel"
 
 
 def test_lifecycle_status_transitioned_out_is_terminal(alert_factory):
@@ -68,6 +72,23 @@ def test_lifecycle_status_transitioned_out_is_terminal(alert_factory):
                 msg_type="Update",
                 expires="2099-01-01T00:00:00Z",
                 lifecycle_status="transitioned_out",
+            )
+        ]
+    )
+    assert out.phase == "cancel"
+
+
+def test_expired_wins_over_a_terminal_lifecycle_status(alert_factory):
+    # Ordering is load-bearing (issue #95). An alert can be past its expiry and
+    # carry a terminal status in the same document; that one ran its course, so
+    # the clock decides and "expired" must not be downgraded to "cancel".
+    (out,) = normalize_alerts(
+        [
+            alert_factory(
+                provider="eccc",
+                msg_type="Update",
+                expires="2020-01-01T00:00:00Z",
+                lifecycle_status="ended",
             )
         ]
     )
