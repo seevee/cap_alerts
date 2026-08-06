@@ -1,10 +1,14 @@
 """Convention table resolution and predicates (issue #82)."""
 
+from datetime import datetime, timezone
+
 import pytest
 
 from custom_components.cap_alerts.conventions import (
     CONVENTIONS,
+    METEOFRANCE_SENDER,
     SourceConventions,
+    StageContext,
     conventions_for,
     is_marine_code,
     meteoalarm_awareness_severity,
@@ -33,14 +37,73 @@ def test_sender_falls_back_to_provider_entry():
 
 def test_sender_scoped_entry_wins_when_present(monkeypatch):
     # The MeteoFrance case the table is shaped for: one provider, several
-    # dialects. Patched in rather than shipped, since migrating those rules is
-    # deliberately out of scope for this pass.
+    # dialects. Patched over the shipped entry so the lookup is tested on its
+    # own, independently of what that dialect happens to declare.
     scoped = SourceConventions(terminal_lifecycle_statuses=frozenset({"over"}))
     patched = dict(CONVENTIONS)
     patched["meteoalarm/vigilance@meteo.fr"] = scoped
     monkeypatch.setattr("custom_components.cap_alerts.conventions.CONVENTIONS", patched)
     assert conventions_for("meteoalarm", "vigilance@meteo.fr") is scoped
     assert conventions_for("meteoalarm", "other@example.org").severity is not None
+
+
+# ---------------------------------------------------------------------------
+# Sender dialects (issue #88)
+# ---------------------------------------------------------------------------
+
+
+def test_meteofrance_entry_carries_every_hook():
+    # The shipped sender dialect: identity, green-marker drop, and both
+    # list-shaped stages resolve ahead of the provider entry.
+    conventions = conventions_for("meteoalarm", METEOFRANCE_SENDER)
+    assert conventions is CONVENTIONS[f"meteoalarm/{METEOFRANCE_SENDER}"]
+    assert conventions is not CONVENTIONS["meteoalarm"]
+    # Restated, not inherited — a sender entry replaces the provider's rather
+    # than layering on top, so a French alert must not lose awareness_level
+    # severity on the way through.
+    assert conventions.severity is meteoalarm_awareness_severity
+    assert conventions.identity is not None
+    assert conventions.keep is not None
+    assert [stage.slot for stage in conventions.stages] == ["explode", "merge"]
+
+
+def test_other_meteoalarm_senders_keep_the_provider_entry():
+    conventions = conventions_for("meteoalarm", "dwd@dwd.de")
+    assert conventions is CONVENTIONS["meteoalarm"]
+    assert conventions.identity is None
+    assert conventions.keep is None
+    assert conventions.stages == ()
+
+
+def test_stages_at_selects_by_slot():
+    conventions = conventions_for("meteoalarm", METEOFRANCE_SENDER)
+    (explode,) = conventions.stages_at("explode")
+    (merge,) = conventions.stages_at("merge")
+    assert explode is not merge
+    assert conventions.stages_at("no-such-slot") == ()
+
+
+def test_source_without_conventions_has_every_slot_empty():
+    # What makes the provider pipeline safe to run unconditionally: an
+    # unregistered source declares nothing at any hook, rather than raising.
+    conventions = conventions_for("does-not-exist")
+    assert conventions.identity is None
+    assert conventions.keep is None
+    assert conventions.stages == ()
+    assert conventions.stages_at("explode") == conventions.stages_at("merge") == ()
+
+
+def test_stages_pass_foreign_senders_through_untouched(alert_factory):
+    # Stages are handed the whole batch, so each one has to leave alerts from
+    # senders it does not own exactly as they were.
+    conventions = conventions_for("meteoalarm", METEOFRANCE_SENDER)
+    alerts = [alert_factory(provider="meteoalarm", sender="dwd@dwd.de")]
+    ctx = StageContext(
+        now=datetime(2026, 8, 5, tzinfo=timezone.utc),
+        wanted_regions=frozenset({"DE123"}),
+    )
+    for run in conventions.stages_at("explode") + conventions.stages_at("merge"):
+        assert run(list(alerts), ctx) == alerts
 
 
 # ---------------------------------------------------------------------------
