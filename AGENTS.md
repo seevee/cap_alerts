@@ -15,7 +15,9 @@ See `docs/architecture.md` for design rationale (alert identity, field mappings,
 ### Entity Model
 
 - **Device**: groups all entities for a configured location
-- **Count sensor** (`sensor.cap_alerts_<provider>_alert_count`): `state` = number of active alerts, `EntityCategory.DIAGNOSTIC`
+- **Count sensor** (`sensor.cap_alerts_<provider>_alert_count`): `state` = number of
+  active alerts, attributes `active`/`upcoming` split it on `onset`,
+  `EntityCategory.DIAGNOSTIC`
 - **Last updated sensor** (`sensor.cap_alerts_<provider>_last_updated`): `state` = ISO timestamp, `EntityCategory.DIAGNOSTIC`
 - **Alert entities** (`sensor.cap_alert_<slug>`): one per active alert, dynamically created/removed each poll cycle
 - **Refresh button** (`button.cap_alerts_<provider>_refresh`): forces an off-cycle fetch, `EntityCategory.DIAGNOSTIC`

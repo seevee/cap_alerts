@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -46,6 +46,23 @@ def normalize_alerts(alerts: list[CAPAlert], entry_id: str = "") -> list[CAPAler
     """
     now = datetime.now(timezone.utc)
     return [_normalize(a, now, entry_id) for a in alerts]
+
+
+def count_by_onset(alerts: Sequence[CAPAlert], now: datetime) -> tuple[int, int]:
+    """Split ``alerts`` into ``(active, upcoming)`` counts on ``onset``.
+
+    An alert whose ``onset`` parses to a timestamp later than ``now`` is
+    upcoming; everything else is active, including an alert with no ``onset``
+    at all — a feed that omits it is describing something already in force
+    (issue #99). An unparseable ``onset`` falls the same way, since the
+    alternative is hiding a live warning behind a formatting quirk.
+    """
+    upcoming = 0
+    for alert in alerts:
+        onset_at = _parse_iso(alert.onset)
+        if onset_at is not None and onset_at > now:
+            upcoming += 1
+    return len(alerts) - upcoming, upcoming
 
 
 def _geometry_ref(alert: CAPAlert, entry_id: str) -> str:

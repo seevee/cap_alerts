@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -21,6 +21,7 @@ from homeassistant.util import slugify
 from .const import CONF_PROVIDER, PLATFORM_VERSION
 from .coordinator import AlertsDataUpdateCoordinator
 from .model import CAPAlert
+from .normalize import count_by_onset
 
 
 def _short_hash(unique_id: str) -> str:
@@ -156,6 +157,20 @@ class CountSensor(_CAPAlertsEntity):
     @property
     def native_value(self) -> int:
         return len(self.coordinator.data or {})
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int]:
+        """Break the total down into alerts in force now vs. still to start.
+
+        The state stays the total (issue #99): templates already key off it,
+        so the breakdown rides along as attributes rather than changing what
+        the number means. Recomputed on read against the wall clock, so an
+        upcoming alert crosses over at the next poll rather than waiting for
+        the feed to restate it.
+        """
+        alerts = list((self.coordinator.data or {}).values())
+        active, upcoming = count_by_onset(alerts, datetime.now(timezone.utc))
+        return {"active": active, "upcoming": upcoming}
 
 
 class LastUpdatedSensor(_CAPAlertsEntity):
