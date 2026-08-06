@@ -665,6 +665,30 @@ def _contiguous_window_runs(alerts: list[CAPAlert]) -> list[list[CAPAlert]]:
     return runs
 
 
+def _forecast_day_key(alert: CAPAlert) -> str:
+    """The MeteoFrance tie-breaker window: the run's first forecast day.
+
+    Day-truncated on purpose. MeteoFrance re-issues a day's bulletin with the
+    onset *time* clipped to the issue time, so any finer key would churn a
+    pending run's id on every re-issue of its first day.
+    """
+    return _forecast_window_key(alert.onset, alert.effective, alert.sent)
+
+
+def _window_edge_key(alert: CAPAlert) -> str:
+    """The FMI tie-breaker window: the run's opening window, verbatim.
+
+    Day truncation is not enough here: the contiguity rule splits sub-day, so
+    a second and a third disjoint same-day run would collide on the day key —
+    and the alert store, keying by id, would silently drop one of them. Two
+    distinct runs always differ in their opening window, because a run
+    boundary *is* a gap between one window and the next. Verbatim rather than
+    parsed: the strings repeat identically on every poll of the same message,
+    and unparseable edges still yield distinct keys.
+    """
+    return f"{alert.onset}/{alert.expires}"
+
+
 def _episode_day(alert: CAPAlert) -> dict[str, str]:
     """One ``episode_days`` entry: what this message actually said.
 
@@ -751,14 +775,11 @@ def _merge_episodes(
             # 227 live samples never showed. Either way the runs must not
             # collide on a single id, because the alert store keys by id and
             # would silently drop one. Later runs therefore re-add their first
-            # message's window, which churns only the pending entity and never
-            # the one currently in effect.
+            # message's window — at the dialect's own granularity
+            # (``EpisodeDialect.window_key``) — which churns only the pending
+            # entity and never the one currently in effect.
             first = run[0]
-            window_key = (
-                ""
-                if index == 0
-                else _forecast_window_key(first.onset, first.effective, first.sent)
-            )
+            window_key = "" if index == 0 else dialect.window_key(first)
             merged.append(_merge_run(run, key, window_key))
     merged.sort(key=lambda a: (_ts_sort_key(a.onset), a.event, a.id))
     return passthrough + merged
@@ -781,16 +802,27 @@ class EpisodeDialect:
     tie-break unable to even choose because FMI stamps a whole batch with one
     ``sent``.
 
+    ``window_key`` is the run rule's granularity applied to identity: the
+    window a second-or-later live run re-adds to its id so two runs of one
+    episode key can never collide. It must be exactly as fine as ``split`` can
+    cut. MeteoFrance's day key would collapse a second and a third same-day
+    FMI run onto one id (and the alert store would drop one); FMI's verbatim
+    key would churn a pending MeteoFrance run's id on every re-issue, whose
+    onset time moves with the issue time.
+
     Everything downstream of the split — the finished-drop, dominant selection,
     window widening, ``episode_days``, id minting — is one implementation.
     """
 
     sender: str
     split: Callable[[list[CAPAlert]], list[list[CAPAlert]]]
+    window_key: Callable[[CAPAlert], str]
 
 
-METEOFRANCE_EPISODES = EpisodeDialect(METEOFRANCE_SENDER, _calendar_day_runs)
-FMI_EPISODES = EpisodeDialect(FMI_SENDER, _contiguous_window_runs)
+METEOFRANCE_EPISODES = EpisodeDialect(
+    METEOFRANCE_SENDER, _calendar_day_runs, _forecast_day_key
+)
+FMI_EPISODES = EpisodeDialect(FMI_SENDER, _contiguous_window_runs, _window_edge_key)
 
 
 def episode_stages(dialect: EpisodeDialect) -> tuple[PipelineStage, ...]:

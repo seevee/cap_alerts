@@ -505,7 +505,7 @@ onto durable HA entities, and the merge re-maps it rather than corrects it.
 The pipeline that collapses a run of messages into a single alert, keyed
 *without* the window component, is **one implementation** shared by both
 senders. Only the predicate deciding which consecutive messages are one episode
-differs, and that predicate is the declared field of an
+differs, and that predicate is the declared field of a
 `conventions.EpisodeDialect`:
 
 - **Region-picker mode explodes first**, into one alert per configured region, so
@@ -535,7 +535,12 @@ differs, and that predicate is the declared field of an
   provider clock-dependent, so `async_fetch` takes an injectable `now`.
 - **The second and later runs re-add their first message's window** to the key,
   so two live runs of one phenomenon and region can never collide — churning only
-  the pending entity, never the one in effect.
+  the pending entity, never the one in effect. The window is keyed at the
+  dialect's own granularity (`EpisodeDialect.window_key`), which must be exactly
+  as fine as its run rule can cut: the forecast day for MeteoFrance, whose
+  re-issues move the onset time within a stable day; the verbatim
+  `onset`/`expires` pair for FMI, whose runs can split sub-day and would
+  otherwise collide two disjoint same-day advisories onto one id.
 - **Country-wide mode keeps the full-set key** and therefore still splits an
   episode when the footprint moves. Known limitation for both senders, accepted
   because exploding per region there would turn France into roughly 150 entities.

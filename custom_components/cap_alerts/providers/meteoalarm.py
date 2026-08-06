@@ -770,7 +770,9 @@ class MeteoAlarmProvider:
         # this fetch only. ``CAPAlert`` flattens the area blocks, so a stage
         # that needs the name ↔ code pairing has to be handed it — and handing
         # it the picker's own entries is what keeps an exploded entity's name
-        # equal to the label the user selected.
+        # equal to the label the user selected. Resolved only in region-picker
+        # mode: the explode is the sole consumer and is a no-op without
+        # configured regions, so the other modes skip the label derivation.
         region_entries: dict[int, tuple[RegionEntry, ...]] = {}
         for warning in warnings:
             if not isinstance(warning, dict):
@@ -778,9 +780,10 @@ class MeteoAlarmProvider:
             alert = _warning_to_alert(warning, preferred_prefix)
             if alert is None:
                 continue
-            info = _primary_info(warning, preferred_prefix)
-            if info is not None:
-                region_entries[id(alert)] = tuple(_region_entries(info))
+            if wanted:
+                info = _primary_info(warning, preferred_prefix)
+                if info is not None:
+                    region_entries[id(alert)] = tuple(_region_entries(info))
             alerts.append(alert)
 
         ctx = StageContext(

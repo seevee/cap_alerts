@@ -86,8 +86,11 @@ def test_fmi_entry_declares_the_episode_stages_and_nothing_else():
 def test_episode_dialects_share_everything_but_the_run_rule():
     # The point of declaring the dialect: two senders, one pipeline. If these
     # ever became the same predicate the second dialect would stop being data.
+    # The tie-breaker window key is part of the run rule — it must be exactly
+    # as fine as the split can cut, and the two rules cut at different grains.
     assert METEOFRANCE_EPISODES.sender != FMI_EPISODES.sender
     assert METEOFRANCE_EPISODES.split is not FMI_EPISODES.split
+    assert METEOFRANCE_EPISODES.window_key is not FMI_EPISODES.window_key
 
 
 def test_other_meteoalarm_senders_keep_the_provider_entry():

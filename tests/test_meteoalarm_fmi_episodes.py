@@ -287,6 +287,38 @@ async def test_two_same_day_advisories_stay_two_entities():
     assert all(a.episode_days == () for a in alerts)
 
 
+async def test_three_same_day_runs_mint_three_distinct_ids():
+    # Three disjoint windows on one day for one region and phenomenon. The
+    # first run takes the window-free id; the later two re-add their opening
+    # window at the dialect's own granularity. A day-truncated tie-break — the
+    # MeteoFrance rule — would give the second and third the same id, and the
+    # alert store, keying by id, would silently drop one live advisory.
+    batch_sent = "2026-08-06T05:05:23+03:00"
+    windows = [
+        ("2026-08-06T08:00:00+03:00", "2026-08-06T10:00:00+03:00"),
+        ("2026-08-06T12:00:00+03:00", "2026-08-06T14:00:00+03:00"),
+        ("2026-08-06T16:00:00+03:00", "2026-08-06T18:00:00+03:00"),
+    ]
+    alerts = await _fetch(
+        *(
+            _warning(
+                onset=onset,
+                expires=expires,
+                regions=("FI809",),
+                event="Kova tuuli merialueella",
+                awareness_type=WIND,
+                sent=batch_sent,
+                uid=f"wind-{i}",
+            )
+            for i, (onset, expires) in enumerate(windows)
+        ),
+        regions=["FI809"],
+        now=datetime(2026, 8, 6, 4, tzinfo=timezone.utc),
+    )
+    assert [(a.onset, a.expires) for a in alerts] == windows
+    assert len({a.id for a in alerts}) == 3
+
+
 async def test_a_real_window_gap_stays_two_entities():
     # The one lapse in the sampled wildfire chain: a message ending at midnight
     # and the next starting five hours later. Contiguity is the rule, so this

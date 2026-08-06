@@ -462,7 +462,7 @@ def _mf_warning(
 def test_green_marker_shares_id_with_real_warning(feed_fr_green_markers):
     # The mechanism behind the bug: the zero-length green Update and the real
     # yellow Alert for the same department-day have the same awareness_type
-    # and areas, and meteofrance_id excludes severity, so they hash alike.
+    # and areas, and episode_id excludes severity, so they hash alike.
     # The alert store keys on id, so one silently displaces the other.
     alerts = _parse(feed_fr_green_markers, preferred_prefix="fr")
     real = next(a for a in alerts if a.parameters["awareness_level"].startswith("2;"))
