@@ -193,9 +193,9 @@ async def test_episode_merged_id_is_window_free():
 
     # The content key lives with the rest of the MeteoFrance dialect in the
     # convention table (issue #88); the provider only reaches it via the table.
-    from cap_alerts.conventions import meteofrance_id
+    from cap_alerts.conventions import episode_id
 
-    expected = meteofrance_id(MF, "5", ["FR101"], "", fallback="x")
+    expected = episode_id(MF, "5", ["FR101"], "", fallback="x")
     assert both[0].id == expected
 
 
@@ -445,9 +445,9 @@ async def test_merge_leaves_other_senders_in_a_mixed_feed():
 
 @pytest.mark.parametrize("regions", [None, ["FR101"]])
 async def test_episode_single_day_gets_window_free_id(regions):
-    from cap_alerts.conventions import meteofrance_id
+    from cap_alerts.conventions import episode_id
 
     alerts = await _fetch(_bulletin(day="2026-08-04"), regions=regions)
     (only,) = alerts
     assert only.episode_days == ()  # nothing merged, so nothing to profile
-    assert only.id == meteofrance_id(MF, "5", ["FR101"], "", fallback="unused")
+    assert only.id == episode_id(MF, "5", ["FR101"], "", fallback="unused")

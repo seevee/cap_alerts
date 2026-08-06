@@ -729,6 +729,12 @@ async def test_fetch_regions_labels_follow_the_requested_language():
     assert ("FI809", "Perämeren pohjoisosa") in regions
 
 
+# Inside both fixture windows. FMI is an episode dialect (issue #98), whose
+# merge drops warnings whose window has closed, so a fixture dated in the past
+# would otherwise return nothing whenever the suite runs after 2026-08-04.
+_FI_NOW = datetime(2026, 8, 3, 15, tzinfo=timezone.utc)
+
+
 @pytest.mark.asyncio
 async def test_region_filter_matches_a_non_first_geocode():
     # Locks in _region_codes' union behavior, which this change deliberately
@@ -738,6 +744,7 @@ async def test_region_filter_matches_a_non_first_geocode():
         _FakeSession(_fi_payload()),
         config={"country": "FI", "regions": ["FI809"]},
         options={"language": "fi"},
+        now=_FI_NOW,
     )
     assert [a.event for a in alerts] == ["Ukkoskuuroja"]
 
@@ -745,6 +752,7 @@ async def test_region_filter_matches_a_non_first_geocode():
         _FakeSession(_fi_payload()),
         config={"country": "FI", "regions": ["FI813"]},
         options={"language": "fi"},
+        now=_FI_NOW,
     )
     assert [a.event for a in alerts] == ["Kova tuuli merialueella"]
 
@@ -756,6 +764,7 @@ async def test_region_filter_drops_a_foreign_code():
         _FakeSession(_fi_payload()),
         config={"country": "FI", "regions": ["FI999"]},
         options={"language": "fi"},
+        now=_FI_NOW,
     )
     assert alerts == []
 
