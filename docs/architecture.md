@@ -497,8 +497,9 @@ reported in #37. Per-day publication is MeteoFrance's deliberate product model
 day), not a feed quirk; the defect was in this integration's 1:1 mapping of that
 model onto durable HA entities, and the merge re-maps it rather than corrects it.
 
-`_merge_meteofrance_episodes` therefore collapses a run of consecutive forecast
-days into a single alert, keyed *without* the day component:
+`conventions.meteofrance_merge_episodes` therefore collapses a run of
+consecutive forecast days into a single alert, keyed *without* the day
+component:
 
 - **Region-picker mode explodes first.** The bulletin is split into one alert per
   configured department, using the `<area>` blocks (each carries one `areaDesc`
@@ -560,6 +561,22 @@ strict: a zero-length marker's `expires` is a *future* day boundary, so no
 open (the warning is kept) so a feed format change can never silently drop real
 alerts, and the rule is gated on the sender — the convention is unverified for
 other MeteoAlarm authorities, whose degenerate windows are left alone.
+
+**Where the dialect lives** (issue #88): all four rules above — identity, the
+marker drop, the region explode, the episode merge — are declared by the
+`meteoalarm/vigilance@meteo.fr` entry in `conventions.py`, not branched on in
+the provider. Identity and the marker drop are per-alert callables (`identity`,
+`keep`); the two that are list-shaped are `PipelineStage` entries bound to the
+`explode` and `merge` slots. The provider owns the order and runs the slots:
+
+```
+construct → [identity] → [explode] → [keep] → mode filters → [merge] → return
+```
+
+Sender-scoped entries *replace* the provider's rather than layering on it, so
+the MeteoFrance entry restates the MeteoAlarm `awareness_level` severity
+derivation. A stage receives the whole batch and passes through what is not its
+sender's, which keeps a dialect's own ordering intact.
 
 **Field mapping**:
 

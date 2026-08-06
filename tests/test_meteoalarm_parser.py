@@ -462,7 +462,7 @@ def _mf_warning(
 def test_green_marker_shares_id_with_real_warning(feed_fr_green_markers):
     # The mechanism behind the bug: the zero-length green Update and the real
     # yellow Alert for the same department-day have the same awareness_type
-    # and areas, and _meteofrance_id excludes severity, so they hash alike.
+    # and areas, and meteofrance_id excludes severity, so they hash alike.
     # The alert store keys on id, so one silently displaces the other.
     alerts = _parse(feed_fr_green_markers, preferred_prefix="fr")
     real = next(a for a in alerts if a.parameters["awareness_level"].startswith("2;"))
@@ -478,13 +478,13 @@ def test_green_zero_length_marker_dropped(feed_fr_green_markers):
     # expires == onset: a future day boundary, so no expires-vs-now check
     # catches it. Only the onset comparison does.
     alerts = _parse(feed_fr_green_markers, preferred_prefix="fr")
-    kept = meteoalarm._drop_mf_non_warnings(alerts)
+    kept = meteoalarm._drop_non_warnings(alerts)
     assert not any(a.expires == a.onset for a in kept)
 
 
 def test_supersede_marker_dropped(feed_fr_green_markers):
     alerts = _parse(feed_fr_green_markers, preferred_prefix="fr")
-    kept = meteoalarm._drop_mf_non_warnings(alerts)
+    kept = meteoalarm._drop_non_warnings(alerts)
     assert not any(a.expires < a.onset for a in kept)
 
 
@@ -492,7 +492,7 @@ def test_green_marker_never_displaces_live_warning(feed_fr_green_markers):
     # The fixture sends the green marker two seconds *after* the real bulletin,
     # so any "latest sent wins" rule would seat the non-warning here.
     alerts = _parse(feed_fr_green_markers, preferred_prefix="fr")
-    kept = meteoalarm._drop_mf_non_warnings(alerts)
+    kept = meteoalarm._drop_non_warnings(alerts)
     canicule = [a for a in kept if a.event == "Vigilance jaune canicule"]
     assert len(canicule) == 1
     survivor = normalize_alerts(canicule)[0]
@@ -504,7 +504,7 @@ def test_green_marker_never_displaces_live_warning(feed_fr_green_markers):
 def test_live_ids_unique_after_green_drop(feed_fr_green_markers):
     alerts = _parse(feed_fr_green_markers, preferred_prefix="fr")
     assert len({a.id for a in alerts}) < len(alerts)  # collides before the drop
-    kept = meteoalarm._drop_mf_non_warnings(alerts)
+    kept = meteoalarm._drop_non_warnings(alerts)
     assert len({a.id for a in kept}) == len(kept) == 2
 
 
@@ -522,7 +522,7 @@ def test_non_meteofrance_degenerate_window_kept():
         ]
     }
     alerts = _parse(payload, preferred_prefix="de")
-    assert meteoalarm._drop_mf_non_warnings(alerts) == alerts
+    assert meteoalarm._drop_non_warnings(alerts) == alerts
 
 
 def test_unparseable_window_fails_open():
@@ -542,7 +542,7 @@ def test_unparseable_window_fails_open():
         ]
     }
     alerts = _parse(payload, preferred_prefix="fr")
-    assert len(meteoalarm._drop_mf_non_warnings(alerts)) == len(alerts) == 2
+    assert len(meteoalarm._drop_non_warnings(alerts)) == len(alerts) == 2
 
 
 def test_naive_and_aware_timestamps_fail_open():
@@ -558,4 +558,4 @@ def test_naive_and_aware_timestamps_fail_open():
         ]
     }
     alerts = _parse(payload, preferred_prefix="fr")
-    assert len(meteoalarm._drop_mf_non_warnings(alerts)) == 1
+    assert len(meteoalarm._drop_non_warnings(alerts)) == 1
