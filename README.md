@@ -71,7 +71,7 @@ Every config entry produces one **device** (named `CAP Alerts <PROVIDER>`, e.g. 
 
 | Entity | Purpose | State |
 |---|---|---|
-| `sensor.cap_alerts_<provider>_alert_count` | Diagnostic. Number of active alerts. | integer |
+| `sensor.cap_alerts_<provider>_alert_count` | Diagnostic. Number of alerts. Attributes `active` and `upcoming` break that total down by whether the alert's `onset` has passed (no `onset` counts as active). | integer |
 | `sensor.cap_alerts_<provider>_last_updated` | Diagnostic. Last successful poll. | ISO timestamp |
 | `sensor.cap_alert_<event_slug>_<hash>` | One per active alert; created/removed dynamically each poll. | normalized severity (`minor` \| `moderate` \| `severe` \| `extreme` \| `unknown`) |
 | `button.cap_alerts_<provider>_refresh` | Diagnostic. Fetches from the provider now, without waiting for the next poll. | — |

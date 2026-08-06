@@ -229,6 +229,53 @@ def test_restart_grace_two_cycle_sequence():
     assert to_remove == {"a", "b", "c"}
 
 
+# --- count sensor breakdown --------------------------------------------------
+
+
+def test_count_sensor_state_stays_the_total_with_a_breakdown_alongside(alert_factory):
+    """State is every alert; the active/upcoming split rides as attributes (#99).
+
+    The split itself is covered in test_count_breakdown.py; what this pins is
+    that changing the state's meaning is off the table — templates already key
+    off the total.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    soon = (now + timedelta(hours=6)).isoformat()
+    earlier = (now - timedelta(hours=6)).isoformat()
+
+    class FakeCoord:
+        data = {
+            "a": alert_factory(id="a", onset=earlier),
+            "b": alert_factory(id="b", onset=soon),
+            "c": alert_factory(id="c", onset=soon),
+        }
+
+    class FakeSelf:
+        coordinator = FakeCoord()
+
+    assert sensor.CountSensor.native_value.fget(FakeSelf) == 3
+    assert sensor.CountSensor.extra_state_attributes.fget(FakeSelf) == {
+        "active": 1,
+        "upcoming": 2,
+    }
+
+
+def test_count_sensor_breakdown_with_no_data():
+    class FakeCoord:
+        data = None
+
+    class FakeSelf:
+        coordinator = FakeCoord()
+
+    assert sensor.CountSensor.native_value.fget(FakeSelf) == 0
+    assert sensor.CountSensor.extra_state_attributes.fget(FakeSelf) == {
+        "active": 0,
+        "upcoming": 0,
+    }
+
+
 # --- device_info.name decoupling --------------------------------------------
 
 
