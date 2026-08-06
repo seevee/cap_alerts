@@ -31,7 +31,7 @@ entries for every area, so a live feed enumerates the country's full
 administrative tree (measured 2026-08-04: DE 408 regions, PL 383, ES 233).
 
 An area may publish several region codes under a single ``areaDesc`` — FMI
-names four sea areas in one string — so ``_region_pairs`` offers every code of
+names four sea areas in one string — so ``_region_entries`` offers every code of
 the area's scheme and labels each from the most specific honest source
 available: per-code names when the description zips 1:1 with the codes, the
 block name qualified by the code when it carries a single name, the bare code
@@ -65,6 +65,7 @@ from ..const import (
 )
 from ..conventions import (
     METEOALARM_REGION_SCHEMES,
+    RegionEntry,
     SourceConventions,
     StageContext,
     conventions_for,
@@ -367,8 +368,8 @@ def _label_tier(code: str, label: str) -> int:
     return 1
 
 
-def _merge_region_pairs(pairs: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
-    """De-duplicate ``(code, label)`` pairs by code, keeping the best label.
+def _merge_region_entries(entries: Iterable[RegionEntry]) -> list[RegionEntry]:
+    """De-duplicate ``(scheme, code, label)`` by code, keeping the best label.
 
     The same code can be labeled differently by two warnings — named on its
     own in one area and block-qualified in another — so the most specific
@@ -376,19 +377,30 @@ def _merge_region_pairs(pairs: Iterable[tuple[str, str]]) -> list[tuple[str, str
     dropped and an empty label falls back to the code. First-appearance order
     is preserved; sorting is the caller's business.
     """
-    best: dict[str, str] = {}
-    for code, label in pairs:
+    best: dict[str, tuple[str, str]] = {}
+    for scheme, code, label in entries:
         if not code:
             continue
         resolved = label or code
+        tier = _label_tier(code, resolved)
         current = best.get(code)
-        if current is None or _label_tier(code, resolved) < _label_tier(code, current):
-            best[code] = resolved
-    return list(best.items())
+        if current is None or tier < _label_tier(code, current[1]):
+            best[code] = (scheme, resolved)
+    return [(scheme, code, label) for code, (scheme, label) in best.items()]
 
 
-def _region_pairs(info: Mapping[str, Any]) -> list[tuple[str, str]]:
-    """``(code, label)`` region-picker pairs for the info's areas.
+def _merge_region_pairs(pairs: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+    """``_merge_region_entries`` for callers that never needed the scheme.
+
+    The region picker and the config flow speak ``(code, label)``; only the
+    episode explode needs to know which scheme a code belongs to.
+    """
+    entries = _merge_region_entries(("", code, label) for code, label in pairs)
+    return [(code, label) for _scheme, code, label in entries]
+
+
+def _region_entries(info: Mapping[str, Any]) -> list[RegionEntry]:
+    """``(scheme, code, label)`` region entries for the info's areas.
 
     Per area, take **every** value of the first scheme present in
     ``METEOALARM_REGION_SCHEMES`` — an area may carry several region codes
@@ -403,10 +415,15 @@ def _region_pairs(info: Mapping[str, Any]) -> list[tuple[str, str]]:
     3. the bare code, when neither mapping is honest.
 
     If no region-selectable scheme is present but ``areaDesc`` is set, fall
-    back to ``(areaDesc, areaDesc)`` so named-but-schemeless feeds still
-    populate the picker. Document order; de-duplicated by code.
+    back to a schemeless ``("", areaDesc, areaDesc)`` entry so named-but-
+    schemeless feeds still populate the picker. Document order; de-duplicated
+    by code.
+
+    The scheme rides along for the episode explode, which scopes an exploded
+    alert's ``geocodes`` to the one code it keeps and so has to know which
+    container to put it in.
     """
-    out: list[tuple[str, str]] = []
+    out: list[RegionEntry] = []
     for area in info.get("area") or []:
         desc = area.get("areaDesc") or ""
         by_scheme: dict[str, list[str]] = {}
@@ -418,21 +435,28 @@ def _region_pairs(info: Mapping[str, Any]) -> list[tuple[str, str]]:
                 if value not in values:
                     values.append(value)
         codes: tuple[str, ...] = ()
+        selected = ""
         for scheme in METEOALARM_REGION_SCHEMES:
             if by_scheme.get(scheme):
                 codes = tuple(by_scheme[scheme])
+                selected = scheme
                 break
         if not codes:
             if desc:
-                out.append((desc, desc))
+                out.append(("", desc, desc))
             continue
         labels = (
             _split_area_names(desc, len(codes))
             or _qualified_labels(desc, codes)
             or codes
         )
-        out.extend(zip(codes, labels))
-    return _merge_region_pairs(out)
+        out.extend((selected, code, label) for code, label in zip(codes, labels))
+    return _merge_region_entries(out)
+
+
+def _region_pairs(info: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """``(code, label)`` region-picker pairs — ``_region_entries`` less scheme."""
+    return [(code, label) for _scheme, code, label in _region_entries(info)]
 
 
 def _first(value: Any) -> str:
@@ -742,11 +766,12 @@ class MeteoAlarmProvider:
         )
 
         alerts: list[CAPAlert] = []
-        # The raw ``<info>`` block each alert came from, keyed by object
-        # identity and valid for this fetch only. ``CAPAlert`` flattens the
-        # area blocks, so a stage that needs the ``areaDesc`` ↔ code pairing
-        # has to read the block back.
-        raw_info: dict[int, Mapping[str, Any]] = {}
+        # The regions each alert covers, keyed by object identity and valid for
+        # this fetch only. ``CAPAlert`` flattens the area blocks, so a stage
+        # that needs the name ↔ code pairing has to be handed it — and handing
+        # it the picker's own entries is what keeps an exploded entity's name
+        # equal to the label the user selected.
+        region_entries: dict[int, tuple[RegionEntry, ...]] = {}
         for warning in warnings:
             if not isinstance(warning, dict):
                 continue
@@ -755,13 +780,13 @@ class MeteoAlarmProvider:
                 continue
             info = _primary_info(warning, preferred_prefix)
             if info is not None:
-                raw_info[id(alert)] = info
+                region_entries[id(alert)] = tuple(_region_entries(info))
             alerts.append(alert)
 
         ctx = StageContext(
             now=now or datetime.now(timezone.utc),
             wanted_regions=wanted,
-            info_for=lambda alert: raw_info.get(id(alert)),
+            regions_for=lambda alert: region_entries.get(id(alert), ()),
         )
         alerts = _run_slot(alerts, "explode", ctx)
 

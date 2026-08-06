@@ -457,10 +457,10 @@ malformed, falls back to lower-cased CAP `severity` via the standard
 non-NWS branch. The full `awareness_level` string is preserved verbatim
 in `parameters` for cards that want the numeric tier or label.
 
-**Identity**: dispatched per sender. Every authority **except MeteoFrance**
-uses `sha256(cap.identifier)[:12]` (falling back to the warning `uuid` when the
-identifier is missing) — there, identifier collisions across a poll are
-genuinely-distinct concurrent warnings (e.g. Italy/Austria publish one
+**Identity**: dispatched per sender. Every authority **except the episode
+dialects** uses `sha256(cap.identifier)[:12]` (falling back to the warning
+`uuid` when the identifier is missing) — there, identifier collisions across a
+poll are genuinely-distinct concurrent warnings (e.g. Italy/Austria publish one
 region-and-time-window warning each), so the per-message identifier is the
 correct key.
 
@@ -486,53 +486,89 @@ escalation updates the existing entity rather than spawning a new one. Existing
 MeteoFrance entities recompute once on upgrade (stale ones are safe to delete);
 all other authorities are byte-for-byte unchanged.
 
-**MeteoFrance episode merge**: MeteoFrance publishes one warning per calendar
-*day*, each running roughly 00:00 → 00:00 local, and the next day's bulletin goes
-live alongside the current day's for most of the day (live sampling: an
-in-effect/pending overlap in 170 of 227 samples, throughout the day rather than
-in an afternoon window). With `window_key` in the id, one multi-day heat or storm
-episode became one entity per day and the id rolled over at midnight — the defect
-reported in #37. Per-day publication is MeteoFrance's deliberate product model
-(the vigilance map is two panels, today and tomorrow, each department colored per
-day), not a feed quirk; the defect was in this integration's 1:1 mapping of that
-model onto durable HA entities, and the merge re-maps it rather than corrects it.
+The same content key (`conventions.episode_id`) mints every **shipped** id for
+an episode dialect, MeteoFrance and FMI alike, because the merge recomputes it
+last. What differs is only what happens *before* the merge: MeteoFrance declares
+an `identity` hook so pre-merge records already carry the content key (its
+green-marker drop depends on a marker and its bulletin hashing alike), while FMI
+declares none and carries the identifier hash until the merge replaces it.
 
-`conventions.meteofrance_merge_episodes` therefore collapses a run of
-consecutive forecast days into a single alert, keyed *without* the day
-component:
+**Episode merge**: two EUMETNET members publish one continuous warning as a
+*chain of messages* — MeteoFrance one per calendar day, FMI one per window — and
+with a window component in the id each chain became one entity per message, the
+id rolling over mid-episode. That is the defect reported in #37 (MeteoFrance)
+and #98 (FMI). Chaining is each service's deliberate product model, not a feed
+quirk: the vigilance map is two panels, today and tomorrow, each department
+colored per day. The defect was in this integration's 1:1 mapping of that model
+onto durable HA entities, and the merge re-maps it rather than corrects it.
 
-- **Region-picker mode explodes first.** The bulletin is split into one alert per
-  configured department, using the `<area>` blocks (each carries one `areaDesc`
-  and one NUTS3 code), so the episode key is `(sender, phenomenon, one
-  department)`. This is what makes it stable: the *set* of departments a bulletin
-  covers moves overnight — a thunderstorm bulletin was measured going from 83
-  departments to 54 — so any set-derived key, including an intersection with a
-  multi-department config, would split the episode anyway. It also replaces an
-  `area_desc` listing up to 83 departments with the one the user selected.
-- **The most severe day supplies the content wholesale**, tie-broken to the
+The pipeline that collapses a run of messages into a single alert, keyed
+*without* the window component, is **one implementation** shared by both
+senders. Only the predicate deciding which consecutive messages are one episode
+differs, and that predicate is the declared field of an
+`conventions.EpisodeDialect`:
+
+- **Region-picker mode explodes first**, into one alert per configured region, so
+  the episode key is `(sender, phenomenon, one region)`. This is what makes it
+  stable: the *set* of regions a message covers moves from message to message — a
+  France thunderstorm bulletin was measured going from 83 departments to 54, and
+  the sampled FMI wildfire chain grew from one region to five — so any
+  set-derived key, including an intersection with a multi-region config, would
+  split the episode anyway. It also replaces an `area_desc` listing up to 83
+  departments with the one the user selected. The split is per *region entry*,
+  not per `<area>` block, because the two senders package areas differently:
+  France publishes one block per department (one name, one NUTS3 code) while FMI
+  packs every warned region into a single block holding N `EMMA_ID` codes and an
+  `areaDesc` naming all N. The entries come from the provider's own region-picker
+  resolver (`_region_entries`), so an exploded entity's name is the label the
+  user selected, by construction.
+- **The most severe message supplies the content wholesale**, tie-broken to the
   earliest onset; `onset`/`expires` widen to span the run. Blending fields would
   let the record contradict itself, since `severity_normalized` derives from
-  `awareness_level` and the icon from `event`. Per-day truth goes to the new
+  `awareness_level` and the icon from `event`. Per-message truth goes to the
   `episode_days` attribute (`date`, `onset`, `expires`, `severity`,
   `awareness_level`, `event`, `headline`, `area_desc`), which stays absent for a
-  single-day run because it would only restate the alert's own fields.
-- **Finished days are dropped before merging.** Without that, a finished run and
-  an upcoming run for the same key collide on the day-free id, and the alert
-  store — which keys by id — would silently drop one. This makes the provider
-  clock-dependent, so `async_fetch` takes an injectable `now`.
-- **A gap of more than one calendar day starts a new run**, read as a genuinely
-  separate episode. That has never been observed live (0 of 227 samples), so the
-  reading is unproven; getting it wrong degrades to two entities rather than
-  losing anything. The *second* and later runs re-add their first day to the key
-  so two live runs can never collide — churning only the pending entity, never
-  the one in effect.
+  single-message run because it would only restate the alert's own fields.
+- **Finished messages are dropped before merging.** Without that, a finished run
+  and an upcoming run for the same key collide on the window-free id, and the
+  alert store — which keys by id — would silently drop one. This makes the
+  provider clock-dependent, so `async_fetch` takes an injectable `now`.
+- **The second and later runs re-add their first message's window** to the key,
+  so two live runs of one phenomenon and region can never collide — churning only
+  the pending entity, never the one in effect.
 - **Country-wide mode keeps the full-set key** and therefore still splits an
-  episode when the footprint moves. Known limitation, accepted because exploding
-  per department there would turn France into roughly 150 entities.
+  episode when the footprint moves. Known limitation for both senders, accepted
+  because exploding per region there would turn France into roughly 150 entities.
+
+**The run rule per sender** is the one thing that could not be shared:
+
+- *MeteoFrance — consecutive forecast days.* Messages are grouped by the
+  `YYYY-MM-DD` of `onset`, and a gap of more than one calendar day starts a new
+  run, read as a genuinely separate episode. That has never been observed live
+  (0 of 227 samples), so the reading is unproven; getting it wrong degrades to
+  two entities rather than losing anything. Two messages on one day are resolved
+  by `(severity, sent)` — severity first, so send order can never seat a weaker
+  record.
+- *FMI — contiguous windows.* Sorted by onset, a message joins the current run
+  when it starts at or before the run's furthest reach. A message whose onset
+  cannot be parsed is contiguous with nothing and gets its own run.
+
+Applying MeteoFrance's rule to FMI would be actively wrong, which is why the
+predicate is declared rather than unified. FMI does not publish one message per
+day: two `FI809` wind advisories were live for the same day an hour apart
+(09:00–21:00 and 22:00–00:00), and a calendar-day collapse would keep one and
+silently discard the other — with its `(severity, sent)` tie-break unable to
+even choose, because FMI stamps a whole batch with a single `sent` (12 of 23
+sampled warnings shared a timestamp to the second). The converse fails too:
+MeteoFrance re-issues a forecast day with `onset` clipped to the issue time, so
+two re-issues of one day *overlap*, and a contiguity rule would merge them into
+a bogus two-day episode with `onset` widened back to the superseded issue time.
 
 Measured against a live France feed at a fixed instant: 256 entities across 88
 departments become 149, the most any one department carries drops from 6 to 3,
-and no (department, phenomenon) cell is lost.
+and no (department, phenomenon) cell is lost. On Finland (sampled 2026-08-05) a
+nine-message wildfire chain, most of it ending exactly at the midnight the next
+message starts on, becomes one entity per configured region.
 
 A horizon/outlook filter was considered and **rejected** — the merge subsumes it.
 Live depth is two forecast days, not the four the J/J+1/J+2/J+3 framing suggests
@@ -540,7 +576,14 @@ Live depth is two forecast days, not the four the J/J+1/J+2/J+3 framing suggests
 rather than hidden.
 
 MeteoFrance entity ids change once on upgrade for a second time; stale entities
-are safe to delete.
+are safe to delete. FMI entity ids change once, for the same reason.
+
+Two FMI behaviours are **out of scope** and left as-is. Its identifiers embed an
+issue timestamp with an otherwise-stable token, so a re-issue that *moves* the
+window (rather than extending it) still mints a fresh entity — a supersession
+the merge does not model. And Finland publishes no green/no-warning entries, so
+the warnings-derived region picker can only enumerate regions with a live
+warning, unlike DE/PL/ES where it lists the full administrative tree.
 
 **MeteoFrance "no warning" markers**: MeteoFrance encodes green/no-warning as an
 `Actual` message with a degenerate window, in two shapes — `expires < onset`
@@ -562,28 +605,37 @@ open (the warning is kept) so a feed format change can never silently drop real
 alerts, and the rule is gated on the sender — the convention is unverified for
 other MeteoAlarm authorities, whose degenerate windows are left alone.
 
-**Where the dialect lives** (issue #88): all four rules above — identity, the
-marker drop, the region explode, the episode merge — are declared by the
-`meteoalarm/vigilance@meteo.fr` entry in `conventions.py`, not branched on in
-the provider. Identity and the marker drop are per-alert callables (`identity`,
-`keep`); the two that are list-shaped are `PipelineStage` entries bound to the
-`explode` and `merge` slots. The provider owns the order and runs the slots:
+**Where the dialects live** (issues #88, #98): all four MeteoFrance rules above —
+identity, the marker drop, the region explode, the episode merge — are declared
+by the `meteoalarm/vigilance@meteo.fr` entry in `conventions.py`, not branched on
+in the provider. Identity and the marker drop are per-alert callables
+(`identity`, `keep`); the two that are list-shaped are `PipelineStage` entries
+bound to the `explode` and `merge` slots. The provider owns the order and runs
+the slots:
 
 ```
 construct → [identity] → [explode] → [keep] → mode filters → [merge] → return
 ```
 
+`meteoalarm/cap@fmi.fi` declares the same two stages via
+`episode_stages(FMI_EPISODES)` and nothing else: no `keep` (Finland publishes no
+green/no-warning markers to drop) and no `identity` (the merge re-mints every
+shipped id; MeteoFrance's identity hook is load-bearing there only because of the
+green-marker collision FMI does not have). Registering a third such sender is a
+table entry plus a run rule.
+
 Sender-scoped entries *replace* the provider's rather than layering on it, so
-the MeteoFrance entry restates the MeteoAlarm `awareness_level` severity
-derivation. A stage receives the whole batch and passes through what is not its
-sender's, which keeps a dialect's own ordering intact.
+both entries restate the MeteoAlarm `awareness_level` severity derivation. A
+stage receives the whole batch and passes through what is not its sender's,
+which keeps a dialect's own ordering intact and lets two dialects coexist in one
+page.
 
 **Field mapping**:
 
 | MeteoAlarm JSON path | CAPAlert field |
 |---|---|
-| `warnings[].uuid` | identifier-fallback source for `id` (non-MeteoFrance senders) |
-| `warnings[].alert.identifier` | `identifier`; primary source for `id` (non-MeteoFrance senders) |
+| `warnings[].uuid` | identifier-fallback source for `id` (senders with no episode dialect) |
+| `warnings[].alert.identifier` | `identifier`; primary source for `id` (senders with no episode dialect) |
 | `warnings[].alert.sender` | `sender` |
 | `warnings[].alert.sent` | `sent` |
 | `warnings[].alert.status` | `status` (warnings with status ≠ `Actual` skipped) |
@@ -603,7 +655,7 @@ sender's, which keeps a dialect's own ordering intact.
 | `alert.info[].area[].areaDesc` | `area_desc` (joined across area blocks) |
 | `alert.info[].area[].geocode[]` (all schemes, keyed by `valueName`) | `geocodes` — scheme-keyed container (`{"EMMA_ID": (...), "NUTS3": (...)}`); drives the region-picker filter. MeteoAlarm publishes no `SAME` scheme, so `geocode_same` stays empty (EMMA_ID is not a SAME code) |
 | `alert.info[].area[].polygon` | `geometry` (GeoJSON Polygon or MultiPolygon, lon/lat) |
-| `sha256(identifier)[:12]` (or `sha256(uuid)[:12]` fallback) | `id` |
+| `sha256(identifier)[:12]` (or `sha256(uuid)[:12]` fallback) | `id` — replaced by `conventions.episode_id` for an episode dialect |
 
 ---
 

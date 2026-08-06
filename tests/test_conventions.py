@@ -6,6 +6,9 @@ import pytest
 
 from custom_components.cap_alerts.conventions import (
     CONVENTIONS,
+    FMI_EPISODES,
+    FMI_SENDER,
+    METEOFRANCE_EPISODES,
     METEOFRANCE_SENDER,
     SourceConventions,
     StageContext,
@@ -67,6 +70,26 @@ def test_meteofrance_entry_carries_every_hook():
     assert [stage.slot for stage in conventions.stages] == ["explode", "merge"]
 
 
+def test_fmi_entry_declares_the_episode_stages_and_nothing_else():
+    # The second episode dialect (issue #98). It declares the same two stages
+    # and restates the MeteoAlarm severity derivation, but neither per-alert
+    # hook: Finland publishes no green/no-warning markers to drop, and the
+    # merge re-mints every shipped id, so there is nothing for `identity` to do.
+    conventions = conventions_for("meteoalarm", FMI_SENDER)
+    assert conventions is CONVENTIONS[f"meteoalarm/{FMI_SENDER}"]
+    assert conventions.severity is meteoalarm_awareness_severity
+    assert [stage.slot for stage in conventions.stages] == ["explode", "merge"]
+    assert conventions.keep is None
+    assert conventions.identity is None
+
+
+def test_episode_dialects_share_everything_but_the_run_rule():
+    # The point of declaring the dialect: two senders, one pipeline. If these
+    # ever became the same predicate the second dialect would stop being data.
+    assert METEOFRANCE_EPISODES.sender != FMI_EPISODES.sender
+    assert METEOFRANCE_EPISODES.split is not FMI_EPISODES.split
+
+
 def test_other_meteoalarm_senders_keep_the_provider_entry():
     conventions = conventions_for("meteoalarm", "dwd@dwd.de")
     assert conventions is CONVENTIONS["meteoalarm"]
@@ -93,10 +116,11 @@ def test_source_without_conventions_has_every_slot_empty():
     assert conventions.stages_at("explode") == conventions.stages_at("merge") == ()
 
 
-def test_stages_pass_foreign_senders_through_untouched(alert_factory):
+@pytest.mark.parametrize("sender", [METEOFRANCE_SENDER, FMI_SENDER])
+def test_stages_pass_foreign_senders_through_untouched(alert_factory, sender):
     # Stages are handed the whole batch, so each one has to leave alerts from
     # senders it does not own exactly as they were.
-    conventions = conventions_for("meteoalarm", METEOFRANCE_SENDER)
+    conventions = conventions_for("meteoalarm", sender)
     alerts = [alert_factory(provider="meteoalarm", sender="dwd@dwd.de")]
     ctx = StageContext(
         now=datetime(2026, 8, 5, tzinfo=timezone.utc),
