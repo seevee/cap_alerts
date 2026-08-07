@@ -519,13 +519,18 @@ async def test_streamed_revision_fires_incident_updated(
 
 
 def _ended_cap_xml(
-    identifier: str, *, references: str, event: str = "Wind Warning"
+    identifier: str,
+    *,
+    references: str,
+    event: str = "Wind Warning",
+    status: str = "ended",
 ) -> str:
     """A revision whose only area group has ended, ECCC-style.
 
     Termination is never visible through ``msgType`` — it stays ``Update``, and
     ``expires`` is still an hour out. The ``Alert_Location_Status`` parameter is
-    the whole signal (issue #45).
+    the whole signal (issue #45), and which token it carries is what tells an
+    all-clear from a supersession (issue #108).
     """
     now = datetime.now(timezone.utc)
     return (
@@ -543,7 +548,7 @@ def _ended_cap_xml(
         f"<headline>{event} ended</headline><description>desc</description>"
         "<parameter>"
         "<valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>"
-        "<value>ended</value>"
+        f"<value>{status}</value>"
         "</parameter>"
         "<area><areaDesc>Ottawa</areaDesc>"
         "<polygon>45.0,-76.0 45.0,-75.5 45.5,-75.5 45.5,-76.0 45.0,-76.0</polygon>"
@@ -586,6 +591,41 @@ async def test_streamed_ended_document_removes_entity(
     # its expires timestamp, so an automation can tell it from a run to
     # completion (issue #95).
     assert removed[0].data["phase"] == "cancel"
+    # …and an all-clear from an upgrade (issue #108).
+    assert removed[0].data["removal_reason"] == "ended"
+
+
+@pytest.mark.asyncio
+async def test_streamed_transitioned_out_document_reports_supersession(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """The area moved to a different alert, so the removal is not an all-clear.
+
+    Issue #108: the successor arrives as its own document and fires its own
+    ``incident_created``, so a consumer paying per message can skip this one.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    count_id = _count_id(hass, entry)
+    assert hass.states.get(count_id).state == "1"
+    removed = async_capture_events(hass, "incident_removed")
+
+    await holder["on_alert_doc"](
+        _ended_cap_xml(
+            "urn:oid:A2",
+            references="CWTO,urn:oid:A,2026-07-22T12:00:00-00:00",
+            status="transitioned_out",
+        )
+    )
+    await hass.async_block_till_done()
+
+    assert hass.states.get(count_id).state == "0"
+    assert len(removed) == 1
+    assert removed[0].data["removal_reason"] == "superseded"
 
 
 def _stream_id(hass, entry) -> str | None:

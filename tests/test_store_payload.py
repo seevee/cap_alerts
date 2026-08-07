@@ -232,6 +232,153 @@ def test_silent_disappearance_before_expires_inferred_as_cancel(hass, alert_fact
     assert payload["phase"] == "cancel"
 
 
+def _eccc(alert_factory, **overrides):
+    """An ECCC alert, the only source publishing a lifecycle vocabulary."""
+    return alert_factory(provider="eccc", msg_type="Update", **overrides)
+
+
+def test_removed_carries_removal_reason_ended(hass, alert_factory):
+    """ECCC stood the alert down early: the removal says so (issue #108)."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "eccc")
+    store.process(normalize_alerts([_eccc(alert_factory, id="a")]))
+    hass.bus.async_fire.reset_mock()
+
+    store.process(
+        normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="ended")])
+    )
+
+    fired = _fired(hass)
+    assert len(fired) == 1
+    event_type, payload = fired[0]
+    assert event_type == "incident_removed"
+    assert payload["phase"] == "cancel"
+    assert payload["removal_reason"] == "ended"
+
+
+def test_removed_carries_removal_reason_superseded(hass, alert_factory):
+    """A watch upgraded to a warning: the successor's creation carries the news."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "eccc")
+    store.process(normalize_alerts([_eccc(alert_factory, id="a")]))
+    hass.bus.async_fire.reset_mock()
+
+    store.process(
+        normalize_alerts(
+            [_eccc(alert_factory, id="a", lifecycle_status="transitioned_out")]
+        )
+    )
+
+    _, payload = _fired(hass)[0]
+    assert payload["removal_reason"] == "superseded"
+
+
+def test_removal_reason_survives_an_expired_phase(hass, alert_factory):
+    """The reason is not gated on phase=cancel, and must not be.
+
+    ECCC issues transitioned_out documents with expires at or before sent, so
+    the terminal phase usually comes out "expired" — gating the reason on
+    "cancel" would drop it in exactly the upgrade case it exists for.
+    """
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "eccc")
+    terminal = normalize_alerts(
+        [
+            _eccc(
+                alert_factory,
+                id="a",
+                expires="2000-01-01T00:00:00Z",
+                lifecycle_status="transitioned_out",
+            )
+        ]
+    )
+    store.process(terminal)
+
+    _, payload = _fired(hass)[0]
+    assert payload["phase"] == "expired"
+    assert payload["removal_reason"] == "superseded"
+
+
+def test_plain_cancel_has_no_removal_reason(hass, alert_factory):
+    """No signal means no key — phase=cancel alone is all we know."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "nws")
+    store.process(normalize_alerts([alert_factory(id="a", msg_type="Cancel")]))
+
+    _, payload = _fired(hass)[0]
+    assert payload["phase"] == "cancel"
+    assert "removal_reason" not in payload
+
+
+def test_silent_disappearance_has_no_removal_reason(hass, alert_factory):
+    """The provider dropped the record without saying why."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "eccc")
+    store.process(
+        normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="active")])
+    )
+    hass.bus.async_fire.reset_mock()
+
+    store.process([])
+
+    _, payload = _fired(hass)[0]
+    assert payload["phase"] == "cancel"
+    assert "removal_reason" not in payload
+
+
+def test_removal_reason_is_scoped_to_its_source(hass, alert_factory):
+    """ECCC's vocabulary cannot label another source's removal (issue #82)."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "nws")
+    store.process(
+        normalize_alerts(
+            [alert_factory(id="a", msg_type="Cancel", lifecycle_status="ended")]
+        )
+    )
+
+    _, payload = _fired(hass)[0]
+    assert "removal_reason" not in payload
+
+
+def test_created_and_updated_have_no_removal_reason(hass, alert_factory):
+    """The key rides on incident_removed only."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "eccc")
+    store.process(
+        normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="active")])
+    )
+    store.process(
+        normalize_alerts(
+            [
+                _eccc(
+                    alert_factory, id="a", lifecycle_status="active", headline="revised"
+                )
+            ]
+        )
+    )
+
+    fired = _fired(hass)
+    assert [event_type for event_type, _ in fired] == [
+        "incident_created",
+        "incident_updated",
+    ]
+    assert all("removal_reason" not in payload for _, payload in fired)
+
+
 def test_first_sight_terminal_alert_fires_removed_only(hass, alert_factory):
     """An alert we've never seen but which is already terminal on arrival."""
     from custom_components.cap_alerts.normalize import normalize_alerts

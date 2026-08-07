@@ -22,6 +22,7 @@ Event names match the RFC §2.3 `incident_*` contract.
 | `entity_id` | `str` | §2.3 | Omitted on the very first sighting (the entity has not yet been registered). |
 | `entry_id` | `str` | extension | Config entry id. Useful when a Home Assistant install has multiple CAP Alerts entries (e.g. two NWS zones). Not in the RFC. |
 | `area_desc` | `str` | extension | Human-readable area description, denormalized onto the event for convenience. Not in the RFC. |
+| `removal_reason` | `str` | extension | Why the alert went away: `superseded` or `ended`. Fires on `incident_removed` only, and **omitted** whenever the provider gave no recognized reason. See below. Not in the RFC. |
 
 `previous_phase` is **not** on the event payload. Consumers can reconstruct
 it when `phase` appears in `changed_fields`: the previous phase was whatever
@@ -61,6 +62,48 @@ This is a departure from earlier builds, which emitted the
 *previous* phase (typically `new` or `update`) on removal. Automations
 that keyed off `phase` on removal to distinguish cancel from expired
 now get that information directly on the payload.
+
+## `removal_reason` on `incident_removed`
+
+`phase` says *when* an alert ended relative to its published `expires`;
+it does not say *why*. Two endings that a consumer must treat differently
+look identical under `phase` alone — an all-clear, and an alert being
+replaced by another one covering the same area. `removal_reason` carries
+that distinction when the provider published it:
+
+| Value | Meaning |
+| :-- | :-- |
+| `superseded` | The area moved to a **different** alert (an ECCC watch upgraded to a warning, say). The successor arrives as its own document and fires its own `incident_created`, so an automation with a message budget can skip this removal — the creation carries the same news. |
+| `ended` | The alert stood down for this area. |
+
+**Omitted when unknown.** The key is absent unless the provider gave a
+reason the integration recognizes. That covers a silent disappearance, a
+plain `msgType=Cancel`, an alert simply reaching its `expires`, and every
+provider that publishes no lifecycle vocabulary at all — today that is
+all of them except ECCC, whose `Alert_Location_Status` parameter supplies
+the tokens (`ended`, `transitioned_out`). Absence means "no signal", never
+"not superseded"; `phase` alone is all that is known in that case.
+
+**Independent of `phase`.** Both values pair with either terminal phase,
+so read them as separate axes:
+
+| `phase` | `removal_reason` | Reading |
+| :-- | :-- | :-- |
+| `cancel` | `ended` | Stood down before its published expiry. |
+| `cancel` | `superseded` | Replaced before its published expiry. |
+| `expired` | `superseded` | Replaced, and the replaced revision was issued at or past its own `expires` — the usual shape for ECCC `transitioned_out`, whose documents carry `expires ≈ sent`. |
+| `expired` | *(absent)* | Ran to its published expiry. |
+
+**Scope.** `superseded` speaks for the area group the entity represents,
+not for the whole CAP document: one document can end over one region
+while staying live over another (see *architecture.md → ECCC →
+Area-group selection*). It is not an all-clear for a neighbouring area.
+
+The superseding alert's `incident_id` is **not** on the payload. Whether
+CAP `<references>` reaches across event types at ECCC (a watch and a
+warning are separate chains) is a feed-behavior question that needs a
+captured upgrade to answer; until then the reason alone is what the
+integration can state truthfully.
 
 ## Cross-poll supersession (ECCC)
 

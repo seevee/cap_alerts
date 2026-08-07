@@ -14,6 +14,7 @@ from .const import (
     EVENT_INCIDENT_REMOVED,
     EVENT_INCIDENT_UPDATED,
 )
+from .conventions import conventions_for
 from .model import CAPAlert
 
 # Fields whose changes automations typically care about. Anything outside
@@ -186,7 +187,8 @@ class AlertStore:
     ) -> None:
         """Fire an HA event matching RFC §2.3 (schema documented in docs/events.md).
 
-        ``entry_id`` and ``area_desc`` are project extensions not in the RFC.
+        ``entry_id``, ``area_desc`` and ``removal_reason`` are project
+        extensions not in the RFC.
         """
         payload: dict = {
             "entry_id": self._entry_id,
@@ -198,6 +200,10 @@ class AlertStore:
             "changed_fields": changed_fields,
             "area_desc": alert.area_desc,
         }
+        if event_type == EVENT_INCIDENT_REMOVED:
+            reason = _removal_reason(alert)
+            if reason:
+                payload["removal_reason"] = reason
         # entity_id: look up via entity registry by unique_id.
         # On first sighting the entity isn't registered yet; omit the key.
         unique_id = f"{self._entry_id}_{self._provider}_{alert.id}"
@@ -207,6 +213,30 @@ class AlertStore:
             payload["entity_id"] = entity_id
 
         self._hass.bus.async_fire(event_type, payload)
+
+
+def _removal_reason(alert: CAPAlert) -> str:
+    """Why this alert went away, or "" when the provider never said (issue #108).
+
+    ``phase`` alone collapses two different endings: an ECCC watch upgraded to a
+    warning ends the same way an all-clear does, and a consumer paying per
+    message cannot tell that the successor's ``incident_created`` is already
+    carrying the news. The distinction survives on ``lifecycle_status``, which
+    the source's convention entry maps to a neutral reason.
+
+    Deliberately independent of the terminal ``phase``: ``transitioned_out``
+    documents are issued with ``expires`` at or before ``sent``, so most of them
+    normalize to ``expired`` rather than ``cancel`` — gating this on ``cancel``
+    would drop the reason in exactly the upgrade case it exists for.
+
+    Reasons are scoped to the source that published the token, like the terminal
+    set they are keyed by: a provider that publishes no lifecycle vocabulary
+    cannot be labelled with another's.
+    """
+    if not alert.lifecycle_status:
+        return ""
+    conventions = conventions_for(alert.provider, alert.sender)
+    return conventions.lifecycle_removal_reasons.get(alert.lifecycle_status, "")
 
 
 def _diff_fields(prev: CAPAlert, curr: CAPAlert) -> list[str]:
