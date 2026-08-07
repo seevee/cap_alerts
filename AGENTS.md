@@ -41,24 +41,29 @@ Weather API → Provider.async_fetch() → list[CAPAlert]
 
 ```
 custom_components/cap_alerts/
-  __init__.py       # entry setup, coordinator wiring, platform forwarding
+  __init__.py       # entry setup, coordinator wiring, platform forwarding; owns the shared GeometryStore and registers the REST view + WS command once per HA instance
   const.py          # domain, defaults, user-agent format
   config_flow.py    # setup flow + reconfigure flow + options flow
-  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info + NAAD stream lifecycle; provider-neutral post-fetch filters (marine, geocode-prefix)
+  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info + NAAD stream lifecycle; provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
   button.py         # RefreshButton: on-demand provider fetch (all providers)
   binary_sensor.py  # StreamConnectivitySensor: NAAD socket state (ECCC streaming only)
   model.py          # CAPAlert dataclass + to_attributes()
   conventions.py    # per-source convention table: marine prefixes, terminal lifecycle tokens, severity derivations, per-sender dialects (identity/keep hooks + explode/merge pipeline stages); an episode dialect declares its own run rule — MeteoFrance merges consecutive forecast days, FMI contiguous windows — over one shared pipeline
   normalize.py      # shared normalization: severity, phase, Buddhist-Era year fix, state truncation
-  store.py          # alert store: inter-poll diffing, transition detection, HA event firing
+  store.py          # alert store: inter-poll diffing, transition detection, HA event firing (incl. removal_reason)
+  icons.py          # event-type → mdi dispatch; MeteoAlarm classifies on awareness_type, others on event tables
+  geometry_store.py # in-memory LRU cache of full GeoJSON polygons, keyed by geometry_ref (RFC §2.4); never persisted
+  views.py          # GET /api/cap_alerts/geometry/{ref} → FeatureCollection
+  websocket.py      # cap_alerts/geometry WS command, same payload as the REST view
   providers/
     __init__.py           # AlertProvider protocol + get_provider() factory
     cap.py                # shared, provider-neutral CAP 1.2 XML parsing (CAPDoc/CAPInfoDoc, parse_cap_alert, resolve_chain_leaves)
     cap_content_cache.py  # LRU cache for fetched CAP XML bodies (shared: eccc + wmo)
     geometry.py           # shared CAP shapes → GeoJSON; polygon/point selection, zero-radius circles
     nws.py                # NWS GeoJSON API — zone/GPS/tracker
-    eccc.py               # Environment Canada NAAD Atom feed
+    eccc.py               # Environment Canada NAAD Atom feed (GeoRSS host union + CAP bodies)
+    naad_stream.py        # NAAD TLS streaming transport: frame reassembly, heartbeats, watchdog, reconnect/backoff — no alert semantics
     meteoalarm.py         # MeteoAlarm (EUMETNET) per-country CAP JSON
     wmo.py                # WMO SWIC per-source RSS → CAP XML; per-language <info> selection
   manifest.json
