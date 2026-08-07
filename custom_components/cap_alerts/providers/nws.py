@@ -6,6 +6,7 @@ import hashlib
 import logging
 import re
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
@@ -14,7 +15,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import CONF_GPS_LOC, CONF_ZONE_ID
 from ..conventions import NWS_MARINE_UGC_PREFIXES as _NWS_MARINE_UGC_PREFIXES
-from ..conventions import conventions_for, is_marine_code
+from ..conventions import StageContext, conventions_for, is_marine_code
 from ..model import CAPAlert, geocodes_from
 
 _LOGGER = logging.getLogger(__name__)
@@ -212,6 +213,12 @@ class NWSProvider:
             pagination = data.get("pagination", {})
             url = pagination.get("next")
             follows += 1
+
+        # Runs after pagination completes, never per page: a product and the
+        # re-issue superseding it can land on either side of a page boundary.
+        ctx = StageContext(now=datetime.now(timezone.utc))
+        for run in _NWS_CONVENTIONS.stages_at("merge"):
+            alerts = run(alerts, ctx)
 
         return alerts
 
