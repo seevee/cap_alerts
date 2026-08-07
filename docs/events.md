@@ -134,8 +134,9 @@ produce identical raw lifecycle hashes for alerts that cover both
 zones. Prefixing with `entry_id` keeps them distinct.
 
 The lifecycle hash itself (what the RFC calls `unique_id`) is exposed
-as `incident_id` on both entity attributes and event payloads, so
-consumers cross-referencing the RFC can use that field directly.
+as `incident_id` on event payloads and as the `id` attribute on alert
+entities, so consumers cross-referencing the RFC can use that value
+directly from either surface.
 
 ## Archival pattern (RFC §6.4)
 
