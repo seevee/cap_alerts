@@ -13,6 +13,14 @@ EVENT_INCIDENT_CREATED = "incident_created"
 EVENT_INCIDENT_UPDATED = "incident_updated"
 EVENT_INCIDENT_REMOVED = "incident_removed"
 
+# Provider-neutral reasons an alert went away, published as ``removal_reason``
+# on ``incident_removed`` (a project extension to the RFC §2.3 payload; schema
+# in docs/events.md). Sources declare which of their own lifecycle tokens map
+# to which reason via ``conventions.SourceConventions.lifecycle_removal_reasons``;
+# a source that publishes no such signal emits no key at all.
+REMOVAL_REASON_SUPERSEDED = "superseded"
+REMOVAL_REASON_ENDED = "ended"
+
 # User-Agent for API requests — {0} is replaced with the HA instance ID
 USER_AGENT = "HomeAssistant-CAPAlerts/{0}"
 

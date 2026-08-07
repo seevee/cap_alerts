@@ -107,7 +107,10 @@ For automation use, the integration fires three event types on the HA bus:
 Full payload schema and semantics are documented in [`docs/events.md`](docs/events.md).
 `incident_removed` payloads carry the terminal `phase` (`cancel` or `expired`)
 so automations can distinguish an upstream cancel from a natural expiry
-without re-deriving it from timestamps.
+without re-deriving it from timestamps. When the provider says *why* the alert
+went away, they also carry `removal_reason` (`superseded` or `ended`) — an
+automation with a message budget can skip a `superseded` removal, since the
+alert replacing it fires its own `incident_created`.
 
 ### History UI tradeoff
 

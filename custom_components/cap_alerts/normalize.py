@@ -36,6 +36,10 @@ SEVERITY_RANK: Mapping[str, int] = MappingProxyType(
     {"unknown": 0, "minor": 1, "moderate": 2, "severe": 3, "extreme": 4}
 )
 
+# Default for ``_compute_phase``'s terminal-token argument: a source that
+# declares no lifecycle vocabulary retires nothing.
+_NO_TERMINAL_STATUSES: Mapping[str, str] = MappingProxyType({})
+
 
 def normalize_alerts(alerts: list[CAPAlert], entry_id: str = "") -> list[CAPAlert]:
     """Apply shared normalization to a list of provider-parsed alerts.
@@ -99,7 +103,7 @@ def _normalize(alert: CAPAlert, now: datetime, entry_id: str = "") -> CAPAlert:
             alert.msg_type,
             now,
             alert.lifecycle_status,
-            conventions.terminal_lifecycle_statuses,
+            conventions.lifecycle_removal_reasons,
         ),
         icon=icon_for(alert),
         bbox=_bbox_from_geometry(alert.geometry),
@@ -153,7 +157,7 @@ def _compute_phase(
     msg_type: str,
     now: datetime,
     lifecycle_status: str = "",
-    terminal_statuses: frozenset[str] = frozenset(),
+    terminal_statuses: Mapping[str, str] = _NO_TERMINAL_STATUSES,
 ) -> str:
     """Lifecycle phase: terminal if past ``expires`` or ended early, else msg_type.
 
@@ -179,10 +183,13 @@ def _compute_phase(
     provider that *announces* an early end must not land on a worse phase than
     one that simply drops the record.
 
-    ``terminal_statuses`` comes from the source's convention table entry, so
-    one feed's vocabulary can never retire another's alerts. Values outside it
-    — including the empty default every source without such a signal supplies
-    — fall through unchanged.
+    ``terminal_statuses`` comes from the source's convention table entry — its
+    ``lifecycle_removal_reasons``, whose keys are the terminal tokens and whose
+    values say why the alert went away (``store`` publishes those as
+    ``removal_reason``; only the keys matter here). Scoping it to the source
+    means one feed's vocabulary can never retire another's alerts. Values
+    outside it — including the empty default every source without such a signal
+    supplies — fall through unchanged.
     """
     expires_at = _parse_iso(expires)
     if expires_at is not None and now > expires_at:

@@ -57,11 +57,12 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from types import MappingProxyType
 from typing import Literal
 
+from .const import REMOVAL_REASON_ENDED, REMOVAL_REASON_SUPERSEDED
 from .model import CAPAlert, geocodes_from
 
 # ---------------------------------------------------------------------------
@@ -100,11 +101,19 @@ ECCC_MARINE_CLC_PREFIX = "00"
 
 # ECCC ``Alert_Location_Status`` tokens that mean the alert has reached
 # end-of-life for the area it was selected for, whatever its ``msgType`` and
-# ``expires`` still say. Unknown values are deliberately absent so an
-# unfamiliar token degrades to msg_type handling rather than silently retiring
-# a live alert.
-ECCC_TERMINAL_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
-    {"ended", "transitioned_out"}
+# ``expires`` still say, each mapped to what it means for a consumer. Unknown
+# values are deliberately absent so an unfamiliar token degrades to msg_type
+# handling rather than silently retiring a live alert.
+#
+# The keys are also the terminal set — "this token ends the alert" and "here is
+# why" are one fact, so they are one declaration (issue #108). ``ended`` is an
+# all-clear for this area group; ``transitioned_out`` means the area moved to a
+# different alert, whose own ``incident_created`` carries the same news.
+ECCC_LIFECYCLE_REMOVAL_REASONS: Mapping[str, str] = MappingProxyType(
+    {
+        "ended": REMOVAL_REASON_ENDED,
+        "transitioned_out": REMOVAL_REASON_SUPERSEDED,
+    }
 )
 
 # VTEC significance → severity tier (NWS).
@@ -847,6 +856,13 @@ def episode_stages(dialect: EpisodeDialect) -> tuple[PipelineStage, ...]:
 # ---------------------------------------------------------------------------
 
 
+# Shared empty mapping for sources that declare no lifecycle vocabulary. A
+# frozen/slots dataclass rejects a mutable default, so the field uses a
+# ``default_factory`` returning this singleton (as ``model.CAPAlert`` does for
+# ``geocodes``).
+_NO_REMOVAL_REASONS: Mapping[str, str] = MappingProxyType({})
+
+
 @dataclass(frozen=True, slots=True)
 class SourceConventions:
     """Interpretive rules for one alert source. Every field is optional.
@@ -860,8 +876,13 @@ class SourceConventions:
     # Area-code prefixes denoting marine/water zones. Empty when the source
     # publishes no marine discriminator.
     marine_code_prefixes: frozenset[str] = frozenset()
-    # Provider-native ``lifecycle_status`` tokens meaning end-of-life.
-    terminal_lifecycle_statuses: frozenset[str] = frozenset()
+    # Provider-native ``lifecycle_status`` tokens meaning end-of-life, mapped to
+    # the neutral reason published as ``removal_reason`` on ``incident_removed``
+    # (``const.REMOVAL_REASON_*``). The keys are the terminal set normalization
+    # tests against, so a token cannot end an alert without saying why.
+    lifecycle_removal_reasons: Mapping[str, str] = field(
+        default_factory=lambda: _NO_REMOVAL_REASONS
+    )
     # Source-specific severity derivation, or None to use CAP ``severity``.
     severity: Callable[[CAPAlert], str | None] | None = None
     # Replacement entity id for a finished alert, or None to keep the
@@ -892,7 +913,7 @@ CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
         ),
         "eccc": SourceConventions(
             marine_code_prefixes=frozenset({ECCC_MARINE_CLC_PREFIX}),
-            terminal_lifecycle_statuses=ECCC_TERMINAL_LIFECYCLE_STATUSES,
+            lifecycle_removal_reasons=ECCC_LIFECYCLE_REMOVAL_REASONS,
         ),
         "meteoalarm": SourceConventions(
             severity=meteoalarm_awareness_severity,

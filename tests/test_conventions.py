@@ -27,7 +27,7 @@ def test_unknown_provider_gets_empty_conventions():
     # An unregistered source degrades to pure CAP handling rather than raising.
     conv = conventions_for("does-not-exist")
     assert conv.marine_code_prefixes == frozenset()
-    assert conv.terminal_lifecycle_statuses == frozenset()
+    assert dict(conv.lifecycle_removal_reasons) == {}
     assert conv.severity is None
     assert conv.classifies_marine is False
 
@@ -42,7 +42,7 @@ def test_sender_scoped_entry_wins_when_present(monkeypatch):
     # The MeteoFrance case the table is shaped for: one provider, several
     # dialects. Patched over the shipped entry so the lookup is tested on its
     # own, independently of what that dialect happens to declare.
-    scoped = SourceConventions(terminal_lifecycle_statuses=frozenset({"over"}))
+    scoped = SourceConventions(lifecycle_removal_reasons={"over": "ended"})
     patched = dict(CONVENTIONS)
     patched["meteoalarm/vigilance@meteo.fr"] = scoped
     monkeypatch.setattr("custom_components.cap_alerts.conventions.CONVENTIONS", patched)
@@ -174,6 +174,27 @@ def test_is_marine_code_ignores_codes_shorter_than_a_prefix():
     # Guards the prefix predicate against a truncated code being read as a
     # partial match.
     assert is_marine_code(("A",), conventions_for("nws")) is False
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle removal reasons (issue #108)
+# ---------------------------------------------------------------------------
+
+
+def test_eccc_declares_a_reason_for_every_terminal_token():
+    # The keys double as the terminal set _compute_phase tests against, so a
+    # token that retires an alert always has a reason to publish with it.
+    assert dict(conventions_for("eccc").lifecycle_removal_reasons) == {
+        "ended": "ended",
+        "transitioned_out": "superseded",
+    }
+
+
+@pytest.mark.parametrize("provider", ["nws", "meteoalarm", "wmo"])
+def test_only_eccc_declares_lifecycle_vocabulary(provider):
+    # No other shipped source publishes a termination token, which is what
+    # keeps their removal payloads free of the key.
+    assert dict(conventions_for(provider).lifecycle_removal_reasons) == {}
 
 
 # ---------------------------------------------------------------------------
