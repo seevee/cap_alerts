@@ -866,11 +866,48 @@ These are documented for architecture planning; the provider protocol accommodat
 
 ### DWD — Deutscher Wetterdienst, Germany
 
-- **API**: `https://www.dwd.de/DWD/warnungen/warnapp/json/warnings.json` — JSONP (strip `warnWetter.loadWarnings(…);` wrapper).
-- Warnings keyed by warncell ID.
-- `level` 0–4 maps to severity: 4=Extreme, 3=Severe, 2=Moderate, 1=Minor, 0=None. Color hex as fallback.
-- No CAP urgency/certainty; event names are in German.
-- Config flow: warncell ID or region name.
+Supersedes an earlier sketch here that proposed the `warnapp/json/warnings.json`
+JSONP endpoint. That endpoint is a lossy view: DWD publishes real CAP, so the
+provider is a CAP consumer rather than a bespoke JSON mapping.
+
+- **Feed**: `https://opendata.dwd.de/weather/alerts/cap/` — CAP 1.2 XML, no auth.
+  The tree is *area granularity* (`COMMUNEUNION` / `DISTRICT`) × *product*
+  (`DWD` / `CELLS` / `EVENT`) × *mode* (`STAT` snapshot / `DIFF` increment).
+  `COMMUNEUNION_DWD_STAT` is the natural fit: a full current-state snapshot,
+  which is what `AlertStore`'s authoritative diffing already expects.
+- **Bodies**: one zip per language — `…_COMMUNEUNION_{DE,EN,ES,FR,MUL}.zip`,
+  each containing one CAP XML per alert. Language selection is a URL choice
+  here, not an `<info>` walk, so it sidesteps the multi-info work entirely.
+- **Identity**: `2.49.0.0.276.0.DWD.PVW.<epoch>.<uuid>.<LANG>` — a WMO-style OID,
+  stable across the update chain, with `<references>` populated. `sha256` of the
+  identifier plus `resolve_chain_leaves` applies unchanged.
+- **Geometry**: inline `<polygon>` in `<area>`, so `providers/cap.py` and
+  `geometry.py` handle it as-is. Geocode scheme is `WARNCELLID`.
+- Full CAP classification: `severity` Minor→Extreme, `urgency`, `certainty`,
+  `responseType`, and `eventCode` entries (`II`, `LICENSE`, `PROFILE_VERSION`).
+- Config flow: warncell ID or region name; language picks the archive.
+
+**Relationship to BBK / NINA (issue #66).** These are not alternative routes to
+the same alerts. BBK relays only the upper DWD warning levels — *"In der Warn-App
+NINA werden die DWD-Warnungen zu den Warnstufen 3 bis 5 dargestellt"* — so the
+yellow "Amtliche WARNUNG" band never reaches it. Measured 2026-08-07: three
+`severity: Minor` thunderstorm alerts live on the DWD CAP feed over
+Berchtesgadener Land, Traunstein and Rosenheim, live for 40+ minutes per their
+`<references>` chain, while `warnung.bund.de/api31/dwd/mapData.json` and all
+three district dashboards returned empty and the BBK API was otherwise healthy.
+Whether `Moderate` (orange) crosses the threshold is unmeasured — nothing orange
+was live at sampling time.
+
+The converse also holds: BBK carries MoWaS / KATWARN / BIWAPP / LHP
+civil-protection traffic that has no DWD equivalent and no other HA path.
+
+So Germany wants *both* feeds but **not** two config entries — that would mean
+two devices, two count sensors, and a duplicate entity for every warning above
+the NINA threshold. The intended shape is one German source with a channel
+selector: BBK's civil-protection channels plus a weather channel that is either
+`bbk-dwd` or `opendata-cap`. Dedupe is cheap because the identifiers share a
+core: BBK emits `dwd.<OID>.MUL` against opendata's `<OID>.ENG`, differing only in
+prefix and language suffix.
 
 ---
 
