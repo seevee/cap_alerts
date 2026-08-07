@@ -91,6 +91,8 @@ so read them as separate axes:
 | :-- | :-- | :-- |
 | `cancel` | `ended` | Stood down before its published expiry. |
 | `cancel` | `superseded` | Replaced before its published expiry. |
+| `cancel` | *(absent)* | Ended early with no stated reason — a silent disappearance, or a plain `msgType=Cancel`. |
+| `expired` | `ended` | Stood down, and the announcement was processed after its `expires` had already passed — poll latency, or a backfill after a streaming disconnect. |
 | `expired` | `superseded` | Replaced, and the replaced revision was issued at or past its own `expires` — the usual shape for ECCC `transitioned_out`, whose documents carry `expires ≈ sent`. |
 | `expired` | *(absent)* | Ran to its published expiry. |
 
