@@ -65,11 +65,18 @@ The rule now, in order:
 3. Otherwise the alert is **retained**, flagged `stale: true` with
    `last_confirmed` recording when it was last seen, and no event fires.
 
-Two things end retention early. An alert carrying no `expires` has nothing to
-bound it, so absence remains its only end-of-life signal and it is removed as
-before. And a change of *scope* — the tracker crosses a border, a zone is
-reconfigured, the marine filter is toggled — suspends retention for that cycle,
-because those alerts have gone out of scope rather than unobserved.
+Two things end retention early, and both are properties of the query or the
+source, never of a single message. A source can declare — in the integration's
+convention table — that withdrawing a record is genuinely how it announces an
+ending (`ABSENCE_ENDS`); for such a source absence terminates immediately. And
+a change of *scope* — the tracker crosses a border, a zone is reconfigured,
+the marine filter is toggled — suspends retention for that cycle, because
+those alerts have gone out of scope rather than unobserved.
+
+An alert carrying no `expires` goes the other way: nothing bounds its
+retention, so it stays, visibly `stale`, until an explicit terminal signal
+arrives or its source declares absence authoritative. A missing field on one
+message is not a statement about what withdrawal means for the source.
 
 For NWS specifically, the provider now fetches cancellations separately.
 Cancellations are published as VTEC `CAN` products but never appear on

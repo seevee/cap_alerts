@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 import types
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -97,20 +97,24 @@ def test_supersession_via_references_does_not_fire_removed(hass, alert_factory):
 
 def test_no_supersession_when_identifier_not_referenced(hass, alert_factory):
     """Silent disappearance without reference match fires incident_removed normally."""
+    from custom_components.cap_alerts import store as store_mod
+    from custom_components.cap_alerts.conventions import (
+        ABSENCE_ENDS,
+        SourceConventions,
+    )
     from custom_components.cap_alerts.normalize import normalize_alerts
     from custom_components.cap_alerts.store import AlertStore
 
     store = AlertStore(hass, "entry1", "eccc")
 
-    # Poll N: alert A. No expiry, so absence is the only end-of-life signal it
-    # can ever get and retention does not apply — see the absence-policy tests
-    # in test_store_payload.py. Keeps this test about supersession.
+    # Poll N: alert A. The source declares ABSENCE_ENDS below so this test
+    # stays about supersession rather than retention — see the absence-policy
+    # tests in test_store_payload.py.
     alert_a = alert_factory(
         id="K1",
         identifier="id-A",
         msg_type="Alert",
         provider="eccc",
-        expires="",
     )
     store.process(normalize_alerts([alert_a]))
     hass.bus.async_fire.reset_mock()
@@ -124,7 +128,12 @@ def test_no_supersession_when_identifier_not_referenced(hass, alert_factory):
         expires="2099-01-01T00:00:00+00:00",
         references=(),
     )
-    store.process(normalize_alerts([alert_b]))
+    with patch.object(
+        store_mod,
+        "conventions_for",
+        return_value=SourceConventions(absence_policy=ABSENCE_ENDS),
+    ):
+        store.process(normalize_alerts([alert_b]))
 
     fired = _fired(hass)
     event_types = [e for e, _ in fired]

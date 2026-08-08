@@ -154,3 +154,62 @@ async def test_cancellation_failure_does_not_fail_the_poll(monkeypatch):
 
     assert len(alerts) == 1
     assert alerts[0].msg_type == "Update"
+
+
+@pytest.mark.asyncio
+async def test_cancellation_survives_a_failed_lookup_cycle(monkeypatch):
+    """A failed lookup in the cycle the alert vanishes must not end discovery.
+
+    The alert leaves the active feed and the cancellation lookup fails in the
+    same cycle. The id stays eligible while the alert's expiry has not passed —
+    the same window the store retains it for — so the next successful lookup
+    still finds the CAN and terminates the alert, instead of holding it stale
+    to its published expiry.
+    """
+    provider = NWSProvider()
+    await _fetch(provider, _Pages(active=_collection(_feature())), monkeypatch)
+
+    alerts = await _fetch(
+        provider, _Pages(active=_collection(), cancel=None), monkeypatch
+    )
+    assert alerts == []
+
+    pages = _Pages(
+        active=_collection(),
+        cancel=_collection(_feature(msg_type="Cancel")),
+    )
+    alerts = await _fetch(provider, pages, monkeypatch)
+
+    assert len(pages.cancel_urls) == 1
+    assert len(alerts) == 1
+    assert alerts[0].msg_type == "Cancel"
+
+
+@pytest.mark.asyncio
+async def test_expired_id_leaves_the_eligible_set(monkeypatch):
+    """Eligibility ends with the expiry, exactly when the store terminates.
+
+    Once the alert's own expiry passes the store has already fired its
+    removal, so a late CAN discovered after that would fire a second,
+    unpaired ``incident_removed``. The id is pruned instead.
+    """
+    provider = NWSProvider()
+    expired = _feature()
+    expired["properties"]["expires"] = "2000-01-01T00:00:00+00:00"
+    await _fetch(provider, _Pages(active=_collection(expired)), monkeypatch)
+
+    # The alert vanishes; the lookup finds nothing. Its expiry is already past,
+    # so the id is dropped from the eligible set here.
+    await _fetch(
+        provider, _Pages(active=_collection(), cancel=_collection()), monkeypatch
+    )
+
+    # A CAN surfacing later is not looked up at all: nothing is eligible.
+    pages = _Pages(
+        active=_collection(),
+        cancel=_collection(_feature(msg_type="Cancel")),
+    )
+    alerts = await _fetch(provider, pages, monkeypatch)
+
+    assert alerts == []
+    assert pages.cancel_urls == []

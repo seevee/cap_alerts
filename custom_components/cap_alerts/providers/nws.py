@@ -32,6 +32,27 @@ MAX_PAGINATION_FOLLOWS = 5
 # and returned single digits over a six-hour national sample.
 CANCEL_LOOKBACK = timedelta(hours=6)
 
+
+def _still_cancellable(expires: str, now: datetime) -> bool:
+    """Whether an absent alert's cancellation is still worth discovering.
+
+    True while the alert's own ``expires`` is in the future — the window the
+    store retains an absent alert for, so eligibility and retention end
+    together. An empty or unparseable expiry returns False: the store's
+    absence handling owns that case, and keeping the id would let it
+    accumulate without bound.
+    """
+    if not expires:
+        return False
+    try:
+        expires_at = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return now < expires_at
+
+
 # The marine-prefix vocabulary itself lives in the convention table; re-bound
 # here so the parse site below reads in NWS terms.
 NWS_MARINE_UGC_PREFIXES = _NWS_MARINE_UGC_PREFIXES
@@ -193,11 +214,19 @@ class NWSProvider:
     """NWS GeoJSON API provider."""
 
     def __init__(self) -> None:
-        # Ids returned by the previous fetch. The coordinator holds one provider
-        # instance for the life of the config entry, so this survives between
-        # reconciliations and scopes the cancellation lookup to alerts this
-        # entry was actually tracking.
-        self._tracked_ids: set[str] = set()
+        # Ids eligible for cancellation discovery, mapped to their published
+        # ``expires``. The coordinator holds one provider instance for the life
+        # of the config entry, so this survives between reconciliations and
+        # scopes the cancellation lookup to alerts this entry was actually
+        # tracking. An id stays eligible after leaving the active set for as
+        # long as its expiry has not passed — the store retains the alert for
+        # exactly that window, so a lookup that fails in the cycle an alert
+        # vanishes can still discover its cancellation on a later cycle instead
+        # of forgetting the id and holding the alert to expiry. Dropping the id
+        # once its expiry passes mirrors the store, which has terminated the
+        # alert by then: emitting a late cancellation past that point would
+        # fire a second, unpaired ``incident_removed``.
+        self._tracked: dict[str, str] = {}
 
     @property
     def name(self) -> str:
@@ -238,7 +267,15 @@ class NWSProvider:
 
         active_ids = {a.id for a in alerts}
         cancellations = await self._fetch_cancellations(session, config, active_ids)
-        self._tracked_ids = active_ids
+        cancelled_ids = {c.id for c in cancellations}
+        now = datetime.now(timezone.utc)
+        tracked = {a.id: a.expires for a in alerts}
+        for alert_id, expires in self._tracked.items():
+            if alert_id in tracked or alert_id in cancelled_ids:
+                continue
+            if _still_cancellable(expires, now):
+                tracked[alert_id] = expires
+        self._tracked = tracked
         return alerts + cancellations
 
     async def _fetch_cancellations(
@@ -261,7 +298,8 @@ class NWSProvider:
         reason rather than an inference.
 
         Two filters keep this from manufacturing events. Cancellations are
-        emitted only for ids returned by the *previous* fetch, because a
+        emitted only for ids this provider previously returned that are still
+        within their published expiry (``_tracked``), because a
         terminal alert the store has never seen fires ``incident_removed`` with
         no matching creation — which is correct for a feed that can deliver an
         already-ended alert, and wrong here, where the window would otherwise
@@ -274,9 +312,10 @@ class NWSProvider:
         A failure here is not a poll failure. Losing the confirmation means an
         alert lingers to its expiry, which is the behavior without this fetch at
         all, so the error is swallowed rather than failing an otherwise good
-        update.
+        update. The id stays eligible (see ``_tracked``), so the next cycle's
+        lookup retries the discovery rather than forgetting the alert.
         """
-        previously_tracked = self._tracked_ids
+        previously_tracked = self._tracked
         if not previously_tracked:
             return []
         scope = self._build_scope(config)

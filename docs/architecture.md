@@ -961,13 +961,24 @@ When alert geometry is present, every alert entity exposes a 4-element `bbox: [m
 
 An alert missing from a reconciliation is **retained**, not removed, while it is
 still within its published `expires`. `store._retain_on_absence` decides this
-from the source's `SourceConventions.absence_policy`; retained alerts carry
-`stale=True` and `last_confirmed`, and fire no event. Absence still terminates
-when the alert publishes no `expires` (nothing bounds retention), when the
-source declares `ABSENCE_ENDS`, when the query scope changed (`scope_changed`,
-computed by the coordinator from the resolved config and options), or when the
-alert was superseded by a document the region filter dropped before it reached
-the store (`superseded_identifiers`, supplied from `_live_docs`).
+from the source's `SourceConventions.absence_policy`, resolved per sender so a
+dialect entry can carry its own policy; retained alerts carry `stale=True` and
+`last_confirmed`, and fire no event. Absence still terminates when the source
+declares `ABSENCE_ENDS` (the only case where absence itself is authoritative,
+and a property of the source's contract rather than of any message), when the
+query scope changed (`scope_changed`, computed by the coordinator from the
+resolved config and options), or when the alert was superseded by a document
+the region filter dropped before it reached the store
+(`superseded_identifiers`, supplied from `_live_docs`). An alert that publishes
+no `expires` is retained indefinitely — visibly stale — until an explicit
+terminal signal arrives: a missing field bounds nothing, but it also declares
+nothing.
+
+One known limitation: a MeteoFrance warning lifted early via a green marker is
+retained stale until its day-end expiry, because the marker is dropped by the
+`keep` hook before the store can read it as a signal — see
+`meteofrance_is_live_warning` in `conventions.py` for why it cannot be
+forwarded as a terminal record.
 
 NWS gets an explicit termination signal instead of relying on that fallback:
 `NWSProvider._fetch_cancellations` queries `?message_type=cancel` on the
@@ -976,7 +987,12 @@ Cancellations are never published to `/alerts/active` — 101 of 101 in a measur
 six-hour national window were absent from it — so without this a cancelled alert
 would be indistinguishable from a dropped one and would linger to its expiry.
 VTEC identity ignores the action code, so a `CAN` product lands on the same
-alert id as the warning it ends.
+alert id as the warning it ends. An id stays eligible for this lookup until its
+own expiry passes, so a lookup that fails in the cycle an alert vanishes retries
+on later cycles rather than forgetting the alert. Zone scoping is verified
+against the live API; **point scoping is not** — if `point=` turns out not to
+compose with `message_type=cancel`, GPS-mode entries silently fall back to
+expiry-bounded retention, which is safe but lingers.
 
 ### Geometry externalization (§2.4)
 

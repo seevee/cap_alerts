@@ -120,18 +120,27 @@ def test_headline_change_shows_headline_in_changed_fields(hass, alert_factory):
 
 
 def test_removed_alert_fires_removed_event(hass, alert_factory):
+    from custom_components.cap_alerts import store as store_mod
+    from custom_components.cap_alerts.conventions import (
+        ABSENCE_ENDS,
+        SourceConventions,
+    )
     from custom_components.cap_alerts.normalize import normalize_alerts
     from custom_components.cap_alerts.store import AlertStore
 
     store = AlertStore(hass, "entry1", "nws")
-    store.process(
-        normalize_alerts([alert_factory(id="a", msg_type="Alert", expires="")])
-    )
+    store.process(normalize_alerts([alert_factory(id="a", msg_type="Alert")]))
     hass.bus.async_fire.reset_mock()
 
-    # An alert with no expiry has nothing to bound retention with, so its
-    # absence is the only end-of-life signal the source will ever give.
-    store.process([])
+    # This test is about removal *mechanics*, not absence policy, so the
+    # source declares ABSENCE_ENDS — the one convention under which absence
+    # itself terminates. The policy is exercised by the absence tests below.
+    with patch.object(
+        store_mod,
+        "conventions_for",
+        return_value=SourceConventions(absence_policy=ABSENCE_ENDS),
+    ):
+        store.process([])
 
     fired = _fired(hass)
     assert len(fired) == 1
@@ -295,6 +304,36 @@ def test_absence_terminates_once_expires_has_passed(hass, alert_factory):
     assert payload["phase"] == "expired"
 
 
+def test_absence_without_expiry_is_retained_not_terminated(hass, alert_factory):
+    """A missing ``expires`` is not a declaration that absence ends the alert.
+
+    Only a source-level ABSENCE_ENDS makes absence authoritative; a field
+    omitted from one message says there is no time-based bound, nothing more.
+    The alert is retained, visibly stale, until an explicit terminal signal —
+    which, when it arrives, still terminates it.
+    """
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "nws")
+    store.process(
+        normalize_alerts([alert_factory(id="a", msg_type="Alert", expires="")])
+    )
+    hass.bus.async_fire.reset_mock()
+
+    result = store.process([])
+
+    assert _fired(hass) == []
+    assert [a.id for a in result] == ["a"]
+    assert result[0].stale is True
+
+    # The explicit signal is still honored: a Cancel ends the retained alert.
+    store.process(
+        normalize_alerts([alert_factory(id="a", msg_type="Cancel", expires="")])
+    )
+    assert [e for e, _ in _fired(hass)] == ["incident_removed"]
+
+
 def test_absence_ends_policy_terminates_immediately(hass, alert_factory):
     """A source declaring ABSENCE_ENDS opts out of retention."""
     from custom_components.cap_alerts import store as store_mod
@@ -322,6 +361,35 @@ def test_absence_ends_policy_terminates_immediately(hass, alert_factory):
 
     assert result == []
     assert [e for e, _ in _fired(hass)] == ["incident_removed"]
+
+
+def test_absence_ends_policy_terminates_without_expiry(hass, alert_factory):
+    """The convention, not the missing field, is what makes absence count."""
+    from custom_components.cap_alerts import store as store_mod
+    from custom_components.cap_alerts.conventions import (
+        ABSENCE_ENDS,
+        SourceConventions,
+    )
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "nws")
+    store.process(
+        normalize_alerts([alert_factory(id="a", msg_type="Alert", expires="")])
+    )
+    hass.bus.async_fire.reset_mock()
+
+    with patch.object(
+        store_mod,
+        "conventions_for",
+        return_value=SourceConventions(absence_policy=ABSENCE_ENDS),
+    ):
+        result = store.process([])
+
+    assert result == []
+    fired = _fired(hass)
+    assert [e for e, _ in fired] == ["incident_removed"]
+    assert fired[0][1]["phase"] == "cancel"
 
 
 def test_scope_change_suspends_retention(hass, alert_factory):
@@ -430,19 +498,36 @@ def test_plain_cancel_has_no_removal_reason(hass, alert_factory):
 
 
 def test_silent_disappearance_has_no_removal_reason(hass, alert_factory):
-    """The provider dropped the record without saying why."""
+    """The provider dropped the record without saying why.
+
+    The source here has a lifecycle vocabulary *and* declares absence
+    authoritative, yet the silent removal still carries no reason: a reason
+    requires a published token, not an inference.
+    """
+    from custom_components.cap_alerts import store as store_mod
+    from custom_components.cap_alerts.conventions import (
+        ABSENCE_ENDS,
+        ECCC_LIFECYCLE_REMOVAL_REASONS,
+        SourceConventions,
+    )
     from custom_components.cap_alerts.normalize import normalize_alerts
     from custom_components.cap_alerts.store import AlertStore
 
     store = AlertStore(hass, "entry1", "eccc")
     store.process(
-        normalize_alerts(
-            [_eccc(alert_factory, id="a", lifecycle_status="active", expires="")]
-        )
+        normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="active")])
     )
     hass.bus.async_fire.reset_mock()
 
-    store.process([])
+    with patch.object(
+        store_mod,
+        "conventions_for",
+        return_value=SourceConventions(
+            absence_policy=ABSENCE_ENDS,
+            lifecycle_removal_reasons=ECCC_LIFECYCLE_REMOVAL_REASONS,
+        ),
+    ):
+        store.process([])
 
     _, payload = _fired(hass)[0]
     assert payload["phase"] == "cancel"

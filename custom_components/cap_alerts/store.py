@@ -188,7 +188,7 @@ class AlertStore:
             # incident_updated was already fired for the superseding alert.
             if prev.identifier and prev.identifier in referenced_identifiers:
                 continue
-            if not scope_changed and _retain_on_absence(prev, now, self._provider):
+            if not scope_changed and _retain_on_absence(prev, now):
                 retained = replace(
                     prev,
                     stale=True,
@@ -296,7 +296,7 @@ def _diff_fields(prev: CAPAlert, curr: CAPAlert) -> list[str]:
     ]
 
 
-def _retain_on_absence(alert: CAPAlert, now: datetime, provider: str) -> bool:
+def _retain_on_absence(alert: CAPAlert, now: datetime) -> bool:
     """Whether an alert missing from this reconciliation should be kept.
 
     Absence is an observation, not an announcement. Two sanctioned endpoints of
@@ -313,17 +313,25 @@ def _retain_on_absence(alert: CAPAlert, now: datetime, provider: str) -> bool:
     set comes back unrecognized — the history fragmentation of RFC §1.2,
     self-inflicted. The second is worse, so absence alone does not terminate.
 
-    Retention is bounded by the alert's own ``expires``: a source that supplies
-    no expiry has nothing to age the alert out with, so absence remains its only
-    termination signal and the alert is terminated as before. That, and a source
-    declaring ``ABSENCE_ENDS`` because withdrawing a record is genuinely how it
-    announces the end, are the two ways this returns False with time left.
+    The one thing that makes absence itself authoritative is the source's
+    declared convention: ``ABSENCE_ENDS`` says withdrawing a record is
+    genuinely how this source announces the end. It is a property of the
+    source's contract, not of any one message — which is why an alert that
+    merely *omits* ``expires`` is retained rather than terminated: a missing
+    field says there is no time-based bound, not that absence means anything.
+    Such an alert is retained until an explicit terminal signal arrives, and
+    stays visibly ``stale`` the whole time.
+
+    Resolved per sender, not per provider, because sender-scoped convention
+    entries *replace* the provider's (see ``conventions_for``) and a dialect
+    must be able to carry its own absence policy.
     """
-    if conventions_for(provider).absence_policy != ABSENCE_RETAIN:
+    conventions = conventions_for(alert.provider, alert.sender)
+    if conventions.absence_policy != ABSENCE_RETAIN:
         return False
     expires_at = _parse_iso(alert.expires)
     if expires_at is None:
-        return False
+        return True
     return now < expires_at
 
 
