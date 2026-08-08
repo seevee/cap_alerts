@@ -67,6 +67,7 @@ custom_components/cap_alerts/
     naad_stream.py        # NAAD TLS streaming transport: frame reassembly, heartbeats, watchdog, reconnect/backoff — no alert semantics
     meteoalarm.py         # MeteoAlarm (EUMETNET) per-country CAP JSON
     wmo.py                # WMO SWIC per-source RSS → CAP XML; per-language <info> selection
+    gdacs.py              # GDACS global RSS index → per-event CAP XML; RSS-stage filters, eventid-based identity
   manifest.json
   translations/
 ```

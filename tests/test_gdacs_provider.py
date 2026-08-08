@@ -179,6 +179,24 @@ def test_parse_rss_entries_unknown_level_fails_open():
     assert _EQ_GREEN in _parse_rss_entries(feed)
 
 
+def test_parse_rss_entries_unknown_level_survives_a_raised_floor():
+    """Unrankable is not lowest: a label plausibly *above* Red must not be
+    dropped for exactly the users who raised the floor to keep the severe end."""
+    feed = _fixture("gdacs_rss.xml").replace(
+        "<gdacs:alertlevel>Green</gdacs:alertlevel>",
+        "<gdacs:alertlevel>Chartreuse</gdacs:alertlevel>",
+        1,
+    )
+    assert _parse_rss_entries(feed, min_level="Red") == [_EQ_GREEN, _EQ_RED]
+
+
+def test_parse_rss_entries_unknown_floor_means_no_floor():
+    """Defensive: the options flow only offers known levels, but a floor the
+    parser cannot rank must widen the filter, not empty it."""
+    entries = _parse_rss_entries(_fixture("gdacs_rss.xml"), min_level="Chartreuse")
+    assert len(entries) == 4
+
+
 def test_parse_rss_entries_combined_filters():
     entries = _parse_rss_entries(
         _fixture("gdacs_rss.xml"), event_types=["EQ", "TC"], min_level="Orange"

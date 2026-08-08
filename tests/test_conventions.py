@@ -155,6 +155,28 @@ def test_is_marine_code_empty_prefixes_is_always_false():
     assert is_marine_code(("ANZ450", "004310"), conv) is False
 
 
+# ---------------------------------------------------------------------------
+# Geocode publication
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("provider", ["nws", "eccc", "meteoalarm", "wmo"])
+def test_geocode_publishing_providers(provider):
+    assert conventions_for(provider).publishes_geocodes is True
+
+
+def test_gdacs_never_publishes_geocodes():
+    # Declared absence: no GDACS CAP body carries a <geocode>, so the
+    # area-code narrowing option is withheld from its options flow.
+    assert conventions_for("gdacs").publishes_geocodes is False
+
+
+def test_unknown_provider_defaults_to_publishing_geocodes():
+    # The default is positive — geocodes are the CAP norm — so a future
+    # provider keeps the option unless its conventions opt out.
+    assert conventions_for("does-not-exist").publishes_geocodes is True
+
+
 def test_is_marine_code_matches_nws_two_char_block():
     conv = conventions_for("nws")
     assert is_marine_code(("ANZ450",), conv) is True
@@ -262,9 +284,12 @@ def test_every_retaining_source_has_a_way_out():
         and not conv.discovers_terminations
     }
     # These fall back to absence-terminates for expiry-less alerts, by design.
+    # For GDACS that fallback *is* the lifecycle: no CAP body carries an
+    # <expires>, so withdrawal from the 24-hour index is what ends an event.
     assert without_exit == {
         "meteoalarm",
         "wmo",
+        "gdacs",
         f"meteoalarm/{METEOFRANCE_SENDER}",
         f"meteoalarm/{FMI_SENDER}",
     }

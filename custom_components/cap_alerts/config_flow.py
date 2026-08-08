@@ -1521,6 +1521,17 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                     data[CONF_GEOCODE_PREFIXES] = prefixes
                 else:
                     data.pop(CONF_GEOCODE_PREFIXES, None)
+                # The GDACS multiselect materializes its all-types default into
+                # user_input on save, and a stored list is a closed set — a
+                # hazard code GDACS adds later would be silently dropped by an
+                # entry that never chose to narrow. All types selected (or
+                # none) means "no narrowing", and no narrowing is spelled
+                # "absent", same as the prefixes above.
+                event_types = data.get(CONF_GDACS_EVENT_TYPES)
+                if event_types is not None and (
+                    not event_types or set(event_types) == set(GDACS_EVENT_TYPES)
+                ):
+                    data.pop(CONF_GDACS_EVENT_TYPES)
                 return self.async_create_entry(title="", data=data)
 
         provider = self.config_entry.data.get(CONF_PROVIDER)
@@ -1605,17 +1616,21 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                 )
             ] = bool
 
-        # Area-code narrowing is provider-neutral: every provider populates
-        # CAPAlert.geocodes, so this is offered for all of them. Re-rendered
-        # from the rejected input rather than the stored value, so a typo is
-        # shown back to the user to correct instead of silently reverting.
-        stored_prefixes = self.config_entry.options.get(CONF_GEOCODE_PREFIXES) or []
-        prefix_default = (
-            str(user_input.get(CONF_GEOCODE_PREFIXES, "") or "")
-            if user_input is not None
-            else ",".join(stored_prefixes)
-        )
-        schema[vol.Optional(CONF_GEOCODE_PREFIXES, default=prefix_default)] = str
+        # Area-code narrowing composes with every location mode, but only on
+        # sources that publish geocodes at all — GDACS never does, so there the
+        # field's only possible effect is a permanently unavailable entry.
+        # Asked of the convention table, like the marine toggle above. The
+        # field re-renders from the rejected input rather than the stored
+        # value, so a typo is shown back to the user to correct instead of
+        # silently reverting.
+        if conventions_for(provider or "").publishes_geocodes:
+            stored_prefixes = self.config_entry.options.get(CONF_GEOCODE_PREFIXES) or []
+            prefix_default = (
+                str(user_input.get(CONF_GEOCODE_PREFIXES, "") or "")
+                if user_input is not None
+                else ",".join(stored_prefixes)
+            )
+            schema[vol.Optional(CONF_GEOCODE_PREFIXES, default=prefix_default)] = str
 
         return self.async_show_form(
             step_id="init",

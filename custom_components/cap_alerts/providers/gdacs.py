@@ -73,18 +73,21 @@ def _item_text(item: Any, name: str) -> str:
     return ""
 
 
-def _alert_level_rank(level: str) -> int:
+def _alert_level_rank(level: str) -> int | None:
     """Rank a GDACS alert level on the ascending Green/Orange/Red scale.
 
-    A level outside the scale ranks lowest rather than being dropped: an
-    unrecognised value is far more likely to mean GDACS added a label than
-    that the event is unimportant, and the threshold defaults to Green
-    anyway, so failing open keeps it visible.
+    ``None`` for a value outside the scale — unrankable, not lowest. An
+    unrecognised label is far more likely to mean GDACS extended the scale
+    than that the event is unimportant, and ranking it lowest would only fail
+    open at the default floor: under a raised floor it would silently drop a
+    label plausibly *above* Red for exactly the users who asked to keep the
+    severe end. The caller decides what unrankable means on each side of the
+    comparison.
     """
     try:
         return GDACS_ALERT_LEVELS.index(level.strip().capitalize())
     except ValueError:
-        return 0
+        return None
 
 
 def _parse_rss_entries(
@@ -98,14 +101,17 @@ def _parse_rss_entries(
     ``event_types`` of ``None`` (or empty) means no event-type narrowing at
     all, so a hazard code GDACS adds later still arrives; a non-empty
     selection keeps only those codes. ``min_level`` is the alert-level floor,
-    empty meaning no floor.
+    empty meaning no floor. Unrankable levels fail open on both sides of that
+    comparison: an item whose level is outside the known scale passes any
+    floor (a label GDACS adds later must not vanish for exactly the users who
+    raised the floor), and a floor outside the scale is no floor at all.
 
     Items missing either identity field are skipped — without both, neither
     the CAP URL nor the alert id can be built. Raises ``ET.ParseError`` on
     malformed XML; the caller converts that to ``UpdateFailed``.
     """
     wanted = {code.strip().upper() for code in event_types or () if code.strip()}
-    floor = _alert_level_rank(min_level) if min_level else 0
+    floor = (_alert_level_rank(min_level) or 0) if min_level else 0
     root = ET.fromstring(xml_text)
     entries: list[tuple[str, str]] = []
     for item in root.iter("item"):
@@ -115,7 +121,8 @@ def _parse_rss_entries(
             continue
         if wanted and event_type not in wanted:
             continue
-        if _alert_level_rank(_item_text(item, "alertlevel")) < floor:
+        rank = _alert_level_rank(_item_text(item, "alertlevel"))
+        if rank is not None and rank < floor:
             continue
         entries.append((event_type, event_id))
     return entries

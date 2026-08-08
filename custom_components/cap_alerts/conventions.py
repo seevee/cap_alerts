@@ -1065,6 +1065,14 @@ class SourceConventions:
     # stale until its source re-publishes or a human removes the entry — an
     # accepted trade against silently clearing a live hazard.
     absence_policy: str = ABSENCE_RETAIN
+    # False for a source that never publishes CAP ``<geocode>`` at all, which
+    # is what the options flow asks before offering the area-code narrowing
+    # field — on such a source the coordinator's geocode filter can only ever
+    # trip its fail-loud path and leave the entry permanently unavailable.
+    # Unlike the other fields the default here is positive, because geocodes
+    # are the CAP norm rather than a per-source signal: every shipped source
+    # except GDACS publishes them, so the flag marks the exception.
+    publishes_geocodes: bool = True
     # True when the provider actively fetches terminations the active feed
     # omits, rather than waiting for one to arrive. NWS is the case: it
     # publishes cancellations as VTEC ``CAN`` products but never on
@@ -1133,6 +1141,12 @@ CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
             stages=episode_stages(FMI_EPISODES),
         ),
         "wmo": SourceConventions(),
+        # No GDACS CAP body carries a <geocode> (identity travels in
+        # <parameter> entries instead), so the area-code narrowing option is
+        # withheld. Everything else is deliberately default — in particular no
+        # absence policy: GDACS alerts have no <expires> and no terminal
+        # vocabulary, so withdrawal from the 24-hour index is what ends them.
+        "gdacs": SourceConventions(publishes_geocodes=False),
     }
 )
 

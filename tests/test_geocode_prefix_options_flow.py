@@ -81,7 +81,12 @@ def _entry(hass, provider: str, **data) -> MockConfigEntry:
 async def test_every_provider_is_offered_the_field(
     hass, enable_custom_integrations, provider: str, data: dict
 ):
-    """Provider-neutral by design — every provider populates ``geocodes``."""
+    """Offered wherever it can work — these four all populate ``geocodes``.
+
+    GDACS is the one exception and is covered in ``test_gdacs_options_flow``:
+    it publishes no ``<geocode>`` at all, so its conventions entry withholds
+    the field rather than letting it render an entry unavailable.
+    """
     entry = _entry(hass, provider, **data)
     result = await hass.config_entries.options.async_init(entry.entry_id)
     key = next(
