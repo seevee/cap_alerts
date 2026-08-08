@@ -50,6 +50,7 @@ from ..model import CAPAlert, geocodes_from
 from .cap import CAPDoc, CAPInfoDoc, parse_cap_alert, resolve_chain_leaves
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_shapes, points_from_circles
+from .gps import alert_polygons, parse_gps, point_in_polygon
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -219,54 +220,6 @@ def _build_alert(doc: CAPDoc, info: CAPInfoDoc, url: str, alert_id: str) -> CAPA
 
 
 # ---------------------------------------------------------------------------
-# GPS polygon filtering
-# ---------------------------------------------------------------------------
-
-
-def _parse_gps(value: str) -> tuple[float, float] | None:
-    """Extract ``(lat, lon)`` from a ``"lat,lon"`` config string."""
-    if not value:
-        return None
-    try:
-        parts = value.split(",")
-        return float(parts[0].strip()), float(parts[1].strip())
-    except (ValueError, IndexError):
-        return None
-
-
-def _point_in_polygon(lat: float, lon: float, polygon: list[list[float]]) -> bool:
-    """Ray-casting point-in-polygon test. Polygon is ``[[lon, lat], ...]``."""
-    n = len(polygon)
-    inside = False
-    j = n - 1
-    for i in range(n):
-        xi, yi = polygon[i][0], polygon[i][1]  # lon, lat
-        xj, yj = polygon[j][0], polygon[j][1]
-        if ((yi > lat) != (yj > lat)) and (
-            lon < (xj - xi) * (lat - yi) / (yj - yi) + xi
-        ):
-            inside = not inside
-        j = i
-    return inside
-
-
-def _alert_polygons(alert: CAPAlert) -> list[list[list[float]]]:
-    """Extract the polygon rings stored on a CAPAlert geometry."""
-    geom = alert.geometry
-    if not geom:
-        return []
-    gtype = geom.get("type")
-    coords = geom.get("coordinates")
-    if not coords:
-        return []
-    if gtype == "Polygon":
-        return [coords[0]] if coords else []
-    if gtype == "MultiPolygon":
-        return [poly[0] for poly in coords if poly]
-    return []
-
-
-# ---------------------------------------------------------------------------
 # Provider
 # ---------------------------------------------------------------------------
 
@@ -388,14 +341,14 @@ class GDACSProvider:
                 f"GDACS: GPS filter requested but {len(alerts)} alerts carry no "
                 "polygons; this feed did not publish per-alert geometry"
             )
-        gps = _parse_gps(gps_loc)
+        gps = parse_gps(gps_loc)
         if gps is None:
             raise UpdateFailed(f"GDACS: invalid GPS coordinates {gps_loc!r}")
         lat, lon = gps
         kept: list[CAPAlert] = []
         for alert in alerts:
-            for ring in _alert_polygons(alert):
-                if _point_in_polygon(lat, lon, ring):
+            for ring in alert_polygons(alert):
+                if point_in_polygon(lat, lon, ring):
                     kept.append(alert)
                     break
         return kept

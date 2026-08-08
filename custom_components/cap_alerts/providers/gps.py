@@ -2,13 +2,14 @@
 
 One home for the pieces a provider's GPS location mode needs: parsing the
 ``"lat,lon"`` config string, the ray-cast point-in-polygon test, and reading
-polygon rings back off a built ``CAPAlert`` geometry. WMO and MeteoAlarm use
-all three; ECCC tests raw CAP rings before any geometry is built, so it takes
-only the ray-cast and keeps its own config parsing.
+polygon rings back off a built ``CAPAlert`` geometry. WMO, MeteoAlarm and
+GDACS use all three; ECCC tests raw CAP rings before any geometry is built,
+so it takes only the ray-cast and keeps its own config parsing.
 
-These were four byte-identical copies of the ray-cast across the provider
-modules — a bug fix in it had four homes, and each new provider with a GPS
-mode added a fifth.
+The ray-cast had been copied into every provider that needed it — three of
+them before this module existed, identical in what they computed and drifting
+only in their comments — so a fix to the algorithm had three places to land,
+and each new provider with a GPS mode added another.
 """
 
 from __future__ import annotations
