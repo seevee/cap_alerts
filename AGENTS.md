@@ -61,6 +61,7 @@ custom_components/cap_alerts/
     cap.py                # shared, provider-neutral CAP 1.2 XML parsing (CAPDoc/CAPInfoDoc, parse_cap_alert, resolve_chain_leaves)
     cap_content_cache.py  # LRU cache for fetched CAP XML bodies (shared: eccc + wmo)
     geometry.py           # shared CAP shapes → GeoJSON; polygon/point selection, zero-radius circles
+    gps.py                # shared GPS-mode helpers: lat,lon parsing, ray-cast point-in-polygon, rings off a CAPAlert geometry
     nws.py                # NWS GeoJSON API — zone/GPS/tracker
     eccc.py               # Environment Canada NAAD Atom feed (GeoRSS host union + CAP bodies)
     naad_stream.py        # NAAD TLS streaming transport: frame reassembly, heartbeats, watchdog, reconnect/backoff — no alert semantics
