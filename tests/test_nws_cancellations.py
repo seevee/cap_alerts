@@ -21,7 +21,11 @@ NWSProvider = _nws_mod.NWSProvider
 CONFIG = {"zone_id": "OHC025"}
 
 
-def _feature(tracking: str = "0042", msg_type: str = "Alert") -> dict[str, Any]:
+def _feature(
+    tracking: str = "0042",
+    msg_type: str = "Alert",
+    expires: str = "2099-01-01T00:00:00+00:00",
+) -> dict[str, Any]:
     """A VTEC-bearing feature. Identity keys on the VTEC event tuple, not the
     action, so a cancellation lands on the same alert id as the warning it ends.
     """
@@ -32,7 +36,7 @@ def _feature(tracking: str = "0042", msg_type: str = "Alert") -> dict[str, Any]:
             "event": "Severe Thunderstorm Warning",
             "messageType": msg_type,
             "severity": "Severe",
-            "expires": "2099-01-01T00:00:00+00:00",
+            "expires": expires,
             "parameters": {
                 "VTEC": [f"/O.{action}.KOKX.SV.W.{tracking}.260414T1947Z-260414T2045Z/"]
             },
@@ -213,3 +217,66 @@ async def test_expired_id_leaves_the_eligible_set(monkeypatch):
 
     assert alerts == []
     assert pages.cancel_urls == []
+
+
+@pytest.mark.asyncio
+async def test_expiry_less_id_stays_eligible(monkeypatch):
+    """An alert with no expiry keeps its id eligible, mirroring the store.
+
+    ``store._retain_on_absence`` retains such an alert until an explicit
+    terminal signal arrives, and for NWS that signal is a VTEC ``CAN`` this
+    lookup is the only way to see. Ageing the id out on a missing field would
+    pin the alert live permanently while disabling the one thing that could
+    end it.
+    """
+    provider = NWSProvider()
+    await _fetch(
+        provider,
+        _Pages(active=_collection(_feature(expires=""))),
+        monkeypatch,
+    )
+
+    # Vanishes with nothing to age it out, and no cancellation yet.
+    await _fetch(
+        provider,
+        _Pages(active=_collection(), cancel=_collection()),
+        monkeypatch,
+    )
+
+    # Several quiet cycles later the cancellation finally surfaces.
+    for _ in range(3):
+        await _fetch(
+            provider,
+            _Pages(active=_collection(), cancel=_collection()),
+            monkeypatch,
+        )
+
+    pages = _Pages(
+        active=_collection(),
+        cancel=_collection(_feature(msg_type="Cancel", expires="")),
+    )
+    alerts = await _fetch(provider, pages, monkeypatch)
+
+    assert len(pages.cancel_urls) == 1
+    assert len(alerts) == 1
+    assert alerts[0].msg_type == "Cancel"
+
+
+@pytest.mark.asyncio
+async def test_eligible_set_is_bounded(monkeypatch):
+    """Ids with no expiry never age out, so the carried-over set is capped."""
+    provider = NWSProvider()
+    cap = _nws_mod._MAX_CANCELLABLE_IDS
+
+    # More expiry-less alerts than the cap, all of which then vanish.
+    seeded = _collection(
+        *(_feature(tracking=f"{i:04d}", expires="") for i in range(cap + 20))
+    )
+    await _fetch(provider, _Pages(active=seeded), monkeypatch)
+    await _fetch(
+        provider,
+        _Pages(active=_collection(), cancel=_collection()),
+        monkeypatch,
+    )
+
+    assert len(provider._tracked) == cap

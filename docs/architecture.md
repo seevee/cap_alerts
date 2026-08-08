@@ -987,9 +987,16 @@ Cancellations are never published to `/alerts/active` — 101 of 101 in a measur
 six-hour national window were absent from it — so without this a cancelled alert
 would be indistinguishable from a dropped one and would linger to its expiry.
 VTEC identity ignores the action code, so a `CAN` product lands on the same
-alert id as the warning it ends. An id stays eligible for this lookup until its
-own expiry passes, so a lookup that fails in the cycle an alert vanishes retries
-on later cycles rather than forgetting the alert. Zone scoping is verified
+alert id as the warning it ends. An id stays eligible for this lookup for
+exactly as long as `store._retain_on_absence` would keep the alert — until its
+own expiry passes, or indefinitely when it published none — so a lookup that
+fails in the cycle an alert vanishes retries on later cycles rather than
+forgetting the alert. The two windows have to match: an expiry-less alert is
+retained until an explicit terminal signal, and this lookup is the only way NWS
+ever supplies one, so ageing its id out would pin the alert live permanently
+while disabling the one mechanism that could end it. Ids kept on that branch
+have no timestamp to age them out, so `_MAX_CANCELLABLE_IDS` bounds the set.
+Zone scoping is verified
 against the live API; **point scoping is not** — if `point=` turns out not to
 compose with `message_type=cancel`, GPS-mode entries silently fall back to
 expiry-bounded retention, which is safe but lingers.

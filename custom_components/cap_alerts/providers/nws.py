@@ -32,22 +32,37 @@ MAX_PAGINATION_FOLLOWS = 5
 # and returned single digits over a six-hour national sample.
 CANCEL_LOOKBACK = timedelta(hours=6)
 
+# Ceiling on absent alerts still eligible for cancellation discovery. Ids whose
+# alert published an expiry age out on their own; one that published none never
+# does, so without a cap a source omitting ``expires`` could grow this set for
+# the life of the config entry. A zone tracks single-digit concurrent alerts, so
+# this is far above any real working set and exists only to bound the pathology.
+_MAX_CANCELLABLE_IDS = 256
+
 
 def _still_cancellable(expires: str, now: datetime) -> bool:
     """Whether an absent alert's cancellation is still worth discovering.
 
-    True while the alert's own ``expires`` is in the future — the window the
-    store retains an absent alert for, so eligibility and retention end
-    together. An empty or unparseable expiry returns False: the store's
-    absence handling owns that case, and keeping the id would let it
-    accumulate without bound.
+    Mirrors ``store._retain_on_absence`` deliberately: eligibility must last
+    exactly as long as the store keeps the alert, or the two halves of the
+    contract disagree about the same alert. An alert with no parseable
+    ``expires`` is retained until an explicit terminal signal arrives, and for
+    NWS that signal is a VTEC ``CAN`` product this lookup is the only way to
+    see. Dropping such an id would therefore pin the alert live permanently
+    while switching off the one mechanism that could ever end it — the worst
+    of both policies, and the reason this returns True rather than False for
+    an empty or unparseable expiry.
+
+    The store owns the retention decision; this only decides whether to keep
+    asking. ``_MAX_CANCELLABLE_IDS`` bounds the resulting set, since ids kept
+    on this branch have no timestamp to age them out.
     """
     if not expires:
-        return False
+        return True
     try:
         expires_at = datetime.fromisoformat(expires.replace("Z", "+00:00"))
     except ValueError:
-        return False
+        return True
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     return now < expires_at
@@ -270,11 +285,18 @@ class NWSProvider:
         cancelled_ids = {c.id for c in cancellations}
         now = datetime.now(timezone.utc)
         tracked = {a.id: a.expires for a in alerts}
-        for alert_id, expires in self._tracked.items():
+        # Carry over absent-but-still-cancellable ids, newest first, so the cap
+        # sheds the ones that have gone longest without a cancellation.
+        carried = 0
+        for alert_id, expires in reversed(self._tracked.items()):
             if alert_id in tracked or alert_id in cancelled_ids:
                 continue
-            if _still_cancellable(expires, now):
-                tracked[alert_id] = expires
+            if not _still_cancellable(expires, now):
+                continue
+            if carried >= _MAX_CANCELLABLE_IDS:
+                break
+            tracked[alert_id] = expires
+            carried += 1
         self._tracked = tracked
         return alerts + cancellations
 
