@@ -486,6 +486,18 @@ def meteofrance_is_live_warning(alert: CAPAlert) -> bool:
     Fails open — an absent or unparseable window keeps the warning, so a feed
     format change can never silently drop real alerts. The table gates this on
     the sender; the shape is unverified for other authorities.
+
+    Known interplay with absence retention: a green marker is also how
+    MeteoFrance announces a warning lifted early, and dropping it here means
+    that announcement never reaches the alert store — the lifted warning goes
+    absent and is retained ``stale`` until its published expiry (end of the
+    forecast day) instead of clearing on the next poll. Accepted deliberately:
+    the marker cannot be forwarded as a terminal record, because the
+    zero-length shape routinely coexists with a *live* bulletin of the same
+    episode (a green day alongside a warned day), so treating any marker as
+    termination would end running warnings — the displacement bug of issue #37
+    in terminal form. Distinguishing "green for a day that currently has a
+    live warning" needs run-aware state this per-alert hook does not have.
     """
     onset = _parse_ts(alert.onset)
     expires = _parse_ts(alert.expires)
@@ -990,6 +1002,11 @@ NWS_REISSUE_STAGES: tuple[PipelineStage, ...] = (
 # ``geocodes``).
 _NO_REMOVAL_REASONS: Mapping[str, str] = MappingProxyType({})
 
+# Values for ``SourceConventions.absence_policy``. See the field for why
+# retaining is the default.
+ABSENCE_RETAIN = "retain"
+ABSENCE_ENDS = "ends"
+
 
 @dataclass(frozen=True, slots=True)
 class SourceConventions:
@@ -1020,6 +1037,34 @@ class SourceConventions:
     keep: Callable[[CAPAlert], bool] | None = None
     # List-shaped stages, each bound to a named slot in the provider's fetch.
     stages: tuple[PipelineStage, ...] = ()
+    # What an alert's absence from a reconciliation means for this source.
+    # ``ABSENCE_RETAIN`` (the default) says absence is an observation failure
+    # until proven otherwise: the store keeps the alert, marks it stale, and
+    # waits for its ``expires`` or an explicit terminal signal. ``ABSENCE_ENDS``
+    # says the feed publishes only live records and withdrawing one is how this
+    # source announces the end, so absence terminates immediately — with or
+    # without an ``expires`` on the record. The policy is the *only* thing that
+    # makes absence authoritative: an alert that merely omits ``expires`` under
+    # ``ABSENCE_RETAIN`` is retained indefinitely (visibly stale) until an
+    # explicit terminal signal, because a missing field on one message is not a
+    # statement about what withdrawal means for the source.
+    #
+    # Retaining is the safe default because a feed gap is indistinguishable
+    # from a cancellation at the moment of observation, and the two errors are
+    # not symmetric: retaining a finished alert shows a stale warning until its
+    # published expiry, while dropping a live one silently clears a hazard from
+    # the user's dashboard and then re-creates it as a *new* incident when the
+    # feed recovers, fragmenting its history (RFC §1.2, §1.4 item 8). Declare
+    # ``ABSENCE_ENDS`` only on positive evidence of the source's contract —
+    # a feed documented (or observed) to withdraw records as its end-of-life
+    # announcement. No shipped source meets that bar today: NWS, ECCC, and
+    # MeteoAlarm publish expiries and terminal signals, and WMO's RSS sources
+    # are exactly the lossy feeds retention exists to protect, so declaring it
+    # there on speculation would forfeit the protection. The cost of that
+    # caution is that a WMO alert with no ``expires`` in its CAP body can stay
+    # stale until its source re-publishes or a human removes the entry — an
+    # accepted trade against silently clearing a live hazard.
+    absence_policy: str = ABSENCE_RETAIN
 
     @property
     def classifies_marine(self) -> bool:

@@ -84,6 +84,8 @@ the guaranteed set defensively.
 | `lifecycle_status` | `str` | Provider-native termination vocabulary (ECCC `ended` / `transitioned_out`). |
 | `references` | `list[str]` | CAP `<references>` identifiers. |
 | `replaced_by`, `replaced_at` | `str` | Supersession pointers when published. |
+| `stale` | `bool` | Present **only when true**. The latest poll did not see this alert, but it was kept rather than removed, because one missed observation is not proof an alert ended. Grey it out; do not treat it as gone. |
+| `last_confirmed` | `str` | ISO timestamp of the last poll that did see it. Only present alongside `stale`. |
 | `incident_platform_version` | `str` | Contract version (currently `"1.0"`). Branch on this, not on integration version. |
 
 ### Classification

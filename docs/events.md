@@ -7,7 +7,7 @@ Event names match the RFC §2.3 `incident_*` contract.
 | :-- | :-- |
 | `incident_created` | The store sees an alert ID for the first time. |
 | `incident_updated` | An existing alert's allowlisted fields (see `changed_fields` below) differ from the previous poll, **or** a new alert's `<references>` points to a previous-poll alert (cross-poll supersession — the new alert is considered an update even though its `id` is new). |
-| `incident_removed` | An alert moves to a terminal phase (`cancel` / `expired`) or disappears from the feed between polls. |
+| `incident_removed` | An alert moves to a terminal phase (`cancel` / `expired`). Disappearing from the feed is **not** by itself enough — see *Absence is not termination* below. |
 
 ## Payload schema
 
@@ -44,6 +44,49 @@ surviving day already supplied the content — `onset` moves, but it is not an
 allowlisted field. Once the *whole* episode has finished, the provider drops
 it, so it reaches the store as a silent disappearance and fires
 `incident_removed` with the inferred terminal phase `expired`.
+
+## Absence is not termination
+
+An alert missing from a poll used to fire `incident_removed` immediately. It no
+longer does, because absence is an observation rather than an announcement, and
+the two ways it can be wrong are not symmetric. Retaining an alert that really
+ended shows a stale warning until its published expiry. Removing one that is
+still live clears a hazard from the dashboard and then re-creates it as a *new*
+incident when the feed recovers, since an id that left the tracked set comes
+back unrecognized — fragmenting exactly the history this integration exists to
+keep continuous.
+
+The rule now, in order:
+
+1. The provider signalled termination (`lifecycle_status`, VTEC `CAN`,
+   `msgType=Cancel`) → removed, with `removal_reason` where the source supplies
+   one.
+2. `expires` has passed → removed, `phase: expired`.
+3. Otherwise the alert is **retained**, flagged `stale: true` with
+   `last_confirmed` recording when it was last seen, and no event fires.
+
+Two things end retention early, and both are properties of the query or the
+source, never of a single message. A source can declare — in the integration's
+convention table — that withdrawing a record is genuinely how it announces an
+ending (`ABSENCE_ENDS`); for such a source absence terminates immediately. And
+a change of *scope* — the tracker crosses a border, a zone is reconfigured,
+the marine filter is toggled — suspends retention for that cycle, because
+those alerts have gone out of scope rather than unobserved.
+
+An alert carrying no `expires` goes the other way: nothing bounds its
+retention, so it stays, visibly `stale`, until an explicit terminal signal
+arrives or its source declares absence authoritative. A missing field on one
+message is not a statement about what withdrawal means for the source.
+
+For NWS specifically, the provider now fetches cancellations separately.
+Cancellations are published as VTEC `CAN` products but never appear on
+`/alerts/active`: 101 of 101 in a measured six-hour national window were absent
+from it. So a cancelled NWS alert terminates in the cycle it was cancelled,
+with a real provider signal, rather than waiting for its expiry.
+
+**For consumers:** an alert going `stale` fires nothing, so an automation that
+keys on `incident_removed` will not see it. If you render alerts, check `stale`
+and mark them; if you notify on removal, nothing changes.
 
 ## Terminal-phase semantics on `incident_removed`
 

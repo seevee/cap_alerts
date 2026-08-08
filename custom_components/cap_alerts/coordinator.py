@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from collections.abc import Mapping, Sequence
@@ -154,6 +155,17 @@ def _doc_sent_before(doc: CAPDoc, cutoff: datetime) -> bool:
     return sent < cutoff
 
 
+def _scope_key(config: Mapping[str, Any], options: Mapping[str, Any]) -> str:
+    """A stable identity for the query a reconciliation runs.
+
+    Serialized rather than hashed so unhashable option values (the geocode
+    prefix list) participate without special-casing; ``default=str`` keeps an
+    exotic value from raising here, where the cost of a wrong answer is one
+    suspended retention cycle.
+    """
+    return json.dumps([config, options], sort_keys=True, default=str)
+
+
 def _resolve_tracker_gps(state: Any) -> str | None:
     """Resolve a ``device_tracker`` state to a ``"lat,lon"`` string.
 
@@ -206,6 +218,13 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     """Coordinator that delegates fetching to a provider."""
 
     config_entry: ConfigEntry
+
+    # Identity of the query the last reconciliation ran, and whether the current
+    # one differs (see ``_resolve_config``). Class-level so every construction
+    # path has them, including the ``object.__new__`` shortcut the resolution
+    # tests use to skip the coordinator's Home Assistant dependencies.
+    _scope_key: str | None = None
+    _scope_changed: bool = False
 
     def __init__(
         self,
@@ -431,6 +450,18 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
                     "fr-CA" if self.hass.config.language.startswith("fr") else "en-CA"
                 )
 
+        # Compared against the previous cycle's, this decides whether the store
+        # may retain alerts missing from the incoming set. Taken after
+        # resolution so a moved tracker registers, and over the whole resolved
+        # pair so a reconfigured zone, a flipped marine toggle, or narrowed
+        # geocode prefixes register too: each of those makes the previous active
+        # set answer a question no longer being asked, and none of them is a
+        # feed dropout. Options that do not narrow the query cost at most one
+        # cycle of suspended retention when they change.
+        key = _scope_key(config, options)
+        self._scope_changed = self._scope_key is not None and key != self._scope_key
+        self._scope_key = key
+
         return config, options
 
     async def _async_update_data(self) -> dict[str, CAPAlert]:
@@ -504,7 +535,16 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # sibling entry on the same provider keeps its geometry.
         await self._geometry_store.purge_missing(active_refs, prefix=f"{entry_id}:")
         # Diff against previous poll — returns only active alerts.
-        alerts = self._store.process(alerts)
+        alerts = self._store.process(
+            alerts,
+            scope_changed=self._scope_changed,
+            superseded_identifiers=frozenset(
+                ref_id
+                for doc in self._live_docs.values()
+                for _, ref_id, _ in doc.references
+            ),
+        )
+        self._scope_changed = False
         # Index by ID for O(1) lookup
         return {a.id: a for a in alerts}
 

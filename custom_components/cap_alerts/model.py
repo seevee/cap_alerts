@@ -200,6 +200,15 @@ class CAPAlert:
     # -- State transition metadata (set by alert store) --
     previous_phase: str = ""
     phase_changed: bool = False
+    # Retention markers (RFC §2.1). ``stale`` says the most recent
+    # reconciliation did not observe this alert but the store kept it anyway
+    # rather than treating one absence as a lifecycle signal (RFC §1.4 item 8);
+    # ``last_confirmed`` is the ISO timestamp of the last reconciliation that
+    # did see it. Both are meaningless while an alert is being observed
+    # normally, so ``stale`` is omitted from attributes when False and
+    # ``last_confirmed`` is only stamped once an alert has gone unconfirmed.
+    stale: bool = False
+    last_confirmed: str = ""
 
     # -- Promoted geocode schemes (derived from ``geocodes``) --
     # Read-only aliases, not fields: ``geocodes`` is the single source of truth,
@@ -248,7 +257,7 @@ class CAPAlert:
             if f.name == "geometry":
                 continue
             val = getattr(self, f.name)
-            if f.name == "is_marine" and not val:
+            if f.name in ("is_marine", "stale") and not val:
                 continue
             if f.name == "geocodes":
                 if val:

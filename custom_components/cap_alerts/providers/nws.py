@@ -6,7 +6,7 @@ import hashlib
 import logging
 import re
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
@@ -21,7 +21,52 @@ from ..model import CAPAlert, geocodes_from
 _LOGGER = logging.getLogger(__name__)
 
 NWS_API_BASE = "https://api.weather.gov/alerts/active"
+# Cancellations never appear on the active endpoint; they are only reachable
+# through the all-messages one. See ``_fetch_cancellations``.
+NWS_ALL_BASE = "https://api.weather.gov/alerts"
 MAX_PAGINATION_FOLLOWS = 5
+
+# How far back the cancellation lookup reaches. It only has to cover the gap
+# between an alert leaving the active endpoint and the next reconciliation, so
+# this is generous rather than tuned; the query is scoped to one zone or point
+# and returned single digits over a six-hour national sample.
+CANCEL_LOOKBACK = timedelta(hours=6)
+
+# Ceiling on absent alerts still eligible for cancellation discovery. Ids whose
+# alert published an expiry age out on their own; one that published none never
+# does, so without a cap a source omitting ``expires`` could grow this set for
+# the life of the config entry. A zone tracks single-digit concurrent alerts, so
+# this is far above any real working set and exists only to bound the pathology.
+_MAX_CANCELLABLE_IDS = 256
+
+
+def _still_cancellable(expires: str, now: datetime) -> bool:
+    """Whether an absent alert's cancellation is still worth discovering.
+
+    Mirrors ``store._retain_on_absence`` deliberately: eligibility must last
+    exactly as long as the store keeps the alert, or the two halves of the
+    contract disagree about the same alert. An alert with no parseable
+    ``expires`` is retained until an explicit terminal signal arrives, and for
+    NWS that signal is a VTEC ``CAN`` product this lookup is the only way to
+    see. Dropping such an id would therefore pin the alert live permanently
+    while switching off the one mechanism that could ever end it — the worst
+    of both policies, and the reason this returns True rather than False for
+    an empty or unparseable expiry.
+
+    The store owns the retention decision; this only decides whether to keep
+    asking. ``_MAX_CANCELLABLE_IDS`` bounds the resulting set, since ids kept
+    on this branch have no timestamp to age them out.
+    """
+    if not expires:
+        return True
+    try:
+        expires_at = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return now < expires_at
+
 
 # The marine-prefix vocabulary itself lives in the convention table; re-bound
 # here so the parse site below reads in NWS terms.
@@ -183,6 +228,21 @@ def _parse_feature(feature: dict[str, Any]) -> CAPAlert:
 class NWSProvider:
     """NWS GeoJSON API provider."""
 
+    def __init__(self) -> None:
+        # Ids eligible for cancellation discovery, mapped to their published
+        # ``expires``. The coordinator holds one provider instance for the life
+        # of the config entry, so this survives between reconciliations and
+        # scopes the cancellation lookup to alerts this entry was actually
+        # tracking. An id stays eligible after leaving the active set for as
+        # long as its expiry has not passed — the store retains the alert for
+        # exactly that window, so a lookup that fails in the cycle an alert
+        # vanishes can still discover its cancellation on a later cycle instead
+        # of forgetting the id and holding the alert to expiry. Dropping the id
+        # once its expiry passes mirrors the store, which has terminated the
+        # alert by then: emitting a late cancellation past that point would
+        # fire a second, unpaired ``incident_removed``.
+        self._tracked: dict[str, str] = {}
+
     @property
     def name(self) -> str:
         return "nws"
@@ -220,13 +280,97 @@ class NWSProvider:
         for run in _NWS_CONVENTIONS.stages_at("merge"):
             alerts = run(alerts, ctx)
 
-        return alerts
+        active_ids = {a.id for a in alerts}
+        cancellations = await self._fetch_cancellations(session, config, active_ids)
+        cancelled_ids = {c.id for c in cancellations}
+        now = datetime.now(timezone.utc)
+        tracked = {a.id: a.expires for a in alerts}
+        # Carry over absent-but-still-cancellable ids, newest first, so the cap
+        # sheds the ones that have gone longest without a cancellation.
+        carried = 0
+        for alert_id, expires in reversed(self._tracked.items()):
+            if alert_id in tracked or alert_id in cancelled_ids:
+                continue
+            if not _still_cancellable(expires, now):
+                continue
+            if carried >= _MAX_CANCELLABLE_IDS:
+                break
+            tracked[alert_id] = expires
+            carried += 1
+        self._tracked = tracked
+        return alerts + cancellations
+
+    async def _fetch_cancellations(
+        self,
+        session: aiohttp.ClientSession,
+        config: Mapping[str, Any],
+        active_ids: set[str],
+    ) -> list[CAPAlert]:
+        """Cancellations for alerts this provider returned last time.
+
+        NWS publishes cancellations as first-class products carrying VTEC action
+        ``CAN`` and ``messageType=Cancel``, but **never on the active endpoint**:
+        measured over a six-hour national window, 101 of 101 cancellations were
+        absent from ``/alerts/active``. Polling only that endpoint therefore
+        makes a genuine cancellation indistinguishable from a dropped record,
+        which is what forces the store's retain-on-absence rule to hold a
+        cancelled warning until its published expiry. Fetching them restores the
+        explicit signal, so a cancelled alert terminates in the cycle it was
+        cancelled rather than at expiry, and does so with a provider-declared
+        reason rather than an inference.
+
+        Two filters keep this from manufacturing events. Cancellations are
+        emitted only for ids this provider previously returned that are still
+        within their published expiry (``_tracked``), because a
+        terminal alert the store has never seen fires ``incident_removed`` with
+        no matching creation — which is correct for a feed that can deliver an
+        already-ended alert, and wrong here, where the window would otherwise
+        produce removals for alerts filtered out as marine or issued before this
+        entry existed. And an id still in the active set is skipped: NWS can
+        cancel a warning over part of its area while it runs on elsewhere (1 of
+        174 terminal products in the sample), and there the active record is the
+        truthful one.
+
+        A failure here is not a poll failure. Losing the confirmation means an
+        alert lingers to its expiry, which is the behavior without this fetch at
+        all, so the error is swallowed rather than failing an otherwise good
+        update. The id stays eligible (see ``_tracked``), so the next cycle's
+        lookup retries the discovery rather than forgetting the alert.
+        """
+        previously_tracked = self._tracked
+        if not previously_tracked:
+            return []
+        scope = self._build_scope(config)
+        if not scope:
+            return []
+
+        since = (datetime.now(timezone.utc) - CANCEL_LOOKBACK).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        url = f"{NWS_ALL_BASE}?message_type=cancel&{scope}&start={since}"
+        try:
+            data = await self._fetch_page(session, url)
+        except (UpdateFailed, aiohttp.ClientError, TimeoutError) as err:
+            _LOGGER.debug("nws: cancellation lookup failed, retaining alerts: %s", err)
+            return []
+
+        out: list[CAPAlert] = []
+        for feature in data.get("features", []):
+            alert = _parse_feature(feature)
+            if alert.id in previously_tracked and alert.id not in active_ids:
+                out.append(alert)
+        return out
 
     def _build_url(self, config: Mapping[str, Any]) -> str:
-        """Build the NWS API URL from config."""
+        """Build the NWS active-alerts URL from config."""
+        scope = self._build_scope(config)
+        return f"{NWS_API_BASE}?{scope}" if scope else ""
+
+    def _build_scope(self, config: Mapping[str, Any]) -> str:
+        """The location query fragment, shared by the active and cancel URLs."""
         if CONF_ZONE_ID in config and config[CONF_ZONE_ID]:
             zone_id = config[CONF_ZONE_ID]
-            return f"{NWS_API_BASE}?zone={zone_id}"
+            return f"zone={zone_id}"
 
         if CONF_GPS_LOC in config and config[CONF_GPS_LOC]:
             gps = config[CONF_GPS_LOC]
@@ -235,7 +379,7 @@ class NWSProvider:
                 parts = gps.split(",")
                 lat = round(float(parts[0].strip()), 4)
                 lon = round(float(parts[1].strip()), 4)
-                return f"{NWS_API_BASE}?point={lat},{lon}"
+                return f"point={lat},{lon}"
             except (ValueError, IndexError):
                 return ""
 
