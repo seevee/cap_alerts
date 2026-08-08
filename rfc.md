@@ -104,16 +104,19 @@ Core properties of the model:
 
 **State** is the normalized severity, one of `extreme`, `severe`, `moderate`, `minor`, `unknown`.
 
-**Required attributes.** An entity is valid only if all of these are present:
+**Platform-guaranteed attributes.** These are set by the platform rather than copied from the feed, so they are present on every entity regardless of how sparse the upstream message was:
 
 - `id`: stable lifecycle-aware identifier (§2.2)
-- `event`: short event name, drives `entity_id` derivation
-- `severity`: raw provider value
-- `phase`: one of `new`, `update`, `cancel`, `expired`
+- `phase`: one of `new`, `update`, `cancel`, `expired` — derived, and defaulting to active when the provider signals nothing (§2.2)
+- `severity_normalized`: the same value carried in `state`, denormalized onto attributes so that template and table consumers, which read attributes rather than state, do not have to special-case it
 - `icon`: `mdi:*` handle keyed on event type (§2.6)
 
-**Optional attributes**, emitted only when populated:
+The distinction matters because it is the only part of the schema a consumer may read unguarded. Everything below is feed-supplied, and CAP completeness varies enormously between authorities, so a card that assumes a key exists will break on the next provider rather than on the current one.
 
+**Feed-supplied attributes**, emitted only when populated:
+
+- `event`: short event name, drives `entity_id` derivation. Near-universal in practice and required by every profile we ingest, but CAP itself makes `<event>` mandatory only within an `<info>` block, so an entity built from a message carrying none has no event name to emit. Consumers keying on `event` should fall back to `category`.
+- `severity`: raw provider value. Absent for providers whose severity is *derived* rather than transmitted — MeteoAlarm publishes awareness levels, not CAP `severity`, so the provider layer synthesizes the normalized tier with no raw value to preserve. Read `severity_normalized`; `severity` is for consumers that specifically want the untranslated original.
 - `headline`, `description`, `instruction` (soft-capped, see §2.4)
 - `urgency`, `certainty`, `msg_type`, `status`
 - `category`: CAP category enum (`Geo`, `Met`, `Safety`, `Security`, `Rescue`, `Fire`, `Health`, `Env`, `Transport`, `Infra`, `CBRNE`, `Other`) — the cross-domain discriminator that tells a weather warning (`Met`) apart from a 911 outage (`Infra`) or an AMBER alert (`Other`). This is the primary "what kind of incident is this" axis for cards (§2.6), and it is not a hypothetical axis: a single live sample of the Canadian NAAD feed, ingested through the reference implementation's one ECCC provider, carried `Met` warnings from ECCC storm-prediction centres alongside `Infra` (Manitoba Emergency Management Organization, `911 Service Inoperative`, `severity=Extreme`) and `Other` (RCMP "E" Division and Calgary Police Service AMBER alerts), all `status=Actual`/`scope=Public` (§4.1). The reference implementation already emits this attribute
@@ -203,6 +206,8 @@ The design:
 - Frontend cards fetch geometry lazily. Typical Lovelace renders never need it; map cards fetch once per visible incident.
 - Long-form `description` and `instruction` are soft-capped at 4 KB each in attributes. Overflow is truncated with a trailing `…`, and the full text is available via the same API surface.
 
+**The handle must be namespaced by the scope that owns the store, not by the provider alone.** This reads like an implementation detail and is not one: it is the difference between a correct lookup and a silent cross-tenant leak. The obvious `{provider}:{alert_id}` shape breaks as soon as one store serves more than one configuration, because provider alert ids are unique only within a provider's own feed. Two config entries against the same provider — the overlapping-zone case §2.2 already invokes to justify prefixing `unique_id` — mint identical handles for an alert covering both, and whichever entry writes second wins the cache slot. The reference implementation therefore keys on `{entry_id}:{provider}:{alert_id}` and treats the composite as opaque, and a core store must namespace at least as widely as it is shared: per config entry for the v1 in-integration store, and per *integration* as well for the cross-integration store sketched in §6.2, where the collision domain widens to every provider any integration ships. Consumers parse no part of the handle; it is a cache key that happens to be a string, and constraining its internal structure is what lets the namespacing widen later without a client-visible change.
+
 **Geometry is more than polygons.** CAP specifies three area geometries: `<polygon>`, `<circle>` (center point plus radius), and `<point>`. The reference implementation currently materializes `<polygon>`, but `<circle>` and `<point>` are first-class CAP and the `bbox` + `geometry_ref` contract accommodates them without change — a circle's `bbox` is its bounding square, and the full circle or point is served through the same endpoint. Point and circle events also sharpen the externalization argument with a non-weather case: GDACS renders an earthquake's felt radius as a ~100–200-vertex polygon approximating a circle, so a single point event inflates to several KB of redundant ring coordinates — precisely the inline-payload bloat this section externalizes, now arriving from a geophysical feed rather than a squall line. (Observed while probing the GDACS CAP endpoint during design work; the GDACS provider is not built, see §4.1.)
 
 **Both an HTTP view and a websocket command, after implementation experience.** An earlier draft of this RFC argued against a bespoke websocket command in v1, on the reasoning that geometry is a one-shot fetch per card render and the HTTP view delivers the same payload with less new core surface. Building the companion card falsified the premise behind that reasoning. The argument was about *subscription* value — polygons change slowly, so live push buys little — but the actual cost of the HTTP path is not subscription, it is authentication. A Lovelace card already holds an authenticated websocket connection to HA; fetching over HTTP instead requires the card to obtain and attach a bearer token out of band, which is friction on every card that wants a map and a second auth path to get wrong.
@@ -284,7 +289,9 @@ Integrations must populate `icon`; they should not encode severity into it.
 
 **No acknowledgment or dismissal service.** The domain intentionally does not expose `incident.dismiss` or `incident.acknowledge`. Entities mirror upstream reality: a tornado warning is active until NWS cancels or expires it, and a user clicking "dismiss" on their phone does not change that fact for anyone else in the household, nor should it. Local "I've seen this" state is a frontend concern, handled by cards via browser local storage (keyed on `incident_id`) or by user-level automations that maintain a dismissed-hash list. Keeping the entity pure preserves multi-client consistency and prevents the backend from growing a per-user UI-state layer it has no business owning. Card authors are expected to surface dismissal UX; the domain surfaces the ground truth the UX operates on.
 
-Capability detection for downstream consumers (custom cards, Alert2, blueprints) is by attribute and domain introspection, not by a version string: check `state.domain == "incident"` or probe for specific attributes, as elsewhere in HA core.
+**Capability detection is by attribute and domain introspection, not by a version string.** Downstream consumers (custom cards, Alert2, blueprints) check `state.domain == "incident"` or probe for specific attributes, as elsewhere in HA core.
+
+The reference implementation appears to contradict this — it stamps an `incident_platform_version` attribute on every alert entity, and its card-author documentation instructs consumers to branch on it — so the divergence is worth stating plainly rather than leaving a reviewer to find it. The version string exists there precisely *because* the domain does not. A custom component cannot mint a domain, so every entity it publishes is a `sensor.*` indistinguishable by domain from a thermostat's battery readout; `state.domain` answers nothing, and a card asking "is this an incident?" has no primitive to ask with. The version attribute is a stand-in for the missing domain, doing double duty as a contract marker because there is no platform whose version could be inferred from the HA release. Adopting `incident` into core retires it: `state.domain == "incident"` becomes available, versioning follows the HA release as it does for every other platform, and the attribute can be dropped from the schema. That the reference implementation had to invent one is evidence for the domain, not an argument for standardizing a version field in it.
 
 **Consuming dynamic entities.** Because incident entities spawn and despawn with the events they represent, they are meant to be consumed two ways, and the model should be judged against these rather than against hand-placed entity cards:
 
@@ -579,7 +586,7 @@ attributes:
     - NYZ071
     - NYZ072
   bbox: [-73.98, 40.85, -73.74, 41.02]
-  geometry_ref: nws:OKX.SV.W.0042.2026
+  geometry_ref: 01J8Z3K5R7Q9X2M4N6P8T0V1W3:nws:OKX.SV.W.0042.2026
   language: "en-US"
   vtec: "/O.NEW.KOKX.SV.W.0042.260414T1947Z-260414T2045Z/"
   event_code_nws: SV.W
@@ -635,7 +642,7 @@ Worst-case sparse attribute payload for a single CAP-rich incident (NWS Tornado 
 | `area_desc`        |           200 |        600 |
 | `affected_zones`   |           240 |        800 |
 | `bbox`             |            48 |         64 |
-| `geometry_ref`     |            48 |         64 |
+| `geometry_ref`     |            80 |        128 |
 | provider-specific  |           120 |        300 |
 | JSON overhead      |           200 |        400 |
 | **Total**          |     **~3.6 KB** | **~11 KB** |

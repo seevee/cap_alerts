@@ -58,9 +58,17 @@ not an error.
 collection is omitted rather than emitted as a null. Check for presence; do
 not assume a key exists. Tuples serialize as JSON lists.
 
-Only four keys are guaranteed on every alert entity: `id`, `provider`, and
-`phase_changed` from the model, plus `incident_platform_version` stamped on by
-the entity. Everything else in the tables below may be absent.
+Seven keys are guaranteed on every alert entity. `id`, `provider`, and
+`phase_changed` are always set on the model; `phase`, `severity_normalized`,
+and `icon` are filled in by normalization, so they survive even a message that
+arrived nearly empty; `incident_platform_version` is stamped on by the entity.
+Everything else in the tables below may be absent.
+
+The split is worth internalizing: those seven come from the integration, and
+everything else comes from the feed. Feed completeness varies enormously
+between authorities — `severity` itself is missing on MeteoAlarm, which
+publishes awareness levels rather than CAP severity — so read anything outside
+the guaranteed set defensively.
 
 ### Identity and lifecycle
 
@@ -70,7 +78,7 @@ the entity. Everything else in the tables below may be absent.
 | `url` | `str` | Canonical alert page at the provider. |
 | `identifier` | `str` | Raw CAP `<identifier>`. |
 | `provider` | `str` | `nws` / `eccc` / `meteoalarm` / `wmo`. |
-| `phase` | `str` | `new` / `update` / `cancel` / `expired`. |
+| `phase` | `str` | Always present. `new` / `update` / `cancel` / `expired`. |
 | `previous_phase` | `str` | Phase at the previous poll. |
 | `phase_changed` | `bool` | Always present. `true` on first sighting or on a phase transition. |
 | `lifecycle_status` | `str` | Provider-native termination vocabulary (ECCC `ended` / `transitioned_out`). |
@@ -83,10 +91,10 @@ the entity. Everything else in the tables below may be absent.
 | Attribute | Type | Notes |
 | :-- | :-- | :-- |
 | `event` | `str` | Free-text event name. Also the entity's display name. |
-| `severity_normalized` | `str` | `extreme` / `severe` / `moderate` / `minor` / `unknown`. **Prefer this over `severity`** — it is normalized across providers. |
-| `severity` | `str` | Raw CAP value, as received. |
+| `severity_normalized` | `str` | Always present. `extreme` / `severe` / `moderate` / `minor` / `unknown`. **Prefer this over `severity`** — it is normalized across providers. |
+| `severity` | `str` | Raw CAP value, as received. Absent where severity is derived rather than transmitted (MeteoAlarm). |
 | `msg_type`, `status`, `scope`, `category`, `urgency`, `certainty`, `response_type` | `str` | Raw CAP 1.2 values. |
-| `icon` | `str` | mdi icon name, dispatched from event type. |
+| `icon` | `str` | Always present. mdi icon name, dispatched from event type. |
 | `event_code_nws`, `event_code_same` | `str` | Provider event codes where published. |
 
 ### Timing
