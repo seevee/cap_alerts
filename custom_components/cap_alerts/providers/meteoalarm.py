@@ -74,6 +74,7 @@ from ..conventions import meteoalarm_region_codes as _region_codes
 from ..model import CAPAlert, geocodes_from
 from .cap import parse_cap_polygon_text
 from .geometry import geometry_from_polygons
+from .gps import alert_polygons, parse_gps, point_in_polygon
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -476,22 +477,6 @@ def _info_text(info: Mapping[str, Any] | None, key: str) -> str:
     return str(info.get(key) or "")
 
 
-def _point_in_polygon(lat: float, lon: float, polygon: list[list[float]]) -> bool:
-    """Ray-casting point-in-polygon test. Polygon is ``[[lon, lat], ...]``."""
-    n = len(polygon)
-    inside = False
-    j = n - 1
-    for i in range(n):
-        xi, yi = polygon[i][0], polygon[i][1]  # lon, lat
-        xj, yj = polygon[j][0], polygon[j][1]
-        if ((yi > lat) != (yj > lat)) and (
-            lon < (xj - xi) * (lat - yi) / (yj - yi) + xi
-        ):
-            inside = not inside
-        j = i
-    return inside
-
-
 def _extract_geometries(info: Mapping[str, Any]) -> list[list[list[float]]]:
     """Return polygon rings from a CAP info block.
 
@@ -604,33 +589,6 @@ def _warning_to_alert(
         provider="meteoalarm",
     )
     return _apply_identity(parsed)
-
-
-def _parse_gps(value: str) -> tuple[float, float] | None:
-    """Extract ``(lat, lon)`` from a ``"lat,lon"`` config string."""
-    if not value:
-        return None
-    try:
-        parts = value.split(",")
-        return float(parts[0].strip()), float(parts[1].strip())
-    except (ValueError, IndexError):
-        return None
-
-
-def _alert_polygons(alert: CAPAlert) -> list[list[list[float]]]:
-    """Extract the polygon rings already stored on a CAPAlert geometry."""
-    geom = alert.geometry
-    if not geom:
-        return []
-    gtype = geom.get("type")
-    coords = geom.get("coordinates")
-    if not coords:
-        return []
-    if gtype == "Polygon":
-        return [coords[0]] if coords else []
-    if gtype == "MultiPolygon":
-        return [poly[0] for poly in coords if poly]
-    return []
 
 
 async def fetch_regions_for_country(
@@ -833,7 +791,7 @@ class MeteoAlarmProvider:
         """
         if not alerts:
             return []
-        with_polygons = [a for a in alerts if _alert_polygons(a)]
+        with_polygons = [a for a in alerts if alert_polygons(a)]
         if not with_polygons:
             if keep_polygonless:
                 _LOGGER.info(
@@ -848,7 +806,7 @@ class MeteoAlarmProvider:
                 "does not publish per-warning geometry — use region-picker "
                 "mode instead"
             )
-        gps = _parse_gps(gps_loc)
+        gps = parse_gps(gps_loc)
         if gps is None:
             raise UpdateFailed(
                 f"MeteoAlarm {country}: invalid GPS coordinates {gps_loc!r}"
@@ -856,12 +814,12 @@ class MeteoAlarmProvider:
         lat, lon = gps
         kept: list[CAPAlert] = []
         for alert in alerts:
-            rings = _alert_polygons(alert)
+            rings = alert_polygons(alert)
             if not rings:
                 if keep_polygonless:
                     kept.append(alert)
                 continue
-            if any(_point_in_polygon(lat, lon, ring) for ring in rings):
+            if any(point_in_polygon(lat, lon, ring) for ring in rings):
                 kept.append(alert)
         return kept
 

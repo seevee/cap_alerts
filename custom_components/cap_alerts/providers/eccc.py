@@ -40,6 +40,7 @@ from .geometry import (
     geometry_from_shapes,
     points_from_circles,
 )
+from .gps import point_in_polygon
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -254,25 +255,9 @@ def _point_in_polygons(
 ) -> bool:
     """Check if a point is in any of the polygons."""
     for polygon in polygons:
-        if _point_in_polygon(lat, lon, polygon):
+        if point_in_polygon(lat, lon, polygon):
             return True
     return False
-
-
-def _point_in_polygon(lat: float, lon: float, polygon: list[list[float]]) -> bool:
-    """Ray-casting point-in-polygon test. Polygon is [[lon, lat], ...]."""
-    n = len(polygon)
-    inside = False
-    j = n - 1
-    for i in range(n):
-        xi, yi = polygon[i][0], polygon[i][1]
-        xj, yj = polygon[j][0], polygon[j][1]
-        if ((yi > lat) != (yj > lat)) and (
-            lon < (xj - xi) * (lat - yi) / (yj - yi) + xi
-        ):
-            inside = not inside
-        j = i
-    return inside
 
 
 def _matches_province_sgc(geocodes: Mapping[str, Sequence[str]], province: str) -> bool:
