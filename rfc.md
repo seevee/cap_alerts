@@ -61,7 +61,7 @@ The failures in §1.1–§1.3 imply a set of requirements that any incident-hand
 9. **Ingest-mode neutrality.** The model holds whether incidents arrive by scheduled polling or by a pushed stream, and does not assume a poll interval exists (§2.5).
 10. **Readable by a dashboard.** Stated bindingly-neutrally: *core presentation data, and changes to it, must be available through a subscribed, contract-stable read path usable by both declarative and custom dashboard consumers.* The wording below names the state machine because that is the mechanism the recommended binding uses, and because the concrete failures this requirement exists to exclude are only legible against a concrete mechanism; a reviewer preferring another binding should read "the state machine" as "whatever that binding's subscribed surface is" and the requirement stands unchanged. The frontend can consume an incident through read paths it actually has. The core presentation fields — severity, phase, timestamps, headline, area — arrive over a surface the frontend already subscribes to (for an entity binding, the state machine), so declarative consumers — stock cards, `auto-entities`, templates — render them without custom code, and changes reach every consumer by push. Payloads externalized under requirement 3 stay reachable through a frontend-native, contract-stable read path, with subscribed state carrying the handle and the change signal that tell a card when to fetch (§2.4). An action with response data provides neither half: declarative surfaces cannot invoke it, nothing tells a caller its snapshot is stale, and data living only in a response never reaches the recorder, history, or a state trigger (§1.6). A mechanism that satisfies requirements 1–9 but serves the incident body only through such an action fails the primary consumer this abstraction exists to serve. The requirement cuts the other way too: a frontend that fetches and renders CAP entirely in the browser satisfies its own display needs while reaching neither the recorder, the state machine, nor any automation — and, as §3.8 measures, cannot reach most of the world's CAP publishers in the first place.
 
-These requirements are provider-neutral and implementation-neutral; none of them assumes an entity-based design. Requirements 8 and 9 were added in the July 2026 revision; both are consequences of field-testing the reference implementation rather than of the original design analysis. Requirement 10 was added in the August 2026 revision, after core review steered two integrations, across four PRs, to the same resolution — payloads out of attributes and behind action responses (§1.6, §8.1); it states explicitly a constraint the earlier drafts assumed without argument.
+These requirements are provider-neutral, and requirements 1–9 assume no particular binding. Requirement 10 needs a more careful statement, because taken literally its wording names entity-ecosystem concepts — stock cards, `auto-entities`, templates, state triggers, the state machine — and a reviewer preferring a registry could fairly call that circular. The precise position: **requirement 10 is neutral about the storage and runtime mechanism, and deliberately specific about the consumer surface.** Whatever binding is chosen must expose incident state *and changes to it* through a frontend-native subscribed contract that declarative and custom consumers can both read. Entities satisfy that today by inheriting it; a registry could satisfy it too, but only by growing the subscription, card-composition, trigger and history surfaces §3.6 costs out — which is an argument about the price of a binding, not evidence that the requirement was written around one. Requirements 8 and 9 were added in the July 2026 revision; both are consequences of field-testing the reference implementation rather than of the original design analysis. Requirement 10 was added in the August 2026 revision, after core review steered two integrations, across four PRs, to the same resolution — payloads out of attributes and behind action responses (§1.6, §8.1); it states explicitly a constraint the earlier drafts assumed without argument.
 
 ### 1.5 Candidate Bindings
 
@@ -255,7 +255,7 @@ On restart the cache starts empty and the next poll refills it. If upstream is u
 
 **Optional v2: shared geometry store.** A core-managed geometry store (analogous to `image` or `media_source`) would enable cross-integration polygon reuse, for instance NWS and a local emergency feed sharing county geometry, and would survive restarts without re-polling upstream APIs. This is an attractive direction but explicitly orthogonal to v1 and not required for core adoption. The HTTP view is storage-backend-agnostic, so a store can plug in behind it without a client-visible change. See §6.2. Independent CAP deployments reach the same conclusion from the payload side: SAMBRO implementers recommend the rendering agent keep its own copy of the geocode/shape-file database rather than inlining polygons in every message, precisely to cut payload size and network load when one alert fans out to many recipients (§8.4) — the same reasoning that keeps geometry out of the state machine here.
 
-**Size budget.** With geometry and long text externalized, the worst-case attribute payload for a single incident sits under ~3 KB (see §7.2). Even the most verbose providers stay well below the ceiling.
+**Size budget.** With geometry externalized and long-form text capped, a single incident's attribute payload models out at roughly **3–4 KB typical and ~11 KB at its modeled cap** (§7.2), against the 16,384-byte ceiling. The cap figure assumes `description` and `instruction` both hit their 4 KB limit simultaneously, which is rare in practice. What matters for §1.1's second bound is the margin: no single incident approaches the ceiling even with every modeled field at its limit, so the per-incident bound holds independently of how many incidents are active.
 
 ### 2.5 Entity Registry Cleanup
 
@@ -749,17 +749,28 @@ Typical payload fits in ~3–4 KB, well under the 16 KB ceiling. The upper-bound
 ### 7.3 Registry Cleanup Sequence
 
 ```
-Coordinator poll → provider returns list[CAPAlert]
-  └─ store.process() diffs against previous cycle
+Reconciliation → provider returns list[CAPAlert]
+  └─ store.process() diffs against the previous cycle
       ├─ new IDs       → async_add_entities + fire incident_created
       ├─ updated IDs   → entity.async_write_ha_state + fire incident_updated
-      └─ missing IDs   → mark as expired (if past expires) or cancel
-          └─ for each terminated entity:
-              1. fire incident_removed (automations consume this)
-              2. platform.async_remove_entity(entity_id)
-              3. entity_registry.async_remove(entity_id)
-              4. (recorder history retained; registry now reflects only active incidents)
+      └─ missing IDs   → apply the absence rule (§2.5); absence alone is not
+          │              termination, so most of these branches retain:
+          ├─ provider signalled termination ─────────────→ terminate (cancel)
+          ├─ now >= expires ─────────────────────────────→ terminate (expired)
+          ├─ source declares absence-ends ───────────────→ terminate (cancel)
+          ├─ scope changed, or superseded out of region ─→ terminate
+          ├─ expiry published and still ahead ───────────→ RETAIN, mark stale
+          ├─ no expiry, but the source can still end it ─→ RETAIN, mark stale
+          └─ no expiry and no exit at all ───────────────→ terminate (cancel)
+              └─ for each terminated entity:
+                  1. fire incident_removed (automations consume this)
+                  2. platform.async_remove_entity(entity_id)
+                  3. entity_registry.async_remove(entity_id)
+                  4. (recorder history retained; registry now reflects only
+                     active incidents)
 ```
+
+A retained incident takes none of those four steps: it stays in the active set with `stale` set and `last_confirmed` recorded, and fires nothing. Registry mutation happens only on genuine termination, which is also why the churn §2.5 costs out is bounded by real incident endings rather than by feed reliability.
 
 ---
 
