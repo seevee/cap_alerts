@@ -957,6 +957,27 @@ MeteoAlarm is classified on its `awareness_type` code first, and only falls thro
 
 When alert geometry is present, every alert entity exposes a 4-element `bbox: [min_lon, min_lat, max_lon, max_lat]` attribute (derived from Point / LineString / Polygon / MultiPolygon).
 
+### Absence handling
+
+An alert missing from a reconciliation is **retained**, not removed, while it is
+still within its published `expires`. `store._retain_on_absence` decides this
+from the source's `SourceConventions.absence_policy`; retained alerts carry
+`stale=True` and `last_confirmed`, and fire no event. Absence still terminates
+when the alert publishes no `expires` (nothing bounds retention), when the
+source declares `ABSENCE_ENDS`, when the query scope changed (`scope_changed`,
+computed by the coordinator from the resolved config and options), or when the
+alert was superseded by a document the region filter dropped before it reached
+the store (`superseded_identifiers`, supplied from `_live_docs`).
+
+NWS gets an explicit termination signal instead of relying on that fallback:
+`NWSProvider._fetch_cancellations` queries `?message_type=cancel` on the
+all-messages endpoint, scoped to the same zone or point as the active fetch.
+Cancellations are never published to `/alerts/active` — 101 of 101 in a measured
+six-hour national window were absent from it — so without this a cancelled alert
+would be indistinguishable from a dropped one and would linger to its expiry.
+VTEC identity ignores the action code, so a `CAN` product lands on the same
+alert id as the warning it ends.
+
 ### Geometry externalization (§2.4)
 
 Full GeoJSON polygons are **not** entity attributes. The coordinator writes them
