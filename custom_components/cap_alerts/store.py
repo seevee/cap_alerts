@@ -14,7 +14,7 @@ from .const import (
     EVENT_INCIDENT_REMOVED,
     EVENT_INCIDENT_UPDATED,
 )
-from .conventions import conventions_for
+from .conventions import ABSENCE_RETAIN, conventions_for
 from .model import CAPAlert
 
 # Fields whose changes automations typically care about. Anything outside
@@ -39,9 +39,29 @@ class AlertStore:
         self._entry_id = entry_id
         self._provider = provider
         self._previous: dict[str, CAPAlert] = {}
+        # id → ISO timestamp of the last reconciliation that observed the alert.
+        # Kept beside the alerts rather than on them so that confirming an alert
+        # does not rewrite an attribute every cycle: ``last_confirmed`` is only
+        # stamped onto a record once it has actually gone unconfirmed, which
+        # keeps steady-state polling from writing a fresh recorder row per poll.
+        self._last_seen: dict[str, str] = {}
 
-    def process(self, alerts: list[CAPAlert]) -> list[CAPAlert]:
+    def process(
+        self,
+        alerts: list[CAPAlert],
+        *,
+        scope_changed: bool = False,
+        superseded_identifiers: frozenset[str] = frozenset(),
+    ) -> list[CAPAlert]:
         """Diff incoming alerts against previous poll.
+
+        ``scope_changed`` says this reconciliation asked a *different question*
+        than the last one — the tracker crossed a border, a zone was
+        reconfigured, the marine toggle was flipped. Retention compares like
+        with like, so it is suspended for that cycle: an alert missing because
+        the user moved out of its area has not gone unobserved, it has gone out
+        of scope, and holding it to its expiry would strand a warning from a
+        place the user has left.
 
         Accepts the *unfiltered* normalized list so terminal-phase alerts
         (``cancel``/``expired``) can fire ``incident_removed`` with their
@@ -56,6 +76,7 @@ class AlertStore:
         incoming = {a.id: a for a in alerts}
         active: dict[str, CAPAlert] = {}
         result: list[CAPAlert] = []
+        now = datetime.now(timezone.utc)
 
         # Build a lookup of previous-poll alerts by CAP <identifier> so that
         # cross-revision supersession can be detected via alert.references.
@@ -148,10 +169,17 @@ class AlertStore:
         referenced_identifiers: set[str] = {
             ref_id for alert in incoming.values() for ref_id in (alert.references or ())
         }
+        # Supersession the caller can see but this list cannot. A revision whose
+        # geometry moved off the user is dropped by the region filter before it
+        # reaches here, so its ``references`` never appear in ``incoming`` — yet
+        # the alert it replaces has genuinely been replaced, not gone unobserved,
+        # and retaining it would strand it until its expiry. Empty for every
+        # caller that holds no document set of its own.
+        referenced_identifiers |= superseded_identifiers
 
         # Silent disappearance: provider dropped the alert without a Cancel
-        # message. Infer the terminal phase from the expires timestamp.
-        now = datetime.now(timezone.utc)
+        # message. Retained or terminated according to the source's absence
+        # policy; when terminated, the phase is inferred from ``expires``.
         for alert_id, prev in self._previous.items():
             if alert_id in incoming:
                 continue
@@ -159,6 +187,16 @@ class AlertStore:
             # references, it was superseded — skip incident_removed since
             # incident_updated was already fired for the superseding alert.
             if prev.identifier and prev.identifier in referenced_identifiers:
+                continue
+            if not scope_changed and _retain_on_absence(prev, now, self._provider):
+                retained = replace(
+                    prev,
+                    stale=True,
+                    last_confirmed=self._last_seen.get(alert_id, ""),
+                    phase_changed=False,
+                )
+                active[alert_id] = retained
+                result.append(retained)
                 continue
             inferred = _infer_terminal_phase(prev, now)
             terminal_alert = replace(
@@ -173,6 +211,16 @@ class AlertStore:
                 phase_changed=terminal_alert.phase_changed,
                 changed_fields=[],
             )
+
+        now_iso = now.isoformat()
+        for alert_id in incoming:
+            if alert_id in active:
+                self._last_seen[alert_id] = now_iso
+        self._last_seen = {
+            alert_id: seen
+            for alert_id, seen in self._last_seen.items()
+            if alert_id in active
+        }
 
         self._previous = active
         return result
@@ -246,6 +294,37 @@ def _diff_fields(prev: CAPAlert, curr: CAPAlert) -> list[str]:
         for name in CHANGED_FIELDS_ALLOWLIST
         if getattr(prev, name) != getattr(curr, name)
     ]
+
+
+def _retain_on_absence(alert: CAPAlert, now: datetime, provider: str) -> bool:
+    """Whether an alert missing from this reconciliation should be kept.
+
+    Absence is an observation, not an announcement. Two sanctioned endpoints of
+    one national feed have been measured disagreeing about which alerts are
+    live (RFC §2.5), and NWS never publishes a cancellation to the endpoint the
+    provider polls — cancellations land on a different one entirely, which is
+    why the NWS provider fetches them separately. So an alert vanishing between
+    reconciliations means either "it ended" or "we failed to see it", and
+    nothing in the observation itself distinguishes them.
+
+    Retaining costs a stale warning until its published expiry. Terminating
+    costs a live hazard silently cleared from the dashboard, followed by a
+    *new* incident when the feed recovers, because an id that left the tracked
+    set comes back unrecognized — the history fragmentation of RFC §1.2,
+    self-inflicted. The second is worse, so absence alone does not terminate.
+
+    Retention is bounded by the alert's own ``expires``: a source that supplies
+    no expiry has nothing to age the alert out with, so absence remains its only
+    termination signal and the alert is terminated as before. That, and a source
+    declaring ``ABSENCE_ENDS`` because withdrawing a record is genuinely how it
+    announces the end, are the two ways this returns False with time left.
+    """
+    if conventions_for(provider).absence_policy != ABSENCE_RETAIN:
+        return False
+    expires_at = _parse_iso(alert.expires)
+    if expires_at is None:
+        return False
+    return now < expires_at
 
 
 def _infer_terminal_phase(alert: CAPAlert, now: datetime) -> str:

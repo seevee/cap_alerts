@@ -102,13 +102,15 @@ def test_no_supersession_when_identifier_not_referenced(hass, alert_factory):
 
     store = AlertStore(hass, "entry1", "eccc")
 
-    # Poll N: alert A
+    # Poll N: alert A. No expiry, so absence is the only end-of-life signal it
+    # can ever get and retention does not apply — see the absence-policy tests
+    # in test_store_payload.py. Keeps this test about supersession.
     alert_a = alert_factory(
         id="K1",
         identifier="id-A",
         msg_type="Alert",
         provider="eccc",
-        expires="2099-01-01T00:00:00+00:00",
+        expires="",
     )
     store.process(normalize_alerts([alert_a]))
     hass.bus.async_fire.reset_mock()

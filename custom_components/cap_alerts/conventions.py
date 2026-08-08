@@ -990,6 +990,11 @@ NWS_REISSUE_STAGES: tuple[PipelineStage, ...] = (
 # ``geocodes``).
 _NO_REMOVAL_REASONS: Mapping[str, str] = MappingProxyType({})
 
+# Values for ``SourceConventions.absence_policy``. See the field for why
+# retaining is the default.
+ABSENCE_RETAIN = "retain"
+ABSENCE_ENDS = "ends"
+
 
 @dataclass(frozen=True, slots=True)
 class SourceConventions:
@@ -1020,6 +1025,22 @@ class SourceConventions:
     keep: Callable[[CAPAlert], bool] | None = None
     # List-shaped stages, each bound to a named slot in the provider's fetch.
     stages: tuple[PipelineStage, ...] = ()
+    # What an alert's absence from a reconciliation means for this source.
+    # ``ABSENCE_RETAIN`` (the default) says absence is an observation failure
+    # until proven otherwise: the store keeps the alert, marks it stale, and
+    # waits for its ``expires`` or an explicit terminal signal. ``ABSENCE_ENDS``
+    # says the feed publishes only live records and withdrawing one is how this
+    # source announces the end, so absence terminates immediately.
+    #
+    # Retaining is the safe default because a feed gap is indistinguishable
+    # from a cancellation at the moment of observation, and the two errors are
+    # not symmetric: retaining a finished alert shows a stale warning until its
+    # published expiry, while dropping a live one silently clears a hazard from
+    # the user's dashboard and then re-creates it as a *new* incident when the
+    # feed recovers, fragmenting its history (RFC §1.2, §1.4 item 8). A source
+    # should only declare ``ABSENCE_ENDS`` when it has no expiry to fall back
+    # on and no terminal vocabulary of its own.
+    absence_policy: str = ABSENCE_RETAIN
 
     @property
     def classifies_marine(self) -> bool:

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import sys
 import types
-from unittest.mock import MagicMock
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -123,11 +124,13 @@ def test_removed_alert_fires_removed_event(hass, alert_factory):
     from custom_components.cap_alerts.store import AlertStore
 
     store = AlertStore(hass, "entry1", "nws")
-    store.process(normalize_alerts([alert_factory(id="a", msg_type="Alert")]))
+    store.process(
+        normalize_alerts([alert_factory(id="a", msg_type="Alert", expires="")])
+    )
     hass.bus.async_fire.reset_mock()
 
-    # Alert with a future expires disappears → inferred as cancel (provider
-    # silently dropped it).
+    # An alert with no expiry has nothing to bound retention with, so its
+    # absence is the only end-of-life signal the source will ever give.
     store.process([])
 
     fired = _fired(hass)
@@ -211,8 +214,13 @@ def test_silent_disappearance_past_expires_inferred_as_expired(hass, alert_facto
     assert _fired(hass) == []
 
 
-def test_silent_disappearance_before_expires_inferred_as_cancel(hass, alert_factory):
-    """Alert with a future expires that vanishes is treated as cancel."""
+def test_absence_within_expires_retains_the_alert(hass, alert_factory):
+    """One missed reconciliation is not a lifecycle signal (RFC §1.4 item 8).
+
+    The alert stays in the active set, marked stale, and nothing fires: a feed
+    gap must not clear a live hazard from the dashboard, and must not re-create
+    it as a new incident when the feed recovers.
+    """
     from custom_components.cap_alerts.normalize import normalize_alerts
     from custom_components.cap_alerts.store import AlertStore
 
@@ -223,13 +231,116 @@ def test_silent_disappearance_before_expires_inferred_as_cancel(hass, alert_fact
     store.process(seeded)
     hass.bus.async_fire.reset_mock()
 
-    store.process([])
+    result = store.process([])
 
+    assert _fired(hass) == []
+    assert [a.id for a in result] == ["a"]
+    assert result[0].stale is True
+    assert result[0].last_confirmed  # stamped from the last cycle that saw it
+    assert result[0].phase == "new"
+
+
+def test_retained_alert_recovers_without_an_event(hass, alert_factory):
+    """The feed comes back: the alert is confirmed again, silently."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "nws")
+    seeded = normalize_alerts(
+        [alert_factory(id="a", msg_type="Alert", expires="2099-01-01T00:00:00Z")]
+    )
+    store.process(seeded)
+    store.process([])
+    hass.bus.async_fire.reset_mock()
+
+    result = store.process(seeded)
+
+    # No incident_created — the alert never left the tracked set, which is the
+    # whole point: a recovered gap must not fragment the incident's history.
+    assert _fired(hass) == []
+    assert result[0].stale is False
+    assert result[0].last_confirmed == ""
+
+
+def test_absence_terminates_once_expires_has_passed(hass, alert_factory):
+    """Retention is bounded by the authority's own expiry."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "nws")
+    # Seeded while live, so it enters the tracked set as an active alert.
+    store.process(
+        normalize_alerts(
+            [alert_factory(id="a", msg_type="Alert", expires="2099-01-01T00:00:00Z")]
+        )
+    )
+    hass.bus.async_fire.reset_mock()
+
+    # A later reconciliation, with the clock past the alert's expiry. Subclassed
+    # rather than mocked so ``fromisoformat`` keeps working — the store parses
+    # the expiry it is comparing against.
+    class _Later(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2099, 6, 1, tzinfo=timezone.utc)
+
+    with patch("custom_components.cap_alerts.store.datetime", _Later):
+        result = store.process([])
+
+    assert result == []
     fired = _fired(hass)
     assert len(fired) == 1
     event_type, payload = fired[0]
     assert event_type == "incident_removed"
-    assert payload["phase"] == "cancel"
+    assert payload["phase"] == "expired"
+
+
+def test_absence_ends_policy_terminates_immediately(hass, alert_factory):
+    """A source declaring ABSENCE_ENDS opts out of retention."""
+    from custom_components.cap_alerts import store as store_mod
+    from custom_components.cap_alerts.conventions import (
+        ABSENCE_ENDS,
+        SourceConventions,
+    )
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "nws")
+    store.process(
+        normalize_alerts(
+            [alert_factory(id="a", msg_type="Alert", expires="2099-01-01T00:00:00Z")]
+        )
+    )
+    hass.bus.async_fire.reset_mock()
+
+    with patch.object(
+        store_mod,
+        "conventions_for",
+        return_value=SourceConventions(absence_policy=ABSENCE_ENDS),
+    ):
+        result = store.process([])
+
+    assert result == []
+    assert [e for e, _ in _fired(hass)] == ["incident_removed"]
+
+
+def test_scope_change_suspends_retention(hass, alert_factory):
+    """Out of scope is not unobserved: the user moved, the alert did not."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "nws")
+    store.process(
+        normalize_alerts(
+            [alert_factory(id="a", msg_type="Alert", expires="2099-01-01T00:00:00Z")]
+        )
+    )
+    hass.bus.async_fire.reset_mock()
+
+    result = store.process([], scope_changed=True)
+
+    assert result == []
+    assert [e for e, _ in _fired(hass)] == ["incident_removed"]
 
 
 def _eccc(alert_factory, **overrides):
@@ -325,7 +436,9 @@ def test_silent_disappearance_has_no_removal_reason(hass, alert_factory):
 
     store = AlertStore(hass, "entry1", "eccc")
     store.process(
-        normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="active")])
+        normalize_alerts(
+            [_eccc(alert_factory, id="a", lifecycle_status="active", expires="")]
+        )
     )
     hass.bus.async_fire.reset_mock()
 
