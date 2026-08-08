@@ -18,11 +18,11 @@ This document is a working draft for a future Home Assistant architecture propos
 ## 1. Problem Statement
 
 ### 1.1 The 16 KB Recorder Ceiling
-Home Assistant stores entity attributes in a single database column capped at 16,384 bytes. During severe weather outbreaks or complex infrastructure incidents, the combined metadata (descriptions, instructions, area polygons) for many simultaneous items routinely exceeds this limit.
+Home Assistant stores an entity's attributes in a single database column capped at 16,384 bytes (`MAX_STATE_ATTRS_BYTES`). During severe weather outbreaks or complex infrastructure incidents, the combined metadata — descriptions, instructions, area polygons — for many simultaneous items routinely exceeds it.
 
-When it does, the recorder silently fails to commit the affected state changes.
+What happens on overflow is worth stating precisely, because it is not what earlier drafts of this section claimed. The recorder does not fail to commit the state change. `StateAttributes.shared_attrs_bytes_from_event` (`homeassistant/components/recorder/db_schema.py`, checked against HA 2026.7.3) serializes the attributes, compares the result against the cap, and on overflow logs a warning — *"State attributes for `<entity_id>` exceed maximum size of 16384 bytes. This can cause database performance issues; Attributes will not be stored"* — then persists `{}` in place of the payload. The state row commits and history keeps the state value; every attribute on it is discarded. For a packed-attribute alert sensor, whose state is typically a count and whose entire content lives in attributes, history therefore retains the number and loses the alerts, with nothing in the UI distinguishing that row from a healthy one.
 
-`cap_alerts` avoids the ceiling by creating one dedicated entity per active incident. Each entity stays under the limit on its own.
+The architectural point underneath is not that 16,384 bytes is a small budget. It is that **the number of simultaneously active incidents is unbounded while the storage unit is fixed.** Packing N incidents into one entity makes the payload scale with N against a constant ceiling, so whether the data survives is a function of how bad the weather is — the failure arrives precisely when the data matters most. One entity per incident moves the storage boundary to the incident, so each stays under the limit on its own no matter how many others are active. That invariant, not the size of the constant, is what this RFC's entity model rests on.
 
 ### 1.2 Lifecycle Fragmentation
 Most current integrations treat each API response as independent. When a provider issues an update (for example, NWS promotes a message from `NEW` to `CON` or `EXT`), the new message often arrives with a different URI. Naïve integrations treat this as a brand-new event, retiring the old entity and breaking state history mid-event. The `nws` code owner ran into this directly in [home-assistant/core#37415](https://github.com/home-assistant/core/pull/37415), noting that "it is common that one alert will replace another" and that CAP `references` are "useful when an alert updates a previous alert" (see §8.1).
@@ -412,7 +412,7 @@ GDACS is the live demonstration. Today Home Assistant's `gdacs` integration rend
 
 The cheapest objection to this entire RFC is that it proposes backend machinery for what is visibly a display problem: a Lovelace card can fetch CAP itself, parse it in the browser, and draw it, with no new domain, no entity churn, and no core review. This is not hypothetical. [`weather-radar-card`](https://github.com/jpettitt/weather-radar-card) — MIT, in the HACS default store, ~430 stars — ships exactly that: its watches-and-warnings overlay polls `api.weather.gov` directly from the browser and resolves zone polygons on demand into an IndexedDB cache. It works, it is popular, and it required nothing from core.
 
-It is also, structurally, the *only* feed it can ever support. The browser's same-origin policy makes cross-origin reads conditional on the server opting in, and the CAP publishing world has not. Probing each endpoint the reference implementation ingests, with an `Origin` header, on 2026-08-08:
+It is also, structurally, the *only* feed it can ever support. The browser's same-origin policy makes cross-origin reads conditional on the server opting in, and the CAP publishing world has not. Probing each endpoint the reference implementation ingests, with an `Origin` header, on 2026-08-08 (all dates in this document are UTC):
 
 | Endpoint | Authority | HTTP | `Access-Control-Allow-Origin` |
 | :-- | :-- | :-- | :-- |
@@ -583,9 +583,13 @@ The reserved `parent_id` attribute (§2.1) is the hook for this. No v1 provider 
 
 For users and organizations that need durable, rich historical records (after-action reports, insurance timelines, regulated compliance logs, climatological research, etc.) the recommended pattern is to subscribe to `incident_removed` (and optionally `incident_created` / `incident_updated`) and forward full payloads to an external sink.
 
-The event payload (§2.3) includes `incident_id`, `event`, `severity`, `phase`, and `changed_fields`. Subscribers can dereference `incident_id` to fetch full attributes from the state machine and geometry via the §2.4 HTTP view before the entity is torn down. Natural sinks include InfluxDB via the existing HA integration, Postgres via AppDaemon or a small custom component, SQLite for self-contained setups, and notification platforms (Slack, PagerDuty) for incident-response workflows.
+**The removal event must be self-sufficient, and an archival consumer must not dereference the entity.** An earlier draft of this section suggested subscribers resolve `incident_id` against the state machine and fetch geometry from the §2.4 view "before the entity is torn down." That is a race, and the RFC specifies the losing side of it: §7.3 fires `incident_removed` and removes the entity within the same coordinator cycle, and §2.4 purges the incident's geometry in that cycle too, so the polygon endpoint returns `404` to anyone who arrives after the event. A synchronous listener may win; an automation with any queueing, a `notify` platform with network latency, or an external sink consuming the event stream out of process will not, and the failure is silent and intermittent — the worst shape for a records path someone is relying on for an after-action report.
 
-A reference blueprint demonstrating this pattern will ship alongside the platform. It complements rather than replaces the native History UI: the UI remains useful for at-a-glance review of active and recently-cleared incidents, while the archival hook is for records that need to outlive the entity.
+The contract is therefore that `incident_removed` carries what termination processing needs (§2.3), and that anything richer must be captured earlier. A consumer wanting full descriptions, instructions, or geometry archives them from `incident_created` and `incident_updated`, where the entity and its geometry are both live, and treats `incident_removed` as the signal to close the record rather than to go fetch it. This is the same reasoning that put `area_desc` on the event payload in the first place. A core implementation that wants archival to be a first-class pattern has the option of widening the removal payload instead; what it must not do is document a retrieval step that its own teardown ordering defeats.
+
+Natural sinks include InfluxDB via the existing HA integration, Postgres via AppDaemon or a small custom component, SQLite for self-contained setups, and notification platforms (Slack, PagerDuty) for incident-response workflows.
+
+A reference blueprint demonstrating this pattern already ships in the reference implementation, at [`blueprints/cap_alerts_archive_incident_removed.yaml`](blueprints/cap_alerts_archive_incident_removed.yaml); a core platform should ship its equivalent. It forwards `trigger.event.data` to a notify service and dereferences nothing, which is the pattern above rather than the one the earlier draft described. It complements rather than replaces the native History UI: the UI remains useful for at-a-glance review of active and recently-cleared incidents, while the archival hook is for records that need to outlive the entity.
 
 ### 6.5 Per-zone Sub-device Grouping
 
@@ -612,7 +616,7 @@ The conclusion generalizes past NWS: precompute the *simplification*, not the *d
 Sample `developer-tools/state` output for a live NWS Severe Thunderstorm Warning:
 
 ```yaml
-entity_id: incident.severe_thunderstorm_warning_okx
+entity_id: incident.severe_thunderstorm_warning_7c4e1f9a
 state: severe
 attributes:
   id: OKX.SV.W.0042.2026
@@ -645,14 +649,16 @@ attributes:
   language: "en-US"
   vtec: "/O.NEW.KOKX.SV.W.0042.260414T1947Z-260414T2045Z/"
   event_code_nws: SV.W
-  friendly_name: Severe Thunderstorm Warning (OKX)
+  friendly_name: Severe Thunderstorm Warning
   icon: mdi:weather-lightning
 ```
+
+The `_7c4e1f9a` suffix on the `entity_id` is the §2.2 short hash — the first 8 hex characters of SHA-1 over the entity's `unique_id` — not an issuing-office code. Both examples in this appendix carry one, because the derivation is unconditional: it is what keeps two concurrent warnings of the same event type from colliding into HA's `..._2` numeric fallback, and it is therefore present even when nothing else would collide. The `friendly_name` is the CAP `<event>` string with no office suffix. §2.2 derives the `entity_id` slug from `event` but the RFC states no separate display-name rule, so the examples take the plain event name rather than encoding provenance that the `sender` and `sender_name` attributes already carry.
 
 A non-weather incident from the same reference implementation, showing that the shape is unchanged across hazard classes — only `category`, `event`, and the provider-specific fields differ. Drawn from a live NAAD message (§4.1):
 
 ```yaml
-entity_id: incident.911_service_inoperative_3f2a9c14
+entity_id: incident.911_service_inoperative_b8d0e274
 state: extreme
 attributes:
   id: 3f2a9c14b7d2
