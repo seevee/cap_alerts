@@ -316,11 +316,26 @@ def _retain_on_absence(alert: CAPAlert, now: datetime) -> bool:
     The one thing that makes absence itself authoritative is the source's
     declared convention: ``ABSENCE_ENDS`` says withdrawing a record is
     genuinely how this source announces the end. It is a property of the
-    source's contract, not of any one message — which is why an alert that
-    merely *omits* ``expires`` is retained rather than terminated: a missing
-    field says there is no time-based bound, not that absence means anything.
-    Such an alert is retained until an explicit terminal signal arrives, and
-    stays visibly ``stale`` the whole time.
+    source's contract, not of any one message, which is why an alert that
+    merely *omits* ``expires`` is not terminated on that basis alone.
+
+    **Retention requires an exit.** Keeping an alert is only safe if something
+    can eventually end it, and an alert with no expiry has ruled out the
+    obvious candidate. Two others remain, both declared in the convention
+    table: a terminal vocabulary the source publishes
+    (``lifecycle_removal_reasons``), or a provider that goes and fetches
+    terminations the active feed omits (``discovers_terminations``). With
+    none of the three, retention has no way to end and the entity would
+    outlive the hazard by an unbounded margin — so absence stays authoritative
+    for exactly that case.
+
+    This is not hypothetical. Across 113 WMO authorities serving CAP, 20 of
+    510 ``<info>`` blocks published no ``<expires>`` at all, and for two of
+    them — Macao and Curaçao — it was every single alert, with nothing in the
+    RSS envelope to fall back on. WMO declares no terminal vocabulary and has
+    no termination lookup, so retaining those would have meant entities that
+    never go away for whole countries. Deriving the rule from the table rather
+    than naming those senders keeps it true for the next such source.
 
     Resolved per sender, not per provider, because sender-scoped convention
     entries *replace* the provider's (see ``conventions_for``) and a dialect
@@ -330,9 +345,11 @@ def _retain_on_absence(alert: CAPAlert, now: datetime) -> bool:
     if conventions.absence_policy != ABSENCE_RETAIN:
         return False
     expires_at = _parse_iso(alert.expires)
-    if expires_at is None:
-        return True
-    return now < expires_at
+    if expires_at is not None:
+        return now < expires_at
+    return bool(conventions.lifecycle_removal_reasons) or (
+        conventions.discovers_terminations
+    )
 
 
 def _infer_terminal_phase(alert: CAPAlert, now: datetime) -> str:

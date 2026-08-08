@@ -236,3 +236,35 @@ def test_meteoalarm_awareness_severity_none_when_absent_or_malformed(alert_facto
         )
         is None
     )
+
+
+def test_every_retaining_source_has_a_way_out():
+    """No shipped source can retain an expiry-less alert it can never end.
+
+    ``store._retain_on_absence`` keeps an alert with no ``expires`` only when
+    the source declares a terminal vocabulary or fetches terminations itself.
+    A source with neither, left on the default retain policy, would strand an
+    expiry-less alert as an entity that never goes away — the WMO case, where
+    two of 113 authorities publish no ``<expires>`` on any alert.
+
+    WMO is expected in the exception list: it has no exit, so absence stays
+    authoritative for its expiry-less alerts, which is the safe direction.
+    This guards the *combination*, so adding a source without thinking about
+    it fails here rather than in someone's entity registry.
+    """
+    from custom_components.cap_alerts.conventions import ABSENCE_RETAIN
+
+    without_exit = {
+        key
+        for key, conv in CONVENTIONS.items()
+        if conv.absence_policy == ABSENCE_RETAIN
+        and not conv.lifecycle_removal_reasons
+        and not conv.discovers_terminations
+    }
+    # These fall back to absence-terminates for expiry-less alerts, by design.
+    assert without_exit == {
+        "meteoalarm",
+        "wmo",
+        f"meteoalarm/{METEOFRANCE_SENDER}",
+        f"meteoalarm/{FMI_SENDER}",
+    }
