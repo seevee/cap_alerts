@@ -866,11 +866,72 @@ These are documented for architecture planning; the provider protocol accommodat
 
 ### DWD — Deutscher Wetterdienst, Germany
 
-- **API**: `https://www.dwd.de/DWD/warnungen/warnapp/json/warnings.json` — JSONP (strip `warnWetter.loadWarnings(…);` wrapper).
-- Warnings keyed by warncell ID.
-- `level` 0–4 maps to severity: 4=Extreme, 3=Severe, 2=Moderate, 1=Minor, 0=None. Color hex as fallback.
-- No CAP urgency/certainty; event names are in German.
-- Config flow: warncell ID or region name.
+Supersedes an earlier sketch here that proposed the `warnapp/json/warnings.json`
+JSONP endpoint. That endpoint is a lossy view: DWD publishes real CAP, so the
+provider is a CAP consumer rather than a bespoke JSON mapping.
+
+- **Feed**: `https://opendata.dwd.de/weather/alerts/cap/` — CAP 1.2 XML, no auth.
+  The tree is *area granularity* (`COMMUNEUNION` / `DISTRICT`) × *product*
+  (`DWD` / `CELLS` / `EVENT`) × *mode* (`STAT` snapshot / `DIFF` increment).
+  `COMMUNEUNION_DWD_STAT` is the natural fit: a full current-state snapshot,
+  which is what `AlertStore`'s authoritative diffing already expects.
+- **Bodies**: one zip per language — `…_COMMUNEUNION_{DE,EN,ES,FR,MUL}.zip`,
+  each containing one CAP XML per alert. Language selection is a URL choice
+  here, not an `<info>` walk, so it sidesteps the multi-info work entirely.
+- **Identity**: `2.49.0.0.276.0.DWD.PVW.<epoch>.<uuid>.<LANG>` — a WMO-style OID,
+  stable across the update chain, with `<references>` populated. `sha256` of the
+  identifier plus `resolve_chain_leaves` applies unchanged.
+- **Geometry**: inline `<polygon>` in `<area>`, so `providers/cap.py` and
+  `geometry.py` handle it as-is. Geocode scheme is `WARNCELLID`.
+- Full CAP classification: `severity` Minor→Extreme, `urgency`, `certainty`,
+  `responseType`, and `eventCode` entries (`II`, `LICENSE`, `PROFILE_VERSION`).
+- Config flow: warncell ID or region name; language picks the archive.
+
+#### Germany has three routes to DWD, and they are not interchangeable
+
+MeteoAlarm (shipped), BBK / NINA (issue #66) and this feed all carry DWD
+warnings. Measured 2026-08-07/08:
+
+| | MeteoAlarm `feeds-germany` | DWD opendata | BBK / NINA |
+| :-- | :-- | :-- | :-- |
+| Origin | DWD only — 656/656 entries sender `opendata@dwd.de` | DWD | DWD subset + MoWaS / KATWARN / BIWAPP / LHP |
+| Severity | all bands: Minor 259, Moderate 318, Severe 79 | all | Warnstufen 3–5 only |
+| Granularity | Kreis (`WARNCELLID` `1…`) | COMMUNEUNION *or* DISTRICT | own |
+| Geometry | none | inline `<polygon>` | separate `.geojson` fetch |
+| Languages | 8 inline | one per archive | 8–9 inline |
+| Geocodes | `EMMA_ID` + `WARNCELLID` | `WARNCELLID` | ARS / `AreaId` |
+
+**MeteoAlarm Germany is a pure DWD relay**, so the overlap with a direct DWD
+provider is total — but it is not the same slice BBK carries. BBK relays only the
+upper warning levels (*"In der Warn-App NINA werden die DWD-Warnungen zu den
+Warnstufen 3 bis 5 dargestellt"*), so the yellow "Amtliche WARNUNG" band never
+reaches it. Measured: three `severity: Minor` thunderstorm alerts live on the DWD
+CAP feed over Berchtesgadener Land, Traunstein and Rosenheim, live 40+ minutes
+per their `<references>` chain, while `api31/dwd/mapData.json` and all three
+district dashboards returned empty and the BBK API was otherwise healthy
+(`mowas` had 8 entries). The same warning batch *is* present in the MeteoAlarm
+archive at that `sent` epoch, at Kreis rather than commune granularity. Whether
+`Moderate` (orange) crosses the BBK threshold is unmeasured — nothing orange was
+live at sampling time.
+
+Consequences for provider design:
+
+- **MeteoAlarm already covers the German weather half**, at every severity band,
+  with `EMMA_ID` for the region picker. What a direct DWD provider adds over it
+  is narrow: inline polygons and commune-level granularity. Not nothing —
+  MeteoAlarm ships no geometry in any country (0 polygons across ~5,900 areas
+  sampled over DE/FR/IT/AT), so `geometry_ref` and `bbox` are permanently empty
+  for MeteoAlarm entities — but it is a geometry argument, not a coverage one.
+- **BBK's civil-protection channels are the real gap.** MoWaS / KATWARN /
+  BIWAPP / LHP traffic has no MeteoAlarm equivalent, no DWD equivalent, and no
+  other HA path.
+- **Cross-provider duplication is already reachable.** A German user running
+  MeteoAlarm alongside a future BBK entry gets duplicate entities for every
+  Warnstufe 3–5 warning: separate config entries, separate coordinators, no
+  cross-entry dedupe. Adding BBK collides with a shipped provider, not a
+  hypothetical one. The identifiers do share a core — BBK emits `dwd.<OID>.MUL`
+  where MeteoAlarm relays `<OID>.MUL` and opendata `<OID>.<LANG>` — so dedupe is
+  a string operation, but it has nowhere to run today.
 
 ---
 
@@ -899,15 +960,27 @@ When alert geometry is present, every alert entity exposes a 4-element `bbox: [m
 ### Geometry externalization (§2.4)
 
 Full GeoJSON polygons are **not** entity attributes. The coordinator writes them
-to `.storage/cap_alerts_geometry` (an LRU-bounded `Store`, soft cap 5 MB, keyed
-by `geometry_ref = "{provider}:{alert_id}"`) and entities expose only the opaque
-`geometry_ref` handle. Consumers fetch polygons out-of-band:
+to a process-wide in-memory `GeometryStore` (LRU-bounded by total serialized
+bytes, cap 5 MB, keyed by `geometry_ref = "{entry_id}:{provider}:{alert_id}"`)
+and entities expose only the opaque `geometry_ref` handle. Nothing is persisted
+to `.storage`: geometry is ephemeral, re-fetchable from the feed, and writing
+hundreds of KB per poll cycle would accelerate SD-card wear on the Pi-class
+hardware much of the HA install base runs on. The store starts empty after a
+restart and the next poll refills it.
+
+The `entry_id` prefix is load-bearing rather than cosmetic. The store is a
+singleton shared across config entries, so a `{provider}:{alert_id}` key would
+collide whenever two entries on the same provider both see an alert — the
+overlapping-NWS-zones case — and the second write would win. The same prefix is
+what lets `purge_missing()` scope a sweep to one entry's refs.
+
+Consumers fetch polygons out-of-band:
 
 - REST: `GET /api/cap_alerts/geometry/{geometry_ref}` → `FeatureCollection`
 - Websocket: `{type: "cap_alerts/geometry", geometry_ref}` → `FeatureCollection`
 
 Both require HA auth. The coordinator purges refs for expired/cancelled alerts
-in the same cycle that drops the entity — storage reflects live state. The old
+in the same cycle that drops the entity — the store reflects live state. The old
 `CONF_INCLUDE_GEOMETRY` option is gone; its recorder-ceiling footgun no longer
 exists because geometry never touches attributes.
 
