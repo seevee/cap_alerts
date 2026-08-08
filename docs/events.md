@@ -73,10 +73,19 @@ a change of *scope* — the tracker crosses a border, a zone is reconfigured,
 the marine filter is toggled — suspends retention for that cycle, because
 those alerts have gone out of scope rather than unobserved.
 
-An alert carrying no `expires` goes the other way: nothing bounds its
-retention, so it stays, visibly `stale`, until an explicit terminal signal
-arrives or its source declares absence authoritative. A missing field on one
-message is not a statement about what withdrawal means for the source.
+An alert carrying no `expires` is the interesting case, because time can no
+longer end it. **Retention requires an exit**, so such an alert is retained
+only when something else can: a source that publishes a terminal vocabulary
+(ECCC's `Alert_Location_Status`), or a provider that fetches the terminations
+its active feed omits (NWS, above). With neither, absence stays authoritative
+and the alert is removed as before — otherwise the entity would outlive the
+hazard indefinitely.
+
+This is measured, not theoretical. Of 113 WMO authorities serving CAP, 20 of
+510 `<info>` blocks published no `<expires>` at all, and for Macao and Curaçao
+it was *every* alert, with nothing in the RSS envelope to fall back on. WMO
+declares no terminal vocabulary and fetches no terminations, so retaining
+those would have left entities that never go away for whole countries.
 
 For NWS specifically, the provider now fetches cancellations separately.
 Cancellations are published as VTEC `CAN` products but never appear on

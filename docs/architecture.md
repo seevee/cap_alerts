@@ -969,10 +969,22 @@ and a property of the source's contract rather than of any message), when the
 query scope changed (`scope_changed`, computed by the coordinator from the
 resolved config and options), or when the alert was superseded by a document
 the region filter dropped before it reached the store
-(`superseded_identifiers`, supplied from `_live_docs`). An alert that publishes
-no `expires` is retained indefinitely — visibly stale — until an explicit
-terminal signal arrives: a missing field bounds nothing, but it also declares
-nothing.
+(`superseded_identifiers`, supplied from `_live_docs`).
+
+**Retention requires an exit.** An alert publishing no `expires` cannot be ended
+by time, so it is retained only when the source can end it some other way:
+`lifecycle_removal_reasons` (a terminal vocabulary it publishes) or
+`discovers_terminations` (a provider that fetches terminations the active feed
+omits — NWS). With neither, absence stays authoritative for that alert, because
+retaining it would leave an entity nothing could ever remove. `test_conventions`
+guards the combination so a new source cannot land on the default retain policy
+with no way out.
+
+The case is measured, not defensive: of 113 WMO authorities serving CAP, 20 of
+510 `<info>` blocks carried no `<expires>`, and Macao (`mo-smg-xx`) and Curaçao
+(`cw-meteo-en`) published none on any alert, with no `cap:expires` in the RSS
+envelope either. Hong Kong omits it on 44% of blocks and China on 16%. WMO has
+neither exit, so those alerts terminate on absence.
 
 One known limitation: a MeteoFrance warning lifted early via a green marker is
 retained stale until its day-end expiry, because the marker is dropped by the

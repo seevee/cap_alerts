@@ -1065,6 +1065,20 @@ class SourceConventions:
     # stale until its source re-publishes or a human removes the entry — an
     # accepted trade against silently clearing a live hazard.
     absence_policy: str = ABSENCE_RETAIN
+    # True when the provider actively fetches terminations the active feed
+    # omits, rather than waiting for one to arrive. NWS is the case: it
+    # publishes cancellations as VTEC ``CAN`` products but never on
+    # ``/alerts/active``, so the provider queries them separately.
+    #
+    # Read by ``store._retain_on_absence`` as one of the three ways an alert
+    # can eventually be ended. It matters only for alerts with no ``expires``,
+    # where time cannot end them: retaining one is safe if a termination will
+    # be fetched, and unsafe if nothing will ever arrive. A source with no
+    # expiry, no terminal vocabulary and no lookup has no exit at all, and
+    # retaining its alerts would leave entities that outlive the hazard
+    # indefinitely — measured on WMO, where two authorities publish no
+    # ``<expires>`` on any alert.
+    discovers_terminations: bool = False
 
     @property
     def classifies_marine(self) -> bool:
@@ -1088,6 +1102,9 @@ CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
             marine_code_prefixes=NWS_MARINE_UGC_PREFIXES,
             severity=nws_vtec_severity,
             stages=NWS_REISSUE_STAGES,
+            # NWSProvider._fetch_cancellations goes and gets the VTEC CAN
+            # products the active endpoint never carries.
+            discovers_terminations=True,
         ),
         "eccc": SourceConventions(
             marine_code_prefixes=frozenset({ECCC_MARINE_CLC_PREFIX}),

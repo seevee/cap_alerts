@@ -307,10 +307,14 @@ def test_absence_terminates_once_expires_has_passed(hass, alert_factory):
 def test_absence_without_expiry_is_retained_not_terminated(hass, alert_factory):
     """A missing ``expires`` is not a declaration that absence ends the alert.
 
-    Only a source-level ABSENCE_ENDS makes absence authoritative; a field
-    omitted from one message says there is no time-based bound, nothing more.
-    The alert is retained, visibly stale, until an explicit terminal signal —
-    which, when it arrives, still terminates it.
+    A field omitted from one message says there is no time-based bound,
+    nothing more. NWS is retained here because it still has an exit: the
+    provider fetches the VTEC ``CAN`` products the active feed omits
+    (``discovers_terminations``), so a termination can still arrive. The
+    alert stays visibly stale until one does — and when it does, it ends.
+
+    Contrast ``test_absence_without_expiry_or_exit_terminates``, where nothing
+    can ever end the alert and retention is therefore unsafe.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
     from custom_components.cap_alerts.store import AlertStore
@@ -332,6 +336,53 @@ def test_absence_without_expiry_is_retained_not_terminated(hass, alert_factory):
         normalize_alerts([alert_factory(id="a", msg_type="Cancel", expires="")])
     )
     assert [e for e, _ in _fired(hass)] == ["incident_removed"]
+
+
+def test_absence_without_expiry_or_exit_terminates(hass, alert_factory):
+    """Retention needs something that can eventually end the alert.
+
+    The WMO shape, and not a hypothetical one: of 113 WMO authorities serving
+    CAP, two — Macao and Curacao — published no ``<expires>`` on any alert,
+    with nothing in the RSS envelope to fall back on. WMO declares no terminal
+    vocabulary and fetches no terminations, so an expiry-less alert there has
+    no exit at all: retaining it would leave an entity that never goes away.
+    Absence stays authoritative for exactly that case.
+    """
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "wmo")
+    store.process(
+        normalize_alerts(
+            [alert_factory(id="a", provider="wmo", msg_type="Alert", expires="")]
+        )
+    )
+    hass.bus.async_fire.reset_mock()
+
+    result = store.process([])
+
+    assert result == []
+    assert [e for e, _ in _fired(hass)] == ["incident_removed"]
+
+
+def test_absence_without_expiry_retained_on_a_terminal_vocabulary(hass, alert_factory):
+    """ECCC has no lookup, but it does announce endings, so retention is safe."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "eccc")
+    store.process(
+        normalize_alerts(
+            [alert_factory(id="a", provider="eccc", msg_type="Update", expires="")]
+        )
+    )
+    hass.bus.async_fire.reset_mock()
+
+    result = store.process([])
+
+    assert _fired(hass) == []
+    assert [a.id for a in result] == ["a"]
+    assert result[0].stale is True
 
 
 def test_absence_ends_policy_terminates_immediately(hass, alert_factory):
