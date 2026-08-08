@@ -77,6 +77,22 @@ _NWS_EVENT_ICONS: dict[str, str] = {
     "tsunami watch": "mdi:tsunami",
 }
 
+# GDACS event-name (CAP ``event``) → mdi. Keys are case-insensitive matched.
+# GDACS emits one fixed English name per hazard type, so this is an exact
+# lookup rather than a substring sweep — and the hazards themselves are why
+# it can't lean on the tables below: an earthquake or a volcano is not
+# weather, and no weather vocabulary carries a needle for either. Every name
+# here was checked against the shipped MDI set.
+_GDACS_EVENT_ICONS: dict[str, str] = {
+    "earthquake": "mdi:pulse",
+    "volcano": "mdi:volcano",
+    "tropical cyclone": "mdi:weather-hurricane",
+    "flood": "mdi:home-flood",
+    "tsunami": "mdi:tsunami",
+    "drought": "mdi:water-off",
+    "wildfire": "mdi:fire",
+}
+
 # ECCC event-name substrings → mdi. Matched after lowercasing ``event``.
 # Substring match handles ECCC's variable naming (e.g. "severe thunderstorm
 # warning", "tornado warning issued").
@@ -193,6 +209,10 @@ def icon_for(alert: CAPAlert) -> str:
 
     if alert.provider == "nws":
         if (icon := _NWS_EVENT_ICONS.get(event)) is not None:
+            return icon
+
+    if alert.provider == "gdacs":
+        if (icon := _GDACS_EVENT_ICONS.get(event)) is not None:
             return icon
 
     # MeteoAlarm services emit hyphenated/underscored compound terms (e.g.

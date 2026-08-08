@@ -43,6 +43,8 @@ CONF_LANGUAGE = "language"
 CONF_EXCLUDE_MARINE = "exclude_marine"
 CONF_STREAMING = "streaming"
 CONF_FEED_SOURCE = "feed_source"
+CONF_ALERT_LEVEL = "alert_level"
+CONF_GDACS_EVENT_TYPES = "gdacs_event_types"
 
 # Defaults
 DEFAULT_SCAN_INTERVAL = 300  # seconds
@@ -349,3 +351,32 @@ WMO_LANGUAGES: tuple[str, ...] = (
     "th",
     "zh",
 )
+
+# GDACS (Global Disaster Alert and Coordination System). The 24-hour index
+# lists every event created or updated in the last day, across all hazards;
+# per-event CAP is served by cap.aspx keyed on the same (eventtype, eventid)
+# pair the RSS item carries. The static contentdata path the item's <cap>
+# element names is deliberately not used: constructing the URL from the RSS
+# fields keeps the lifecycle identity inputs and the fetch URL the same two
+# authoritative values.
+GDACS_RSS_URL = "https://www.gdacs.org/xml/rss_24h.xml"
+GDACS_CAP_URL = "https://www.gdacs.org/cap.aspx?eventtype={eventtype}&eventid={eventid}"
+
+# GDACS hazard codes → display labels, for the options-flow event-type filter.
+# The codes are the values of the RSS item's ``gdacs:eventtype`` element.
+GDACS_EVENT_TYPES: dict[str, str] = {
+    "EQ": "Earthquake",
+    "TC": "Tropical Cyclone",
+    "FL": "Flood",
+    "VO": "Volcano",
+    "DR": "Drought",
+    "WF": "Wildfire",
+    "TS": "Tsunami",
+}
+
+# GDACS alert levels in ascending severity. This is GDACS's own impact scale,
+# not CAP severity — it is used solely as a pre-fetch volume threshold, while
+# the entity state keeps coming from the CAP body's <severity>. Green events
+# (especially earthquakes) are high-volume, so a user can raise the floor to
+# Orange or Red and never pay for the CAP bodies below it.
+GDACS_ALERT_LEVELS: tuple[str, ...] = ("Green", "Orange", "Red")

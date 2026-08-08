@@ -8,6 +8,7 @@ Alert data is modeled using [CAP (Common Alerting Protocol) 1.2](https://docs.oa
 - **ECCC** — Environment and Climate Change Canada (NAAD real-time streaming feed, GeoRSS as backfill)
 - **MeteoAlarm** — EUMETNET European aggregator (per-country CAP JSON, ~37 member services)
 - **WMO** — World Meteorological Organization Severe Weather Information Centre (per-source RSS → CAP XML), covering ~100 national services without a dedicated provider
+- **GDACS** — Global Disaster Alert and Coordination System (worldwide RSS index → per-event CAP XML): earthquakes, volcanoes and tsunamis alongside cyclones, floods, droughts and wildfires. The one non-weather source, and the reason the model is a CAP model rather than a weather model.
 
 Additional providers (BoM, DWD, …) can be added behind the same `AlertProvider` protocol.
 
@@ -41,6 +42,7 @@ Pick a provider, then a location mode:
 | ECCC        | Province code (`AB`, `BC`, `ON`, …), GPS (`lat,lon`) |
 | MeteoAlarm  | Country (ISO 3166-1 alpha-2, e.g. `DE`), with optional GPS polygon filter or region multi-select (`EMMA_ID` for most countries, `NUTS3`/`NUTS2` for some, area names where a feed publishes no geocodes) |
 | WMO         | Source ID picked from the live SWIC registry (e.g. `mx-smn-es`; custom IDs accepted), country-wide or with optional GPS polygon filter |
+| GDACS       | Worldwide (every event in the index), or GPS (`lat,lon`) keeping only events whose affected area contains the point |
 
 ### Options (per entry)
 
@@ -49,6 +51,8 @@ Pick a provider, then a location mode:
 - **Language** — ECCC: `auto` / `en-CA` / `fr-CA`. MeteoAlarm: 2-letter prefix (`en`, `de`, `fr`, …) used to pick the primary `<cap:info>` block. WMO: `auto` or any BCP 47 tag the source publishes (e.g. `zh-Hans`), matched against each `<info>` block's language. NWS has no language option (English-only).
 - **Real-time streaming** (ECCC) — ingest alerts the moment they are issued, over the NAAD TCP streaming feed; the GeoRSS feed becomes a startup/reconnect backfill plus periodic resync. Default on. Turning it off falls back to GeoRSS polling on the scan interval. A diagnostic binary sensor reports the socket state (see Entities).
 - **Feed source** (ECCC) — which NAAD GeoRSS host serves polling/backfill: `auto` (default; fetches both hosts and unions their entries, since neither alone carries every live alert), or pin `alertready` / `pelmorex` as an escape hatch.
+- **Event types** (GDACS) — which hazards to track (Earthquake, Tropical Cyclone, Flood, Volcano, Drought, Wildfire, Tsunami). Every type by default. Applied to the RSS index before any CAP body is fetched, so narrowing it also cuts the fetch cost.
+- **Minimum alert level** (GDACS) — `Green` (default, everything), `Orange` or `Red`. This is GDACS's own impact scale, not the alert's CAP severity: it decides which events get fetched, while the entity state still comes from the alert's own `<severity>`. Raise it to cut the volume of green earthquakes.
 - **Exclude marine alerts** (NWS, ECCC) — opt-in filter that drops alerts carrying a marine zone code (NWS marine UGC area prefixes, ECCC CLC codes starting `00`). Default off.
 - **Area codes (prefix match)** (all providers) — opt-in narrowing on top of the location filter chosen at setup. Comma-separated prefixes (e.g. `13,37`); an alert is kept when any area code it publishes starts with one of them. Codes are hierarchical, so a shorter prefix covers a wider area (`13` = Hebei, `1307` = Zhangjiakou). Mainly for sources with no per-alert geometry and no region picker — notably WMO's `cn-cma-xx`, where it cuts a country-wide entry from ~234 alerts to ~28 for Hebei. Code lengths vary within a scheme, so prefer the leading digits over pasting a full code. Empty by default.
 
@@ -132,7 +136,8 @@ Data flow per poll:
 
 ```
 Weather API → Provider.async_fetch() → list[CAPAlert]
-                ↑ (NWS: GeoJSON, ECCC: Atom→CAP XML, MeteoAlarm: JSON, WMO: RSS→CAP XML)
+                ↑ (NWS: GeoJSON, ECCC: Atom→CAP XML, MeteoAlarm: JSON,
+                   WMO / GDACS: RSS→CAP XML)
   Coordinator._async_update_data()
     normalize_alerts() → sets severity_normalized, phase
     store.process()    → diffs vs previous, sets phase_changed, fires HA events
@@ -162,6 +167,7 @@ custom_components/cap_alerts/
     eccc.py                 # Environment Canada NAAD Atom feed
     meteoalarm.py           # EUMETNET per-country CAP JSON + region listing
     wmo.py                  # WMO SWIC per-source RSS → CAP XML + source registry
+    gdacs.py                # GDACS global RSS index → per-event CAP XML
 ```
 
 Deeper reference: [`docs/architecture.md`](docs/architecture.md) (alert identity hashing, field mappings, provider rationale, future providers). Planned work: [`docs/roadmap.md`](docs/roadmap.md).
@@ -170,6 +176,8 @@ Deeper reference: [`docs/architecture.md`](docs/architecture.md) (alert identity
 
 - **ECCC** fetches the linked CAP XML body (not just the Atom envelope), so alerts carry full `headline`/`description`/`instruction`, accurate timestamps, and one card per alert series — revision chains (NEW → UPDATE → CANCEL) collapse to the current leaf via CAP `<references>`.
 - **WMO** reuses the same RSS-index → per-item CAP two-step (and the shared CAP parser), populates its source dropdown from the live SWIC registry, and pre-filters already-expired RSS items so high-volume feeds don't blow the poll timeout. EU/US users are better served by the dedicated MeteoAlarm/NWS providers.
+
+- **GDACS** runs the same two-step fetch, with two differences that matter. Its filters (event type, alert level) are applied to the RSS index *before* any CAP body is fetched, because a global feed of green earthquakes would otherwise cost a fetch cascade every poll. And its alert identity is `sha256("{eventtype}:{eventid}")`, not a hash of the CAP `<identifier>` — GDACS writes that as `GDACS_<type>_<eventid>_<episodeid>` and bumps the episode on every re-issue, so hashing it would mint a new entity per update. The index covers the last 24 hours: an event that stops being updated drops out and its entity despawns.
 
 See [`docs/architecture.md`](docs/architecture.md) for the full ECCC and WMO sections — CAP body fetch, concurrency and caching, the expiry pre-filter, and per-field mappings.
 

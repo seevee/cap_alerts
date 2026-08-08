@@ -338,3 +338,18 @@ def test_wmo_tracker_title():
         CONF_TRACKER_ENTITY: "device_tracker.phone",
     }
     assert _compute(data) == "CAP Alerts WMO (Mexico (SMN, Spanish) (phone))"
+
+
+# --- GDACS -------------------------------------------------------------------
+
+
+def test_gdacs_global_title():
+    # The feed is worldwide, so a scope-less entry is complete, not "Unknown".
+    assert _compute({CONF_PROVIDER: "gdacs"}) == "CAP Alerts GDACS (Global)"
+
+
+def test_gdacs_gps_title():
+    assert (
+        _compute({CONF_PROVIDER: "gdacs", CONF_GPS_LOC: "35.6762,139.6503"})
+        == "CAP Alerts GDACS (35.6762,139.6503)"
+    )
