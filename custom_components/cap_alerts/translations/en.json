@@ -8,7 +8,7 @@
           "eccc": "Environment Canada",
           "meteoalarm": "MeteoAlarm (Europe)",
           "wmo": "WMO Severe Weather",
-          "gdacs": "GDACS — Global Disaster Alerts"
+          "gdacs": "GDACS Global Disasters"
         }
       },
       "nws": {
@@ -184,7 +184,7 @@
           "gps_loc": "GPS Coordinates"
         },
         "data_description": {
-          "gps_loc": "Latitude,Longitude (e.g. 35.6762,139.6503). Keeps only events whose affected area contains the point. GDACS draws an earthquake's area as a ring about 100 km across, so this reads as 'events near me'."
+          "gps_loc": "Latitude,Longitude (e.g. 35.6762,139.6503). Keeps only events whose affected area contains the point."
         }
       },
       "reconfigure": {
@@ -194,7 +194,7 @@
           "reconfigure_eccc": "Environment Canada",
           "reconfigure_meteoalarm": "MeteoAlarm (Europe)",
           "reconfigure_wmo": "WMO Severe Weather",
-          "reconfigure_gdacs": "GDACS — Global Disaster Alerts"
+          "reconfigure_gdacs": "GDACS Global Disasters"
         }
       },
       "reconfigure_nws": {
@@ -429,8 +429,8 @@
           "streaming": "Stream ECCC alerts over the NAAD real-time feed for near-instant updates (recommended). When off, alerts are polled from the GeoRSS feed on the polling interval. ECCC only.",
           "feed_source": "Which NAAD GeoRSS host(s) to fetch. 'auto' combines both feeds so no alert carried by only one is missed (recommended). The legacy host retires around September 2026; pin a single host only to work around a specific feed issue. ECCC only.",
           "exclude_marine": "Hide alerts issued for marine/water zones (boating, open water). NWS and ECCC only.",
-          "gdacs_event_types": "Which GDACS hazards to track. Applied to the index before any alert is fetched, so narrowing it also cuts the fetch cost. Leave every type selected (the default) to track them all, including any hazard GDACS adds later. GDACS only.",
-          "alert_level": "Lowest GDACS alert level to fetch: Green (all), Orange, or Red. This is GDACS's own impact scale, not the alert's CAP severity — it decides which events are fetched, while the entity state still comes from the alert itself. Raise it to cut the volume of green earthquakes. GDACS only.",
+          "gdacs_event_types": "Which GDACS hazards to track. Filtering happens before any alert is fetched, so narrowing this also cuts the fetch cost. Leave every type selected (the default) to track them all, including hazards GDACS adds later. GDACS only.",
+          "alert_level": "Lowest GDACS alert level to fetch: Green (all), Orange, or Red. This is GDACS's own impact scale, not CAP severity: it decides which events are fetched, not how they are shown. Raise it to cut the volume of green earthquakes. GDACS only.",
           "geocode_prefixes": "Optional. Comma-separated area-code prefixes (e.g. 13,37). Keeps only alerts whose area codes start with one of them, on top of the location filter chosen at setup. Codes are hierarchical, so a shorter prefix covers a wider area (13 = Hebei, 1307 = Zhangjiakou). Matched against every code scheme the source publishes. Code lengths vary within a scheme, so pasting a full code may match nothing — prefer the leading digits. Leave empty to disable."
         }
       }
