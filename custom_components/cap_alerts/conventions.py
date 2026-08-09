@@ -1141,11 +1141,15 @@ CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
             stages=episode_stages(FMI_EPISODES),
         ),
         "wmo": SourceConventions(),
-        # No GDACS CAP body carries a <geocode> (identity travels in
-        # <parameter> entries instead), so the area-code narrowing option is
-        # withheld. Everything else is deliberately default — in particular no
-        # absence policy: GDACS alerts have no <expires> and no terminal
-        # vocabulary, so withdrawal from the 24-hour index is what ends them.
+        # GDACS publishes no area geocodes at all (its identity travels in the
+        # RSS envelope instead), so the area-code narrowing option is withheld.
+        # Everything else is deliberately default — in particular no absence
+        # policy: GDACS alerts have no <expires> and no terminal vocabulary, so
+        # ``_retain_on_absence`` already ends them the moment they leave the
+        # feed, which is the only end-of-life signal this source has.
+        # ``iscurrent`` is not that signal: it goes false for droughts and
+        # nothing else, while every earthquake, cyclone, flood, volcano and
+        # wildfire observed stayed true right up to the poll it vanished on.
         "gdacs": SourceConventions(publishes_geocodes=False),
     }
 )

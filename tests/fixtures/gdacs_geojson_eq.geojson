@@ -1,0 +1,36 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "bbox": [157.0, 50.0, 157.0, 50.0],
+      "geometry": {"type": "Point", "coordinates": [157.0, 50.0]},
+      "properties": {
+        "eventtype": "EQ",
+        "eventid": 1556861,
+        "episodeid": 1723786,
+        "eventname": "",
+        "polygonlabel": "Centroid",
+        "Class": "Point_Centroid",
+        "alertlevel": "Green",
+        "country": "Russia"
+      }
+    },
+    {
+      "type": "Feature",
+      "bbox": [156.0, 49.0, 158.0, 51.0],
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[156.0, 49.0], [158.0, 49.0], [158.0, 51.0], [156.0, 51.0], [156.0, 49.0]]]
+      },
+      "properties": {
+        "eventtype": "EQ",
+        "eventid": 1556861,
+        "episodeid": 1723786,
+        "polygonlabel": "100km",
+        "Class": "Poly_Circle",
+        "alertlevel": "Green"
+      }
+    }
+  ]
+}

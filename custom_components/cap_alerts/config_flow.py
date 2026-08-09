@@ -53,6 +53,7 @@ from .const import (
     DOMAIN,
     ECCC_PROVINCES,
     GDACS_ALERT_LEVELS,
+    GDACS_DEFAULT_ALERT_LEVEL,
     GDACS_EVENT_TYPES,
     METEOALARM_COUNTRIES,
     METEOALARM_COUNTRY_NAMES,
@@ -1584,9 +1585,11 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                 )
             ] = _wmo_language_selector()
         elif provider == "gdacs":
-            # Both fields are applied to the RSS index *before* any CAP body is
-            # fetched, so raising the floor is what keeps a global feed of green
-            # earthquakes from costing a fetch cascade every poll.
+            # Both fields are applied to the RSS indexes *before* any geometry
+            # is fetched, so the floor is what keeps a global feed of green
+            # wildfires from costing a fetch cascade every poll. It defaults to
+            # Orange rather than the widest value for that reason — the form
+            # shows the same default the provider applies when unset.
             schema[
                 vol.Optional(
                     CONF_GDACS_EVENT_TYPES,
@@ -1599,7 +1602,7 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                 vol.Optional(
                     CONF_ALERT_LEVEL,
                     default=self.config_entry.options.get(
-                        CONF_ALERT_LEVEL, GDACS_ALERT_LEVELS[0]
+                        CONF_ALERT_LEVEL, GDACS_DEFAULT_ALERT_LEVEL
                     ),
                 )
             ] = vol.In(list(GDACS_ALERT_LEVELS))

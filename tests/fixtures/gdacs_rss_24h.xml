@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The 24-hour index, deliberately overlapping the current-events index without
+  being contained by it (the shape measured live on 2026-08-08):
+
+  * TC 1001297 appears in both, here under a *newer* episode — the merge has to
+    keep this one.
+  * EQ 1556844 appears only here. It is the sub-threshold earthquake the
+    current-events feed gates out on magnitude, and the reason both indexes are
+    polled at all.
+-->
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:geo="http://www.w3.org/2003/01/geo/wgs84_pos#" xmlns:gdacs="http://www.gdacs.org" xmlns:glide="http://glidenumber.net" xmlns:georss="http://www.georss.org/georss" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>GDACS RSS information</title>
+    <link>https://www.gdacs.org/</link>
+    <description>Natural disasters from the last 24 hours</description>
+    <item>
+      <title>Orange notification for tropical cyclone DOLPHIN-26</title>
+      <description>Tropical cyclone DOLPHIN-26 can have a high humanitarian impact.</description>
+      <link>https://www.gdacs.org/report.aspx?eventtype=TC&amp;eventid=1001297</link>
+      <pubDate>Sat, 08 Aug 2026 18:00:00 GMT</pubDate>
+      <guid isPermaLink="false">TC1001297</guid>
+      <gdacs:cap>https://www.gdacs.org/contentdata/resources/TC/1001297/cap_1001297.xml</gdacs:cap>
+      <gdacs:eventtype>TC</gdacs:eventtype>
+      <gdacs:alertlevel>Orange</gdacs:alertlevel>
+      <gdacs:episodealertlevel>Orange</gdacs:episodealertlevel>
+      <gdacs:eventname>DOLPHIN-26</gdacs:eventname>
+      <gdacs:eventid>1001297</gdacs:eventid>
+      <gdacs:episodeid>52</gdacs:episodeid>
+      <gdacs:iscurrent>true</gdacs:iscurrent>
+      <gdacs:fromdate>Mon, 27 Jul 2026 00:00:00 GMT</gdacs:fromdate>
+      <gdacs:todate>Sat, 08 Aug 2026 18:00:00 GMT</gdacs:todate>
+      <gdacs:datemodified>Sat, 08 Aug 2026 18:30:00 GMT</gdacs:datemodified>
+      <gdacs:severity unit="km/h" value="140">Tropical Storm (maximum wind speed of 140 km/h)</gdacs:severity>
+      <gdacs:population unit="Pop" value="125000">125 thousand in Category 1</gdacs:population>
+      <gdacs:iso3>MHL</gdacs:iso3>
+      <gdacs:country>Marshall Islands, Japan, China</gdacs:country>
+    </item>
+    <item>
+      <title>Green earthquake alert (Magnitude 4.5M, Depth:10km) in Pakistan 08/08/2026 03:30 UTC</title>
+      <description>On 8/8/2026 3:30:00 AM, an earthquake occurred in Pakistan potentially affecting 380 thousand in MMI IV.</description>
+      <link>https://www.gdacs.org/report.aspx?eventtype=EQ&amp;eventid=1556844</link>
+      <pubDate>Sat, 08 Aug 2026 03:30:00 GMT</pubDate>
+      <guid isPermaLink="false">EQ1556844</guid>
+      <gdacs:cap>https://www.gdacs.org/contentdata/resources/EQ/1556844/cap_1556844.xml</gdacs:cap>
+      <gdacs:eventtype>EQ</gdacs:eventtype>
+      <gdacs:alertlevel>Green</gdacs:alertlevel>
+      <gdacs:episodealertlevel>Green</gdacs:episodealertlevel>
+      <gdacs:eventname></gdacs:eventname>
+      <gdacs:eventid>1556844</gdacs:eventid>
+      <gdacs:episodeid>1723762</gdacs:episodeid>
+      <gdacs:iscurrent>true</gdacs:iscurrent>
+      <gdacs:fromdate>Sat, 08 Aug 2026 03:30:00 GMT</gdacs:fromdate>
+      <gdacs:todate>Sat, 08 Aug 2026 03:30:00 GMT</gdacs:todate>
+      <gdacs:datemodified>Sat, 08 Aug 2026 03:55:00 GMT</gdacs:datemodified>
+      <gdacs:severity unit="M" value="4.5">Magnitude 4.5M, Depth:10km</gdacs:severity>
+      <gdacs:population unit="in MMI IV" value="380674">380 thousand in MMI IV</gdacs:population>
+      <gdacs:iso3>PAK</gdacs:iso3>
+      <gdacs:country>Pakistan</gdacs:country>
+    </item>
+  </channel>
+</rss>

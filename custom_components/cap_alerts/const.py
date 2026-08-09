@@ -352,15 +352,38 @@ WMO_LANGUAGES: tuple[str, ...] = (
     "zh",
 )
 
-# GDACS (Global Disaster Alert and Coordination System). The 24-hour index
-# lists every event created or updated in the last day, across all hazards;
-# per-event CAP is served by cap.aspx keyed on the same (eventtype, eventid)
-# pair the RSS item carries. The static contentdata path the item's <cap>
-# element names is deliberately not used: constructing the URL from the RSS
-# fields keeps the lifecycle identity inputs and the fetch URL the same two
-# authoritative values.
-GDACS_RSS_URL = "https://www.gdacs.org/xml/rss_24h.xml"
-GDACS_CAP_URL = "https://www.gdacs.org/cap.aspx?eventtype={eventtype}&eventid={eventid}"
+# GDACS (Global Disaster Alert and Coordination System). Two RSS indexes, and
+# neither is a superset of the other — both are polled and unioned (probed
+# 2026-08-08):
+#
+# * ``rss.xml`` lists *current* events, whatever their age: a cyclone stays for
+#   as long as it runs (12.9d observed), a flood 81.9d, a drought 403.9d. It is
+#   the lifecycle feed. But it also gates on significance — every earthquake in
+#   it was M≥5.5 and every one it excluded M≤5.1 — and it retires even those
+#   after about four days (M5.6 at 90.4h present, M5.7 at 98.4h gone).
+# * ``rss_24h.xml`` lists everything created or modified in the last day
+#   regardless of significance, which is the only place the M4.5–5.4
+#   earthquakes appear. Ten of its eighteen items were absent from ``rss.xml``
+#   on the sampled poll. It windows on *modification* time, so a long-running
+#   event that keeps updating stays in it too.
+#
+# There is no per-event CAP document to fetch. ``cap.aspx`` reads only its
+# ``eventtype`` parameter and returns the newest event of that type whatever
+# ``eventid`` is passed, so every event of a type resolved to one body; the
+# per-event path each RSS item advertises in ``<gdacs:cap>`` exists only for
+# cyclones and answers HTTP 200 with an HTML page for everything else. The RSS
+# item itself is the record — see ``providers/gdacs.py``.
+GDACS_RSS_CURRENT_URL = "https://www.gdacs.org/xml/rss.xml"
+GDACS_RSS_24H_URL = "https://www.gdacs.org/xml/rss_24h.xml"
+
+# Per-event geometry, keyed by the episode the RSS item names. The episode id
+# in the path makes each URL immutable, so the shared content cache can hold
+# it until the event actually revises. 2.5–10.6 KiB for every hazard type
+# except cyclones, whose forecast track and wind radii push them to ~340 KiB.
+GDACS_GEOJSON_URL = (
+    "https://www.gdacs.org/contentdata/resources/{eventtype}/{eventid}"
+    "/geojson_{eventid}_{episodeid}.geojson"
+)
 
 # GDACS hazard codes → display labels, for the options-flow event-type filter.
 # The codes are the values of the RSS item's ``gdacs:eventtype`` element.
@@ -374,9 +397,35 @@ GDACS_EVENT_TYPES: dict[str, str] = {
     "TS": "Tsunami",
 }
 
+# CAP classification per hazard code, as ``(category, certainty)``. Harvested
+# from the envelopes GDACS's own CAP bodies carry per type (probed 2026-08-08)
+# rather than assigned here, so the values match what the feed says about
+# itself: floods and droughts are ``Geo``, not ``Met``, and only cyclones are
+# ``Met``. Wildfires are the one gap — GDACS publishes no <category> for them,
+# so ``Fire`` is ours, taken from the CAP 1.2 enumeration.
+GDACS_CAP_CLASSIFICATION: dict[str, tuple[str, str]] = {
+    "EQ": ("Geo", "Observed"),
+    "TS": ("Geo", "Observed"),
+    "VO": ("Geo", "Unknown"),
+    "FL": ("Geo", "Unknown"),
+    "DR": ("Geo", "Unknown"),
+    "TC": ("Met", "Unknown"),
+    "WF": ("Fire", "Unknown"),
+}
+
 # GDACS alert levels in ascending severity. This is GDACS's own impact scale,
-# not CAP severity — it is used solely as a pre-fetch volume threshold, while
-# the entity state keeps coming from the CAP body's <severity>. Green events
-# (especially earthquakes) are high-volume, so a user can raise the floor to
-# Orange or Red and never pay for the CAP bodies below it.
+# used both as a pre-fetch volume threshold and — since no per-event CAP body
+# exists to read a <severity> from — as the source of the alert's CAP severity
+# (see ``providers.gdacs``). Green events, wildfires and earthquakes above all,
+# are high-volume, so a user can raise the floor to Orange or Red and never pay
+# for the geometry below it.
 GDACS_ALERT_LEVELS: tuple[str, ...] = ("Green", "Orange", "Red")
+
+# The default floor is Orange, the one place a GDACS default is not "everything
+# the feed offers". A green floor is 327 events worldwide — 280 of them green
+# wildfires — and a global entry would mint an entity for each; Orange leaves 7
+# (both measured live, 2026-08-08). Cold-fetching all 327 also takes ~17 s of
+# the coordinator's 30 s timeout, so the widest setting is the one with the
+# least headroom for a slow network. A user who wants the green tail can still
+# ask for it — they just take on both costs knowingly.
+GDACS_DEFAULT_ALERT_LEVEL = "Orange"
