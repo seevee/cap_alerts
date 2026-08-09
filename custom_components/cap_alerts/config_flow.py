@@ -27,11 +27,13 @@ from homeassistant.helpers.selector import (
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
+    CONF_ALERT_LEVEL,
     CONF_COUNTRY,
     CONF_COUNTRY_ATTRIBUTE,
     CONF_COUNTRY_ENTITY,
     CONF_EXCLUDE_MARINE,
     CONF_FEED_SOURCE,
+    CONF_GDACS_EVENT_TYPES,
     CONF_GEOCODE_PREFIXES,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
@@ -50,6 +52,9 @@ from .const import (
     DEFAULT_TIMEOUT,
     DOMAIN,
     ECCC_PROVINCES,
+    GDACS_ALERT_LEVELS,
+    GDACS_DEFAULT_ALERT_LEVEL,
+    GDACS_EVENT_TYPES,
     METEOALARM_COUNTRIES,
     METEOALARM_COUNTRY_NAMES,
     WMO_LANGUAGES,
@@ -172,6 +177,11 @@ def _compute_device_title(data: dict[str, Any]) -> str:
             location = f"{source_name} ({data[CONF_TRACKER_ENTITY].split('.')[-1]})"
         else:
             location = source_name
+    elif data[CONF_PROVIDER] == "gdacs":
+        # "Global" is a real scope here, not a missing one — the GDACS index is
+        # worldwide, so an entry with no GPS filter is fully configured and must
+        # not fall through to the "Unknown" default.
+        location = data.get(CONF_GPS_LOC, "Global")
     elif CONF_COUNTRY_ENTITY in data:
         # MeteoAlarm fully-mobile mode: country follows a source entity, so
         # there is no static location — surface the tracker name as "auto".
@@ -322,6 +332,27 @@ def _wmo_language_selector() -> SelectSelector:
     )
 
 
+def _gdacs_event_type_selector() -> SelectSelector:
+    """Multi-select of GDACS hazard codes, labelled with their event names.
+
+    No ``custom_value``: unlike the MeteoAlarm region codes, this list is the
+    complete published hazard set, and an unselected list already means "every
+    type", so there is nothing a typed-in code could add.
+    """
+    options = [
+        SelectOptionDict(value=code, label=label)
+        for code, label in GDACS_EVENT_TYPES.items()
+    ]
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=options,
+            mode=SelectSelectorMode.DROPDOWN,
+            multiple=True,
+            sort=True,
+        )
+    )
+
+
 def _country_selector() -> SelectSelector:
     """Dropdown selector backed by ``METEOALARM_COUNTRY_NAMES``."""
     options = [
@@ -425,7 +456,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
         """Provider selection menu."""
         return self.async_show_menu(
             step_id="user",
-            menu_options=["nws", "eccc", "meteoalarm", "wmo"],
+            menu_options=["nws", "eccc", "meteoalarm", "wmo", "gdacs"],
         )
 
     # ── NWS setup ──
@@ -855,6 +886,46 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    # ── GDACS setup ──
+
+    async def async_step_gdacs(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """GDACS location scope menu.
+
+        Scope only: the event-type and alert-level filters are volume tuning,
+        so they live in the options flow and a fresh entry works without them.
+        """
+        return self.async_show_menu(
+            step_id="gdacs",
+            menu_options=["gdacs_global", "gdacs_gps_loc"],
+        )
+
+    async def async_step_gdacs_global(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        data = {CONF_PROVIDER: "gdacs"}
+        return self.async_create_entry(title=_compute_device_title(data), data=data)
+
+    async def async_step_gdacs_gps_loc(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            gps, err = _validate_gps(user_input[CONF_GPS_LOC])
+            if err:
+                errors["base"] = err
+            else:
+                data = {CONF_PROVIDER: "gdacs", CONF_GPS_LOC: gps}
+                return self.async_create_entry(
+                    title=_compute_device_title(data), data=data
+                )
+        return self.async_show_form(
+            step_id="gdacs_gps_loc",
+            data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
+            errors=errors,
+        )
+
     # ── Reconfigure flow ──
 
     async def async_step_reconfigure(
@@ -868,6 +939,7 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
                 "reconfigure_eccc",
                 "reconfigure_meteoalarm",
                 "reconfigure_wmo",
+                "reconfigure_gdacs",
             ],
         )
 
@@ -1385,6 +1457,49 @@ class CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure_gdacs(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return self.async_show_menu(
+            step_id="reconfigure_gdacs",
+            menu_options=["reconfigure_gdacs_global", "reconfigure_gdacs_gps_loc"],
+        )
+
+    async def async_step_reconfigure_gdacs_global(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        entry = self._get_reconfigure_entry()
+        new_data = {CONF_PROVIDER: "gdacs"}
+        return self.async_update_and_abort(
+            entry, data=new_data, title=_compute_device_title(new_data)
+        )
+
+    async def async_step_reconfigure_gdacs_gps_loc(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+        if user_input is not None:
+            gps, err = _validate_gps(user_input[CONF_GPS_LOC])
+            if err:
+                errors["base"] = err
+            else:
+                new_data = {CONF_PROVIDER: "gdacs", CONF_GPS_LOC: gps}
+                return self.async_update_and_abort(
+                    entry, data=new_data, title=_compute_device_title(new_data)
+                )
+        return self.async_show_form(
+            step_id="reconfigure_gdacs_gps_loc",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_GPS_LOC, default=entry.data.get(CONF_GPS_LOC, "")
+                    ): str,
+                }
+            ),
+            errors=errors,
+        )
+
 
 class CAPAlertsOptionsFlowHandler(OptionsFlow):
     """Handle options flow for CAP Alerts."""
@@ -1407,6 +1522,17 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                     data[CONF_GEOCODE_PREFIXES] = prefixes
                 else:
                     data.pop(CONF_GEOCODE_PREFIXES, None)
+                # The GDACS multiselect materializes its all-types default into
+                # user_input on save, and a stored list is a closed set — a
+                # hazard code GDACS adds later would be silently dropped by an
+                # entry that never chose to narrow. All types selected (or
+                # none) means "no narrowing", and no narrowing is spelled
+                # "absent", same as the prefixes above.
+                event_types = data.get(CONF_GDACS_EVENT_TYPES)
+                if event_types is not None and (
+                    not event_types or set(event_types) == set(GDACS_EVENT_TYPES)
+                ):
+                    data.pop(CONF_GDACS_EVENT_TYPES)
                 return self.async_create_entry(title="", data=data)
 
         provider = self.config_entry.data.get(CONF_PROVIDER)
@@ -1458,6 +1584,28 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                     default=self.config_entry.options.get(CONF_LANGUAGE, "auto"),
                 )
             ] = _wmo_language_selector()
+        elif provider == "gdacs":
+            # Both fields are applied to the RSS indexes *before* any geometry
+            # is fetched, so the floor is what keeps a global feed of green
+            # wildfires from costing a fetch cascade every poll. It defaults to
+            # Orange rather than the widest value for that reason — the form
+            # shows the same default the provider applies when unset.
+            schema[
+                vol.Optional(
+                    CONF_GDACS_EVENT_TYPES,
+                    default=self.config_entry.options.get(
+                        CONF_GDACS_EVENT_TYPES, list(GDACS_EVENT_TYPES)
+                    ),
+                )
+            ] = _gdacs_event_type_selector()
+            schema[
+                vol.Optional(
+                    CONF_ALERT_LEVEL,
+                    default=self.config_entry.options.get(
+                        CONF_ALERT_LEVEL, GDACS_DEFAULT_ALERT_LEVEL
+                    ),
+                )
+            ] = vol.In(list(GDACS_ALERT_LEVELS))
 
         # Marine-alert exclusion is only meaningful for providers that classify
         # marine zones (NWS UGC prefixes, ECCC CLC "00…"). Asked of the
@@ -1471,17 +1619,21 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                 )
             ] = bool
 
-        # Area-code narrowing is provider-neutral: every provider populates
-        # CAPAlert.geocodes, so this is offered for all of them. Re-rendered
-        # from the rejected input rather than the stored value, so a typo is
-        # shown back to the user to correct instead of silently reverting.
-        stored_prefixes = self.config_entry.options.get(CONF_GEOCODE_PREFIXES) or []
-        prefix_default = (
-            str(user_input.get(CONF_GEOCODE_PREFIXES, "") or "")
-            if user_input is not None
-            else ",".join(stored_prefixes)
-        )
-        schema[vol.Optional(CONF_GEOCODE_PREFIXES, default=prefix_default)] = str
+        # Area-code narrowing composes with every location mode, but only on
+        # sources that publish geocodes at all — GDACS never does, so there the
+        # field's only possible effect is a permanently unavailable entry.
+        # Asked of the convention table, like the marine toggle above. The
+        # field re-renders from the rejected input rather than the stored
+        # value, so a typo is shown back to the user to correct instead of
+        # silently reverting.
+        if conventions_for(provider or "").publishes_geocodes:
+            stored_prefixes = self.config_entry.options.get(CONF_GEOCODE_PREFIXES) or []
+            prefix_default = (
+                str(user_input.get(CONF_GEOCODE_PREFIXES, "") or "")
+                if user_input is not None
+                else ",".join(stored_prefixes)
+            )
+            schema[vol.Optional(CONF_GEOCODE_PREFIXES, default=prefix_default)] = str
 
         return self.async_show_form(
             step_id="init",

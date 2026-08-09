@@ -1,0 +1,48 @@
+{
+  "comment": "A cyclone ships its impact areas (Poly_Green/Poly_Orange) together with its forecast track and cones. The forecast features here sit around lon 141-143 so a point-in-polygon test can prove they are excluded, while the impact areas sit around lon 130-131.",
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [130.5, 31.5]},
+      "properties": {"polygonlabel": "Centroid", "Class": "Point_Centroid", "eventname": "DOLPHIN-26"}
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[130.0, 31.0], [131.0, 31.0], [131.0, 32.0], [130.0, 32.0], [130.0, 31.0]]]
+      },
+      "properties": {"polygonlabel": "Orange alert area", "Class": "Poly_Orange"}
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[141.0, 31.0], [142.0, 31.0], [142.0, 32.0], [141.0, 32.0], [141.0, 31.0]]]
+      },
+      "properties": {"polygonlabel": "Forecast cone", "Class": "Poly_Cones"}
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[142.0, 31.0], [143.0, 31.0], [143.0, 32.0], [142.0, 32.0], [142.0, 31.0]]]
+      },
+      "properties": {"polygonlabel": "34kt wind radius", "Class": "Poly_WindRadii_34_2608081800"}
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[142.5, 31.0], [143.5, 31.0], [143.5, 32.0], [142.5, 32.0], [142.5, 31.0]]]
+      },
+      "properties": {"polygonlabel": "Track point 0", "Class": "Poly_Polygon_Point_0"}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "LineString", "coordinates": [[130.5, 31.5], [142.5, 31.5]]},
+      "properties": {"polygonlabel": "Track", "Class": "Line_Line_0"}
+    }
+  ]
+}

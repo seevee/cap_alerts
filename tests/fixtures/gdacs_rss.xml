@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:geo="http://www.w3.org/2003/01/geo/wgs84_pos#" xmlns:gdacs="http://www.gdacs.org" xmlns:glide="http://glidenumber.net" xmlns:georss="http://www.georss.org/georss" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>GDACS RSS information</title>
+    <link>https://www.gdacs.org/</link>
+    <description>Near real-time notification about natural disaster with a potential humanitarian impact</description>
+    <item>
+      <title>Green earthquake alert (Magnitude 4.8M, Depth:82.521km) in Russia 08/08/2026 05:39 UTC</title>
+      <description>On 8/8/2026 5:39:00 AM, an earthquake occurred in Russia potentially affecting 1 thousand in MMI IV.</description>
+      <link>https://www.gdacs.org/report.aspx?eventtype=EQ&amp;eventid=1556861</link>
+      <pubDate>Sat, 08 Aug 2026 05:39:39 GMT</pubDate>
+      <guid isPermaLink="false">EQ1556861</guid>
+      <gdacs:cap>https://www.gdacs.org/contentdata/resources/EQ/1556861/cap_1556861.xml</gdacs:cap>
+      <gdacs:eventtype>EQ</gdacs:eventtype>
+      <gdacs:alertlevel>Green</gdacs:alertlevel>
+      <gdacs:episodealertlevel>Green</gdacs:episodealertlevel>
+      <gdacs:eventname></gdacs:eventname>
+      <gdacs:eventid>1556861</gdacs:eventid>
+      <gdacs:episodeid>1723786</gdacs:episodeid>
+      <gdacs:iscurrent>true</gdacs:iscurrent>
+      <gdacs:fromdate>Sat, 08 Aug 2026 05:39:00 GMT</gdacs:fromdate>
+      <gdacs:todate>Sat, 08 Aug 2026 05:39:00 GMT</gdacs:todate>
+      <gdacs:datemodified>Sat, 08 Aug 2026 06:10:00 GMT</gdacs:datemodified>
+      <gdacs:severity unit="M" value="4.8">Magnitude 4.8M, Depth:82.521km</gdacs:severity>
+      <gdacs:population unit="in MMI IV" value="1764">1 thousand in MMI IV</gdacs:population>
+      <gdacs:iso3>RUS</gdacs:iso3>
+      <gdacs:country>Russia</gdacs:country>
+    </item>
+    <item>
+      <title>Red earthquake alert (Magnitude 7.4M, Depth:12km) in Chile 08/08/2026 03:10 UTC</title>
+      <description>On 8/8/2026 3:10:00 AM, an earthquake occurred in Chile potentially affecting 2 million in MMI VI.</description>
+      <link>https://www.gdacs.org/report.aspx?eventtype=EQ&amp;eventid=1556999</link>
+      <pubDate>Sat, 08 Aug 2026 03:10:02 GMT</pubDate>
+      <guid isPermaLink="false">EQ1556999</guid>
+      <gdacs:cap>https://www.gdacs.org/contentdata/resources/EQ/1556999/cap_1556999.xml</gdacs:cap>
+      <gdacs:eventtype>EQ</gdacs:eventtype>
+      <gdacs:alertlevel>Red</gdacs:alertlevel>
+      <gdacs:episodealertlevel>Red</gdacs:episodealertlevel>
+      <gdacs:eventname></gdacs:eventname>
+      <gdacs:eventid>1556999</gdacs:eventid>
+      <gdacs:episodeid>1724001</gdacs:episodeid>
+      <gdacs:iscurrent>true</gdacs:iscurrent>
+      <gdacs:fromdate>Sat, 08 Aug 2026 03:10:00 GMT</gdacs:fromdate>
+      <gdacs:todate>Sat, 08 Aug 2026 03:10:00 GMT</gdacs:todate>
+      <gdacs:datemodified>Sat, 08 Aug 2026 04:02:00 GMT</gdacs:datemodified>
+      <gdacs:severity unit="M" value="7.4">Magnitude 7.4M, Depth:12km</gdacs:severity>
+      <gdacs:population unit="in MMI VI" value="2100000">2 million in MMI VI</gdacs:population>
+      <gdacs:iso3>CHL</gdacs:iso3>
+      <gdacs:country>Chile</gdacs:country>
+    </item>
+    <item>
+      <title>Orange notification for tropical cyclone DOLPHIN-26</title>
+      <description>Tropical cyclone DOLPHIN-26 can have a high humanitarian impact.</description>
+      <link>https://www.gdacs.org/report.aspx?eventtype=TC&amp;eventid=1001297</link>
+      <pubDate>Mon, 27 Jul 2026 02:24:29 GMT</pubDate>
+      <guid isPermaLink="false">TC1001297</guid>
+      <gdacs:cap>https://www.gdacs.org/contentdata/resources/TC/1001297/cap_1001297.xml</gdacs:cap>
+      <gdacs:eventtype>TC</gdacs:eventtype>
+      <gdacs:alertlevel>Orange</gdacs:alertlevel>
+      <gdacs:episodealertlevel>Orange</gdacs:episodealertlevel>
+      <gdacs:eventname>DOLPHIN-26</gdacs:eventname>
+      <gdacs:eventid>1001297</gdacs:eventid>
+      <gdacs:episodeid>50</gdacs:episodeid>
+      <gdacs:iscurrent>true</gdacs:iscurrent>
+      <gdacs:fromdate>Mon, 27 Jul 2026 00:00:00 GMT</gdacs:fromdate>
+      <gdacs:todate>Sat, 08 Aug 2026 06:00:00 GMT</gdacs:todate>
+      <gdacs:datemodified>Sat, 08 Aug 2026 06:30:00 GMT</gdacs:datemodified>
+      <gdacs:severity unit="km/h" value="120">Tropical Storm (maximum wind speed of 120 km/h)</gdacs:severity>
+      <gdacs:population unit="Pop" value="125000">125 thousand in Category 1</gdacs:population>
+      <gdacs:iso3>MHL</gdacs:iso3>
+      <gdacs:country>Marshall Islands, Japan, China</gdacs:country>
+    </item>
+    <item>
+      <title>Green volcano alert for Sakurajima 07/08/2026 22:15 UTC</title>
+      <description>Volcano Sakurajima erupted on 7/8/2026 10:15:00 PM.</description>
+      <link>https://www.gdacs.org/report.aspx?eventtype=VO&amp;eventid=1200455</link>
+      <pubDate>Fri, 07 Aug 2026 22:15:00 GMT</pubDate>
+      <guid isPermaLink="false">VO1200455</guid>
+      <gdacs:cap>https://www.gdacs.org/contentdata/resources/VO/1200455/cap_1200455.xml</gdacs:cap>
+      <gdacs:eventtype>VO</gdacs:eventtype>
+      <gdacs:alertlevel>Green</gdacs:alertlevel>
+      <gdacs:episodealertlevel>Green</gdacs:episodealertlevel>
+      <gdacs:eventname>Sakurajima</gdacs:eventname>
+      <gdacs:eventid>1200455</gdacs:eventid>
+      <gdacs:episodeid>3</gdacs:episodeid>
+      <gdacs:iscurrent>true</gdacs:iscurrent>
+      <gdacs:fromdate>Fri, 07 Aug 2026 22:15:00 GMT</gdacs:fromdate>
+      <gdacs:todate>Fri, 07 Aug 2026 22:15:00 GMT</gdacs:todate>
+      <gdacs:datemodified>Fri, 07 Aug 2026 23:00:00 GMT</gdacs:datemodified>
+      <gdacs:severity unit="" value="0">Volcano eruption</gdacs:severity>
+      <gdacs:population unit="Pop" value="0"></gdacs:population>
+      <gdacs:iso3>JPN</gdacs:iso3>
+      <gdacs:country>Japan</gdacs:country>
+    </item>
+  </channel>
+</rss>

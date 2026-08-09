@@ -173,6 +173,35 @@ def test_meteoalarm_unknown_event_falls_back(alert_factory):
     )
 
 
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        ("Earthquake", "mdi:pulse"),
+        ("Volcano", "mdi:volcano"),
+        ("Tropical Cyclone", "mdi:weather-hurricane"),
+        ("Flood", "mdi:home-flood"),
+        ("Tsunami", "mdi:tsunami"),
+        ("Drought", "mdi:water-off"),
+        ("Wildfire", "mdi:fire"),
+    ],
+)
+def test_gdacs_events(alert_factory, event, expected):
+    """Non-weather hazards get their own icons; no weather table carries them."""
+    assert icon_for(alert_factory(event=event, provider="gdacs")) == expected
+
+
+def test_gdacs_unknown_event_falls_back(alert_factory):
+    assert (
+        icon_for(alert_factory(event="Geomagnetic Storm", provider="gdacs"))
+        == FALLBACK_ICON
+    )
+
+
+def test_gdacs_table_does_not_leak_to_other_providers(alert_factory):
+    """``Earthquake`` is a GDACS name; an NWS alert must not borrow its icon."""
+    assert icon_for(alert_factory(event="Earthquake", provider="nws")) == FALLBACK_ICON
+
+
 def test_unknown_event_falls_back(alert_factory):
     assert (
         icon_for(alert_factory(event="Completely Made Up Hazard", provider="nws"))
