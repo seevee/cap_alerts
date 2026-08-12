@@ -64,5 +64,5 @@ jobs:
       - name: Config flow coverage
         run: >-
           coverage report
-          --include='custom_components/cap_alerts/config_flow.py'
+          --include='custom_components/cap_alerts/config_flow.py,custom_components/cap_alerts/flows/*'
           --fail-under=100

@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.cap_alerts.config_flow import _validate_geocode_prefixes
+from custom_components.cap_alerts.flows.common import _validate_geocode_prefixes
 from custom_components.cap_alerts.const import CONF_GEOCODE_PREFIXES
 
 DOMAIN = "cap_alerts"
@@ -186,7 +186,7 @@ def offline_wmo_registry():
     off the network without changing what the flow does.
     """
     with patch(
-        "custom_components.cap_alerts.config_flow.fetch_wmo_sources",
+        "custom_components.cap_alerts.flows.wmo.fetch_wmo_sources",
         new=AsyncMock(return_value=[]),
     ):
         yield

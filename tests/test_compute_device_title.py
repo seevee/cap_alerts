@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from custom_components.cap_alerts.config_flow import _compute_device_title as _compute
+from custom_components.cap_alerts.flows.common import (
+    _compute_device_title as _compute,
+)
 from custom_components.cap_alerts.const import (
     CONF_COUNTRY,
     CONF_COUNTRY_ENTITY,

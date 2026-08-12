@@ -818,7 +818,9 @@ Holds the previous poll's alerts in memory and diffs incoming alerts to detect n
 
 ## Config Flow
 
-Split into two concerns, both wired in `config_flow.py`:
+Split into two concerns, both wired in `config_flow.py`, which composes one
+mixin per provider out of `flows/` (Home Assistant registers one flow class per
+domain, and hassfest requires it to live in a file named `config_flow.py`):
 
 - **Reconfigure flow** — identity (provider, zone / GPS / tracker / province / country / regions / area-code prefixes). Shows the same top-level provider menu as initial setup, so NWS / ECCC / MeteoAlarm switches work without remove/re-add.
 - **Options flow** — behavior (scan interval, timeout, language, area-code prefixes). Applied live: updates `coordinator.update_interval` and timeout in place and calls `async_request_refresh()`. No reload, no coordinator teardown.
@@ -843,7 +845,7 @@ streaming toggle flipped, and otherwise applies options in place. Anything read
 once at construction — provider, location, source id, stream wiring — belongs in
 the first category; anything read per-poll in `_apply`, such as
 `exclude_marine` and `geocode_prefixes`, belongs in the second. A test asserts
-`async_update_reload_and_abort` appears nowhere in `config_flow.py`, since
+`async_update_reload_and_abort` appears nowhere in the flow modules, since
 reintroducing it would break every reconfigure flow on HA 2026.12.
 
 Entry title is derived programmatically from config data (`_compute_device_title`) — no `CONF_NAME` field. Shared by initial setup and reconfigure so the device name stays in sync.

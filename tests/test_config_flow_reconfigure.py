@@ -37,7 +37,7 @@ from custom_components.cap_alerts.const import (
 
 DOMAIN = "cap_alerts"
 
-_WMO_FETCH = "custom_components.cap_alerts.config_flow.fetch_wmo_sources"
+_WMO_FETCH = "custom_components.cap_alerts.flows.wmo.fetch_wmo_sources"
 _WMO_OPTIONS = [("mx-smn-es", "Mexico — SMN"), ("cn-cma-xx", "China — CMA")]
 _TRACKER = "device_tracker.phone"
 _NEW_TRACKER = "device_tracker.tablet"
@@ -346,7 +346,8 @@ async def test_reconfigure_meteoalarm_country_step_reports_a_bad_code(
     ``custom_value``, so the selector is stubbed to free text to reach it."""
     entry = _entry(hass, provider="meteoalarm", country="FI")
     with patch(
-        "custom_components.cap_alerts.config_flow._country_selector", return_value=str
+        "custom_components.cap_alerts.flows.meteoalarm._country_selector",
+        return_value=str,
     ):
         result = await _reconfigure(
             hass, entry, "reconfigure_meteoalarm", "reconfigure_meteoalarm_country"

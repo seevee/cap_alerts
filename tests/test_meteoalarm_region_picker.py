@@ -19,7 +19,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.cap_alerts.config_flow import (
+from custom_components.cap_alerts.flows.meteoalarm import (
     _normalize_region_selection,
     _region_label_map,
     _region_selector,
@@ -35,7 +35,9 @@ DOMAIN = "cap_alerts"
 
 _FETCHED = [("FI811", "Saaristomeri"), ("FI813", "Ahvenanmeri")]
 
-_PATCH_TARGET = "custom_components.cap_alerts.config_flow.fetch_regions_for_country"
+_PATCH_TARGET = (
+    "custom_components.cap_alerts.flows.meteoalarm.fetch_regions_for_country"
+)
 
 
 # ---------------------------------------------------------------------------
