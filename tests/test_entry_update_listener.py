@@ -203,12 +203,10 @@ async def test_data_change_reloads_once_even_if_streaming_also_changed():
 def test_config_flow_uses_the_non_reloading_update():
     from pathlib import Path
 
-    source = (
-        Path(__file__).resolve().parent.parent
-        / "custom_components"
-        / "cap_alerts"
-        / "config_flow.py"
-    ).read_text(encoding="utf-8")
+    pkg = Path(__file__).resolve().parent.parent / "custom_components" / "cap_alerts"
+    modules = [pkg / "config_flow.py", *sorted((pkg / "flows").glob("*.py"))]
+    assert len(modules) > 1, "flow step modules not found"
+    source = "\n".join(path.read_text(encoding="utf-8") for path in modules)
 
     assert "async_update_reload_and_abort" not in source, (
         "async_update_reload_and_abort together with an update listener reloads "

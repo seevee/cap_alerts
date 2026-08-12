@@ -43,7 +43,14 @@ Weather API → Provider.async_fetch() → list[CAPAlert]
 custom_components/cap_alerts/
   __init__.py       # entry setup, coordinator wiring, platform forwarding; owns the shared GeometryStore and registers the REST view + WS command once per HA instance
   const.py          # domain, defaults, user-agent format
-  config_flow.py    # setup flow + reconfigure flow + options flow
+  config_flow.py    # the composed flow handler (provider menus) + options flow; hassfest requires this exact filename
+  flows/            # per-provider config flow steps, mixed into the handler above
+    common.py       # validators, schema helpers, and the entry-title rule shared by providers
+    nws.py          # NWS steps + zone validation
+    eccc.py         # ECCC steps + province validation, language/streaming/feed options
+    meteoalarm.py   # MeteoAlarm steps: country, region picker, fully-mobile mode
+    wmo.py          # WMO steps: source picker, geocode narrowing, language option
+    gdacs.py        # GDACS steps + event-type/alert-level options
   coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info + NAAD stream lifecycle; provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
   button.py         # RefreshButton: on-demand provider fetch (all providers)
@@ -100,7 +107,8 @@ python3 -m venv .venv
 
 # Config flow is gated separately, at 100% (quality scale's number)
 .venv/bin/coverage report \
-  --include='custom_components/cap_alerts/config_flow.py' --fail-under=100
+  --include='custom_components/cap_alerts/config_flow.py,custom_components/cap_alerts/flows/*' \
+  --fail-under=100
 
 # Lint + format (CI checks custom_components/, tests/, and scripts/)
 .venv/bin/ruff check custom_components/ tests/ scripts/

@@ -167,7 +167,8 @@ Weather API → Provider.async_fetch() → list[CAPAlert]
 custom_components/cap_alerts/
   __init__.py       # entry setup, coordinator wiring, platform forwarding
   const.py          # domain, defaults, user-agent format
-  config_flow.py    # setup + reconfigure + options flows
+  config_flow.py    # setup + reconfigure + options flows (handler + dispatch)
+  flows/            # per-provider flow steps, mixed into the handler
   coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
   model.py          # CAPAlert dataclass + to_attributes()
@@ -235,7 +236,7 @@ ruff format custom_components/cap_alerts/
 
 1. Implement the `AlertProvider` protocol in `providers/<name>.py` — an `async_fetch()` returning `list[CAPAlert]`.
 2. Register it in `providers/__init__.py::get_provider()`.
-3. Add a config-flow branch in `config_flow.py` (a menu step plus one form per location mode).
+3. Add a flow module in `flows/<name>.py` (a menu step plus one form per location mode), and mix it into the handler in `config_flow.py`.
 4. Add translations under `translations/` and matching keys in `strings.json`.
 5. Normalization lives in `normalize.py`; extend severity mapping there rather than in the provider.
 

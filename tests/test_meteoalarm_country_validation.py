@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.cap_alerts.config_flow import _validate_country
+from custom_components.cap_alerts.flows.meteoalarm import _validate_country
 from custom_components.cap_alerts.const import (
     METEOALARM_COUNTRIES,
     METEOALARM_COUNTRY_NAMES,

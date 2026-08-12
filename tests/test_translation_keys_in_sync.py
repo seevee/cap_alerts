@@ -13,7 +13,8 @@ _PKG = Path(__file__).resolve().parent.parent / "custom_components" / "cap_alert
 _STRINGS = _PKG / "strings.json"
 _TRANSLATIONS = _PKG / "translations"
 _EN = _TRANSLATIONS / "en.json"
-_CONFIG_FLOW = _PKG / "config_flow.py"
+# The flow handler plus every per-provider step module.
+_FLOW_SOURCES = [_PKG / "config_flow.py", *sorted((_PKG / "flows").glob("*.py"))]
 
 # Locales other than English, discovered rather than listed so a new
 # translation is picked up by the parity checks the moment it lands.
@@ -56,8 +57,11 @@ def test_config_keys_match(section: str) -> None:
 
 
 def test_step_ids_in_config_flow_have_strings() -> None:
-    text = _CONFIG_FLOW.read_text(encoding="utf-8")
+    text = "\n".join(path.read_text(encoding="utf-8") for path in _FLOW_SOURCES)
     referenced = set(re.findall(r'step_id="([^"]+)"', text))
+    # Without this, moving or renaming the step modules would scan nothing and
+    # the check would pass vacuously.
+    assert referenced, "no step_ids found — are the flow modules still there?"
     for path in (_STRINGS, _EN):
         data = _load(path)
         known = set(data["config"]["step"].keys()) | set(

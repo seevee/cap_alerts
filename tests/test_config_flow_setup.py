@@ -19,7 +19,8 @@ from unittest.mock import patch
 import pytest
 import voluptuous as vol
 
-from custom_components.cap_alerts.config_flow import _validate_country, _validate_gps
+from custom_components.cap_alerts.flows.common import _validate_gps
+from custom_components.cap_alerts.flows.meteoalarm import _validate_country
 from custom_components.cap_alerts.const import (
     CONF_COUNTRY,
     CONF_COUNTRY_ATTRIBUTE,
@@ -36,7 +37,7 @@ from custom_components.cap_alerts.const import (
 
 DOMAIN = "cap_alerts"
 
-_WMO_FETCH = "custom_components.cap_alerts.config_flow.fetch_wmo_sources"
+_WMO_FETCH = "custom_components.cap_alerts.flows.wmo.fetch_wmo_sources"
 _TRACKER = "device_tracker.phone"
 
 
@@ -258,7 +259,8 @@ async def test_meteoalarm_country_step_reports_a_bad_code(
     reach the step's own guard, which is what would catch a selector and a
     catalog that drift apart."""
     with patch(
-        "custom_components.cap_alerts.config_flow._country_selector", return_value=str
+        "custom_components.cap_alerts.flows.meteoalarm._country_selector",
+        return_value=str,
     ):
         result = await _menu(hass, "meteoalarm", "meteoalarm_country")
         result = await _submit(hass, result, {CONF_COUNTRY: "ZZ"})
@@ -269,7 +271,7 @@ async def test_meteoalarm_country_step_reports_a_bad_code(
 def test_gps_validator_guards_the_float_conversion():
     """The regex is the only thing keeping ``float()`` from seeing junk, so the
     guard behind it is pinned with the regex stubbed out."""
-    with patch("custom_components.cap_alerts.config_flow._GPS_RE", re.compile(".*")):
+    with patch("custom_components.cap_alerts.flows.common._GPS_RE", re.compile(".*")):
         assert _validate_gps("north,west") == ("north,west", "invalid_gps")
 
 

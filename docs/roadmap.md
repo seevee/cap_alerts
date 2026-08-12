@@ -58,8 +58,8 @@ What the table hasn't absorbed is the residue of `provider == "…"` branches:
 - `coordinator.py::_resolve_config` — the three-way `language: auto`
   resolution (2-letter prefix for MeteoAlarm, full tag for WMO, EN/FR for
   ECCC). A `language_granularity` field would carry this.
-- `config_flow.py` — per-provider option schemas. Genuinely provider-shaped UI,
-  probably not table material.
+- `flows/<provider>.py` — per-provider option schemas. Genuinely
+  provider-shaped UI, probably not table material.
 
 Worth doing only when a new provider makes one of these branches a three-way,
 not as a standalone refactor.
@@ -185,7 +185,7 @@ thing making the feed complete.
 Once pelmorex is gone it will simply fail every poll, which the union tolerates.
 Removing it means: drop `NAAD_FEED_PELMOREX` and the `pelmorex` value from
 `NAAD_FEED_HOSTS` / `NAAD_FEED_UNION_ORDER` in `providers/eccc.py`, drop
-`pelmorex` from the `CONF_FEED_SOURCE` selector in `config_flow.py` (leaving
+`pelmorex` from the `CONF_FEED_SOURCE` selector in `flows/eccc.py` (leaving
 `auto` = alertready-only), and update the `feed_source` strings. If alertready's
 omission set has not cleared by then, escalate before removing.
 
