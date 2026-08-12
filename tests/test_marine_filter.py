@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
+from custom_components.cap_alerts.coordinator import exclude_marine_alerts
 from tests.conftest import make_alert
-from tests.test_coordinator_tracker import _load_coordinator
-
-coordinator = _load_coordinator()
-exclude_marine_alerts = coordinator.exclude_marine_alerts
 
 
 # ---------------------------------------------------------------------------

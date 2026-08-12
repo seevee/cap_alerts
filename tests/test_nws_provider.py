@@ -2,54 +2,10 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-import types
-from pathlib import Path
 from typing import Any
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_PKG_DIR = _REPO_ROOT / "custom_components" / "cap_alerts"
+from custom_components.cap_alerts.providers import nws as _nws_mod
 
-
-def _load(name: str) -> types.ModuleType:
-    full = f"cap_alerts.{name}"
-    if full in sys.modules:
-        return sys.modules[full]
-    pkg = sys.modules.get("cap_alerts")
-    if pkg is None:
-        pkg = types.ModuleType("cap_alerts")
-        pkg.__path__ = [str(_PKG_DIR)]
-        sys.modules["cap_alerts"] = pkg
-    spec = importlib.util.spec_from_file_location(full, _PKG_DIR / f"{name}.py")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _load_provider(name: str) -> types.ModuleType:
-    full = f"cap_alerts.providers.{name}"
-    if full in sys.modules:
-        return sys.modules[full]
-    # The real package, never a fabricated stand-in: ``providers/__init__.py``
-    # is HA-free and defines ``AlertProvider``/``get_provider``, and a bare
-    # ModuleType husk registered under this name shadows it for the rest of the
-    # session — ``coordinator.py``'s ``from .providers import AlertProvider``
-    # then fails in whichever file happens to import it next.
-    importlib.import_module("cap_alerts.providers")
-    spec = importlib.util.spec_from_file_location(
-        full, _PKG_DIR / "providers" / f"{name}.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_load("const")
-_load("model")
-_nws_mod = _load_provider("nws")
 
 _is_marine_nws = _nws_mod._is_marine_nws
 _parse_feature = _nws_mod._parse_feature

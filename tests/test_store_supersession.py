@@ -2,36 +2,23 @@
 
 from __future__ import annotations
 
-import sys
-import types
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def _stub_homeassistant(monkeypatch):
-    """Provide minimal homeassistant stubs so ``store`` imports without HA."""
-    if "homeassistant" in sys.modules:
-        yield
-        return
+def _entity_registry_from_mock(monkeypatch):
+    """Point ``er.async_get`` at the mock ``hass``'s registry attribute.
 
-    ha = types.ModuleType("homeassistant")
-    core = types.ModuleType("homeassistant.core")
-    helpers = types.ModuleType("homeassistant.helpers")
-    er_mod = types.ModuleType("homeassistant.helpers.entity_registry")
-
-    class HomeAssistant:
-        pass
-
-    core.HomeAssistant = HomeAssistant
-    er_mod.async_get = lambda hass: hass.entity_registry
-
-    monkeypatch.setitem(sys.modules, "homeassistant", ha)
-    monkeypatch.setitem(sys.modules, "homeassistant.core", core)
-    monkeypatch.setitem(sys.modules, "homeassistant.helpers", helpers)
-    monkeypatch.setitem(sys.modules, "homeassistant.helpers.entity_registry", er_mod)
-    yield
+    The store looks the registry up through ``er.async_get(hass)``, which reads
+    ``hass.data``; the fixture below is a MagicMock, so without this the store
+    gets a bare mock and the entity id in the payload is a mock too.
+    """
+    monkeypatch.setattr(
+        "custom_components.cap_alerts.store.er.async_get",
+        lambda hass: hass.entity_registry,
+    )
 
 
 @pytest.fixture

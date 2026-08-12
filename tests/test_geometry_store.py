@@ -2,34 +2,13 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-import types
-from pathlib import Path
+import ast
+import pathlib
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_PKG_DIR = _REPO_ROOT / "custom_components" / "cap_alerts"
-
-
-def _load_geometry_store():
-    if "cap_alerts" not in sys.modules:
-        parent = types.ModuleType("cap_alerts")
-        parent.__path__ = [str(_PKG_DIR)]
-        sys.modules["cap_alerts"] = parent
-    full = "cap_alerts.geometry_store"
-    if full in sys.modules:
-        return sys.modules[full]
-    spec = importlib.util.spec_from_file_location(full, _PKG_DIR / "geometry_store.py")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-gs_mod = _load_geometry_store()
-GeometryStore = gs_mod.GeometryStore
+from custom_components.cap_alerts import geometry_store as gs_mod
+from custom_components.cap_alerts.geometry_store import GeometryStore
 
 
 def _poly(n_coords: int = 100) -> dict:
@@ -105,16 +84,21 @@ async def test_put_update_overwrites_same_key():
 
 
 def test_store_does_not_import_homeassistant_storage():
-    """Regression guard: the in-memory store must not pull in Store."""
-    # Drop any cached import so we exercise a fresh load.
-    sys.modules.pop("cap_alerts.geometry_store", None)
-    sys.modules.pop("homeassistant.helpers.storage", None)
+    """Regression guard: the in-memory store must not pull in HA's ``Store``.
 
-    spec = importlib.util.spec_from_file_location(
-        "cap_alerts.geometry_store", _PKG_DIR / "geometry_store.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["cap_alerts.geometry_store"] = mod
-    spec.loader.exec_module(mod)
-
-    assert "homeassistant.helpers.storage" not in sys.modules
+    Read off the source rather than ``sys.modules``: under the real plugin
+    ``homeassistant.helpers.storage`` is imported by something else long before
+    this runs, so a runtime check would pass no matter what this module does.
+    """
+    tree = ast.parse(pathlib.Path(gs_mod.__file__).read_text(encoding="utf-8"))
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    } | {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    assert not any(name.startswith("homeassistant") for name in imported), imported

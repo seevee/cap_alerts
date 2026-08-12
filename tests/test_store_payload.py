@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-import types
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
@@ -11,42 +9,17 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _stub_homeassistant(monkeypatch):
-    """Provide minimal homeassistant stubs so ``store`` imports without HA.
+def _entity_registry_from_mock(monkeypatch):
+    """Point ``er.async_get`` at the mock ``hass``'s registry attribute.
 
-    When real Home Assistant is already loaded (the
-    pytest-homeassistant-custom-component plugin imports it before conftest),
-    only ``entity_registry.async_get`` is redirected at the mock ``hass``
-    used by these tests.
+    The store looks the registry up through ``er.async_get(hass)``, which reads
+    ``hass.data``; the fixture below is a MagicMock, so without this the store
+    gets a bare mock and the entity id in the payload is a mock too.
     """
-    if "homeassistant" in sys.modules:
-        er_mod = sys.modules.get("homeassistant.helpers.entity_registry")
-        if er_mod is None:
-            import importlib
-
-            er_mod = importlib.import_module("homeassistant.helpers.entity_registry")
-        monkeypatch.setattr(
-            er_mod, "async_get", lambda hass: hass.entity_registry, raising=False
-        )
-        yield
-        return
-
-    ha = types.ModuleType("homeassistant")
-    core = types.ModuleType("homeassistant.core")
-    helpers = types.ModuleType("homeassistant.helpers")
-    er_mod = types.ModuleType("homeassistant.helpers.entity_registry")
-
-    class HomeAssistant:  # noqa: D401 — stub
-        pass
-
-    core.HomeAssistant = HomeAssistant
-    er_mod.async_get = lambda hass: hass.entity_registry
-
-    monkeypatch.setitem(sys.modules, "homeassistant", ha)
-    monkeypatch.setitem(sys.modules, "homeassistant.core", core)
-    monkeypatch.setitem(sys.modules, "homeassistant.helpers", helpers)
-    monkeypatch.setitem(sys.modules, "homeassistant.helpers.entity_registry", er_mod)
-    yield
+    monkeypatch.setattr(
+        "custom_components.cap_alerts.store.er.async_get",
+        lambda hass: hass.entity_registry,
+    )
 
 
 @pytest.fixture

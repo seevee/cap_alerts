@@ -3,62 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import logging
 import sys
-import types
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_PKG_DIR = _REPO_ROOT / "custom_components" / "cap_alerts"
+from custom_components.cap_alerts.providers import cap as _cap_mod
+from custom_components.cap_alerts.providers import cap_content_cache as _cap_cache_mod
+from custom_components.cap_alerts.providers import eccc as _eccc_mod
+
 _FIXTURES = Path(__file__).parent / "fixtures"
 
-
-def _load(name: str) -> types.ModuleType:
-    full = f"cap_alerts.{name}"
-    if full in sys.modules:
-        return sys.modules[full]
-    pkg = sys.modules.get("cap_alerts")
-    if pkg is None:
-        pkg = types.ModuleType("cap_alerts")
-        pkg.__path__ = [str(_PKG_DIR)]
-        sys.modules["cap_alerts"] = pkg
-    spec = importlib.util.spec_from_file_location(full, _PKG_DIR / f"{name}.py")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _load_provider(name: str) -> types.ModuleType:
-    full = f"cap_alerts.providers.{name}"
-    if full in sys.modules:
-        return sys.modules[full]
-    # The real package, never a fabricated stand-in: ``providers/__init__.py``
-    # is HA-free and defines ``AlertProvider``/``get_provider``, and a bare
-    # ModuleType husk registered under this name shadows it for the rest of the
-    # session — ``coordinator.py``'s ``from .providers import AlertProvider``
-    # then fails in whichever file happens to import it next.
-    importlib.import_module("cap_alerts.providers")
-    spec = importlib.util.spec_from_file_location(
-        full, _PKG_DIR / "providers" / f"{name}.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-# Ensure const and model are available before loading provider modules
-_load("const")
-_load("model")
-_cap_cache_mod = _load_provider("cap_content_cache")
-_cap_mod = _load_provider("cap")  # shared CAP parsing, used by eccc + wmo
-_eccc_mod = _load_provider("eccc")
 
 CAPContentCache = _cap_cache_mod.CAPContentCache
 ECCCProvider = _eccc_mod.ECCCProvider
@@ -879,7 +837,7 @@ async def test_eccc_provider_full_flow():
 @pytest.mark.asyncio
 async def test_eccc_provider_filters_expired_alert():
     """CAP expires in the past → normalize tags phase=expired."""
-    from cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.normalize import normalize_alerts
 
     # Create a CAP file with past expires
     xml_expired = _fixture("eccc_cap_en_update_1.xml").replace(
@@ -1651,7 +1609,7 @@ def test_all_ended_document_is_terminal():
     Core defect B: msgType stays Update and expires is an hour out, so the old
     code published an active entity whose headline read "ended".
     """
-    from cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.normalize import normalize_alerts
 
     docs = _docs("eccc_cap_all_ended.xml")
     alerts = build_alerts_from_cap_docs(
@@ -1672,7 +1630,7 @@ def test_mixed_area_groups_province_prefers_active():
     somewhere in AB" is the honest reading. Announcing an all-clear to users in
     the still-active part is the worst failure mode here.
     """
-    from cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.normalize import normalize_alerts
 
     alerts = build_alerts_from_cap_docs(
         [_mixed_doc()],
@@ -1690,7 +1648,7 @@ def test_mixed_area_groups_province_prefers_active():
 
 def test_gps_inside_ended_group_yields_a_terminal_alert():
     """The #45 report, end to end: a user in the ended sub-area is released."""
-    from cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.normalize import normalize_alerts
 
     lat, lon = _MEDICINE_HAT
     alerts = build_alerts_from_cap_docs(

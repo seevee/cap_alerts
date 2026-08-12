@@ -13,9 +13,8 @@ from typing import Any
 
 import pytest
 
-from tests.test_nws_provider import _load_provider
+from custom_components.cap_alerts.providers import nws as _nws_mod
 
-_nws_mod = _load_provider("nws")
 NWSProvider = _nws_mod.NWSProvider
 
 CONFIG = {"zone_id": "OHC025"}

@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
-import types
 from pathlib import Path
 from typing import Any
 
@@ -13,51 +10,19 @@ import pytest
 
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_PKG_DIR = _REPO_ROOT / "custom_components" / "cap_alerts"
+from custom_components.cap_alerts.const import (
+    CONF_ALERT_LEVEL,
+    CONF_GDACS_EVENT_TYPES,
+    CONF_GPS_LOC,
+    GDACS_RSS_24H_URL,
+    GDACS_RSS_CURRENT_URL,
+)
+from custom_components.cap_alerts.providers import cap_content_cache as _cap_cache_mod
+from custom_components.cap_alerts.providers import gdacs as _gdacs_mod
+from tests.conftest import StubSession
+
 _FIXTURES = Path(__file__).parent / "fixtures"
 
-
-def _load(name: str) -> types.ModuleType:
-    full = f"cap_alerts.{name}"
-    if full in sys.modules:
-        return sys.modules[full]
-    pkg = sys.modules.get("cap_alerts")
-    if pkg is None:
-        pkg = types.ModuleType("cap_alerts")
-        pkg.__path__ = [str(_PKG_DIR)]
-        sys.modules["cap_alerts"] = pkg
-    spec = importlib.util.spec_from_file_location(full, _PKG_DIR / f"{name}.py")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _load_provider(name: str) -> types.ModuleType:
-    full = f"cap_alerts.providers.{name}"
-    if full in sys.modules:
-        return sys.modules[full]
-    # The real package, never a fabricated stand-in: ``providers/__init__.py``
-    # is HA-free and defines ``AlertProvider``/``get_provider``, and a bare
-    # ModuleType husk registered under this name shadows it for the rest of the
-    # session — ``coordinator.py``'s ``from .providers import AlertProvider``
-    # then fails in whichever file happens to import it next.
-    importlib.import_module("cap_alerts.providers")
-    spec = importlib.util.spec_from_file_location(
-        full, _PKG_DIR / "providers" / f"{name}.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-# Ensure const and model are available before loading provider modules.
-_load("const")
-_load("model")
-_cap_cache_mod = _load_provider("cap_content_cache")
-_gdacs_mod = _load_provider("gdacs")
 
 CAPContentCache = _cap_cache_mod.CAPContentCache
 GDACSProvider = _gdacs_mod.GDACSProvider
@@ -66,15 +31,6 @@ _merge_indexes = _gdacs_mod._merge_indexes
 _geojson_url = _gdacs_mod._geojson_url
 _shapes_from_geojson = _gdacs_mod._shapes_from_geojson
 _compute_gdacs_id = _gdacs_mod._compute_gdacs_id
-
-from cap_alerts.const import (  # noqa: E402
-    CONF_ALERT_LEVEL,
-    CONF_GDACS_EVENT_TYPES,
-    CONF_GPS_LOC,
-    GDACS_RSS_24H_URL,
-    GDACS_RSS_CURRENT_URL,
-)
-from tests.conftest import StubSession  # noqa: E402 — after module setup
 
 
 # (eventtype, eventid, episodeid) for each fixture event. The cyclone carries

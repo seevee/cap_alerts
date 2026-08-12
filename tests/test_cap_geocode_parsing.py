@@ -2,37 +2,7 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-import types
-from pathlib import Path
-
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_PKG_DIR = _REPO_ROOT / "custom_components" / "cap_alerts"
-
-
-def _load_cap_parser() -> types.ModuleType:
-    """Load ``providers/cap.py`` standalone, outside the package namespace.
-
-    The parser deliberately depends on nothing else in the package, so it needs
-    no ``cap_alerts.providers`` stub. Registering one here would shadow the real
-    package for every later-collected test module (this file sorts before the
-    coordinator/sensor tests, which do ``from .providers import AlertProvider``).
-    """
-    full = "cap_alerts_cap_parser"
-    if full in sys.modules:
-        return sys.modules[full]
-    spec = importlib.util.spec_from_file_location(
-        full, _PKG_DIR / "providers" / "cap.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_cap_mod = _load_cap_parser()
-parse_cap_alert = _cap_mod.parse_cap_alert
+from custom_components.cap_alerts.providers.cap import parse_cap_alert
 
 
 def _cap_xml(areas: str) -> str:
