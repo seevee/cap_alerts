@@ -14,6 +14,9 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from .const import DOMAIN
 from .coordinator import AlertsDataUpdateCoordinator
 
+# Coordinator-backed; the entity reflects socket state and issues no requests.
+PARALLEL_UPDATES = 0
+
 STREAM_CONNECTED_SUFFIX = "stream_connected"
 
 

@@ -353,3 +353,12 @@ def test_gdacs_gps_title():
         _compute({CONF_PROVIDER: "gdacs", CONF_GPS_LOC: "35.6762,139.6503"})
         == "CAP Alerts GDACS (35.6762,139.6503)"
     )
+
+
+# --- Fallback ----------------------------------------------------------------
+
+
+def test_unrecognized_data_falls_back_to_unknown():
+    """No flow produces this today, but a provider added without a title case
+    would, and the entry still needs a name it can be renamed from."""
+    assert _compute({CONF_PROVIDER: "nws"}) == "CAP Alerts NWS (Unknown)"

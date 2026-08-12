@@ -28,6 +28,20 @@ A companion Lovelace card lives at [`weather_alerts_card`](https://github.com/se
 
 Copy `custom_components/cap_alerts/` into your HA config's `custom_components/` directory and restart.
 
+### Removal
+
+1. Settings → Devices & Services → **CAP Alerts** → ⋮ → Delete, once per
+   configured entry. This removes the entry's device, its diagnostic entities,
+   and any alert entities currently active.
+2. Uninstall via HACS, or delete `custom_components/cap_alerts/` for a manual
+   install.
+3. Restart Home Assistant.
+
+The integration writes nothing to `.storage/` of its own, so deleting the
+entries and the directory leaves nothing behind. Recorder history for past
+alert entities survives deletion and ages out under your usual `recorder`
+purge policy.
+
 ---
 
 ## Configuration

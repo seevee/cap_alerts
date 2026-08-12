@@ -3,6 +3,9 @@ plans/
 **/__pycache__
 .venv/
 .aider*
+# Coverage's data file. The config it reads (.coveragerc) is tracked.
+.coverage
+htmlcov/
 # Sampled output from scripts/ probes (e.g. naad_feed_diff.py --log). Raw
 # upstream observations for characterising feed behaviour — findings belong in
 # an issue or docs/, not the repo.
