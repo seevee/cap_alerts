@@ -116,7 +116,16 @@ python3 -m venv .venv
 
 # Type checking (the integration only — scripts/ is standalone dev tooling)
 .venv/bin/mypy custom_components/cap_alerts
+
+# Config flow, against a running HA instance (stdlib only, no venv needed).
+# Read-only: submits nothing that commits, aborts every flow it opens.
+scripts/flow_walk.py [--skip-network]
 ```
+
+`flow_walk.py` is the check the unit tests can't make: it walks every menu,
+form, and options schema through HA's own flow manager on a deployed instance.
+Run it after any config-flow change, and before a prerelease. A new provider
+adds its rows to `SETUP`, `RECONFIGURE`, and `OPTIONS_SCHEMA` there.
 
 Coverage settings live in `.coveragerc`. Both floors are ratchets: raise them
 as gaps close, never lower one to make a PR pass.
