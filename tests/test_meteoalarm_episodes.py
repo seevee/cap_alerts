@@ -40,10 +40,12 @@ def _load_meteoalarm():
         mod = importlib.util.module_from_spec(spec)
         sys.modules["cap_alerts.const"] = mod
         spec.loader.exec_module(mod)
-    if "cap_alerts.providers" not in sys.modules:
-        pkg = types.ModuleType("cap_alerts.providers")
-        pkg.__path__ = [str(_PKG_DIR / "providers")]
-        sys.modules["cap_alerts.providers"] = pkg
+    # The real package, never a fabricated stand-in: ``providers/__init__.py``
+    # is HA-free and defines ``AlertProvider``/``get_provider``, and a bare
+    # ModuleType husk registered under this name shadows it for the rest of the
+    # session — ``coordinator.py``'s ``from .providers import AlertProvider``
+    # then fails in whichever file happens to import it next.
+    importlib.import_module("cap_alerts.providers")
     spec = importlib.util.spec_from_file_location(
         full, _PKG_DIR / "providers" / "meteoalarm.py"
     )

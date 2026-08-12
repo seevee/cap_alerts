@@ -138,6 +138,12 @@ This is a Home Assistant custom integration. It lives in `custom_components/cap_
 
 ### Verification
 - Run tests before presenting results; fix any new failures introduced
+- The suite must pass in any file order. Test files that load an integration
+  module by path (the stub-mode pattern in several provider tests) must import
+  the real `cap_alerts.providers` package rather than registering a bare
+  `ModuleType` under that name, and must never load `config_flow.py` a second
+  time — it registers a flow handler in a process-global registry, so the copy
+  imported last silently wins. `tests/test_import_hygiene.py` pins both.
 
 ### Git discipline
 - Never auto-commit, push, or open PRs — defer to the user or `/commit`

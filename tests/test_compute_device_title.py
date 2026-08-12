@@ -7,6 +7,8 @@ import sys
 import types
 from pathlib import Path
 
+from tests.conftest import REAL_HA
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PKG_DIR = _REPO_ROOT / "custom_components" / "cap_alerts"
 
@@ -142,6 +144,24 @@ def _stub_modules() -> None:
 
 
 def _load_config_flow() -> types.ModuleType:
+    """The config-flow module, without ever making a second copy of it.
+
+    ``config_flow.py`` is not inert on import: ``class
+    CAPAlertsFlowHandler(ConfigFlow, domain=DOMAIN)`` registers itself in
+    Home Assistant's process-global ``config_entries.HANDLERS``. Executing the
+    file a second time re-registers a *different* class object for the same
+    domain, and last import wins — so under the real plugin a second copy
+    silently takes over every flow the suite starts, and patches aimed at
+    ``custom_components.cap_alerts.config_flow`` land on a module nobody is
+    running. That surfaces as live HTTP from a test that patched its fetch,
+    and only in some file orderings. Import the real module instead; the
+    synthetic copy is for stub mode, which has no HANDLERS to hijack.
+    """
+    if REAL_HA:
+        import custom_components.cap_alerts.config_flow as real_config_flow
+
+        return real_config_flow
+
     _stub_modules()
     full = "cap_alerts.config_flow"
     if full in sys.modules:
