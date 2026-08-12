@@ -2,22 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_PKG_DIR = _REPO_ROOT / "custom_components" / "cap_alerts"
-
-
-def _load_geometry_store():
-    from tests.test_geometry_store import _load_geometry_store as _gs  # type: ignore
-
-    return _gs()
-
-
-gs_mod = _load_geometry_store()
-GeometryStore = gs_mod.GeometryStore
+from custom_components.cap_alerts.geometry_store import GeometryStore
 
 
 # Reproduce the geometry put/purge step of _async_update_data in isolation so

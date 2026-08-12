@@ -1,9 +1,8 @@
 """Tests for MeteoAlarm country-source resolution (Part B).
 
 Covers the pure ``_resolve_country_code`` normalizer and the coordinator's
-``_resolve_config`` country-source path. Reuses the isolation loader from
-``test_coordinator_tracker.py`` so no Home Assistant runtime is needed; the
-coordinator instance is built via ``object.__new__`` to skip the heavy
+``_resolve_config`` country-source path. No Home Assistant runtime
+is needed: the coordinator instance is built via ``object.__new__`` to skip the heavy
 ``__init__`` (provider/store wiring) the resolution path doesn't touch.
 """
 
@@ -11,18 +10,16 @@ from __future__ import annotations
 
 import pytest
 
-from tests.test_coordinator_tracker import _load_coordinator
-
-coordinator = _load_coordinator()
-_resolve_country_code = coordinator._resolve_country_code
-AlertsDataUpdateCoordinator = coordinator.AlertsDataUpdateCoordinator
-
-from cap_alerts.const import (  # noqa: E402
+from custom_components.cap_alerts import coordinator
+from custom_components.cap_alerts.const import (
     CONF_COUNTRY,
     CONF_COUNTRY_ATTRIBUTE,
     CONF_COUNTRY_ENTITY,
     CONF_PROVIDER,
 )
+
+_resolve_country_code = coordinator._resolve_country_code
+AlertsDataUpdateCoordinator = coordinator.AlertsDataUpdateCoordinator
 
 
 # --- normalizer --------------------------------------------------------------

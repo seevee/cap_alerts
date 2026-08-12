@@ -1,15 +1,8 @@
 # Coverage configuration. Defined here rather than passed on the command line
 # so that a bare `pytest --cov` measures the right thing everywhere.
-#
-# `source` MUST be the path form, not the dotted module form. tests/conftest.py
-# loads several modules a second time under a synthetic `cap_alerts.<name>`
-# package (bypassing the HA-dependent __init__ so provider tests can run
-# without Home Assistant). With `source = custom_components.cap_alerts`,
-# coverage resolves the dotted name to the first-imported module objects and
-# reports every dual-loaded module as 0%, understating the total by ~50 points.
 
 [run]
-source = custom_components/cap_alerts
+source = custom_components.cap_alerts
 branch = false
 
 [report]

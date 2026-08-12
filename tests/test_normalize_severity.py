@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -115,12 +114,8 @@ def test_meteoalarm_case_insensitive_color(alert_factory):
 def test_meteoalarm_de_fixture_orange_yellow_map_correctly():
     # End-to-end: parse the committed DE fixture, normalize, and assert the
     # awareness color (not CAP severity) drives the final state.
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    try:
-        from test_meteoalarm_parser import _load_meteoalarm
-    finally:
-        sys.path.pop(0)
-    meteoalarm = _load_meteoalarm()
+    from custom_components.cap_alerts.providers import meteoalarm
+
     feed = json.loads((_FIXTURE_DIR / "meteoalarm_de.json").read_text(encoding="utf-8"))
     parsed = []
     for warning in feed["warnings"]:

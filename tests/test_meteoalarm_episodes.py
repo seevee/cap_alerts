@@ -12,50 +12,12 @@ suite happens to run.
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
-import types
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
+from custom_components.cap_alerts.providers import meteoalarm
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_PKG_DIR = _REPO_ROOT / "custom_components" / "cap_alerts"
-
-
-def _load_meteoalarm():
-    full = "cap_alerts.providers.meteoalarm"
-    if full in sys.modules:
-        return sys.modules[full]
-    if "cap_alerts" not in sys.modules:
-        parent = types.ModuleType("cap_alerts")
-        parent.__path__ = [str(_PKG_DIR)]
-        sys.modules["cap_alerts"] = parent
-    if "cap_alerts.const" not in sys.modules:
-        spec = importlib.util.spec_from_file_location(
-            "cap_alerts.const", _PKG_DIR / "const.py"
-        )
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules["cap_alerts.const"] = mod
-        spec.loader.exec_module(mod)
-    # The real package, never a fabricated stand-in: ``providers/__init__.py``
-    # is HA-free and defines ``AlertProvider``/``get_provider``, and a bare
-    # ModuleType husk registered under this name shadows it for the rest of the
-    # session — ``coordinator.py``'s ``from .providers import AlertProvider``
-    # then fails in whichever file happens to import it next.
-    importlib.import_module("cap_alerts.providers")
-    spec = importlib.util.spec_from_file_location(
-        full, _PKG_DIR / "providers" / "meteoalarm.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-meteoalarm = _load_meteoalarm()
 
 MF = "vigilance@meteo.fr"
 PARIS = (("FR101", "Paris"),)
@@ -195,7 +157,7 @@ async def test_episode_merged_id_is_window_free():
 
     # The content key lives with the rest of the MeteoFrance dialect in the
     # convention table (issue #88); the provider only reaches it via the table.
-    from cap_alerts.conventions import episode_id
+    from custom_components.cap_alerts.conventions import episode_id
 
     expected = episode_id(MF, "5", ["FR101"], "", fallback="x")
     assert both[0].id == expected
@@ -251,7 +213,7 @@ async def test_episode_days_profile_shape():
 
 
 async def test_episode_days_absent_for_non_merged_provider():
-    from cap_alerts.model import CAPAlert
+    from custom_components.cap_alerts.model import CAPAlert
 
     assert CAPAlert(id="x").episode_days == ()
     assert "episode_days" not in CAPAlert(id="x").to_attributes()
@@ -340,7 +302,7 @@ async def test_finished_meteofrance_day_still_reads_as_expired():
     # store already handles: _infer_terminal_phase reads the past ``expires``
     # and fires incident_removed with phase "expired" (see
     # test_store_supersession's silent-disappearance case).
-    from cap_alerts.store import _infer_terminal_phase
+    from custom_components.cap_alerts.store import _infer_terminal_phase
 
     (finished,) = [
         a
@@ -447,7 +409,7 @@ async def test_merge_leaves_other_senders_in_a_mixed_feed():
 
 @pytest.mark.parametrize("regions", [None, ["FR101"]])
 async def test_episode_single_day_gets_window_free_id(regions):
-    from cap_alerts.conventions import episode_id
+    from custom_components.cap_alerts.conventions import episode_id
 
     alerts = await _fetch(_bulletin(day="2026-08-04"), regions=regions)
     (only,) = alerts
