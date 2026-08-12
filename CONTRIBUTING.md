@@ -9,6 +9,19 @@ ruff check custom_components tests      # lint
 mypy custom_components/cap_alerts       # type-check
 ```
 
+Changing the config flow? Deploy to a running Home Assistant and walk it:
+
+```bash
+scripts/flow_walk.py                 # every menu, form, and options schema
+scripts/flow_walk.py --skip-network  # omit the MeteoAlarm and WMO fetches
+```
+
+It drives the real dialog over the REST API and asserts each step's menu
+options and form fields. Read-only: it never submits a step that would create
+or update an entry, aborts every flow it opens, and checks the entry count is
+unchanged. The tests cover the handler in-process, this covers it under HA's
+loader.
+
 See the [Development section of the README](README.md#development) and [docs/architecture.md](docs/architecture.md) for how the integration is structured.
 
 ## Workflow
