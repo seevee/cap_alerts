@@ -249,6 +249,59 @@ async def test_reconfigure_renders_stored_codes_against_an_empty_fetch(
 
 
 @pytest.mark.asyncio
+async def test_reconfigure_rejects_an_empty_selection(hass, enable_custom_integrations):
+    entry = _fi_entry(hass)
+    with patch(_PATCH_TARGET, return_value=list(_FETCHED)):
+        result = await _start_reconfigure(hass, entry)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGIONS: ["   "]}
+        )
+
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "no_regions_selected"}
+    # The stored selection is untouched by a rejected save.
+    assert entry.data[CONF_REGIONS] == ["FI811", "FI815"]
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_errors_when_the_fetch_fails(
+    hass, enable_custom_integrations
+):
+    entry = _fi_entry(hass)
+    with patch(_PATCH_TARGET, side_effect=UpdateFailed("boom")):
+        result = await _start_reconfigure(hass, entry)
+
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "cannot_fetch_regions"}
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_harvests_labels_in_the_configured_language(
+    hass, enable_custom_integrations
+):
+    """The picker follows the entry's language option, not the HA locale: for
+    the ``areaDesc``-namespace countries the label *is* the stored code, so a
+    picker in the wrong language would store codes the entities never match."""
+    entry = _fi_entry(hass)
+    hass.config_entries.async_update_entry(entry, options={"language": "fi"})
+    hass.config.language = "en"
+    with patch(_PATCH_TARGET, return_value=list(_FETCHED)) as fetch:
+        await _start_reconfigure(hass, entry)
+
+    assert fetch.await_args.kwargs["language"] == "fi"
+
+
+@pytest.mark.asyncio
+async def test_setup_harvests_labels_in_the_ha_locale(hass, enable_custom_integrations):
+    """Setup has no entry to read an option from, so ``auto`` is all there is."""
+    hass.config.language = "fi"
+    with patch(_PATCH_TARGET, return_value=list(_FETCHED)) as fetch:
+        await _start_region_picker(hass)
+
+    assert fetch.await_args.kwargs["language"] == "fi"
+
+
+@pytest.mark.asyncio
 async def test_reconfigure_aborts_with_nothing_fetched_and_nothing_stored(
     hass, enable_custom_integrations
 ):

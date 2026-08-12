@@ -23,6 +23,10 @@ from .coordinator import AlertsDataUpdateCoordinator
 from .model import CAPAlert
 from .normalize import count_by_onset
 
+# Every entity on this platform reads from the coordinator's cached data and
+# never polls upstream itself, so there is no request concurrency to cap.
+PARALLEL_UPDATES = 0
+
 
 def _short_hash(unique_id: str) -> str:
     """Return the 8-char SHA-1 prefix used to disambiguate entity IDs (RFC §2.2.1)."""

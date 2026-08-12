@@ -68,7 +68,12 @@ _ensure_ha_stubs()
 # the real ``homeassistant`` package before this conftest runs, so
 # ``_ensure_ha_stubs`` no-ops. Distinguish that from our stub module, which
 # was created with ``types.ModuleType`` and therefore has no ``__file__``.
-_REAL_HA = getattr(sys.modules["homeassistant"], "__file__", None) is not None
+#
+# Public, and imported by the stub-style test files: a module that is not
+# inert on import (``config_flow.py`` registers a flow handler in a
+# process-global registry) must be taken from ``custom_components.cap_alerts``
+# rather than loaded a second time whenever the real plugin is present.
+REAL_HA = getattr(sys.modules["homeassistant"], "__file__", None) is not None
 
 # Pre-load submodules so tests can import ``cap_alerts.*`` without executing
 # the HA-dependent package __init__.
@@ -76,7 +81,7 @@ _model = _load_submodule("model")
 _icons = _load_submodule("icons")
 _normalize = _load_submodule("normalize")
 
-if _REAL_HA:
+if REAL_HA:
     # ``custom_components.cap_alerts`` must resolve to the REAL package so
     # HA's integration loader can set up config entries in lifecycle tests
     # (a synthetic alias module has no async_setup_entry). The plugin ships

@@ -9,6 +9,10 @@ from homeassistant.helpers.device_registry import DeviceInfo
 
 from .coordinator import AlertsDataUpdateCoordinator
 
+# The press delegates to the coordinator's debouncer, which already serializes
+# and rate-limits fetches, so no additional cap is needed here.
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass,

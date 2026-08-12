@@ -8,6 +8,9 @@ pytest-homeassistant-custom-component==0.13.347
 
 pytest>=8.0,<10
 pytest-asyncio>=1.0,<2
+# Pinned exactly: CI gates on the reported percentage, and coverage's own
+# measurement can shift between minor releases. Configuration is in .coveragerc.
+pytest-cov==7.1.0
 aiohttp>=3.10,<4
 defusedxml>=0.7
 

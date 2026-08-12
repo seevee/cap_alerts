@@ -56,4 +56,13 @@ jobs:
           cache: pip
           cache-dependency-path: requirements_test.txt
       - run: pip install -r requirements_test.txt
-      - run: pytest tests -q
+      # Coverage source and reporting live in .coveragerc. The floor is a
+      # ratchet: raise it as gaps close, never lower it to make a PR pass.
+      - run: pytest tests -q --cov --cov-fail-under=96
+      # The quality scale asks for 100% here and the flow is now at it, so this
+      # gate is a floor and a ceiling both: a new step lands with its tests.
+      - name: Config flow coverage
+        run: >-
+          coverage report
+          --include='custom_components/cap_alerts/config_flow.py'
+          --fail-under=100
