@@ -860,6 +860,8 @@ Two entries on the same scope would poll the same feed twice, register two devic
 
 The guard is enforced in one place rather than eighteen. `ScopedEntryFlowMixin` — which every provider mixin now derives from instead of `ConfigFlow` — exposes `_async_create_scoped_entry` and `_async_update_scoped_entry`, and the steps call those instead of `async_create_entry` / `async_update_and_abort`. Reconfigure needs its own check: it is *expected* to change the key, so `_abort_if_unique_id_configured` would match the entry against itself and refuse every no-op edit; the mixin instead aborts only when a **different** entry already holds the key.
 
+The duplicate check does **not** read unique IDs. `_abort_if_scope_configured` recomputes the scope from every existing entry's data, because an entry can legitimately carry no unique ID: the backfill below skips one whose key another entry already holds, and only retries at the next setup. Delete the holder and, on a unique-ID comparison, the twin is invisible — a duplicate walks straight through. That was found on the dev instance within an hour of the feature landing, by deleting one of a duplicate pair and re-adding it.
+
 Entries created before this landed have no `unique_id`, so `__init__.py::_async_ensure_scope_key` backfills one at setup — without it the guard would protect new installs only. A key another entry already holds is left unset and warned about instead of forced: Home Assistant logs an error and re-indexes on a duplicate, and a pair of pre-existing duplicates is precisely what nothing here can safely merge on the user's behalf.
 
 ### Validating a scope before the entry exists (issue #131)

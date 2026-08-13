@@ -301,3 +301,51 @@ async def test_a_pre_existing_duplicate_is_reported_not_forced(
     assert entries[0].unique_id == "eccc:province:ON"
     assert entries[1].unique_id is None
     assert sum("duplicates" in r.message for r in caplog.records) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_keyless_entry_still_blocks_a_duplicate(
+    hass, enable_custom_integrations
+):
+    """The dev-instance regression: delete the key holder, the twin is invisible.
+
+    An entry can legitimately carry no unique_id — the setup backfill skips one
+    whose key another entry already holds, and only retries at the next setup.
+    Delete that other entry and, checking unique_ids alone, nothing stands in
+    the way of re-adding the same scope. So the check recomputes the scope from
+    every entry's data instead.
+    """
+    MockConfigEntry(
+        domain=DOMAIN,
+        title="CAP Alerts GDACS (Global)",
+        data={CONF_PROVIDER: "gdacs"},
+        unique_id=None,
+    ).add_to_hass(hass)
+
+    result = await _menu(hass, "gdacs", "gdacs_global")
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "already_configured"
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_is_not_blocked_by_its_own_keyless_self(
+    hass, enable_custom_integrations
+):
+    """The exemption has to work on identity, not on the missing key."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_PROVIDER: "nws", CONF_ZONE_ID: "OHZ049"},
+        unique_id=None,
+    )
+    entry.add_to_hass(hass)
+
+    result = await _reconfigure(hass, entry, "reconfigure_nws", "reconfigure_nws_zone")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ZONE_ID: "OHZ049"}
+    )
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.unique_id == "nws:zone:OHZ049"

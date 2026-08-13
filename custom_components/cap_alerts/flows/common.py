@@ -16,6 +16,7 @@ import aiohttp
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
+from homeassistant.core import callback
 from homeassistant.data_entry_flow import AbortFlow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.instance_id import async_get as async_get_instance_id
@@ -135,6 +136,30 @@ class ScopedEntryFlowMixin(ConfigFlow):
         except (TimeoutError, aiohttp.ClientError, ValueError):
             return "cannot_connect"
 
+    @callback
+    def _abort_if_scope_configured(self, key: str, allow: str | None = None) -> None:
+        """Abort when any existing entry already watches ``key``.
+
+        ``_abort_if_unique_id_configured`` only sees entries that *have* a
+        unique id, and an entry can legitimately have none: the setup backfill
+        skips one whose key is already taken, and only retries at the next
+        setup. Delete the entry holding the key and its twin is invisible until
+        a restart — a duplicate walks straight through, which is exactly what
+        happened on the dev instance the day this landed.
+
+        So the scope is recomputed from every entry's data rather than read off
+        its unique id. That is authoritative whatever state the backfill is in,
+        and it costs one dict build per entry on a form submission.
+
+        ``allow`` exempts one entry id, for reconfigure: an edit is expected to
+        arrive at a key, including the one the entry already holds.
+        """
+        for entry in self._async_current_entries(include_ignore=False):
+            if entry.entry_id == allow:
+                continue
+            if compute_scope_key(entry.data) == key:
+                raise AbortFlow("already_configured")
+
     async def _async_create_scoped_entry(
         self,
         data: dict[str, Any],
@@ -145,8 +170,10 @@ class ScopedEntryFlowMixin(ConfigFlow):
         ``options`` is for the one mode that sets a behavior option at creation
         time (WMO's geocode narrowing); it takes no part in the key.
         """
-        await self.async_set_unique_id(compute_scope_key(data))
+        key = compute_scope_key(data)
+        await self.async_set_unique_id(key)
         self._abort_if_unique_id_configured()
+        self._abort_if_scope_configured(key)
         if options is not None:
             return self.async_create_entry(
                 title=_compute_device_title(data), data=data, options=options
@@ -167,11 +194,7 @@ class ScopedEntryFlowMixin(ConfigFlow):
         """
         key = compute_scope_key(data)
         await self.async_set_unique_id(key)
-        existing = self.hass.config_entries.async_entry_for_domain_unique_id(
-            self.handler, key
-        )
-        if existing is not None and existing.entry_id != entry.entry_id:
-            raise AbortFlow("already_configured")
+        self._abort_if_scope_configured(key, allow=entry.entry_id)
         if options is not None:
             return self.async_update_and_abort(
                 entry,
