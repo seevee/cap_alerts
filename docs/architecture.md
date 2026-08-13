@@ -852,6 +852,67 @@ Entry title is derived programmatically from config data (`_compute_device_title
 
 ---
 
+## Diagnostics (`diagnostics.py`)
+
+The config-entry diagnostics download (issue #134). The three diagnostic
+*entities* are dashboard surfaces; this is the support artifact — one file that
+answers "what is this entry actually doing" without asking a reporter to enable
+debug logging and paste back a wall of text.
+
+**Read, never re-derive.** Everything in the payload is read off the coordinator
+as it stands. The *resolved* config — tracker → coordinates, country entity →
+ISO-2, language `auto` → a concrete tag — is the pair the last update recorded
+(`coordinator.resolved_config` / `resolved_options`), never a fresh
+`_resolve_config()` call. That resolution owns the scope key retention is
+decided against (see *Absence handling*), so running it from a diagnostics
+download would consume a scope change the next real cycle needs to see. Before
+the first refresh lands, the properties fall back to raw entry data, so an entry
+that never came up is still diagnosable.
+
+**Failures outlive their recovery.** `_async_update_data` wraps the fetch to
+stamp `last_update_failure` and `last_update_failure_time`, and neither is
+cleared on the next success — a dump is read after the fact, and "it broke at
+04:12 and has been fine since" is what a report needs. The base coordinator
+still owns availability, logging and backoff; the wrapper records and re-raises.
+
+**Redaction is the reason the endpoint list is built here.** A diagnostics
+download usually ends up in a public issue, so GPS coordinates, the tracker
+entity and the MeteoAlarm country-source entity are redacted wherever they
+appear. That includes derived values: NWS puts the location into its query
+string, so the endpoint is rendered as `…/alerts/active?point=**REDACTED**`
+rather than reproduced. Credential keys go through the same list even though no
+shipped provider authenticates today. Alert body text and geometry are omitted
+outright — they are large, and geometry is already externalized (§2.4) for that
+reason.
+
+**Curated, not `as_dict()`.** The common core pattern is
+`{"entry": entry.as_dict(), "data": coordinator.data}`, and both halves are
+wrong here. `as_dict()` carries `title`, and titles are derived from config data
+(`_compute_device_title`), so a GPS entry's reads `CAP Alerts ECCC
+(53.209258,-105.721127)` — the redaction defeated by the very field it is meant
+to protect. `coordinator.data` is `dict[str, CAPAlert]` with full description,
+instruction and geometry, which is what the payload deliberately omits.
+
+**Everything is sized for a paste.** Alert rows are sparse on the same rule as
+`CAPAlert.to_attributes()` (empty, `None` and `False` dropped), capped at
+`MAX_ALERT_ROWS` = 25 with the overflow counted in `truncated`, and the totals
+above them stay exact whatever the cap drops. Each row names its `entity_id`
+from the registry, since a reporter quotes the entity, not the alert id. The
+resolved pair reports only the keys resolution *changed*: for a static location
+with a pinned language it changed nothing, and repeating the stored config there
+would bury the entries where it did. Measured on an ECCC entry: 1.5 KB idle,
+4.9 KB at seven alerts, 12.4 KB at the cap and above.
+
+**Convention rows are the point.** Once a report involves a per-sender dialect,
+the first question is which row matched, and `conventions_for()` returns the row
+without saying which key produced it. The payload names the key
+(`meteoalarm/vigilance@meteo.fr` vs. plain `meteoalarm`), lists the senders that
+landed on each, and renders the row by walking the dataclass — so a rule added
+to the table shows up in the next dump with no change here. Hooks render by
+function name, stages by slot.
+
+---
+
 ## Future Providers
 
 These are documented for architecture planning; the provider protocol accommodates each without changes to the coordinator, sensor, or entity model.

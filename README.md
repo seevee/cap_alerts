@@ -112,6 +112,36 @@ Per-alert entity IDs are derived from the alert's `event` text (e.g. `sensor.cap
 
 ---
 
+## Diagnostics
+
+Each config entry supports Home Assistant's diagnostics download: **Settings →
+Devices & Services → CAP Alerts → ⋮ on the entry → Download diagnostics**.
+
+The download is the fastest way to get a bug report answered — attach it to the
+issue instead of a debug log. It reports what the entry is configured for and
+what the last update actually did:
+
+- provider, scope mode, and the upstream endpoints the next fetch will use
+  (for ECCC, the feed source and both union hosts; the NAAD stream endpoint
+  when streaming is on)
+- when the last update succeeded, when one last failed, and with what error —
+  the failure is kept after a recovery, since that is usually what is being
+  asked about
+- alert counts (active / upcoming) plus a per-alert lifecycle row: entity_id,
+  phase, timestamps, sender, area geocodes. Sparse, and capped at 25 rows —
+  the counts above it stay exact whatever the cap drops
+- active filters: marine exclusion, area-code prefixes, configured *and*
+  resolved language
+- which per-source convention row is in effect, and which senders landed on it
+
+**What it leaves out.** GPS coordinates, the tracker entity, and the MeteoAlarm
+country-source entity are redacted everywhere they appear, including inside a
+provider URL built from them, so the file is safe to paste into a public issue.
+Credential keys are redacted too, though no provider needs one today. Alert
+body text and geometry are omitted — they are large, and neither helps.
+
+---
+
 ## Events
 
 For automation use, the integration fires three event types on the HA bus:
@@ -170,6 +200,7 @@ custom_components/cap_alerts/
   config_flow.py    # setup + reconfigure + options flows (handler + dispatch)
   flows/            # per-provider flow steps, mixed into the handler
   coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities
+  diagnostics.py    # support dump: scope, endpoints, update health, filters
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
   model.py          # CAPAlert dataclass + to_attributes()
   normalize.py      # shared normalization: severity, phase, Buddhist-Era year fix, state truncation

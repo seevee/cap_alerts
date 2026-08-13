@@ -226,6 +226,14 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     _scope_key: str | None = None
     _scope_changed: bool = False
 
+    # What the last resolution produced — tracker → coordinates, country entity
+    # → ISO-2, language "auto" → a concrete tag. Diagnostics reports this pair
+    # rather than re-running the resolution, which owns the scope key above and
+    # would consume a scope change the next real cycle needs to see. Class-level
+    # for the same reason as the two above.
+    _resolved_config: dict[str, Any] | None = None
+    _resolved_options: dict[str, Any] | None = None
+
     def __init__(
         self,
         hass,
@@ -247,6 +255,12 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # listener that a rebuild is required rather than an in-place tweak.
         self._entry_data = dict(entry.data)
         self.last_update_success_time: datetime | None = None
+        # Last failed update, kept *after* a recovery rather than cleared: the
+        # diagnostics dump is read after the fact, and "it broke at 04:12 and
+        # has been fine since" is the answer a report needs. Compare against
+        # ``last_update_success_time`` to tell which came last.
+        self.last_update_failure_time: datetime | None = None
+        self.last_update_failure: str | None = None
         # Guard a single warning per failure streak when a tracker or
         # MeteoAlarm country-source entity can't be resolved, so the
         # per-poll resolution doesn't spam the log.
@@ -462,9 +476,45 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._scope_changed = self._scope_key is not None and key != self._scope_key
         self._scope_key = key
 
+        self._resolved_config = config
+        self._resolved_options = options
         return config, options
 
+    @property
+    def resolved_config(self) -> Mapping[str, Any]:
+        """Entry data as the last resolution left it, or the raw data before one."""
+        if self._resolved_config is None:
+            return self.config_entry.data
+        return self._resolved_config
+
+    @property
+    def resolved_options(self) -> Mapping[str, Any]:
+        """Entry options as the last resolution left it, or the raw options."""
+        if self._resolved_options is None:
+            return self.config_entry.options
+        return self._resolved_options
+
+    @property
+    def live_doc_count(self) -> int:
+        """How many CAP documents the streaming live set currently holds."""
+        return len(self._live_docs)
+
+    @property
+    def last_backfill_time(self) -> datetime | None:
+        """When a GeoRSS backfill was last attempted (streaming entries only)."""
+        return self._last_backfill_at
+
     async def _async_update_data(self) -> dict[str, CAPAlert]:
+        try:
+            return await self._async_fetch_data()
+        except Exception as err:
+            # Recorded for diagnostics, then re-raised untouched — the base
+            # coordinator still owns availability, logging, and backoff.
+            self.last_update_failure = str(err) or type(err).__name__
+            self.last_update_failure_time = datetime.now(timezone.utc)
+            raise
+
+    async def _async_fetch_data(self) -> dict[str, CAPAlert]:
         config, options = self._resolve_config()
 
         # Streaming mode: the periodic tick is a GeoRSS safety-resync backfill,
