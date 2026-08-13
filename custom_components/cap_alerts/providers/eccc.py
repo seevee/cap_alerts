@@ -172,7 +172,7 @@ def _is_marine_eccc(clc: tuple[str, ...]) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_feed_urls(options: Mapping[str, Any]) -> list[tuple[str, str]]:
+def resolve_feed_urls(options: Mapping[str, Any]) -> list[tuple[str, str]]:
     """Return the ``(source_id, url)`` pairs to fetch, in union priority order.
 
     ``feed_source`` "auto" (the default, and any unrecognised value — fail open)
@@ -1210,7 +1210,7 @@ class ECCCProvider:
     ) -> list[Element]:
         """Fetch the configured NAAD host(s) and return their Atom entries.
 
-        Hosts (``_resolve_feed_urls``) are fetched in ``NAAD_FEED_UNION_ORDER``
+        Hosts (``resolve_feed_urls``) are fetched in ``NAAD_FEED_UNION_ORDER``
         (also the href tie-break priority) and their entries concatenated in that
         order, with **no** deduplication here — dedup runs later in ``_collect``
         on the entries that survive the region filter, because the entries of one
@@ -1229,7 +1229,7 @@ class ECCCProvider:
         returned, with one warning logged per failure streak per host. Only an
         all-hosts failure raises ``UpdateFailed``, naming each host and its error.
         """
-        sources = _resolve_feed_urls(options)
+        sources = resolve_feed_urls(options)
         entries: list[Element] = []
         failures: list[str] = []
         for source_id, url in sources:

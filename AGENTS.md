@@ -52,6 +52,7 @@ custom_components/cap_alerts/
     wmo.py          # WMO steps: source picker, geocode narrowing, language option
     gdacs.py        # GDACS steps + event-type/alert-level options
   coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info + NAAD stream lifecycle; provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs
+  diagnostics.py    # config-entry diagnostics download: scope, endpoints, update health, filters, convention rows in effect; redacts location + credentials
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
   button.py         # RefreshButton: on-demand provider fetch (all providers)
   binary_sensor.py  # StreamConnectivitySensor: NAAD socket state (ECCC streaming only)

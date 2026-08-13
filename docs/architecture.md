@@ -852,6 +852,49 @@ Entry title is derived programmatically from config data (`_compute_device_title
 
 ---
 
+## Diagnostics (`diagnostics.py`)
+
+The config-entry diagnostics download (issue #134). The three diagnostic
+*entities* are dashboard surfaces; this is the support artifact — one file that
+answers "what is this entry actually doing" without asking a reporter to enable
+debug logging and paste back a wall of text.
+
+**Read, never re-derive.** Everything in the payload is read off the coordinator
+as it stands. The *resolved* config — tracker → coordinates, country entity →
+ISO-2, language `auto` → a concrete tag — is the pair the last update recorded
+(`coordinator.resolved_config` / `resolved_options`), never a fresh
+`_resolve_config()` call. That resolution owns the scope key retention is
+decided against (see *Absence handling*), so running it from a diagnostics
+download would consume a scope change the next real cycle needs to see. Before
+the first refresh lands, the properties fall back to raw entry data, so an entry
+that never came up is still diagnosable.
+
+**Failures outlive their recovery.** `_async_update_data` wraps the fetch to
+stamp `last_update_failure` and `last_update_failure_time`, and neither is
+cleared on the next success — a dump is read after the fact, and "it broke at
+04:12 and has been fine since" is what a report needs. The base coordinator
+still owns availability, logging and backoff; the wrapper records and re-raises.
+
+**Redaction is the reason the endpoint list is built here.** A diagnostics
+download usually ends up in a public issue, so GPS coordinates, the tracker
+entity and the MeteoAlarm country-source entity are redacted wherever they
+appear. That includes derived values: NWS puts the location into its query
+string, so the endpoint is rendered as `…/alerts/active?point=**REDACTED**`
+rather than reproduced. Credential keys go through the same list even though no
+shipped provider authenticates today. Alert body text and geometry are omitted
+outright — they are large, and geometry is already externalized (§2.4) for that
+reason.
+
+**Convention rows are the point.** Once a report involves a per-sender dialect,
+the first question is which row matched, and `conventions_for()` returns the row
+without saying which key produced it. The payload names the key
+(`meteoalarm/vigilance@meteo.fr` vs. plain `meteoalarm`), lists the senders that
+landed on each, and renders the row by walking the dataclass — so a rule added
+to the table shows up in the next dump with no change here. Hooks render by
+function name, stages by slot.
+
+---
+
 ## Future Providers
 
 These are documented for architecture planning; the provider protocol accommodates each without changes to the coordinator, sensor, or entity model.
