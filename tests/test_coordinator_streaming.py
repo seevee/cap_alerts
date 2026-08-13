@@ -596,6 +596,43 @@ async def test_streamed_ended_document_removes_entity(
 
 
 @pytest.mark.asyncio
+async def test_heartbeats_do_not_re_announce_an_ended_alert(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """The ending is announced once, however many rebuilds see the record.
+
+    Issue #145, and streaming is where it hurts most: the ended document stays
+    in the live set for up to 48 h and every heartbeat rebuilds the active set
+    from it, so ~60 duplicate ``incident_removed`` an hour reached the bus for a
+    single alert that had already gone away.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    count_id = _count_id(hass, entry)
+    assert hass.states.get(count_id).state == "1"
+    removed = async_capture_events(hass, "incident_removed")
+
+    await holder["on_alert_doc"](
+        _ended_cap_xml(
+            "urn:oid:A2", references="CWTO,urn:oid:A,2026-07-22T12:00:00-00:00"
+        )
+    )
+    await hass.async_block_till_done()
+    assert len(removed) == 1
+
+    for _ in range(5):
+        await holder["on_heartbeat"]()
+        await hass.async_block_till_done()
+
+    assert hass.states.get(count_id).state == "0"
+    assert len(removed) == 1
+
+
+@pytest.mark.asyncio
 async def test_streamed_transitioned_out_document_reports_supersession(
     hass, aioclient_mock, enable_custom_integrations, monkeypatch
 ):
