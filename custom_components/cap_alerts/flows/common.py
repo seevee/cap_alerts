@@ -7,17 +7,22 @@ render them.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Mapping
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 from homeassistant.data_entry_flow import AbortFlow
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.instance_id import async_get as async_get_instance_id
 from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
 
 from ..const import (
+    CONFIG_FLOW_TIMEOUT,
     CONF_COUNTRY,
     CONF_COUNTRY_ENTITY,
     CONF_GPS_LOC,
@@ -29,8 +34,10 @@ from ..const import (
     CONF_TRACKER_ENTITY,
     CONF_ZONE_ID,
     METEOALARM_COUNTRY_NAMES,
+    USER_AGENT,
     WMO_SOURCE_NAMES,
 )
+from ..providers import get_provider
 
 _GPS_RE = re.compile(r"^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$")
 # One area-code prefix. Deliberately not numeric-only: the filter compares
@@ -103,6 +110,30 @@ class ScopedEntryFlowMixin(ConfigFlow):
     duplicate check cannot be forgotten on one of the eighteen create paths —
     which is how the integration shipped without it at all.
     """
+
+    async def _async_validate_scope(self, data: Mapping[str, Any]) -> str | None:
+        """Ask the provider whether this scope will ever produce alerts.
+
+        Called from the step that *collects* the scope-bearing value rather
+        than from entry creation, because that is the only place with a form to
+        report on: several create paths are menu clicks with no field to attach
+        an error to, and each of those inherits a value an earlier form already
+        put through here.
+
+        Its own timeout, well under the coordinator's: a setup form that hangs
+        for the full poll timeout is its own failure mode. Anything that fails
+        to answer degrades to ``cannot_connect``, which re-renders the form
+        rather than blocking a scope that may be perfectly good.
+        """
+        provider = get_provider(str(data.get(CONF_PROVIDER, "")))
+        user_agent = USER_AGENT.format(await async_get_instance_id(self.hass))
+        try:
+            async with asyncio.timeout(CONFIG_FLOW_TIMEOUT):
+                return await provider.async_validate_config(
+                    async_get_clientsession(self.hass), data, user_agent=user_agent
+                )
+        except (TimeoutError, aiohttp.ClientError, ValueError):
+            return "cannot_connect"
 
     async def _async_create_scoped_entry(
         self,

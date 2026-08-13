@@ -65,7 +65,7 @@ custom_components/cap_alerts/
   views.py          # GET /api/cap_alerts/geometry/{ref} → FeatureCollection
   websocket.py      # cap_alerts/geometry WS command, same payload as the REST view
   providers/
-    __init__.py           # AlertProvider protocol + get_provider() factory
+    __init__.py           # AlertProvider protocol (fetch + config-flow scope validation) + get_provider() factory
     cap.py                # shared, provider-neutral CAP 1.2 XML parsing (CAPDoc/CAPInfoDoc, parse_cap_alert, resolve_chain_leaves)
     cap_content_cache.py  # LRU cache for fetched CAP XML bodies (shared: eccc + wmo)
     geometry.py           # shared CAP shapes → GeoJSON; polygon/point selection, zero-radius circles
@@ -87,6 +87,7 @@ custom_components/cap_alerts/
 - Dynamic entity lifecycle: alert entities are created/removed per coordinator update via `_sync_alert_entities()` callback
 - Reconfigure flow for identity/location, options flow for behavior (polling interval, timeout, language, area-code narrowing)
 - No `CONF_NAME` — entry title derived programmatically from config data
+- Config-flow scope validation lives on the provider (`async_validate_config`), returns a `strings.json` error key or `None`, and is called from the step that collects the value — not from entry creation, since several create paths are menu clicks with no form to report on
 - Entry `unique_id` is a canonical scope key (`flows/common.py::compute_scope_key`), so one scope means one entry; every create/update path goes through `ScopedEntryFlowMixin` rather than `async_create_entry` directly
 - `entry.runtime_data` (typed as `CAPAlertsConfigEntry`) instead of `hass.data[DOMAIN]` dict
 - `async_config_entry_first_refresh()` for proper startup error handling

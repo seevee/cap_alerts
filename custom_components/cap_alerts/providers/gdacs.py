@@ -450,6 +450,21 @@ class GDACSProvider:
     def name(self) -> str:
         return "gdacs"
 
+    async def async_validate_config(
+        self,
+        session: aiohttp.ClientSession,
+        config: Mapping[str, Any],
+        *,
+        user_agent: str | None = None,
+    ) -> str | None:
+        """Nothing to validate: the scope is the whole planet.
+
+        Both indexes are fixed and global, and the optional GPS filter narrows
+        the result rather than selecting a feed — a point with no events near
+        it is a quiet week, not a misconfiguration.
+        """
+        return None
+
     async def async_fetch(
         self,
         session: aiohttp.ClientSession,

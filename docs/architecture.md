@@ -862,6 +862,28 @@ The guard is enforced in one place rather than eighteen. `ScopedEntryFlowMixin` 
 
 Entries created before this landed have no `unique_id`, so `__init__.py::_async_ensure_scope_key` backfills one at setup — without it the guard would protect new installs only. A key another entry already holds is left unset and warned about instead of forced: Home Assistant logs an error and re-indexes on a duplicate, and a pair of pre-existing duplicates is precisely what nothing here can safely merge on the user's behalf.
 
+### Validating a scope before the entry exists (issue #131)
+
+The flow used to check syntax and stop there. `OHZ999` matches `_ZONE_RE` and does not exist, so it created an entry that set up cleanly, polled forever and never produced an alert — with no signal that anything was wrong.
+
+`AlertProvider.async_validate_config` answers whether a scope *resolves*, returning a `strings.json` error key or `None`. Not whether the service is up: "is api.weather.gov reachable" is the coordinator's problem and already surfaces as an unavailable entity.
+
+| Provider | Check | Cost |
+| :-- | :-- | :-- |
+| NWS | `/zones?id=A,B` returns a feature per zone it knows | one request for the whole list |
+| ECCC | province is in the SGC table | none — the feed is national |
+| MeteoAlarm | the country feed is not a 404 | one request |
+| WMO | the mirror serves `…/{source_id}/rss.xml` | one request |
+| GDACS | nothing; the scope is the planet | none |
+
+**Called from the step that collects the value, not from entry creation.** The issue proposed the latter, but several create paths are menu clicks — `wmo_country_wide`, `meteoalarm_country_only`, `gdacs_global` — with no field to attach an error to. Each of those inherits a value an earlier form already put through the check, so validating at the input covers them and keeps every failure renderable. It also halves the wiring: four input steps and their reconfigure twins, rather than all thirty-five create/update sites.
+
+**ECCC is implemented but not wired.** `_validate_province` already rejects anything outside the same 13 codes before the provider check could fire, so calling it from the flow would be dead code — literally uncovered lines. The method exists for the paths the flow does not own.
+
+**A check that cannot answer is not a rejection.** Timeouts and client errors degrade to `cannot_connect`, which re-renders the form; a scope is never blocked on the evidence that we failed to reach something. The timeout is `CONFIG_FLOW_TIMEOUT` (10 s), well under the coordinator's 30: the coordinator can afford to wait out a slow feed because nobody is watching, while a setup form that hangs cannot.
+
+Tests stub the check by default — `conftest.skip_scope_validation`, an autouse fixture — since otherwise every config-flow test would go to the network. Tests that are about validation opt back in with `@pytest.mark.validate_scope`.
+
 ### The update listener owns every reload decision
 
 `_async_entry_updated` in `__init__.py` is the single place that decides whether

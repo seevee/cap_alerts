@@ -141,6 +141,14 @@ class WMOFlowMixin(ScopedEntryFlowMixin):
         errors: dict[str, str] = {}
         if user_input is not None:
             source_id, err = _validate_wmo_source(user_input[CONF_SOURCE_ID])
+            if not err:
+                # Checked here, before the filter menu: country-wide commits on
+                # a menu click, and the geocode step's form is about prefixes
+                # rather than the source, so this is the last form that can
+                # report an unpublished source id.
+                err = await self._async_validate_scope(
+                    {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
+                )
             if err:
                 errors["base"] = err
             else:
@@ -261,6 +269,14 @@ class WMOFlowMixin(ScopedEntryFlowMixin):
         entry = self._get_reconfigure_entry()
         if user_input is not None:
             source_id, err = _validate_wmo_source(user_input[CONF_SOURCE_ID])
+            if not err:
+                # Checked here, before the filter menu: country-wide commits on
+                # a menu click, and the geocode step's form is about prefixes
+                # rather than the source, so this is the last form that can
+                # report an unpublished source id.
+                err = await self._async_validate_scope(
+                    {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
+                )
             if err:
                 errors["base"] = err
             else:

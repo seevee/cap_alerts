@@ -448,6 +448,33 @@ class WMOProvider:
     def name(self) -> str:
         return "wmo"
 
+    async def async_validate_config(
+        self,
+        session: aiohttp.ClientSession,
+        config: Mapping[str, Any],
+        *,
+        user_agent: str | None = None,
+    ) -> str | None:
+        """Check that the SWIC mirror actually serves this source.
+
+        The source field accepts a custom value on purpose — the registry gains
+        sources faster than the catalog here does — so a well-formed id is not
+        evidence that anything is published under it. Asking the mirror is,
+        and it is the same URL the coordinator will poll: 404 for a source it
+        does not carry, which covers both a typo and one of the registered but
+        unmirrored sources in ``WMO_UNMIRRORED_SOURCES``.
+        """
+        source_id = str(config.get(CONF_SOURCE_ID, "") or "").strip()
+        if not source_id:
+            return None
+        headers = {"User-Agent": user_agent} if user_agent else None
+        async with session.get(
+            WMO_RSS_URL.format(source_id=source_id), headers=headers
+        ) as resp:
+            if resp.status == 404:
+                return "unknown_wmo_source"
+            return None if resp.status == 200 else "cannot_connect"
+
     async def async_fetch(
         self,
         session: aiohttp.ClientSession,

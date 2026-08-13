@@ -50,6 +50,14 @@ CONF_GDACS_EVENT_TYPES = "gdacs_event_types"
 DEFAULT_SCAN_INTERVAL = 300  # seconds
 DEFAULT_TIMEOUT = 30  # seconds
 
+# Ceiling on a scope-validation request made from the config flow (issue #131).
+# Deliberately well under DEFAULT_TIMEOUT: the coordinator can afford to wait
+# out a slow feed because nobody is watching, while a setup form that hangs for
+# 30 s is its own failure mode. A check that overruns degrades to
+# ``cannot_connect`` and re-renders the form, so the cost of being wrong here
+# is one retry, not a blocked setup.
+CONFIG_FLOW_TIMEOUT = 10  # seconds
+
 # ECCC GeoRSS feed source (ECCC options flow only). "auto" fetches both NAAD
 # hosts and unions their entries deduplicated by CAP OID, because neither host
 # alone is complete: rss.alertready.ca persistently omits a handful of live

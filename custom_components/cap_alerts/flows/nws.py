@@ -51,7 +51,10 @@ class NWSFlowMixin(ScopedEntryFlowMixin):
                 errors["base"] = err
             else:
                 data = {CONF_PROVIDER: "nws", CONF_ZONE_ID: zone_id}
-                return await self._async_create_scoped_entry(data)
+                if err := await self._async_validate_scope(data):
+                    errors["base"] = err
+                else:
+                    return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="nws_zone",
             data_schema=vol.Schema({vol.Required(CONF_ZONE_ID): str}),
@@ -116,7 +119,10 @@ class NWSFlowMixin(ScopedEntryFlowMixin):
                 errors["base"] = err
             else:
                 new_data = {CONF_PROVIDER: "nws", CONF_ZONE_ID: zone_id}
-                return await self._async_update_scoped_entry(entry, new_data)
+                if err := await self._async_validate_scope(new_data):
+                    errors["base"] = err
+                else:
+                    return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_nws_zone",
             data_schema=vol.Schema(

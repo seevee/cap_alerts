@@ -236,6 +236,13 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
         errors: dict[str, str] = {}
         if user_input is not None:
             country, err = _validate_country(user_input[CONF_COUNTRY])
+            if not err:
+                # Checked here rather than at entry creation: two of the three
+                # modes commit straight off the following menu, with no form to
+                # report a dead feed on.
+                err = await self._async_validate_scope(
+                    {CONF_PROVIDER: "meteoalarm", CONF_COUNTRY: country}
+                )
             if err:
                 errors["base"] = err
             else:
@@ -394,6 +401,13 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
         entry = self._get_reconfigure_entry()
         if user_input is not None:
             country, err = _validate_country(user_input[CONF_COUNTRY])
+            if not err:
+                # Checked here rather than at entry creation: two of the three
+                # modes commit straight off the following menu, with no form to
+                # report a dead feed on.
+                err = await self._async_validate_scope(
+                    {CONF_PROVIDER: "meteoalarm", CONF_COUNTRY: country}
+                )
             if err:
                 errors["base"] = err
             else:

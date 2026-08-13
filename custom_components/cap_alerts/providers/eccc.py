@@ -974,6 +974,32 @@ class ECCCProvider:
     def name(self) -> str:
         return "eccc"
 
+    async def async_validate_config(
+        self,
+        session: aiohttp.ClientSession,
+        config: Mapping[str, Any],
+        *,
+        user_agent: str | None = None,
+    ) -> str | None:
+        """Check the province code, without a request.
+
+        The NAAD feed is national — every province is served by the same two
+        hosts — so there is no per-scope endpoint to ask. What can be wrong is
+        the code itself, and that is answerable from the SGC table the province
+        filter matches on: a code absent from it filters everything out and the
+        entry would never produce an alert.
+
+        Deliberately *not* wired into the config flow, which reaches
+        ``_validate_province`` against the same 13 codes before this could ever
+        fire. It implements the protocol for the paths the flow does not own —
+        a hand-edited entry, or a future import — rather than duplicating a
+        check the form already makes.
+        """
+        province = str(config.get(CONF_PROVINCE, "") or "").strip().upper()
+        if not province:
+            return None
+        return None if province in _PROVINCE_TO_SGC else "invalid_province"
+
     async def async_fetch(
         self,
         session: aiohttp.ClientSession,
