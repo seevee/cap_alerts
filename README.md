@@ -127,8 +127,9 @@ what the last update actually did:
 - when the last update succeeded, when one last failed, and with what error —
   the failure is kept after a recovery, since that is usually what is being
   asked about
-- alert counts (active / upcoming, and a breakdown per severity) plus a
-  per-alert lifecycle row: id, phase, timestamps, sender, area geocodes
+- alert counts (active / upcoming) plus a per-alert lifecycle row: entity_id,
+  phase, timestamps, sender, area geocodes. Sparse, and capped at 25 rows —
+  the counts above it stay exact whatever the cap drops
 - active filters: marine exclusion, area-code prefixes, configured *and*
   resolved language
 - which per-source convention row is in effect, and which senders landed on it

@@ -28,7 +28,6 @@ what a report about a stuck or missing entity turns on.
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import fields
 from datetime import datetime, timezone
@@ -46,6 +45,7 @@ from homeassistant.const import (
     CONF_USERNAME,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.redact import REDACTED
 
 from .const import (
@@ -102,9 +102,10 @@ TO_REDACT = {
 }
 
 # Ceiling on the per-alert lifecycle table. A GDACS entry at the green floor
-# can carry a few hundred alerts, and the rows past the first hundred add
-# weight without adding an answer.
-MAX_ALERT_ROWS = 100
+# can carry a few hundred alerts, and this file exists to be pasted into an
+# issue — 25 rows is enough to show the shape of what a feed is returning, and
+# the count above it stays exact whatever the cap drops.
+MAX_ALERT_ROWS = 25
 
 # Location modes, most specific first — the same precedence the entry title
 # uses, so MeteoAlarm's fully-mobile mode reports as a country source rather
@@ -131,6 +132,7 @@ async def async_get_config_entry_diagnostics(
     resolved_options = coordinator.resolved_options
     alerts = list((coordinator.data or {}).values())
     active, upcoming = count_by_onset(alerts, datetime.now(timezone.utc))
+    entity_ids = _entity_ids(hass, entry, provider)
 
     return {
         "entry": {
@@ -139,12 +141,15 @@ async def async_get_config_entry_diagnostics(
             "scope": _scope(entry.data),
             "data": async_redact_data(dict(entry.data), TO_REDACT),
             "options": async_redact_data(dict(options), TO_REDACT),
-            # What the last update actually queried on, after tracker,
-            # country-source and language resolution.
+            # Only what resolution *changed* — tracker → coordinates, country
+            # entity → ISO-2, language "auto" → a concrete tag. For an entry
+            # with a static location and a pinned language the resolved pair is
+            # the stored one, and repeating it whole would bury the cases where
+            # it isn't.
             "resolved": {
-                "data": async_redact_data(dict(resolved_config), TO_REDACT),
-                "options": async_redact_data(dict(resolved_options), TO_REDACT),
                 "from_last_update": coordinator.last_update_success_time is not None,
+                **_resolved_changes(entry.data, resolved_config, "data"),
+                **_resolved_changes(options, resolved_options, "options"),
             },
         },
         "source": {
@@ -190,9 +195,15 @@ async def async_get_config_entry_diagnostics(
             "total": len(alerts),
             "active": active,
             "upcoming": upcoming,
-            "by_severity": _by_severity(alerts),
-            "truncated": max(0, len(alerts) - MAX_ALERT_ROWS),
-            "entries": [_alert_row(a) for a in alerts[:MAX_ALERT_ROWS]],
+            # Present only when the cap actually dropped rows.
+            **(
+                {"truncated": len(alerts) - MAX_ALERT_ROWS}
+                if len(alerts) > MAX_ALERT_ROWS
+                else {}
+            ),
+            "entries": [
+                _alert_row(a, entity_ids.get(a.id)) for a in alerts[:MAX_ALERT_ROWS]
+            ],
         },
         "conventions": _conventions(provider, alerts),
     }
@@ -258,39 +269,91 @@ def _nws_endpoints(config: Mapping[str, Any]) -> list[str]:
     ]
 
 
-def _by_severity(alerts: Sequence[CAPAlert]) -> dict[str, int]:
-    """Active-set headcount per normalized severity tier."""
-    return dict(Counter(a.severity_normalized or "unknown" for a in alerts))
+def _resolved_changes(
+    stored: Mapping[str, Any], resolved: Mapping[str, Any], key: str
+) -> dict[str, Any]:
+    """``{key: {changed keys}}``, or nothing at all when resolution changed nothing.
+
+    Redacted on both sides before comparing, so a resolved GPS still registers
+    as a change (the stored mapping has no such key) without the value ever
+    being reproduced.
+    """
+    before = async_redact_data(dict(stored), TO_REDACT)
+    after = async_redact_data(dict(resolved), TO_REDACT)
+    changed = {k: v for k, v in after.items() if k not in before or before[k] != v}
+    return {key: changed} if changed else {}
 
 
-def _alert_row(alert: CAPAlert) -> dict[str, Any]:
+def _entity_ids(
+    hass: HomeAssistant, entry: CAPAlertsConfigEntry, provider: str
+) -> dict[str, str]:
+    """Alert id → registered ``entity_id`` for this entry's alert entities.
+
+    The rows exist to answer "why is *that* entity still here", and a reporter
+    quotes the entity id, not the alert id. Built from the registry rather than
+    from live entities so an alert whose entity is disabled or awaiting its
+    first write still maps.
+    """
+    prefix = f"{entry.entry_id}_{provider}_"
+    return {
+        registered.unique_id.removeprefix(prefix): registered.entity_id
+        for registered in er.async_entries_for_config_entry(
+            er.async_get(hass), entry.entry_id
+        )
+        if registered.unique_id.startswith(prefix)
+    }
+
+
+def _alert_row(alert: CAPAlert, entity_id: str | None) -> dict[str, Any]:
     """One alert's identity and lifecycle — no body text, no geometry.
+
+    Sparse, the way ``CAPAlert.to_attributes()`` is: an empty or ``False``
+    field is a field the feed said nothing about, and printing twenty of them
+    per alert buries the handful that carry the answer.
 
     ``geocodes`` are kept in full: "my prefix filter matches nothing" is only
     answerable against the codes the feed actually published, and they are no
     finer-grained than the zone or region the entry is already configured for.
     """
+    return _sparse(
+        {
+            "id": alert.id,
+            "entity_id": entity_id,
+            "identifier": alert.identifier,
+            "event": alert.event,
+            "sender": alert.sender,
+            "msg_type": alert.msg_type,
+            "status": alert.status,
+            "severity": alert.severity,
+            "severity_normalized": alert.severity_normalized,
+            "phase": alert.phase,
+            "previous_phase": alert.previous_phase,
+            "phase_changed": alert.phase_changed,
+            "lifecycle_status": alert.lifecycle_status,
+            "stale": alert.stale,
+            "is_marine": alert.is_marine,
+            "sent": alert.sent,
+            "onset": alert.onset,
+            "expires": alert.expires,
+            "ends": alert.ends,
+            "has_geometry": bool(alert.geometry_ref),
+            "geocodes": {
+                scheme: list(codes) for scheme, codes in alert.geocodes.items()
+            },
+        }
+    )
+
+
+def _sparse(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Drop the fields a feed said nothing about, keeping ``id`` unconditionally.
+
+    Same rule as ``CAPAlert.to_attributes()``: empty string, ``None``, ``False``
+    and empty containers go.
+    """
     return {
-        "id": alert.id,
-        "identifier": alert.identifier,
-        "event": alert.event,
-        "sender": alert.sender,
-        "msg_type": alert.msg_type,
-        "status": alert.status,
-        "severity": alert.severity,
-        "severity_normalized": alert.severity_normalized,
-        "phase": alert.phase,
-        "previous_phase": alert.previous_phase,
-        "phase_changed": alert.phase_changed,
-        "lifecycle_status": alert.lifecycle_status,
-        "stale": alert.stale,
-        "is_marine": alert.is_marine,
-        "sent": alert.sent,
-        "onset": alert.onset,
-        "expires": alert.expires,
-        "ends": alert.ends,
-        "has_geometry": bool(alert.geometry_ref),
-        "geocodes": {scheme: list(codes) for scheme, codes in alert.geocodes.items()},
+        key: value
+        for key, value in row.items()
+        if key == "id" or value not in ("", None, False, {}, [])
     }
 
 

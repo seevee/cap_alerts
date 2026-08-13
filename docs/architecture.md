@@ -885,6 +885,24 @@ shipped provider authenticates today. Alert body text and geometry are omitted
 outright — they are large, and geometry is already externalized (§2.4) for that
 reason.
 
+**Curated, not `as_dict()`.** The common core pattern is
+`{"entry": entry.as_dict(), "data": coordinator.data}`, and both halves are
+wrong here. `as_dict()` carries `title`, and titles are derived from config data
+(`_compute_device_title`), so a GPS entry's reads `CAP Alerts ECCC
+(53.209258,-105.721127)` — the redaction defeated by the very field it is meant
+to protect. `coordinator.data` is `dict[str, CAPAlert]` with full description,
+instruction and geometry, which is what the payload deliberately omits.
+
+**Everything is sized for a paste.** Alert rows are sparse on the same rule as
+`CAPAlert.to_attributes()` (empty, `None` and `False` dropped), capped at
+`MAX_ALERT_ROWS` = 25 with the overflow counted in `truncated`, and the totals
+above them stay exact whatever the cap drops. Each row names its `entity_id`
+from the registry, since a reporter quotes the entity, not the alert id. The
+resolved pair reports only the keys resolution *changed*: for a static location
+with a pinned language it changed nothing, and repeating the stored config there
+would bury the entries where it did. Measured on an ECCC entry: 1.5 KB idle,
+4.9 KB at seven alerts, 12.4 KB at the cap and above.
+
 **Convention rows are the point.** Once a report involves a per-sender dialect,
 the first question is which row matched, and `conventions_for()` returns the row
 without saying which key produced it. The payload names the key
