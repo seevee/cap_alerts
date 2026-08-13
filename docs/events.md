@@ -7,7 +7,7 @@ Event names match the RFC §2.3 `incident_*` contract.
 | :-- | :-- |
 | `incident_created` | The store sees an alert ID for the first time. |
 | `incident_updated` | An existing alert's allowlisted fields (see `changed_fields` below) differ from the previous poll, **or** a new alert's `<references>` points to a previous-poll alert (cross-poll supersession — the new alert is considered an update even though its `id` is new). |
-| `incident_removed` | An alert moves to a terminal phase (`cancel` / `expired`). Disappearing from the feed is **not** by itself enough — see *Absence is not termination* below. |
+| `incident_removed` | An alert moves to a terminal phase (`cancel` / `expired`). Fires once per ending, however long the terminal record stays in the feed — see *One `incident_removed` per ending* below. Disappearing from the feed is **not** by itself enough — see *Absence is not termination*. |
 
 ## Payload schema
 
@@ -114,6 +114,32 @@ This is a departure from earlier builds, which emitted the
 *previous* phase (typically `new` or `update`) on removal. Automations
 that keyed off `phase` on removal to distinguish cancel from expired
 now get that information directly on the payload.
+
+## One `incident_removed` per ending
+
+An ending is announced once, no matter how long the source keeps publishing the
+record that announced it.
+
+This needs saying because feeds routinely do keep publishing it. ECCC leaves an
+ended alert in the feed for up to 48 h, and any alert still listed past its
+`expires` is terminal on arrival for the same reason. Every reconciliation sees
+that record — once per scan interval while polling, once per ~60 s heartbeat on
+ECCC streaming — and each one used to fire its own `incident_removed`, tens of
+identical events for one alert (issue #145). The store now remembers the ids it
+has announced as removed and treats a repeat sighting of the same ending as a
+no-op.
+
+**A reissue still fires.** The memory is cleared the moment the id turns up
+non-terminal again, so an alert that comes back live fires `incident_created` and
+can later fire a second `incident_removed`. Feeds do reissue, and suppressing
+that would be worse than the duplicate it prevents.
+
+**Consumers should still be idempotent.** A restart clears the memory, as it
+clears everything else the store holds, so a terminal record read fresh after a
+restart fires one removal for an alert an automation may already have archived.
+So do the reconciliation gaps the memory eventually stops defending: it ages out
+after 48 h with no sighting, sized to what the NAAD host-gap probe measures for a
+record dropping out of a feed and returning (~21 h at the worst observed).
 
 ## `removal_reason` on `incident_removed`
 

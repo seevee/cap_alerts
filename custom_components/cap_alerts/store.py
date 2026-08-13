@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -30,6 +30,23 @@ CHANGED_FIELDS_ALLOWLIST: tuple[str, ...] = (
     "area_desc",
 )
 
+# How long the store remembers an ending it has already announced (issue #145).
+#
+# Idle time, not absolute age: a terminal record that a tombstone suppresses
+# refreshes it, so the clock only runs while that record is absent from what we
+# fetch. What the tombstone has to outlive is therefore an absence-and-return,
+# not a poll interval — and those are long. The NAAD host-gap probe has sampled
+# ``rss.alertready.ca`` every 15 minutes since 2026-07-30; across 1340 samples
+# individual records went missing and came back after as much as ~21 h, ended
+# alerts among them, with the persistence to rule out propagation lag. 48 h
+# clears the measured worst case with headroom.
+#
+# Erring long is close to free. Any non-terminal sighting clears the tombstone,
+# and ids are OID- or hash-derived, so one is never recycled onto a different
+# incident — an over-long tombstone suppresses nothing a consumer wanted. Erring
+# short re-fires a removal for an alert that already ended, which is the bug.
+TOMBSTONE_IDLE_TTL = timedelta(hours=48)
+
 
 class AlertStore:
     """Tracks alert state across poll cycles for transition detection."""
@@ -45,6 +62,13 @@ class AlertStore:
         # stamped onto a record once it has actually gone unconfirmed, which
         # keeps steady-state polling from writing a fresh recorder row per poll.
         self._last_seen: dict[str, str] = {}
+        # id → when an already-announced ending was last observed. An alert that
+        # reaches a terminal phase is dropped from the active set, so it leaves
+        # ``_previous`` and the next reconciliation would read the same record as
+        # a first sighting that is already terminal — and announce the ending
+        # again, once per cycle, for as long as the source keeps publishing it
+        # (issue #145). This is the memory that ``_previous`` cannot carry.
+        self._tombstones: dict[str, datetime] = {}
 
     def process(
         self,
@@ -70,6 +94,13 @@ class AlertStore:
         are inferred as ``expired`` if their ``expires`` timestamp is in
         the past, otherwise ``cancel``.
 
+        Each ending is announced once. A terminal record that stays in the feed
+        is reconciled again every cycle, and every one of those reconciliations
+        used to fire ``incident_removed`` (issue #145); the id is tombstoned
+        instead, and a repeat sighting of the same ending is a no-op. An id that
+        comes back *live* clears its tombstone and fires ``incident_created``,
+        because a reissue is news and swallowing it is worse than a duplicate.
+
         Returns only the active alerts (``phase`` ∈ ``{new, update}``),
         with ``previous_phase`` and ``phase_changed`` set.
         """
@@ -77,6 +108,16 @@ class AlertStore:
         active: dict[str, CAPAlert] = {}
         result: list[CAPAlert] = []
         now = datetime.now(timezone.utc)
+
+        # Age out tombstones before they are read, not after, so an ending the
+        # store has stopped defending cannot suppress one more cycle on the
+        # strength of when the last prune happened to run.
+        tombstone_cutoff = now - TOMBSTONE_IDLE_TTL
+        self._tombstones = {
+            alert_id: seen
+            for alert_id, seen in self._tombstones.items()
+            if seen > tombstone_cutoff
+        }
 
         # Build a lookup of previous-poll alerts by CAP <identifier> so that
         # cross-revision supersession can be detected via alert.references.
@@ -87,6 +128,19 @@ class AlertStore:
         for alert_id, alert in incoming.items():
             prev = self._previous.get(alert_id)
             terminal = alert.phase in ("cancel", "expired")
+
+            if terminal:
+                if alert_id in self._tombstones:
+                    # This ending has already been announced and the source is
+                    # still publishing the record. Refresh so the tombstone ages
+                    # from the last sighting, not the first.
+                    self._tombstones[alert_id] = now
+                    continue
+            else:
+                # Live again after an ending. The alert left the tracked set when
+                # it was terminated, so it is a new incident to us and takes the
+                # ordinary first-sighting path below.
+                self._tombstones.pop(alert_id, None)
 
             if prev is None:
                 # Check for cross-poll supersession: this alert's <references>
@@ -108,6 +162,7 @@ class AlertStore:
                         phase_changed=phase_changed,
                     )
                     if terminal:
+                        self._tombstones[alert_id] = now
                         self._fire_event(
                             EVENT_INCIDENT_REMOVED,
                             updated,
@@ -125,6 +180,7 @@ class AlertStore:
                     updated = replace(alert, phase_changed=True)
                     if terminal:
                         # First sight is already terminal — emit removed only.
+                        self._tombstones[alert_id] = now
                         self._fire_event(
                             EVENT_INCIDENT_REMOVED,
                             updated,
@@ -147,6 +203,7 @@ class AlertStore:
                     phase_changed=phase_changed,
                 )
                 if terminal:
+                    self._tombstones[alert_id] = now
                     self._fire_event(
                         EVENT_INCIDENT_REMOVED,
                         updated,
@@ -198,6 +255,12 @@ class AlertStore:
                 active[alert_id] = retained
                 result.append(retained)
                 continue
+            # Tombstoned like an announced ending: a source that drops a record
+            # and later republishes it terminal — measured behaviour on the NAAD
+            # feeds, which withdraw ended alerts and return them hours later —
+            # would otherwise announce the same ending twice, once here and once
+            # as a first sighting that is already terminal.
+            self._tombstones[alert_id] = now
             inferred = _infer_terminal_phase(prev, now)
             terminal_alert = replace(
                 prev,
