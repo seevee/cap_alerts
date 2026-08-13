@@ -19,7 +19,7 @@ See `docs/architecture.md` for design rationale (alert identity, field mappings,
   active alerts, attributes `active`/`upcoming` split it on `onset`,
   `EntityCategory.DIAGNOSTIC`
 - **Last updated sensor** (`sensor.cap_alerts_<provider>_last_updated`): `state` = ISO timestamp, `EntityCategory.DIAGNOSTIC`
-- **Alert entities** (`sensor.cap_alert_<slug>`): one per active alert, dynamically created/removed each poll cycle
+- **Alert entities** (`sensor.cap_alerts_<provider>_cap_alert_<slug>_<hash>`): one per active alert, dynamically created/removed each poll cycle. The device-name prefix is HA's, applied because these set `has_entity_name`; the integration only suggests `cap_alert_<slug>_<hash>`
 - **Refresh button** (`button.cap_alerts_<provider>_refresh`): forces an off-cycle fetch, `EntityCategory.DIAGNOSTIC`
 - **Stream connectivity** (`binary_sensor.cap_alerts_eccc_real_time_stream`): NAAD socket state, `EntityCategory.DIAGNOSTIC`, ECCC-with-streaming only
 

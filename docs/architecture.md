@@ -42,11 +42,23 @@ Implements RFC §2.2.1 (stable entity_id derivation) and §2.5 (registry cleanup
 
 ### entity_id shape
 
+The integration suggests
+
 ```
-sensor.cap_alert_<slug(event)>_<8-hex>
+cap_alert_<slug(event)>_<8-hex>
 ```
 
 where `<8-hex>` is `sha1(unique_id)[:8]`. The hash disambiguates alerts that share an event name (e.g. two concurrent "Severe Thunderstorm Warning" entries from different offices) without relying on Home Assistant's `_2`/`_3` numeric-suffix fallback, which can outlive its source and break history when the originally-suffixed entity is removed.
+
+What actually lands in the registry carries the device name in front:
+
+```
+sensor.cap_alerts_nws_cap_alert_tornado_warning_1f0c6a62
+```
+
+This is Home Assistant's doing, and the naming makes it easy to miss. `AlertEntity.suggested_object_id` does *not* become the registry's `suggested_object_id`: `entity_platform._async_derive_object_ids` routes an integration-provided value into `object_id_base` instead, and the registry's own contract is that "`suggested_object_id` will not be prefixed with the device name; `object_id_base` will be prefixed with the device name if `has_entity_name` is True". These entities set `has_entity_name`, so the prefix is applied — measured on a live instance, 70 of 70 alert entities carry it, none match the unprefixed shape this document described until 2026-08-12.
+
+The prefix therefore follows the *device*, which users can rename: a device renamed to "CAP Alerts METEOALARM Cher" yields `sensor.cap_alerts_meteoalarm_cher_cap_alert_…`. Dropping `has_entity_name` would restore the unprefixed form and rename every alert entity in every existing install, which is not worth it — the entity_id was never the identity anyway (see below), and `docs/frontend_hints.md` already tells cards not to parse it.
 
 `unique_id` is unchanged (`{entry_id}_{provider}_{alert_id}`), so the recorder links survive any entity_id rename.
 

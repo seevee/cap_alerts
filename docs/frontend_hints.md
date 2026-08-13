@@ -21,7 +21,7 @@ A configured location produces one device carrying:
 | :-- | :-- | :-- |
 | `sensor.cap_alerts_<provider>_alert_count` | number of active alerts | Attributes `active` / `upcoming` split it on `onset`. Diagnostic. |
 | `sensor.cap_alerts_<provider>_last_updated` | ISO timestamp | `device_class: timestamp`. Diagnostic. |
-| `sensor.cap_alert_<event>_<hash>` | **normalized severity** | One per active alert, created and removed each poll cycle. |
+| `sensor.cap_alerts_<provider>_cap_alert_<event>_<hash>` | **normalized severity** | One per active alert, created and removed each poll cycle. |
 | `button.cap_alerts_<provider>_refresh` | — | Forces an off-cycle fetch. Diagnostic. |
 | `binary_sensor.cap_alerts_eccc_real_time_stream` | NAAD socket state | ECCC-with-streaming only. Diagnostic. |
 
@@ -36,13 +36,17 @@ name: Severe Thunderstorm Warning     # the CAP <event> string
 icon: mdi:weather-lightning           # dispatched from event type
 ```
 
-Entity ids follow `cap_alert_{slugified event}_{8-char hash}` — for example
-`sensor.cap_alert_severe_thunderstorm_warning_a1b2c3d4`. The hash derives from
-the entity's `unique_id` (`{entry_id}_{provider}_{alert_id}`) and disambiguates
-two concurrent alerts of the same type.
+Entity ids follow `{device name}_cap_alert_{slugified event}_{8-char hash}` — for
+example `sensor.cap_alerts_nws_cap_alert_severe_thunderstorm_warning_a1b2c3d4`.
+The hash derives from the entity's `unique_id`
+(`{entry_id}_{provider}_{alert_id}`) and disambiguates two concurrent alerts of
+the same type. The device prefix is Home Assistant's, applied because these
+entities set `has_entity_name`, so it follows the device name and changes when a
+user renames the device.
 
-**Do not parse the entity id.** It is a `suggested_object_id`, so users can
-rename it, and the event slug changes with the alert language. Discover
+**Do not parse the entity id.** The integration only suggests the object id, so
+users can rename it, the device prefix moves with the device, and the event slug
+changes with the alert language. Discover
 entities by device or by attribute (see [Discovery](#discovery) below), and
 read identity from the `id` attribute.
 
