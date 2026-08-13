@@ -837,6 +837,31 @@ domain, and hassfest requires it to live in a file named `config_flow.py`):
 - **Reconfigure flow** — identity (provider, zone / GPS / tracker / province / country / regions / area-code prefixes). Shows the same top-level provider menu as initial setup, so NWS / ECCC / MeteoAlarm switches work without remove/re-add.
 - **Options flow** — behavior (scan interval, timeout, language, area-code prefixes). Applied live: updates `coordinator.update_interval` and timeout in place and calls `async_request_refresh()`. No reload, no coordinator teardown.
 
+### One entry per scope (issue #130)
+
+Each entry's `unique_id` is a **canonical scope key** built from entry data by `flows/common.py::compute_scope_key`:
+
+```
+nws:zone:OHC035,OHC049
+nws:gps:39.7392,-104.9903
+eccc:province:AB
+wmo:source:mx-smn-es:gps:1.0,2.0
+meteoalarm:country:FR:regions:FR001,FR002
+gdacs:global
+```
+
+Two entries on the same scope would poll the same feed twice, register two devices, and mint two alert entities per alert. Nothing prevented it before: eighteen create paths called `async_create_entry` directly, and `async_set_unique_id` appeared nowhere in the integration.
+
+**Every present component participates**, rather than the first one matching. A WMO entry is a source *and* a location; a MeteoAlarm entry a country *and* a region set. Collapsing either would call two genuinely different entries the same.
+
+**Canonicalization is the actual work.** The same scope can be typed several ways, so multi-value fields are sorted (`OHC049,OHZ035` and `OHZ035,OHC049` are one scope) and single-value fields arrive pre-normalized from their validators — `_validate_gps` round-trips through `float`, `_validate_zone` upper-cases.
+
+**Options are not identity.** Polling interval, language, marine exclusion and geocode prefixes all change after creation without changing which feed and area the entry watches, so none of them enters the key. (The issue lists prefixes among the fields to sort; that predates their move out of entry data.)
+
+The guard is enforced in one place rather than eighteen. `ScopedEntryFlowMixin` — which every provider mixin now derives from instead of `ConfigFlow` — exposes `_async_create_scoped_entry` and `_async_update_scoped_entry`, and the steps call those instead of `async_create_entry` / `async_update_and_abort`. Reconfigure needs its own check: it is *expected* to change the key, so `_abort_if_unique_id_configured` would match the entry against itself and refuse every no-op edit; the mixin instead aborts only when a **different** entry already holds the key.
+
+Entries created before this landed have no `unique_id`, so `__init__.py::_async_ensure_scope_key` backfills one at setup — without it the guard would protect new installs only. A key another entry already holds is left unset and warned about instead of forced: Home Assistant logs an error and re-indexes on a duplicate, and a pair of pre-existing duplicates is precisely what nothing here can safely merge on the user's behalf.
+
 ### The update listener owns every reload decision
 
 `_async_entry_updated` in `__init__.py` is the single place that decides whether

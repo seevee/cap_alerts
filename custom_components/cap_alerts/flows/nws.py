@@ -7,10 +7,10 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigFlowResult
 
 from ..const import CONF_GPS_LOC, CONF_PROVIDER, CONF_TRACKER_ENTITY, CONF_ZONE_ID
-from .common import _compute_device_title, _tracker_schema, _validate_gps
+from .common import ScopedEntryFlowMixin, _tracker_schema, _validate_gps
 
 _ZONE_RE = re.compile(r"^[A-Za-z]{2}[CZ]\d{3}(,[A-Za-z]{2}[CZ]\d{3})*$")
 
@@ -23,7 +23,7 @@ def _validate_zone(value: str) -> tuple[str, str | None]:
     return cleaned, None
 
 
-class NWSFlowMixin(ConfigFlow):
+class NWSFlowMixin(ScopedEntryFlowMixin):
     """NWS steps, mixed into the domain's flow handler.
 
     Subclasses ``ConfigFlow`` without a ``domain`` so nothing registers here —
@@ -51,9 +51,7 @@ class NWSFlowMixin(ConfigFlow):
                 errors["base"] = err
             else:
                 data = {CONF_PROVIDER: "nws", CONF_ZONE_ID: zone_id}
-                return self.async_create_entry(
-                    title=_compute_device_title(data), data=data
-                )
+                return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="nws_zone",
             data_schema=vol.Schema({vol.Required(CONF_ZONE_ID): str}),
@@ -70,9 +68,7 @@ class NWSFlowMixin(ConfigFlow):
                 errors["base"] = err
             else:
                 data = {CONF_PROVIDER: "nws", CONF_GPS_LOC: gps}
-                return self.async_create_entry(
-                    title=_compute_device_title(data), data=data
-                )
+                return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="nws_gps_loc",
             data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
@@ -88,7 +84,7 @@ class NWSFlowMixin(ConfigFlow):
                 CONF_PROVIDER: "nws",
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_create_entry(title=_compute_device_title(data), data=data)
+            return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="nws_gps_tracker",
             data_schema=_tracker_schema(),
@@ -120,9 +116,7 @@ class NWSFlowMixin(ConfigFlow):
                 errors["base"] = err
             else:
                 new_data = {CONF_PROVIDER: "nws", CONF_ZONE_ID: zone_id}
-                return self.async_update_and_abort(
-                    entry, data=new_data, title=_compute_device_title(new_data)
-                )
+                return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_nws_zone",
             data_schema=vol.Schema(
@@ -146,9 +140,7 @@ class NWSFlowMixin(ConfigFlow):
                 errors["base"] = err
             else:
                 new_data = {CONF_PROVIDER: "nws", CONF_GPS_LOC: gps}
-                return self.async_update_and_abort(
-                    entry, data=new_data, title=_compute_device_title(new_data)
-                )
+                return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_nws_gps_loc",
             data_schema=vol.Schema(
@@ -170,9 +162,7 @@ class NWSFlowMixin(ConfigFlow):
                 CONF_PROVIDER: "nws",
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_update_and_abort(
-                entry, data=new_data, title=_compute_device_title(new_data)
-            )
+            return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_nws_gps_tracker",
             data_schema=_tracker_schema(

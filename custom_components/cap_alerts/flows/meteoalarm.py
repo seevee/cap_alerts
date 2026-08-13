@@ -7,7 +7,7 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -35,8 +35,8 @@ from ..const import (
 )
 from ..providers.meteoalarm import fetch_regions_for_country
 from .common import (
+    ScopedEntryFlowMixin,
     OptionsSchema,
-    _compute_device_title,
     _tracker_schema,
     _validate_gps,
 )
@@ -216,7 +216,7 @@ def options_schema(entry: ConfigEntry) -> OptionsSchema:
     }
 
 
-class MeteoAlarmFlowMixin(ConfigFlow):
+class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
     """MeteoAlarm steps, mixed into the domain's flow handler."""
 
     # ── MeteoAlarm setup ──
@@ -265,7 +265,7 @@ class MeteoAlarmFlowMixin(ConfigFlow):
     ) -> ConfigFlowResult:
         country = getattr(self, "_meteoalarm_country", "")
         data = {CONF_PROVIDER: "meteoalarm", CONF_COUNTRY: country}
-        return self.async_create_entry(title=_compute_device_title(data), data=data)
+        return await self._async_create_scoped_entry(data)
 
     async def async_step_meteoalarm_gps_polygon(
         self, user_input: dict[str, Any] | None = None
@@ -283,9 +283,7 @@ class MeteoAlarmFlowMixin(ConfigFlow):
                     CONF_GPS_LOC: gps,
                 }
                 # Title is GPS-based when GPS is present (matches NWS/ECCC).
-                return self.async_create_entry(
-                    title=_compute_device_title(data), data=data
-                )
+                return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="meteoalarm_gps_polygon",
             data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
@@ -302,7 +300,7 @@ class MeteoAlarmFlowMixin(ConfigFlow):
                 CONF_COUNTRY: country,
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_create_entry(title=_compute_device_title(data), data=data)
+            return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="meteoalarm_gps_tracker",
             data_schema=_tracker_schema(),
@@ -321,7 +319,7 @@ class MeteoAlarmFlowMixin(ConfigFlow):
             attribute = (user_input.get(CONF_COUNTRY_ATTRIBUTE) or "").strip()
             if attribute:
                 data[CONF_COUNTRY_ATTRIBUTE] = attribute
-            return self.async_create_entry(title=_compute_device_title(data), data=data)
+            return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="meteoalarm_country_source",
             data_schema=_country_source_schema(),
@@ -364,9 +362,7 @@ class MeteoAlarmFlowMixin(ConfigFlow):
                     CONF_REGIONS: selected,
                     CONF_REGION_LABELS: _region_label_map(selected, dict(regions), {}),
                 }
-                return self.async_create_entry(
-                    title=_compute_device_title(data), data=data
-                )
+                return await self._async_create_scoped_entry(data)
 
         return self.async_show_form(
             step_id="meteoalarm_region_picker",
@@ -436,9 +432,7 @@ class MeteoAlarmFlowMixin(ConfigFlow):
         entry = self._get_reconfigure_entry()
         country = getattr(self, "_meteoalarm_country", "")
         new_data = {CONF_PROVIDER: "meteoalarm", CONF_COUNTRY: country}
-        return self.async_update_and_abort(
-            entry, data=new_data, title=_compute_device_title(new_data)
-        )
+        return await self._async_update_scoped_entry(entry, new_data)
 
     async def async_step_reconfigure_meteoalarm_gps_polygon(
         self, user_input: dict[str, Any] | None = None
@@ -456,9 +450,7 @@ class MeteoAlarmFlowMixin(ConfigFlow):
                     CONF_COUNTRY: country,
                     CONF_GPS_LOC: gps,
                 }
-                return self.async_update_and_abort(
-                    entry, data=new_data, title=_compute_device_title(new_data)
-                )
+                return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_meteoalarm_gps_polygon",
             data_schema=vol.Schema(
@@ -482,9 +474,7 @@ class MeteoAlarmFlowMixin(ConfigFlow):
                 CONF_COUNTRY: country,
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_update_and_abort(
-                entry, data=new_data, title=_compute_device_title(new_data)
-            )
+            return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_meteoalarm_gps_tracker",
             data_schema=_tracker_schema(
@@ -505,9 +495,7 @@ class MeteoAlarmFlowMixin(ConfigFlow):
             attribute = (user_input.get(CONF_COUNTRY_ATTRIBUTE) or "").strip()
             if attribute:
                 new_data[CONF_COUNTRY_ATTRIBUTE] = attribute
-            return self.async_update_and_abort(
-                entry, data=new_data, title=_compute_device_title(new_data)
-            )
+            return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_meteoalarm_country_source",
             data_schema=_country_source_schema(
@@ -561,9 +549,7 @@ class MeteoAlarmFlowMixin(ConfigFlow):
                     CONF_REGIONS: selected,
                     CONF_REGION_LABELS: _region_label_map(selected, fetched, stored),
                 }
-                return self.async_update_and_abort(
-                    entry, data=new_data, title=_compute_device_title(new_data)
-                )
+                return await self._async_update_scoped_entry(entry, new_data)
 
         extra = [
             (code, stored.get(code) or code) for code in existing if code not in fetched

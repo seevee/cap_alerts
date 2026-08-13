@@ -6,7 +6,7 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
@@ -23,7 +23,7 @@ from ..const import (
     GDACS_DEFAULT_ALERT_LEVEL,
     GDACS_EVENT_TYPES,
 )
-from .common import OptionsSchema, _compute_device_title, _validate_gps
+from .common import ScopedEntryFlowMixin, OptionsSchema, _validate_gps
 
 
 def _gdacs_event_type_selector() -> SelectSelector:
@@ -68,7 +68,7 @@ def options_schema(entry: ConfigEntry) -> OptionsSchema:
     }
 
 
-class GDACSFlowMixin(ConfigFlow):
+class GDACSFlowMixin(ScopedEntryFlowMixin):
     """GDACS steps, mixed into the domain's flow handler."""
 
     # ── GDACS setup ──
@@ -90,7 +90,7 @@ class GDACSFlowMixin(ConfigFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         data = {CONF_PROVIDER: "gdacs"}
-        return self.async_create_entry(title=_compute_device_title(data), data=data)
+        return await self._async_create_scoped_entry(data)
 
     async def async_step_gdacs_gps_loc(
         self, user_input: dict[str, Any] | None = None
@@ -102,9 +102,7 @@ class GDACSFlowMixin(ConfigFlow):
                 errors["base"] = err
             else:
                 data = {CONF_PROVIDER: "gdacs", CONF_GPS_LOC: gps}
-                return self.async_create_entry(
-                    title=_compute_device_title(data), data=data
-                )
+                return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="gdacs_gps_loc",
             data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
@@ -126,9 +124,7 @@ class GDACSFlowMixin(ConfigFlow):
     ) -> ConfigFlowResult:
         entry = self._get_reconfigure_entry()
         new_data = {CONF_PROVIDER: "gdacs"}
-        return self.async_update_and_abort(
-            entry, data=new_data, title=_compute_device_title(new_data)
-        )
+        return await self._async_update_scoped_entry(entry, new_data)
 
     async def async_step_reconfigure_gdacs_gps_loc(
         self, user_input: dict[str, Any] | None = None
@@ -141,9 +137,7 @@ class GDACSFlowMixin(ConfigFlow):
                 errors["base"] = err
             else:
                 new_data = {CONF_PROVIDER: "gdacs", CONF_GPS_LOC: gps}
-                return self.async_update_and_abort(
-                    entry, data=new_data, title=_compute_device_title(new_data)
-                )
+                return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_gdacs_gps_loc",
             data_schema=vol.Schema(

@@ -45,7 +45,7 @@ custom_components/cap_alerts/
   const.py          # domain, defaults, user-agent format
   config_flow.py    # the composed flow handler (provider menus) + options flow; hassfest requires this exact filename
   flows/            # per-provider config flow steps, mixed into the handler above
-    common.py       # validators, schema helpers, and the entry-title rule shared by providers
+    common.py       # validators, schema helpers, the entry-title rule, and the canonical scope key (entry unique_id) shared by providers
     nws.py          # NWS steps + zone validation
     eccc.py         # ECCC steps + province validation, language/streaming/feed options
     meteoalarm.py   # MeteoAlarm steps: country, region picker, fully-mobile mode
@@ -87,6 +87,7 @@ custom_components/cap_alerts/
 - Dynamic entity lifecycle: alert entities are created/removed per coordinator update via `_sync_alert_entities()` callback
 - Reconfigure flow for identity/location, options flow for behavior (polling interval, timeout, language, area-code narrowing)
 - No `CONF_NAME` — entry title derived programmatically from config data
+- Entry `unique_id` is a canonical scope key (`flows/common.py::compute_scope_key`), so one scope means one entry; every create/update path goes through `ScopedEntryFlowMixin` rather than `async_create_entry` directly
 - `entry.runtime_data` (typed as `CAPAlertsConfigEntry`) instead of `hass.data[DOMAIN]` dict
 - `async_config_entry_first_refresh()` for proper startup error handling
 - Normalization happens at the integration level (severity, zones, phase), not in the card
