@@ -91,7 +91,7 @@ Every config entry produces one **device** (named `CAP Alerts <PROVIDER>`, e.g. 
 |---|---|---|
 | `sensor.cap_alerts_<provider>_alert_count` | Diagnostic. Number of alerts. Attributes `active` and `upcoming` break that total down by whether the alert's `onset` has passed (no `onset` counts as active). | integer |
 | `sensor.cap_alerts_<provider>_last_updated` | Diagnostic. Last successful poll. | ISO timestamp |
-| `sensor.cap_alert_<event_slug>_<hash>` | One per active alert; created/removed dynamically each poll. | normalized severity (`minor` \| `moderate` \| `severe` \| `extreme` \| `unknown`) |
+| `sensor.cap_alerts_<provider>_cap_alert_<event_slug>_<hash>` | One per active alert; created/removed dynamically each poll. | normalized severity (`minor` \| `moderate` \| `severe` \| `extreme` \| `unknown`) |
 | `button.cap_alerts_<provider>_refresh` | Diagnostic. Fetches from the provider now, without waiting for the next poll. | — |
 | `binary_sensor.cap_alerts_eccc_real_time_stream` | Diagnostic. Whether the NAAD real-time socket is connected. ECCC with streaming on only. | `on` (connected) \| `off` |
 
@@ -106,9 +106,20 @@ This trips up new HA users, so worth stating explicitly:
 - **Integration domain** (`cap_alerts`) — identifies the integration itself, used in `hass.data`, config entries, device identifiers, fired event types (`incident_created`, etc.).
 - **Entity platform domain** (`sensor`) — every entity this integration produces is a *sensor*, so its `entity_id` starts with `sensor.`, never `cap_alerts.`.
 
-So the integration is `cap_alerts`, but you refer to its entities as `sensor.cap_alert_<event_slug>_<hash>`, `sensor.cap_alerts_<provider>_alert_count`, `sensor.cap_alerts_<provider>_last_updated` in automations, templates, and the frontend.
+So the integration is `cap_alerts`, but you refer to its entities as `sensor.cap_alerts_<provider>_cap_alert_<event_slug>_<hash>`, `sensor.cap_alerts_<provider>_alert_count`, `sensor.cap_alerts_<provider>_last_updated` in automations, templates, and the frontend.
 
-Per-alert entity IDs are derived from the alert's `event` text (e.g. `sensor.cap_alert_tornado_warning`). If multiple active alerts share an event name, HA appends `_2`, `_3`, … Unique IDs are stable across restarts (`{entry_id}_{provider}_{alert_id}`), so the registry keeps identity even when the entity_id suffix shifts.
+Per-alert entity IDs are the device name, then the alert's `event` text, then an 8-character hash:
+
+```
+sensor.cap_alerts_nws_cap_alert_tornado_warning_1f0c6a62
+       └── device ──┘ └──── event slug ───────┘ └─ hash ─┘
+```
+
+The device prefix comes from Home Assistant, not from us. These entities set `has_entity_name`, and HA prefixes the device name onto the object ID an integration suggests. So renaming the device changes the shape: a device renamed to `CAP Alerts METEOALARM Cher` yields `sensor.cap_alerts_meteoalarm_cher_cap_alert_…`.
+
+The hash is `sha1(unique_id)[:8]` and disambiguates two concurrent alerts sharing an event name, so HA's `_2` / `_3` numeric fallback is not normally reached. Unique IDs are stable across restarts (`{entry_id}_{provider}_{alert_id}`), so the registry keeps identity even when the entity_id changes.
+
+**Don't pattern-match on the entity ID** — users can rename it, and the event slug follows the alert language. Discover alert entities by device, or by testing for the `incident_platform_version` attribute, which the diagnostic sensors don't carry.
 
 ---
 

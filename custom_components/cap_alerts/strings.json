@@ -135,7 +135,7 @@
           "regions": "Regions"
         },
         "data_description": {
-          "regions": "Select one or more regions to filter alerts. You can also type a region code (e.g. FI810) that isn't listed \u2014 the list only shows regions named by warnings currently in the feed."
+          "regions": "Select one or more regions to filter alerts. You can also type a region code (e.g. FI810) that isn't listed — the list only shows regions named by warnings currently in the feed."
         }
       },
       "wmo_source": {
@@ -321,7 +321,7 @@
           "regions": "Regions"
         },
         "data_description": {
-          "regions": "Select one or more regions to filter alerts. You can also type a region code (e.g. FI810) that isn't listed \u2014 the list only shows regions named by warnings currently in the feed."
+          "regions": "Select one or more regions to filter alerts. You can also type a region code (e.g. FI810) that isn't listed — the list only shows regions named by warnings currently in the feed."
         }
       },
       "reconfigure_wmo_source": {
@@ -393,19 +393,23 @@
       }
     },
     "error": {
-      "invalid_gps": "Invalid GPS coordinates. Enter as latitude,longitude.",
-      "invalid_zone": "Invalid zone ID format.",
-      "invalid_province": "Invalid province code.",
-      "invalid_country": "Invalid country code. Use a MeteoAlarm-supported ISO 3166-1 alpha-2 code.",
-      "invalid_wmo_source": "Invalid WMO source ID. Select from the list or enter a valid source ID (e.g. mx-smn-es).",
       "cannot_connect": "Could not connect to the weather service.",
       "cannot_fetch_regions": "Could not load regions for this country. Try again or pick a different filter mode.",
+      "invalid_country": "Invalid country code. Use a MeteoAlarm-supported ISO 3166-1 alpha-2 code.",
+      "invalid_geocode_prefix": "Invalid area code prefix. Enter a comma-separated list of codes made up of letters, digits, and : _ . - (max 32 characters each).",
+      "invalid_gps": "Invalid GPS coordinates. Enter as latitude,longitude.",
+      "invalid_province": "Invalid province code.",
+      "invalid_wmo_source": "Invalid WMO source ID. Select from the list or enter a valid source ID (e.g. mx-smn-es).",
+      "invalid_zone": "Invalid zone ID format.",
       "no_regions_selected": "Select at least one region.",
-      "invalid_geocode_prefix": "Invalid area code prefix. Enter a comma-separated list of codes made up of letters, digits, and : _ . - (max 32 characters each)."
+      "unknown_country_feed": "MeteoAlarm no longer publishes a feed for this country. Pick another, or report it so the country list can be updated.",
+      "unknown_wmo_source": "The WMO mirror does not publish this source. Pick one from the list — some registered sources are only served on national sites, which this integration cannot read.",
+      "unknown_zone": "No such NWS zone. The format is right, but the National Weather Service does not publish a zone with that ID — check it at weather.gov/zones."
     },
     "abort": {
-      "reconfigure_successful": "Configuration updated successfully.",
-      "no_regions_available": "This country's MeteoAlarm feed names no regions to pick from. Set the integration up again and choose Country-wide instead."
+      "already_configured": "This location is already set up. Reconfigure the existing entry instead of adding a second one for the same scope.",
+      "no_regions_available": "This country's MeteoAlarm feed names no regions to pick from. Set the integration up again and choose Country-wide instead.",
+      "reconfigure_successful": "Configuration updated successfully."
     }
   },
   "options": {

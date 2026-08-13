@@ -24,6 +24,10 @@ NWS_API_BASE = "https://api.weather.gov/alerts/active"
 # Cancellations never appear on the active endpoint; they are only reachable
 # through the all-messages one. See ``_fetch_cancellations``.
 NWS_ALL_BASE = "https://api.weather.gov/alerts"
+# Zone lookup, for validating a configured zone before an entry is created.
+# Takes a comma-separated ``id`` list and answers with one feature per zone it
+# knows, so the whole configured list costs one request.
+NWS_ZONES_BASE = "https://api.weather.gov/zones"
 MAX_PAGINATION_FOLLOWS = 5
 
 # How far back the cancellation lookup reaches. It only has to cover the gap
@@ -246,6 +250,43 @@ class NWSProvider:
     @property
     def name(self) -> str:
         return "nws"
+
+    async def async_validate_config(
+        self,
+        session: aiohttp.ClientSession,
+        config: Mapping[str, Any],
+        *,
+        user_agent: str | None = None,
+    ) -> str | None:
+        """Check that every configured zone is a zone NWS publishes.
+
+        Only zone mode is checkable: a point query answers for any coordinate
+        in or near the US and returns an empty collection rather than an error,
+        so there is nothing authoritative to test for GPS or tracker entries.
+
+        One request covers the whole list — ``/zones?id=A,B`` returns a feature
+        per zone it knows — and a well-formed zone that simply does not exist
+        comes back as an empty collection, which is the case ``_validate_zone``
+        cannot catch: ``OHZ999`` matches the pattern and does not exist.
+        """
+        zones = str(config.get(CONF_ZONE_ID, "") or "").strip()
+        if not zones:
+            return None
+        headers = {"Accept": "application/geo+json"}
+        if user_agent:
+            headers["User-Agent"] = user_agent
+        async with session.get(f"{NWS_ZONES_BASE}?id={zones}", headers=headers) as resp:
+            if resp.status != 200:
+                # The shape is already guaranteed by ``_validate_zone``, so a
+                # non-200 here is the service, not the input.
+                return "cannot_connect"
+            data = await resp.json()
+        published = {
+            (feature.get("properties") or {}).get("id")
+            for feature in data.get("features", [])
+        }
+        wanted = [z.strip() for z in zones.split(",") if z.strip()]
+        return "unknown_zone" if any(z not in published for z in wanted) else None
 
     async def async_fetch(
         self,

@@ -19,7 +19,7 @@ See `docs/architecture.md` for design rationale (alert identity, field mappings,
   active alerts, attributes `active`/`upcoming` split it on `onset`,
   `EntityCategory.DIAGNOSTIC`
 - **Last updated sensor** (`sensor.cap_alerts_<provider>_last_updated`): `state` = ISO timestamp, `EntityCategory.DIAGNOSTIC`
-- **Alert entities** (`sensor.cap_alert_<slug>`): one per active alert, dynamically created/removed each poll cycle
+- **Alert entities** (`sensor.cap_alerts_<provider>_cap_alert_<slug>_<hash>`): one per active alert, dynamically created/removed each poll cycle. The device-name prefix is HA's, applied because these set `has_entity_name`; the integration only suggests `cap_alert_<slug>_<hash>`
 - **Refresh button** (`button.cap_alerts_<provider>_refresh`): forces an off-cycle fetch, `EntityCategory.DIAGNOSTIC`
 - **Stream connectivity** (`binary_sensor.cap_alerts_eccc_real_time_stream`): NAAD socket state, `EntityCategory.DIAGNOSTIC`, ECCC-with-streaming only
 
@@ -45,7 +45,7 @@ custom_components/cap_alerts/
   const.py          # domain, defaults, user-agent format
   config_flow.py    # the composed flow handler (provider menus) + options flow; hassfest requires this exact filename
   flows/            # per-provider config flow steps, mixed into the handler above
-    common.py       # validators, schema helpers, and the entry-title rule shared by providers
+    common.py       # validators, schema helpers, the entry-title rule, and the canonical scope key (entry unique_id) shared by providers
     nws.py          # NWS steps + zone validation
     eccc.py         # ECCC steps + province validation, language/streaming/feed options
     meteoalarm.py   # MeteoAlarm steps: country, region picker, fully-mobile mode
@@ -65,7 +65,7 @@ custom_components/cap_alerts/
   views.py          # GET /api/cap_alerts/geometry/{ref} → FeatureCollection
   websocket.py      # cap_alerts/geometry WS command, same payload as the REST view
   providers/
-    __init__.py           # AlertProvider protocol + get_provider() factory
+    __init__.py           # AlertProvider protocol (fetch + config-flow scope validation) + get_provider() factory
     cap.py                # shared, provider-neutral CAP 1.2 XML parsing (CAPDoc/CAPInfoDoc, parse_cap_alert, resolve_chain_leaves)
     cap_content_cache.py  # LRU cache for fetched CAP XML bodies (shared: eccc + wmo)
     geometry.py           # shared CAP shapes → GeoJSON; polygon/point selection, zero-radius circles
@@ -87,6 +87,8 @@ custom_components/cap_alerts/
 - Dynamic entity lifecycle: alert entities are created/removed per coordinator update via `_sync_alert_entities()` callback
 - Reconfigure flow for identity/location, options flow for behavior (polling interval, timeout, language, area-code narrowing)
 - No `CONF_NAME` — entry title derived programmatically from config data
+- Config-flow scope validation lives on the provider (`async_validate_config`), returns a `strings.json` error key or `None`, and is called from the step that collects the value — not from entry creation, since several create paths are menu clicks with no form to report on
+- Entry `unique_id` is a canonical scope key (`flows/common.py::compute_scope_key`), so one scope means one entry; every create/update path goes through `ScopedEntryFlowMixin` rather than `async_create_entry` directly
 - `entry.runtime_data` (typed as `CAPAlertsConfigEntry`) instead of `hass.data[DOMAIN]` dict
 - `async_config_entry_first_refresh()` for proper startup error handling
 - Normalization happens at the integration level (severity, zones, phase), not in the card

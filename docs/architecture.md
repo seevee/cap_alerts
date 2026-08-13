@@ -42,11 +42,23 @@ Implements RFC §2.2.1 (stable entity_id derivation) and §2.5 (registry cleanup
 
 ### entity_id shape
 
+The integration suggests
+
 ```
-sensor.cap_alert_<slug(event)>_<8-hex>
+cap_alert_<slug(event)>_<8-hex>
 ```
 
 where `<8-hex>` is `sha1(unique_id)[:8]`. The hash disambiguates alerts that share an event name (e.g. two concurrent "Severe Thunderstorm Warning" entries from different offices) without relying on Home Assistant's `_2`/`_3` numeric-suffix fallback, which can outlive its source and break history when the originally-suffixed entity is removed.
+
+What actually lands in the registry carries the device name in front:
+
+```
+sensor.cap_alerts_nws_cap_alert_tornado_warning_1f0c6a62
+```
+
+This is Home Assistant's doing, and the naming makes it easy to miss. `AlertEntity.suggested_object_id` does *not* become the registry's `suggested_object_id`: `entity_platform._async_derive_object_ids` routes an integration-provided value into `object_id_base` instead, and the registry's own contract is that "`suggested_object_id` will not be prefixed with the device name; `object_id_base` will be prefixed with the device name if `has_entity_name` is True". These entities set `has_entity_name`, so the prefix is applied — measured on a live instance, 70 of 70 alert entities carry it, none match the unprefixed shape this document described until 2026-08-12.
+
+The prefix therefore follows the *device*, which users can rename: a device renamed to "CAP Alerts METEOALARM Cher" yields `sensor.cap_alerts_meteoalarm_cher_cap_alert_…`. Dropping `has_entity_name` would restore the unprefixed form and rename every alert entity in every existing install, which is not worth it — the entity_id was never the identity anyway (see below), and `docs/frontend_hints.md` already tells cards not to parse it.
 
 `unique_id` is unchanged (`{entry_id}_{provider}_{alert_id}`), so the recorder links survive any entity_id rename.
 
@@ -824,6 +836,55 @@ domain, and hassfest requires it to live in a file named `config_flow.py`):
 
 - **Reconfigure flow** — identity (provider, zone / GPS / tracker / province / country / regions / area-code prefixes). Shows the same top-level provider menu as initial setup, so NWS / ECCC / MeteoAlarm switches work without remove/re-add.
 - **Options flow** — behavior (scan interval, timeout, language, area-code prefixes). Applied live: updates `coordinator.update_interval` and timeout in place and calls `async_request_refresh()`. No reload, no coordinator teardown.
+
+### One entry per scope (issue #130)
+
+Each entry's `unique_id` is a **canonical scope key** built from entry data by `flows/common.py::compute_scope_key`:
+
+```
+nws:zone:OHC035,OHC049
+nws:gps:39.7392,-104.9903
+eccc:province:AB
+wmo:source:mx-smn-es:gps:1.0,2.0
+meteoalarm:country:FR:regions:FR001,FR002
+gdacs:global
+```
+
+Two entries on the same scope would poll the same feed twice, register two devices, and mint two alert entities per alert. Nothing prevented it before: eighteen create paths called `async_create_entry` directly, and `async_set_unique_id` appeared nowhere in the integration.
+
+**Every present component participates**, rather than the first one matching. A WMO entry is a source *and* a location; a MeteoAlarm entry a country *and* a region set. Collapsing either would call two genuinely different entries the same.
+
+**Canonicalization is the actual work.** The same scope can be typed several ways, so multi-value fields are sorted (`OHC049,OHZ035` and `OHZ035,OHC049` are one scope) and single-value fields arrive pre-normalized from their validators — `_validate_gps` round-trips through `float`, `_validate_zone` upper-cases.
+
+**Options are not identity.** Polling interval, language, marine exclusion and geocode prefixes all change after creation without changing which feed and area the entry watches, so none of them enters the key. (The issue lists prefixes among the fields to sort; that predates their move out of entry data.)
+
+The guard is enforced in one place rather than eighteen. `ScopedEntryFlowMixin` — which every provider mixin now derives from instead of `ConfigFlow` — exposes `_async_create_scoped_entry` and `_async_update_scoped_entry`, and the steps call those instead of `async_create_entry` / `async_update_and_abort`. Reconfigure needs its own check: it is *expected* to change the key, so `_abort_if_unique_id_configured` would match the entry against itself and refuse every no-op edit; the mixin instead aborts only when a **different** entry already holds the key.
+
+The duplicate check does **not** read unique IDs. `_abort_if_scope_configured` recomputes the scope from every existing entry's data, because an entry can legitimately carry no unique ID: the backfill below skips one whose key another entry already holds, and only retries at the next setup. Delete the holder and, on a unique-ID comparison, the twin is invisible — a duplicate walks straight through. That was found on the dev instance within an hour of the feature landing, by deleting one of a duplicate pair and re-adding it.
+
+Entries created before this landed have no `unique_id`, so `__init__.py::_async_ensure_scope_key` backfills one at setup — without it the guard would protect new installs only. A key another entry already holds is left unset and warned about instead of forced: Home Assistant logs an error and re-indexes on a duplicate, and a pair of pre-existing duplicates is precisely what nothing here can safely merge on the user's behalf.
+
+### Validating a scope before the entry exists (issue #131)
+
+The flow used to check syntax and stop there. `OHZ999` matches `_ZONE_RE` and does not exist, so it created an entry that set up cleanly, polled forever and never produced an alert — with no signal that anything was wrong.
+
+`AlertProvider.async_validate_config` answers whether a scope *resolves*, returning a `strings.json` error key or `None`. Not whether the service is up: "is api.weather.gov reachable" is the coordinator's problem and already surfaces as an unavailable entity.
+
+| Provider | Check | Cost |
+| :-- | :-- | :-- |
+| NWS | `/zones?id=A,B` returns a feature per zone it knows | one request for the whole list |
+| ECCC | province is in the SGC table | none — the feed is national |
+| MeteoAlarm | the country feed is not a 404 | one request |
+| WMO | the mirror serves `…/{source_id}/rss.xml` | one request |
+| GDACS | nothing; the scope is the planet | none |
+
+**Called from the step that collects the value, not from entry creation.** The issue proposed the latter, but several create paths are menu clicks — `wmo_country_wide`, `meteoalarm_country_only`, `gdacs_global` — with no field to attach an error to. Each of those inherits a value an earlier form already put through the check, so validating at the input covers them and keeps every failure renderable. It also halves the wiring: four input steps and their reconfigure twins, rather than all thirty-five create/update sites.
+
+**ECCC is implemented but not wired.** `_validate_province` already rejects anything outside the same 13 codes before the provider check could fire, so calling it from the flow would be dead code — literally uncovered lines. The method exists for the paths the flow does not own.
+
+**A check that cannot answer is not a rejection.** Timeouts and client errors degrade to `cannot_connect`, which re-renders the form; a scope is never blocked on the evidence that we failed to reach something. The timeout is `CONFIG_FLOW_TIMEOUT` (10 s), well under the coordinator's 30: the coordinator can afford to wait out a slow feed because nobody is watching, while a setup form that hangs cannot.
+
+Tests stub the check by default — `conftest.skip_scope_validation`, an autouse fixture — since otherwise every config-flow test would go to the network. Tests that are about validation opt back in with `@pytest.mark.validate_scope`.
 
 ### The update listener owns every reload decision
 

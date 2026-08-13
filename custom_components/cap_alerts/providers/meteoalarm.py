@@ -670,6 +670,35 @@ class MeteoAlarmProvider:
     def name(self) -> str:
         return "meteoalarm"
 
+    async def async_validate_config(
+        self,
+        session: aiohttp.ClientSession,
+        config: Mapping[str, Any],
+        *,
+        user_agent: str | None = None,
+    ) -> str | None:
+        """Check that this country still has a feed.
+
+        The country comes from a dropdown, so the code is always one we know —
+        what a request settles is whether EUMETNET still publishes it. The
+        slug table is curated by hand against live feeds, and a member leaving
+        or renaming would otherwise show up as an entry that sets up cleanly
+        and reports nothing.
+
+        Fully-mobile mode carries no country at all (it resolves one per poll
+        from a source entity), so there is nothing to check.
+        """
+        country = str(config.get(CONF_COUNTRY, "") or "").strip().upper()
+        if not country:
+            return None
+        slug = METEOALARM_COUNTRY_SLUGS.get(country)
+        if slug is None:
+            return "invalid_country"
+        async with session.get(METEOALARM_FEED_URL.format(country=slug)) as resp:
+            if resp.status == 404:
+                return "unknown_country_feed"
+            return None if resp.status == 200 else "cannot_connect"
+
     async def async_fetch(
         self,
         session: aiohttp.ClientSession,

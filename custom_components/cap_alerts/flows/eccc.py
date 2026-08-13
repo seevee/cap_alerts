@@ -6,7 +6,7 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 
 from ..const import (
     CONF_FEED_SOURCE,
@@ -20,8 +20,8 @@ from ..const import (
     ECCC_PROVINCES,
 )
 from .common import (
+    ScopedEntryFlowMixin,
     OptionsSchema,
-    _compute_device_title,
     _tracker_schema,
     _validate_gps,
 )
@@ -53,7 +53,7 @@ def options_schema(entry: ConfigEntry) -> OptionsSchema:
     }
 
 
-class ECCCFlowMixin(ConfigFlow):
+class ECCCFlowMixin(ScopedEntryFlowMixin):
     """ECCC steps, mixed into the domain's flow handler."""
 
     # ── ECCC setup ──
@@ -77,9 +77,7 @@ class ECCCFlowMixin(ConfigFlow):
                 errors["base"] = err
             else:
                 data = {CONF_PROVIDER: "eccc", CONF_PROVINCE: province}
-                return self.async_create_entry(
-                    title=_compute_device_title(data), data=data
-                )
+                return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="eccc_province",
             data_schema=vol.Schema({vol.Required(CONF_PROVINCE): str}),
@@ -96,9 +94,7 @@ class ECCCFlowMixin(ConfigFlow):
                 errors["base"] = err
             else:
                 data = {CONF_PROVIDER: "eccc", CONF_GPS_LOC: gps}
-                return self.async_create_entry(
-                    title=_compute_device_title(data), data=data
-                )
+                return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="eccc_gps_loc",
             data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
@@ -113,7 +109,7 @@ class ECCCFlowMixin(ConfigFlow):
                 CONF_PROVIDER: "eccc",
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_create_entry(title=_compute_device_title(data), data=data)
+            return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="eccc_gps_tracker",
             data_schema=_tracker_schema(),
@@ -144,9 +140,7 @@ class ECCCFlowMixin(ConfigFlow):
                 errors["base"] = err
             else:
                 new_data = {CONF_PROVIDER: "eccc", CONF_PROVINCE: province}
-                return self.async_update_and_abort(
-                    entry, data=new_data, title=_compute_device_title(new_data)
-                )
+                return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_eccc_province",
             data_schema=vol.Schema(
@@ -170,9 +164,7 @@ class ECCCFlowMixin(ConfigFlow):
                 errors["base"] = err
             else:
                 new_data = {CONF_PROVIDER: "eccc", CONF_GPS_LOC: gps}
-                return self.async_update_and_abort(
-                    entry, data=new_data, title=_compute_device_title(new_data)
-                )
+                return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_eccc_gps_loc",
             data_schema=vol.Schema(
@@ -194,9 +186,7 @@ class ECCCFlowMixin(ConfigFlow):
                 CONF_PROVIDER: "eccc",
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_update_and_abort(
-                entry, data=new_data, title=_compute_device_title(new_data)
-            )
+            return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_eccc_gps_tracker",
             data_schema=_tracker_schema(

@@ -50,6 +50,25 @@ def alert_factory():
     return make_alert
 
 
+@pytest.fixture(autouse=True)
+def skip_scope_validation(request, monkeypatch):
+    """Stub the config flow's scope check (issue #131) unless a test wants it.
+
+    The check is one live request per scope-bearing form submission, so leaving
+    it armed would put every config-flow test on the network. Tests that are
+    *about* validation ask for the real thing with
+    ``@pytest.mark.validate_scope``.
+    """
+    if "validate_scope" in request.keywords:
+        return
+    from custom_components.cap_alerts.flows.common import ScopedEntryFlowMixin
+
+    async def _skip(self, data):
+        return None
+
+    monkeypatch.setattr(ScopedEntryFlowMixin, "_async_validate_scope", _skip)
+
+
 # ---------------------------------------------------------------------------
 # Stub HTTP session for provider tests
 # ---------------------------------------------------------------------------

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.instance_id import async_get as async_get_instance_id
 
 from .const import (
@@ -15,17 +17,52 @@ from .const import (
     USER_AGENT,
 )
 from .coordinator import AlertsDataUpdateCoordinator
+from .flows.common import compute_scope_key
 from .geometry_store import GeometryStore
 from .providers import get_provider
 from .providers.cap_content_cache import CAPContentCache
 from .views import CapAlertsGeometryView
 from .websocket import async_register as async_register_ws
 
+_LOGGER = logging.getLogger(__name__)
+
 type CAPAlertsConfigEntry = ConfigEntry[AlertsDataUpdateCoordinator]
+
+
+@callback
+def _async_ensure_scope_key(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Backfill the scope key on an entry created before issue #130.
+
+    The flow now sets it at creation, but every entry that already exists has
+    ``unique_id is None`` and would go on colliding with nothing — the
+    duplicate guard would protect new installs only. Setting it at setup is
+    what makes the guard retroactive.
+
+    A key already held by another entry is left unset rather than forced:
+    Home Assistant logs an error and re-indexes on a duplicate, and these are
+    exactly the pre-existing duplicates the feature is meant to prevent, which
+    nothing here can safely merge. One warning names both so the user can
+    delete the one they don't want.
+    """
+    if entry.unique_id is not None:
+        return
+    key = compute_scope_key(entry.data)
+    existing = hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, key)
+    if existing is not None:
+        _LOGGER.warning(
+            "%s duplicates %s: both watch %s. Delete one — until then neither "
+            "is protected from a third",
+            entry.title,
+            existing.title,
+            key,
+        )
+        return
+    hass.config_entries.async_update_entry(entry, unique_id=key)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) -> bool:
     """Set up CAP Alerts from a config entry."""
+    _async_ensure_scope_key(hass, entry)
     instance_id = await async_get_instance_id(hass)
     user_agent = USER_AGENT.format(instance_id)
 

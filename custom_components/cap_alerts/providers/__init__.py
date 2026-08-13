@@ -32,6 +32,28 @@ class AlertProvider(Protocol):
         """Fetch current alerts. Raises UpdateFailed on transient errors."""
         ...
 
+    async def async_validate_config(
+        self,
+        session: aiohttp.ClientSession,
+        config: Mapping[str, Any],
+        *,
+        user_agent: str | None = None,
+    ) -> str | None:
+        """Check a configured scope before an entry is created (issue #131).
+
+        Returns a ``strings.json`` error key when the scope will never produce
+        alerts, or ``None`` when it is usable. Callers map the key onto the
+        form the user is looking at.
+
+        The question is whether *this scope resolves*, not whether the service
+        is up: "is api.weather.gov reachable" is the coordinator's problem and
+        already surfaces as an unavailable entity. Implementations answer with
+        the cheapest authoritative request they have — never a full alert
+        fetch — and return ``None`` for a mode they cannot check, so an
+        unverifiable scope is created rather than blocked.
+        """
+        ...
+
 
 @runtime_checkable
 class BackfillProvider(Protocol):

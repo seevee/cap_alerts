@@ -7,7 +7,7 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     SelectOptionDict,
@@ -28,8 +28,8 @@ from ..const import (
 )
 from ..providers.wmo import fetch_wmo_sources
 from .common import (
+    ScopedEntryFlowMixin,
     OptionsSchema,
-    _compute_device_title,
     _tracker_schema,
     _validate_geocode_prefixes,
     _validate_gps,
@@ -108,7 +108,7 @@ def options_schema(entry: ConfigEntry) -> OptionsSchema:
     }
 
 
-class WMOFlowMixin(ConfigFlow):
+class WMOFlowMixin(ScopedEntryFlowMixin):
     """WMO steps, mixed into the domain's flow handler."""
 
     async def _wmo_source_options(self) -> list[tuple[str, str]]:
@@ -141,6 +141,14 @@ class WMOFlowMixin(ConfigFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             source_id, err = _validate_wmo_source(user_input[CONF_SOURCE_ID])
+            if not err:
+                # Checked here, before the filter menu: country-wide commits on
+                # a menu click, and the geocode step's form is about prefixes
+                # rather than the source, so this is the last form that can
+                # report an unpublished source id.
+                err = await self._async_validate_scope(
+                    {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
+                )
             if err:
                 errors["base"] = err
             else:
@@ -173,7 +181,7 @@ class WMOFlowMixin(ConfigFlow):
     ) -> ConfigFlowResult:
         source_id = getattr(self, "_wmo_source_id", "")
         data = {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
-        return self.async_create_entry(title=_compute_device_title(data), data=data)
+        return await self._async_create_scoped_entry(data)
 
     async def async_step_wmo_gps_loc(
         self, user_input: dict[str, Any] | None = None
@@ -190,9 +198,7 @@ class WMOFlowMixin(ConfigFlow):
                     CONF_SOURCE_ID: source_id,
                     CONF_GPS_LOC: gps,
                 }
-                return self.async_create_entry(
-                    title=_compute_device_title(data), data=data
-                )
+                return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="wmo_gps_loc",
             data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
@@ -209,7 +215,7 @@ class WMOFlowMixin(ConfigFlow):
                 CONF_SOURCE_ID: source_id,
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_create_entry(title=_compute_device_title(data), data=data)
+            return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="wmo_gps_tracker",
             data_schema=_tracker_schema(),
@@ -240,10 +246,8 @@ class WMOFlowMixin(ConfigFlow):
                 errors["base"] = err or "invalid_geocode_prefix"
             else:
                 data = {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
-                return self.async_create_entry(
-                    title=_compute_device_title(data),
-                    data=data,
-                    options={CONF_GEOCODE_PREFIXES: prefixes},
+                return await self._async_create_scoped_entry(
+                    data, options={CONF_GEOCODE_PREFIXES: prefixes}
                 )
         return self.async_show_form(
             step_id="wmo_geocode",
@@ -265,6 +269,14 @@ class WMOFlowMixin(ConfigFlow):
         entry = self._get_reconfigure_entry()
         if user_input is not None:
             source_id, err = _validate_wmo_source(user_input[CONF_SOURCE_ID])
+            if not err:
+                # Checked here, before the filter menu: country-wide commits on
+                # a menu click, and the geocode step's form is about prefixes
+                # rather than the source, so this is the last form that can
+                # report an unpublished source id.
+                err = await self._async_validate_scope(
+                    {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
+                )
             if err:
                 errors["base"] = err
             else:
@@ -306,9 +318,7 @@ class WMOFlowMixin(ConfigFlow):
         entry = self._get_reconfigure_entry()
         source_id = getattr(self, "_wmo_source_id", "")
         new_data = {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
-        return self.async_update_and_abort(
-            entry, data=new_data, title=_compute_device_title(new_data)
-        )
+        return await self._async_update_scoped_entry(entry, new_data)
 
     async def async_step_reconfigure_wmo_gps_loc(
         self, user_input: dict[str, Any] | None = None
@@ -326,9 +336,7 @@ class WMOFlowMixin(ConfigFlow):
                     CONF_SOURCE_ID: source_id,
                     CONF_GPS_LOC: gps,
                 }
-                return self.async_update_and_abort(
-                    entry, data=new_data, title=_compute_device_title(new_data)
-                )
+                return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_wmo_gps_loc",
             data_schema=vol.Schema(
@@ -352,9 +360,7 @@ class WMOFlowMixin(ConfigFlow):
                 CONF_SOURCE_ID: source_id,
                 CONF_TRACKER_ENTITY: user_input[CONF_TRACKER_ENTITY],
             }
-            return self.async_update_and_abort(
-                entry, data=new_data, title=_compute_device_title(new_data)
-            )
+            return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_wmo_gps_tracker",
             data_schema=_tracker_schema(
@@ -377,14 +383,13 @@ class WMOFlowMixin(ConfigFlow):
                 errors["base"] = err or "invalid_geocode_prefix"
             else:
                 new_data = {CONF_PROVIDER: "wmo", CONF_SOURCE_ID: source_id}
-                return self.async_update_and_abort(
+                return await self._async_update_scoped_entry(
                     entry,
-                    data=new_data,
+                    new_data,
                     # Merged, not replaced: `options=` overwrites the whole
                     # mapping, which would silently drop scan_interval,
                     # timeout, and the language selection.
                     options={**entry.options, CONF_GEOCODE_PREFIXES: prefixes},
-                    title=_compute_device_title(new_data),
                 )
         return self.async_show_form(
             step_id="reconfigure_wmo_geocode",
