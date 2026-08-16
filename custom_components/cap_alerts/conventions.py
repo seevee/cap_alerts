@@ -12,7 +12,7 @@ parser spec-pure — safe for every provider to reuse — and keeps ``normalize.
 source-agnostic, since it consults the table rather than hard-coding one
 source's vocabulary.
 
-The pattern mirrors ``model.GEOCODE_SCHEME_ALIASES``: conventions are *data*, so
+The pattern mirrors ``model._CANONICAL_SCHEMES``: conventions are *data*, so
 adding a source is a table entry rather than a new branch in shared code, and a
 source that publishes no such signal simply omits the field instead of being
 silently absent from an ``if`` somewhere.

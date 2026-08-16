@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, fields
 from types import MappingProxyType
@@ -12,31 +13,50 @@ from typing import Any
 # field uses ``default_factory`` returning this singleton.
 _EMPTY_GEOCODES: Mapping[str, tuple[str, ...]] = MappingProxyType({})
 
-# Promoted geocode schemes: accessor alias → ordered accept-list of CAP
-# ``valueName``s, first non-empty wins.
+# Canonical publishing names for well-known area-geocode schemes.
 #
 # ``geocodes`` is the complete area-geocode surface — every scheme a feed
-# publishes lands there under its raw ``valueName``, and a new scheme needs no
-# model change. An alias is a stable short name for a scheme integration code
-# reaches for often enough to deserve one:
-#   geocode_ugc / geocode_same  — zone matching
-#   geocode_clc                 — ECCC marine detection (province-numbered for
-#                                 land zones, "00…" for marine/water zones)
-#   geocode_sgc                 — StatCan SGC codes, what ECCC province
-#                                 filtering matches on (makes it debuggable)
-# The accept-list absorbs a source bumping its scheme version (e.g.
-# ``…:1.0:CLC`` → ``…:1.1:CLC``) without a provider change.
+# publishes lands there, and a new scheme needs no model change. Schemes whose
+# CAP ``valueName`` embeds a version are published under a short canonical name
+# instead, so a consumer's key survives the source bumping that version:
+#   UGC / SAME  — zone matching, already canonical as published
+#   CLC         — ECCC marine detection (province-numbered for land zones,
+#                 "00…" for marine/water zones)
+#   SGC         — StatCan SGC codes, what ECCC province filtering matches on
 #
-# Aliases are read paths only — ``to_attributes()`` publishes the container and
-# not the views, so no consumer sees the same codes twice (issue #150).
-GEOCODE_SCHEME_ALIASES: Mapping[str, tuple[str, ...]] = MappingProxyType(
-    {
-        "geocode_ugc": ("UGC",),
-        "geocode_same": ("SAME",),
-        "geocode_clc": ("layer:EC-MSC-SMC:1.0:CLC",),
-        "geocode_sgc": ("profile:CAP-CP:Location:0.3",),
-    }
+# Rewriting by pattern rather than by an enumerated accept-list is deliberate.
+# ECCC has already bumped its layer names once (``:1.0:Alert_Name`` →
+# ``:1.1:Alert_Name``, see ``providers/eccc.py``), and an enumerated list only
+# absorbs the bumps someone remembered to add. This absorbs the next one with
+# no code change, which is the property the old alias accept-list advertised
+# and never actually had (issue #150 follow-up).
+#
+# Anything unrecognized passes through under its raw ``valueName``, which keeps
+# the container open to schemes this integration has never seen.
+_CANONICAL_SCHEMES: tuple[tuple[re.Pattern[str], str], ...] = (
+    # ECCC Canadian Location Code, e.g. ``layer:EC-MSC-SMC:1.0:CLC``.
+    (re.compile(r"layer:EC-MSC-SMC:\d+(?:\.\d+)*:CLC\Z"), "CLC"),
+    # StatCan SGC location code, e.g. ``profile:CAP-CP:Location:0.3``.
+    (re.compile(r"profile:CAP-CP:Location:\d+(?:\.\d+)*\Z"), "SGC"),
 )
+
+# The canonical names themselves, for code that reaches into the container.
+GEOCODE_UGC = "UGC"
+GEOCODE_SAME = "SAME"
+GEOCODE_CLC = "CLC"
+GEOCODE_SGC = "SGC"
+
+
+def canonical_scheme(scheme: str) -> str:
+    """Return the publishing name for a CAP geocode ``valueName``.
+
+    Unrecognized schemes come back unchanged, which is the common case: only
+    versioned well-known schemes are rewritten.
+    """
+    for pattern, canonical in _CANONICAL_SCHEMES:
+        if pattern.match(scheme):
+            return canonical
+    return scheme
 
 
 def geocodes_from(
@@ -44,24 +64,27 @@ def geocodes_from(
 ) -> Mapping[str, tuple[str, ...]]:
     """Normalize a provider's scheme→codes mapping into a ``geocodes`` container.
 
-    The single funnel every provider routes its area geocodes through: values
-    are de-duplicated order-preserving, empty schemes and empty values are
-    dropped, and the result is immutable. Returns the shared empty singleton
-    when nothing survives.
+    The single funnel every provider routes its area geocodes through: scheme
+    names are canonicalized, values are de-duplicated order-preserving, empty
+    schemes and empty values are dropped, and the result is immutable. Returns
+    the shared empty singleton when nothing survives.
+
+    Two raw schemes that canonicalize to the same name are unioned rather than
+    letting the last one win, so a feed publishing both ``:1.0:CLC`` and
+    ``:1.1:CLC`` mid-bump keeps every code, exactly once.
     """
-    normalized: dict[str, tuple[str, ...]] = {}
+    normalized: dict[str, list[str]] = {}
     for scheme, values in raw.items():
         if not scheme:
             continue
-        codes: list[str] = []
+        codes = normalized.setdefault(canonical_scheme(scheme), [])
         for value in values:
             if value and value not in codes:
                 codes.append(value)
-        if codes:
-            normalized[scheme] = tuple(codes)
-    if not normalized:
+    collapsed = {scheme: tuple(codes) for scheme, codes in normalized.items() if codes}
+    if not collapsed:
         return _EMPTY_GEOCODES
-    return MappingProxyType(normalized)
+    return MappingProxyType(collapsed)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,12 +125,13 @@ class CAPAlert:
     area_desc: str = ""
     affected_zones: tuple[str, ...] = ()
     affected_zone_uris: tuple[str, ...] = ()
-    # Every area geocode a feed publishes, keyed by raw CAP ``valueName`` (e.g.
-    # ``UGC``, ``SAME``, ``EMMA_ID``, ``NUTS3``, ``layer:EC-MSC-SMC:1.0:CLC``).
-    # The complete geocode surface for all providers, and the only one published
-    # as an attribute — raw keys cannot mislabel a scheme, and well-known
-    # schemes are reachable in code through the ``geocode_*`` accessors below
-    # (see ``GEOCODE_SCHEME_ALIASES``). Build it with ``geocodes_from()``.
+    # Every area geocode a feed publishes, keyed by CAP ``valueName`` (e.g.
+    # ``UGC``, ``SAME``, ``EMMA_ID``, ``NUTS3``) or, for well-known versioned
+    # schemes, by the canonical short name ``geocodes_from()`` rewrites them to
+    # (``CLC``, ``SGC`` — see ``_CANONICAL_SCHEMES``). The complete geocode
+    # surface for all providers, and the only one published as an attribute;
+    # well-known schemes are also reachable in code through the ``geocode_*``
+    # accessors below. Build it with ``geocodes_from()``.
     # Serialized as ``{scheme: [codes]}``, omitted if empty.
     geocodes: Mapping[str, tuple[str, ...]] = field(
         default_factory=lambda: _EMPTY_GEOCODES
@@ -216,35 +240,28 @@ class CAPAlert:
     # -- Promoted geocode schemes (derived from ``geocodes``) --
     # Read-only aliases, not fields: ``geocodes`` is the single source of truth,
     # so a provider cannot populate an alias and the container inconsistently.
-    # They are also not attributes — see ``to_attributes()``.
-
-    def _promoted_geocode(self, alias: str) -> tuple[str, ...]:
-        """Codes for the first accepted ``valueName`` of a promoted scheme."""
-        for scheme in GEOCODE_SCHEME_ALIASES[alias]:
-            codes = self.geocodes.get(scheme)
-            if codes:
-                return tuple(codes)
-        return ()
+    # They are also not attributes — see ``to_attributes()``. Each is a direct
+    # lookup because ``geocodes_from()`` has already canonicalized the key.
 
     @property
     def geocode_ugc(self) -> tuple[str, ...]:
         """NWS Universal Geographic Code zones (``UGC``)."""
-        return self._promoted_geocode("geocode_ugc")
+        return tuple(self.geocodes.get(GEOCODE_UGC, ()))
 
     @property
     def geocode_same(self) -> tuple[str, ...]:
         """FIPS-based SAME/FIPS6 area codes (``SAME``)."""
-        return self._promoted_geocode("geocode_same")
+        return tuple(self.geocodes.get(GEOCODE_SAME, ()))
 
     @property
     def geocode_clc(self) -> tuple[str, ...]:
-        """ECCC Canadian Location Codes (``layer:EC-MSC-SMC:1.0:CLC``)."""
-        return self._promoted_geocode("geocode_clc")
+        """ECCC Canadian Location Codes (``CLC``)."""
+        return tuple(self.geocodes.get(GEOCODE_CLC, ()))
 
     @property
     def geocode_sgc(self) -> tuple[str, ...]:
-        """StatCan SGC location codes (``profile:CAP-CP:Location:0.3``)."""
-        return self._promoted_geocode("geocode_sgc")
+        """StatCan SGC location codes (``SGC``)."""
+        return tuple(self.geocodes.get(GEOCODE_SGC, ()))
 
     def to_attributes(self) -> dict[str, Any]:
         """Flat attribute dict. Omits empty/None/False values (except id).
@@ -254,8 +271,8 @@ class CAPAlert:
         and REST endpoint ``/api/cap_alerts/geometry/{geometry_ref}``).
 
         The promoted ``geocode_*`` aliases are **not** serialized: they are the
-        same codes ``geocodes`` already carries under their raw ``valueName``,
-        and publishing both put the geocode surface twice on the wire — 5,510
+        same codes ``geocodes`` already carries under its own key, and
+        publishing both put the geocode surface twice on the wire — 5,510
         bytes of one live ECCC alert's 19,080-byte payload, on the alert that
         overflowed the recorder's ceiling (issue #150). The aliases remain as
         typed accessors for integration code; a consumer reads the container.

@@ -136,12 +136,29 @@ text, so a localized one matches no icon keyword.
 | `bbox` | `list[float]` | `[min_lon, min_lat, max_lon, max_lat]`. Cheap enough to render before fetching the polygon. |
 | `geometry_ref` | `str` | Handle for the full polygon. See [Geometry](#geometry). |
 | `points` | `list[[lon, lat]]` | Point locations from zero-radius CAP `<circle>` elements. |
-| `geocodes` | `dict[str, list[str]]` | Every area geocode the feed published, keyed by raw CAP `valueName`. The complete surface. |
+| `geocodes` | `dict[str, list[str]]` | Every area geocode the feed published, keyed by CAP `valueName`. The complete surface. See [Geocode keys](#geocode-keys). |
 | ~~`geocode_ugc`, `geocode_same`, `geocode_clc`, `geocode_sgc`~~ | — | **Removed.** They republished codes `geocodes` already carried — the geocode surface twice on every alert. Read the container and take every scheme, well-known or not. |
 | `affected_zones`, `affected_zone_uris` | `list[str]` | Zone codes and their provider URIs. |
 | `is_marine` | `bool` | Present **only when true**. Absence means "not marine". |
 
 Full `geometry` is **never** an attribute — see below.
+
+#### Geocode keys
+
+Most schemes appear under the name the feed publishes: `UGC`, `SAME`, `EMMA_ID`, `NUTS3`,
+and anything a source invents next. Read every key, don't allowlist.
+
+Two schemes are the exception, because ECCC embeds a version number in their CAP
+`valueName`. Those are rewritten to a stable short name before publication, so your key
+does not change when the source bumps its version:
+
+| CAP `valueName` in the feed | Attribute key |
+| :-- | :-- |
+| `layer:EC-MSC-SMC:<version>:CLC` | `CLC` |
+| `profile:CAP-CP:Location:<version>` | `SGC` |
+
+Key on `CLC` and `SGC`, never on the versioned string. If a feed ever publishes two
+versions of the same scheme at once, their codes are unioned under the one key.
 
 ### Provider extras
 
@@ -294,11 +311,16 @@ documented in [`events.md`](events.md).
   [Oversized alerts](#oversized-alerts)) — that is sparseness on one state, not
   a change to the schema.
 
-The one removal so far predates the first stable release: the `geocode_*`
-aliases came off the attribute surface during the 0.x alpha line, because they
-republished codes `geocodes` already carried on every alert. The marker stays at
-`1.0` — the promise above binds from the stable release onward, not across the
-alphas. Read `geocodes`, which has carried every scheme since it landed.
+Both changes to the surface so far predate the first stable release, and the
+marker stays at `1.0` because the promise above binds from the stable release
+onward, not across the alphas:
+
+- The `geocode_*` aliases came off during the 0.x alpha line, because they
+  republished codes `geocodes` already carried on every alert. Read `geocodes`,
+  which has carried every scheme since it landed.
+- ECCC's two versioned scheme keys inside `geocodes` became `CLC` and `SGC` in
+  the same line. That one exists so the *next* version bump is not a third
+  change to the surface. See [Geocode keys](#geocode-keys).
 - `severity_normalized`, `phase`, and `id` keep their value vocabularies.
 - The `geometry_ref` → `FeatureCollection` shape is stable across both the WS
   command and the REST view.
