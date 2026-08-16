@@ -69,15 +69,16 @@ not as a standalone refactor.
 ## Parameter extraction policy
 
 Providers copy `<parameter>` blocks into `CAPAlert.parameters` wholesale (ECCC
-and WMO also merge `<eventCode>` in). It is now the only unbounded contributor
-to the attribute payload: geometry moved out to the geometry store, and
-`description` / `instruction` are capped at 4096 UTF-8 bytes. So the 16 KB
-ceiling this integration exists to dodge is no longer close for the shipped
-sources, and this is a guard against a future one rather than a live problem.
+and WMO also merge `<eventCode>` in), and nothing bounds what a source can put
+there. It no longer threatens the recorder: `AlertEntity` declares `parameters`
+unrecorded (#150), so the ceiling is measured without it and the payload budget
+holds regardless of how much a feed sends.
 
-Needs either a provider-declared allowlist of parameter keys to retain, or a
-per-alert size cap that drops low-priority parameters when exceeded. The
-allowlist is the better fit for the convention table; the size cap is the one
+What's left is a display and websocket concern — the block still rides on the
+state object, so a source that publishes 40 KB of parameters ships it to every
+connected frontend on every poll. Needs either a provider-declared allowlist of
+keys to retain, or a size cap that drops low-priority parameters when exceeded.
+The allowlist is the better fit for the convention table; the size cap is the one
 that protects against a source we haven't sampled.
 
 ---

@@ -59,6 +59,7 @@ custom_components/cap_alerts/
   model.py          # CAPAlert dataclass + to_attributes()
   conventions.py    # per-source convention table: marine prefixes, terminal lifecycle tokens, severity derivations, per-sender dialects (identity/keep hooks + explode/merge pipeline stages); an episode dialect declares its own run rule — MeteoFrance merges consecutive forecast days, FMI contiguous windows — over one shared pipeline
   normalize.py      # shared normalization: severity, phase, Buddhist-Era year fix, state truncation
+  payload.py        # attribute-payload budget: measures what the recorder measures, trims long-form text then redundant keys in priority order (#150)
   store.py          # alert store: inter-poll diffing, transition detection, HA event firing (incl. removal_reason)
   icons.py          # event-type → mdi dispatch; MeteoAlarm classifies on awareness_type, others on event tables
   geometry_store.py # in-memory LRU cache of full GeoJSON polygons, keyed by geometry_ref (RFC §2.4); never persisted
@@ -84,6 +85,7 @@ custom_components/cap_alerts/
 
 - `CAPAlert` dataclass has all fields optional except `id` — accommodates providers with varying completeness
 - `to_attributes()` serializes only non-empty fields (sparse attributes)
+- The bound on attributes is the serialized payload, not per-field text caps: `payload.fit_to_budget` measures the set the recorder measures and trims in priority order only when it overflows (issue #150). `CAPAlert` keeps the full text either way
 - Dynamic entity lifecycle: alert entities are created/removed per coordinator update via `_sync_alert_entities()` callback
 - Reconfigure flow for identity/location, options flow for behavior (polling interval, timeout, language, area-code narrowing)
 - No `CONF_NAME` — entry title derived programmatically from config data

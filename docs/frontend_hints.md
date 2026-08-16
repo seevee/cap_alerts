@@ -137,7 +137,7 @@ text, so a localized one matches no icon keyword.
 | `geometry_ref` | `str` | Handle for the full polygon. See [Geometry](#geometry). |
 | `points` | `list[[lon, lat]]` | Point locations from zero-radius CAP `<circle>` elements. |
 | `geocodes` | `dict[str, list[str]]` | Every area geocode the feed published, keyed by raw CAP `valueName`. The complete surface. |
-| `geocode_ugc`, `geocode_same`, `geocode_clc`, `geocode_sgc` | `list[str]` | Promoted aliases for well-known schemes, present when that scheme is. |
+| ~~`geocode_ugc`, `geocode_same`, `geocode_clc`, `geocode_sgc`~~ | — | **Removed.** They republished codes `geocodes` already carried — the geocode surface twice on every alert. Read the container and take every scheme, well-known or not. |
 | `affected_zones`, `affected_zone_uris` | `list[str]` | Zone codes and their provider URIs. |
 | `is_marine` | `bool` | Present **only when true**. Absence means "not marine". |
 
@@ -150,8 +150,26 @@ Full `geometry` is **never** an attribute — see below.
 | `sender`, `sender_name` | `str` | Issuing office. |
 | `vtec` | `list[str]` | Raw VTEC strings (NWS). |
 | `vtec_office`, `vtec_phenomena`, `vtec_significance`, `vtec_action`, `vtec_tracking` | `str` | Parsed VTEC components (NWS). |
-| `parameters` | `dict` | Provider `<parameter>` catch-all. Shape varies by source — treat as untyped. |
+| `parameters` | `dict` | Provider `<parameter>` catch-all. Shape varies by source — treat as untyped. Present on the live state, but declared unrecorded, so it is absent from history. |
 | `episode_days` | `list[dict]` | Per-day profile of a merged MeteoFrance episode, ordered by date. Keys: `date`, `onset`, `expires`, `severity`, `awareness_level`, `event`, `headline`, `area_desc`. |
+
+### Oversized alerts
+
+Home Assistant's recorder drops a state's attributes wholesale once they
+serialize past 16 KB, so an alert that would overflow is trimmed before it is
+published. Rare — nothing in a 443-alert live sweep of NWS and ECCC needed it,
+now that the geocode surface is published once instead of twice — but the
+consequences are visible to a card, so read them defensively:
+
+1. `description_alt`, then `instruction_alt`, then `description`, then
+   `instruction` are truncated (trailing `…`) or dropped, in that order. The
+   alternate language pays before the primary, and the instruction outlives the
+   description within a language.
+2. `affected_zone_uris` is dropped — a fixed prefix plus the codes already in
+   `affected_zones`.
+
+The trim is display-side only: the integration keeps the full text internally,
+so `changed_fields` on the event bus never reports a truncation as a reword.
 
 ---
 
@@ -271,7 +289,16 @@ documented in [`events.md`](events.md).
 
 `incident_platform_version` is the contract version. Within a major version:
 
-- Attributes are added, never renamed or removed.
+- Attributes are added, never renamed or removed. A single oversized alert can
+  still arrive missing keys it would otherwise carry (see
+  [Oversized alerts](#oversized-alerts)) — that is sparseness on one state, not
+  a change to the schema.
+
+The one removal so far predates the first stable release: the `geocode_*`
+aliases came off the attribute surface during the 0.x alpha line, because they
+republished codes `geocodes` already carried on every alert. The marker stays at
+`1.0` — the promise above binds from the stable release onward, not across the
+alphas. Read `geocodes`, which has carried every scheme since it landed.
 - `severity_normalized`, `phase`, and `id` keep their value vocabularies.
 - The `geometry_ref` → `FeatureCollection` shape is stable across both the WS
   command and the REST view.

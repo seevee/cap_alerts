@@ -591,7 +591,7 @@ def test_build_alert_surfaces_non_same_geocode_schemes():
 def test_build_alert_same_scheme_still_promoted():
     alert = _alert_from_cap(_cap_with_geocodes([("SAME", "012345")]))
     assert alert.geocode_same == ("012345",)
-    assert alert.to_attributes()["geocode_same"] == ["012345"]
+    assert alert.to_attributes()["geocodes"]["SAME"] == ["012345"]
 
 
 def test_build_alert_without_geocodes_leaves_container_empty():

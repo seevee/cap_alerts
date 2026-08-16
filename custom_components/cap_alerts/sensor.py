@@ -22,6 +22,7 @@ from .const import CONF_PROVIDER, PLATFORM_VERSION
 from .coordinator import AlertsDataUpdateCoordinator
 from .model import CAPAlert
 from .normalize import count_by_onset
+from .payload import UNRECORDED_ATTRIBUTES, fit_to_budget
 
 # Every entity on this platform reads from the coordinator's cached data and
 # never polls upstream itself, so there is no request concurrency to cap.
@@ -201,6 +202,10 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
     """Sensor representing a single active weather alert."""
 
     _attr_has_entity_name = True
+    # Keeps the providers' verbatim ``<parameter>`` catch-all out of history —
+    # and, because the recorder measures its ceiling against the recorded set,
+    # out of the attribute budget as well (issue #150).
+    _unrecorded_attributes = UNRECORDED_ATTRIBUTES
 
     def __init__(
         self,
@@ -248,9 +253,16 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
+        """Sparse CAP attributes, trimmed to what the recorder will store.
+
+        The trim runs here rather than in ``normalize`` so the ``CAPAlert``
+        keeps the full text the source sent: ``store.process()`` diffs against
+        that, and a platform-induced truncation would otherwise show up in
+        ``changed_fields`` as if the feed had reworded the alert.
+        """
         a = self._alert
         if not a:
             return {}
         attrs = a.to_attributes()
         attrs["incident_platform_version"] = PLATFORM_VERSION
-        return attrs
+        return fit_to_budget(attrs)

@@ -89,7 +89,8 @@ def test_parse_feature_no_geocodes_not_marine():
 
 def test_parse_feature_populates_geocodes_container_and_aliases():
     # Every scheme NWS publishes lands in ``geocodes`` under its raw key; UGC
-    # and SAME are additionally promoted to their flat aliases.
+    # and SAME are additionally reachable through their accessors, which the
+    # attributes deliberately do not republish.
     feature = _feature(["OHC049", "OHC035"])
     feature["properties"]["geocode"]["SAME"] = ["039049", "039035"]
     alert = _parse_feature(feature)
@@ -100,8 +101,9 @@ def test_parse_feature_populates_geocodes_container_and_aliases():
     assert alert.geocode_ugc == ("OHC049", "OHC035")
     assert alert.geocode_same == ("039049", "039035")
     attrs = alert.to_attributes()
-    assert attrs["geocode_ugc"] == ["OHC049", "OHC035"]
+    assert attrs["geocodes"]["UGC"] == ["OHC049", "OHC035"]
     assert attrs["geocodes"]["SAME"] == ["039049", "039035"]
+    assert not [k for k in attrs if k.startswith("geocode_")]
 
 
 def test_parse_feature_no_geocode_key_leaves_container_empty():

@@ -118,14 +118,17 @@ def test_geocode_scheme_aliases_is_immutable():
 
 
 # ---------------------------------------------------------------------------
-# Promotion in to_attributes()
+# The attribute surface carries the container, never the aliases
 
 
-def test_to_attributes_promotes_known_scheme():
+def test_to_attributes_publishes_the_container_not_the_alias():
+    # The alias is a read path in code; republishing it would put the same
+    # codes on the wire twice (issue #150).
     alert = make_alert(geocodes=geocodes_from({"UGC": ["OHC049"]}))
     attrs = alert.to_attributes()
     assert attrs["geocodes"] == {"UGC": ["OHC049"]}
-    assert attrs["geocode_ugc"] == ["OHC049"]
+    assert alert.geocode_ugc == ("OHC049",)
+    assert "geocode_ugc" not in attrs
 
 
 def test_to_attributes_omits_alias_for_unpromoted_scheme():
