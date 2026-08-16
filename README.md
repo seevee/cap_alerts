@@ -215,6 +215,7 @@ custom_components/cap_alerts/
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
   model.py          # CAPAlert dataclass + to_attributes()
   normalize.py      # shared normalization: severity, phase, Buddhist-Era year fix, state truncation
+  payload.py        # attribute-payload budget: keeps a state under the recorder's ceiling
   store.py          # inter-poll diffing, transition detection, HA event firing
   providers/
     __init__.py             # AlertProvider protocol + get_provider() factory
@@ -245,6 +246,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full ECCC and WMO sec
 
 - `CAPAlert` has all fields optional except `id` — tolerates providers with varying completeness.
 - `to_attributes()` emits only non-empty fields (sparse attributes).
+- The attribute payload is bounded, not the individual fields: an alert is serialized, measured against what the recorder measures, and trimmed in priority order only if it doesn't fit (alternate-language text first, primary text last, then redundant keys).
 - Dynamic entity lifecycle via `_sync_alert_entities()` in `sensor.py`: add on new ID, remove from entity registry on disappearance.
 - Severity, zones, and phase are normalized at the integration level, not in the card.
 - `entry.runtime_data` (typed `CAPAlertsConfigEntry`) is used instead of the legacy `hass.data[DOMAIN]` dict.

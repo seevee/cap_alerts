@@ -12,20 +12,23 @@ from typing import Any
 # field uses ``default_factory`` returning this singleton.
 _EMPTY_GEOCODES: Mapping[str, tuple[str, ...]] = MappingProxyType({})
 
-# Promoted geocode schemes: attribute alias → ordered accept-list of CAP
+# Promoted geocode schemes: accessor alias → ordered accept-list of CAP
 # ``valueName``s, first non-empty wins.
 #
 # ``geocodes`` is the complete area-geocode surface — every scheme a feed
 # publishes lands there under its raw ``valueName``, and a new scheme needs no
-# model change. An alias is a stable short name for a scheme that has a real
-# consumer:
-#   geocode_ugc / geocode_same  — the card's zone filter
+# model change. An alias is a stable short name for a scheme integration code
+# reaches for often enough to deserve one:
+#   geocode_ugc / geocode_same  — zone matching
 #   geocode_clc                 — ECCC marine detection (province-numbered for
 #                                 land zones, "00…" for marine/water zones)
 #   geocode_sgc                 — StatCan SGC codes, what ECCC province
 #                                 filtering matches on (makes it debuggable)
 # The accept-list absorbs a source bumping its scheme version (e.g.
 # ``…:1.0:CLC`` → ``…:1.1:CLC``) without a provider change.
+#
+# Aliases are read paths only — ``to_attributes()`` publishes the container and
+# not the views, so no consumer sees the same codes twice (issue #150).
 GEOCODE_SCHEME_ALIASES: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         "geocode_ugc": ("UGC",),
@@ -101,11 +104,11 @@ class CAPAlert:
     affected_zone_uris: tuple[str, ...] = ()
     # Every area geocode a feed publishes, keyed by raw CAP ``valueName`` (e.g.
     # ``UGC``, ``SAME``, ``EMMA_ID``, ``NUTS3``, ``layer:EC-MSC-SMC:1.0:CLC``).
-    # The complete geocode surface for all providers — raw keys cannot mislabel
-    # a scheme, and well-known schemes are additionally promoted to the
-    # ``geocode_*`` aliases below (see ``GEOCODE_SCHEME_ALIASES``). Build it
-    # with ``geocodes_from()``. Serialized as ``{scheme: [codes]}``, omitted if
-    # empty.
+    # The complete geocode surface for all providers, and the only one published
+    # as an attribute — raw keys cannot mislabel a scheme, and well-known
+    # schemes are reachable in code through the ``geocode_*`` accessors below
+    # (see ``GEOCODE_SCHEME_ALIASES``). Build it with ``geocodes_from()``.
+    # Serialized as ``{scheme: [codes]}``, omitted if empty.
     geocodes: Mapping[str, tuple[str, ...]] = field(
         default_factory=lambda: _EMPTY_GEOCODES
     )
@@ -213,6 +216,7 @@ class CAPAlert:
     # -- Promoted geocode schemes (derived from ``geocodes``) --
     # Read-only aliases, not fields: ``geocodes`` is the single source of truth,
     # so a provider cannot populate an alias and the container inconsistently.
+    # They are also not attributes — see ``to_attributes()``.
 
     def _promoted_geocode(self, alias: str) -> tuple[str, ...]:
         """Codes for the first accepted ``valueName`` of a promoted scheme."""
@@ -249,8 +253,12 @@ class CAPAlert:
         via the ``geometry_ref`` handle (see websocket command ``cap_alerts/geometry``
         and REST endpoint ``/api/cap_alerts/geometry/{geometry_ref}``).
 
-        The promoted ``geocode_*`` aliases are added explicitly, since properties
-        do not appear in ``dataclasses.fields()``.
+        The promoted ``geocode_*`` aliases are **not** serialized: they are the
+        same codes ``geocodes`` already carries under their raw ``valueName``,
+        and publishing both put the geocode surface twice on the wire — 5,510
+        bytes of one live ECCC alert's 19,080-byte payload, on the alert that
+        overflowed the recorder's ceiling (issue #150). The aliases remain as
+        typed accessors for integration code; a consumer reads the container.
         """
         attrs: dict[str, Any] = {}
         for f in fields(self):
@@ -271,8 +279,4 @@ class CAPAlert:
                 attrs[f.name] = list(val)
             else:
                 attrs[f.name] = val
-        for alias in GEOCODE_SCHEME_ALIASES:
-            codes = self._promoted_geocode(alias)
-            if codes:
-                attrs[alias] = list(codes)
         return attrs

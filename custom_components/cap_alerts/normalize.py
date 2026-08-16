@@ -14,7 +14,6 @@ from .icons import icon_for
 from .model import CAPAlert
 
 MAX_STATE_LENGTH = 255
-SOFT_CAP_BYTES = 4096
 
 # Some feeds — notably TMD, surfaced via WMO SWIC — emit Buddhist-Era years
 # (Gregorian + 543) in CAP dateTime fields, e.g. "2568-08-05T22:50:00+07:00".
@@ -108,10 +107,6 @@ def _normalize(alert: CAPAlert, now: datetime, entry_id: str = "") -> CAPAlert:
         icon=icon_for(alert),
         bbox=_bbox_from_geometry(alert.geometry),
         geometry_ref=_geometry_ref(alert, entry_id),
-        description=_soft_cap(alert.description),
-        instruction=_soft_cap(alert.instruction)
-        if alert.instruction
-        else alert.instruction,
     )
 
 
@@ -275,24 +270,6 @@ def _bbox_from_geometry(
     lons = [p[0] for p in points]
     lats = [p[1] for p in points]
     return (min(lons), min(lats), max(lons), max(lats))
-
-
-def _soft_cap(text: str, limit_bytes: int = SOFT_CAP_BYTES) -> str:
-    """Trim ``text`` to ``limit_bytes`` UTF-8 bytes, appending ``…``.
-
-    Truncates at a UTF-8 character boundary to avoid mojibake. Under-limit
-    input is returned unchanged.
-    """
-    if not text:
-        return text
-    encoded = text.encode("utf-8")
-    if len(encoded) <= limit_bytes:
-        return text
-    # Reserve 3 bytes for the trailing ellipsis (U+2026 is 3 bytes in UTF-8).
-    budget = limit_bytes - 3
-    truncated = encoded[:budget]
-    # Back off to a character boundary by decoding with 'ignore'.
-    return truncated.decode("utf-8", errors="ignore") + "\u2026"
 
 
 def _truncate_state(value: str) -> str:

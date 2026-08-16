@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """Measure long-form text and attribute-payload sizes across every provider.
 
-Sizes the caps. ``normalize.SOFT_CAP_BYTES`` and the payload bound in issue
-#150 are both numbers someone has to pick, and picking them from intuition is
-how the reference implementation ended up capping ``description`` at 4 KB while
-leaving ``description_alt`` unbounded — a hole no test caught because no test
-knew what real feeds send.
+Sizes the bound. ``payload.PAYLOAD_BUDGET`` is a number someone has to pick, and
+picking it from intuition is how the reference implementation ended up capping
+``description`` at 4 KB while leaving ``description_alt`` unbounded — a hole no
+test caught because no test knew what real feeds send.
 
-Three questions, in the order they matter:
+Four questions, in the order they matter:
 
 1. **How long is long-form text, per field?** Descriptions, instructions, and
-   their localized twins, per provider, in the UTF-8 bytes ``_soft_cap`` counts.
+   their localized twins, per provider, in UTF-8 bytes.
 2. **How long is it per alert, summed across the four fields?** The figure an
    aggregate budget would be set from, and the one the first sweep omitted.
 3. **What does an alert actually serialize to?** ``to_attributes()`` against the
    recorder's 16,384-byte ceiling. This is the question that matters, because a
    per-field cap that truncates text on an alert which would have fit is pure
    loss.
+4. **What does the budget leave?** The same payload through
+   ``payload.fit_to_budget``, measured the way the recorder measures it. Nothing
+   should come out over the budget; how much text it cost to get there is the
+   price of the fix (issue #150).
 
 Usage (needs the test venv, which has aiohttp + homeassistant)::
 
@@ -29,18 +32,15 @@ A full run is 170-odd scopes and several thousand HTTP requests, most of them
 WMO CAP bodies. Budget 5-10 minutes and expect some 404s; the mirror is missing
 bodies for sources the registry still lists.
 
-**Measured before normalization, deliberately.** ``_soft_cap`` runs inside
-``_normalize``, so measuring after it would report every value at or under the
-cap by construction and answer nothing. Payload figures put the raw text back
-onto the normalized alert, so ``severity_normalized``/``phase``/``icon`` are
-present and the long-form fields are uncapped — what the alert *would* serialize
-to with no cap at all.
+Long-form text is measured as the provider parsed it. Normalization no longer
+touches those fields, so this is also what the entity would publish before the
+budget gets a say.
 
 Payloads are a floor, not a total: ``geometry_ref`` and ``bbox`` are written by
-the coordinator and ``incident_platform_version`` by the entity, so a real
-state object carries roughly 150 bytes this script never sees. The recorder
-also measures the entity's final attributes minus ``_unrecorded_attributes``,
-which is a smaller set again — see #150.
+the coordinator and ``incident_platform_version`` by the entity, so a real state
+object carries roughly 150 bytes this script never sees, plus the
+``friendly_name`` Home Assistant appends afterwards — which is what
+``payload.PAYLOAD_RESERVE`` exists to cover.
 """
 
 from __future__ import annotations
@@ -52,7 +52,6 @@ import statistics
 import sys
 import time
 from collections import defaultdict
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -73,6 +72,11 @@ from custom_components.cap_alerts.conventions import (  # noqa: E402
 )
 from custom_components.cap_alerts.model import CAPAlert  # noqa: E402
 from custom_components.cap_alerts.normalize import normalize_alerts  # noqa: E402
+from custom_components.cap_alerts.payload import (  # noqa: E402
+    PAYLOAD_BUDGET,
+    fit_to_budget,
+    measure,
+)
 from custom_components.cap_alerts.providers import get_provider  # noqa: E402
 from custom_components.cap_alerts.providers.cap_content_cache import (  # noqa: E402
     CAPContentCache,
@@ -101,9 +105,9 @@ def _blen(text: str | None) -> int:
     return len(text.encode("utf-8")) if text else 0
 
 
-def _payload_bytes(alert: CAPAlert) -> int:
-    """Serialized ``to_attributes()`` size, the way the recorder would encode it."""
-    return len(json.dumps(alert.to_attributes(), separators=(",", ":"), default=str))
+def _payload_bytes(attrs: dict[str, Any]) -> int:
+    """Serialized attribute size, the way the recorder would encode it."""
+    return len(json.dumps(attrs, separators=(",", ":"), default=str))
 
 
 # ---------------------------------------------------------------------------
@@ -215,30 +219,31 @@ async def _fetch_scope(
 
 
 def _measure(provider: str, alerts: list[CAPAlert]) -> list[dict[str, Any]]:
-    """One row per alert: field sizes, their sum, and the serialized payload.
+    """One row per alert: field sizes, their sum, and both payload figures.
 
-    Normalization runs so the row carries the derived attributes an entity would
-    have, then the raw long-form text is put back, since ``_soft_cap`` would
-    otherwise have already truncated exactly what this is trying to measure.
+    Normalization runs first so the row carries the derived attributes an entity
+    would have. ``payload`` is what the alert serializes to untouched;
+    ``recorded`` is the same payload through the budget, measured the way the
+    recorder measures it (unrecorded attributes excluded).
     """
     rows: list[dict[str, Any]] = []
-    normalized = normalize_alerts(alerts, "sweep")
-    by_id = {a.id: a for a in normalized}
-    for raw in alerts:
-        norm = by_id.get(raw.id)
-        if norm is None:
-            continue
-        uncapped = replace(norm, **{f: getattr(raw, f) for f in LONG_FORM})
-        sizes = {f: _blen(getattr(raw, f)) for f in LONG_FORM}
+    for alert in normalize_alerts(alerts, "sweep"):
+        attrs = alert.to_attributes()
+        fitted = fit_to_budget(attrs)
+        payload = _payload_bytes(attrs)
+        sizes = {f: _blen(getattr(alert, f)) for f in LONG_FORM}
         rows.append(
             {
                 "provider": provider,
-                "id": raw.id,
-                "event": raw.event,
+                "id": alert.id,
+                "event": alert.event,
                 **sizes,
                 "long_form_total": sum(sizes.values()),
-                "payload": _payload_bytes(uncapped),
-                "keys": len(uncapped.to_attributes()),
+                "payload": payload,
+                "recorded": measure(fitted) or 0,
+                # ``fit_to_budget`` returns the input untouched when it fits.
+                "lost": payload - _payload_bytes(fitted) if fitted is not attrs else 0,
+                "keys": len(attrs),
             }
         )
     return rows
@@ -336,6 +341,23 @@ def _report(rows: list[dict[str, Any]], errors: dict[str, str]) -> None:
             print(
                 f"    {row['payload']:7,}  {flag:4s}  {row['provider']:10s} "
                 f"long_form={row['long_form_total']:6,}  {str(row['event'])[:38]}"
+            )
+
+    recorded = [r["recorded"] for r in rows]
+    if recorded:
+        trimmed = [r for r in rows if r["lost"]]
+        still_over = [r for r in rows if r["recorded"] > PAYLOAD_BUDGET]
+        print(f"\nafter the budget ({PAYLOAD_BUDGET:,}), as the recorder measures it")
+        print(
+            f"  p50={_pct(recorded, 0.50):,}  p90={_pct(recorded, 0.90):,}  "
+            f"p99={_pct(recorded, 0.99):,}  max={max(recorded):,}"
+        )
+        print(f"  trimmed: {len(trimmed)} of {len(recorded)}")
+        print(f"  still over the budget: {len(still_over)}")
+        for row in sorted(trimmed, key=lambda r: -r["lost"])[:5]:
+            print(
+                f"    -{row['lost']:6,}  {row['payload']:7,} uncapped  "
+                f"{row['provider']:10s} {str(row['event'])[:38]}"
             )
 
     if errors:

@@ -511,11 +511,13 @@ def test_build_alert_from_cap_populates_full_geocode_container():
 
 
 def test_build_alert_from_cap_populates_geocode_sgc():
-    # 35 = Ontario; promoted so a province filter decision is inspectable from
-    # the entity attributes.
+    # 35 = Ontario; reachable through the accessor, and inspectable from the
+    # entity attributes through the container that publishes it.
     alert = _make_alert_from_update_fixture()
     assert alert.geocode_sgc == ("3506008",)
-    assert alert.to_attributes()["geocode_sgc"] == ["3506008"]
+    attrs = alert.to_attributes()
+    assert attrs["geocodes"]["profile:CAP-CP:Location:0.3"] == ["3506008"]
+    assert "geocode_sgc" not in attrs
 
 
 def test_build_alert_from_cap_geocode_sgc_absent_stays_sparse():
