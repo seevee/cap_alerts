@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from types import MappingProxyType
 
 import pytest
 
@@ -11,11 +10,13 @@ from tests.conftest import CAPAlert, make_alert
 
 # conftest loads the model as ``cap_alerts.model``, a distinct module object from
 # ``custom_components.cap_alerts.model`` when the HA plugin is active. Source the
-# helpers from whichever copy defines the CAPAlert under test so monkeypatching
-# the registry actually reaches the properties.
+# helpers from whichever copy defines the CAPAlert under test so they operate on
+# the same container the properties read.
 _model = sys.modules[CAPAlert.__module__]
-GEOCODE_SCHEME_ALIASES = _model.GEOCODE_SCHEME_ALIASES
+canonical_scheme = _model.canonical_scheme
 geocodes_from = _model.geocodes_from
+
+ALIAS_PROPERTIES = ("geocode_ugc", "geocode_same", "geocode_clc", "geocode_sgc")
 
 
 def test_to_attributes_serializes_geocodes():
@@ -81,40 +82,74 @@ def test_alias_property_reads_its_scheme(alias, scheme):
     assert getattr(alert, alias) == ("001", "002")
 
 
-@pytest.mark.parametrize("alias", list(GEOCODE_SCHEME_ALIASES))
+@pytest.mark.parametrize("alias", ALIAS_PROPERTIES)
 def test_alias_property_empty_when_scheme_absent(alias):
     alert = make_alert(geocodes=geocodes_from({"NUTS3": ["FR614"]}))
     assert getattr(alert, alias) == ()
 
 
-def test_alias_accept_list_first_match_wins(monkeypatch):
-    # The accept-list absorbs a source bumping its scheme version; ordering is
-    # deterministic — the first listed valueName with a non-empty value wins,
-    # regardless of the container's own key order.
-    monkeypatch.setattr(
-        _model,
-        "GEOCODE_SCHEME_ALIASES",
-        MappingProxyType(
-            {"geocode_clc": ("layer:EC-MSC-SMC:1.1:CLC", "layer:EC-MSC-SMC:1.0:CLC")}
-        ),
-    )
-    both = make_alert(
-        geocodes=geocodes_from(
-            {
-                "layer:EC-MSC-SMC:1.0:CLC": ["071100"],
-                "layer:EC-MSC-SMC:1.1:CLC": ["999999"],
-            }
-        )
-    )
-    assert both.geocode_clc == ("999999",)
-    # Falls through to the second entry when the preferred scheme is absent.
-    older = make_alert(geocodes=geocodes_from({"layer:EC-MSC-SMC:1.0:CLC": ["071100"]}))
-    assert older.geocode_clc == ("071100",)
+# ---------------------------------------------------------------------------
+# Canonical scheme names — versioned valueNames publish under a stable key
 
 
-def test_geocode_scheme_aliases_is_immutable():
-    with pytest.raises(TypeError):
-        GEOCODE_SCHEME_ALIASES["geocode_new"] = ("X",)  # type: ignore[index]
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("layer:EC-MSC-SMC:1.0:CLC", "CLC"),
+        ("layer:EC-MSC-SMC:1.1:CLC", "CLC"),
+        # A bump the integration has never seen still lands on the same key,
+        # which an enumerated accept-list could not do.
+        ("layer:EC-MSC-SMC:2.4.1:CLC", "CLC"),
+        ("profile:CAP-CP:Location:0.3", "SGC"),
+        ("profile:CAP-CP:Location:1.0", "SGC"),
+        # Already canonical, and schemes with no rule, pass through untouched.
+        ("UGC", "UGC"),
+        ("SAME", "SAME"),
+        ("EMMA_ID", "EMMA_ID"),
+        ("NUTS3", "NUTS3"),
+    ],
+)
+def test_canonical_scheme(raw, expected):
+    assert canonical_scheme(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # Anchored on both ends: a scheme that merely contains a known name is
+        # a different scheme and keeps its own key.
+        "layer:EC-MSC-SMC:1.0:CLC:SUB",
+        "x-layer:EC-MSC-SMC:1.0:CLC",
+        "layer:EC-MSC-SMC:CLC",
+        "profile:CAP-CP:Location",
+        "profile:CAP-CP:Location:0.3:extra",
+    ],
+)
+def test_canonical_scheme_leaves_near_misses_alone(raw):
+    assert canonical_scheme(raw) == raw
+
+
+def test_geocodes_from_canonicalizes_versioned_schemes():
+    geocodes = geocodes_from({"layer:EC-MSC-SMC:1.0:CLC": ["071100"]})
+    assert geocodes == {"CLC": ("071100",)}
+    assert "layer:EC-MSC-SMC:1.0:CLC" not in geocodes
+
+
+def test_geocodes_from_unions_schemes_that_canonicalize_together():
+    # A feed mid-version-bump publishes both. Every code survives, once, in
+    # first-seen order, rather than one version silently winning.
+    geocodes = geocodes_from(
+        {
+            "layer:EC-MSC-SMC:1.0:CLC": ["071100", "090000"],
+            "layer:EC-MSC-SMC:1.1:CLC": ["090000", "099999"],
+        }
+    )
+    assert geocodes == {"CLC": ("071100", "090000", "099999")}
+
+
+def test_alias_reads_a_version_the_code_has_never_seen():
+    alert = make_alert(geocodes=geocodes_from({"layer:EC-MSC-SMC:9.9:CLC": ["071100"]}))
+    assert alert.geocode_clc == ("071100",)
 
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ from ..const import (
 )
 from ..conventions import ECCC_MARINE_CLC_PREFIX as _ECCC_MARINE_CLC_PREFIX
 from ..conventions import conventions_for, is_marine_code
-from ..model import CAPAlert, geocodes_from
+from ..model import GEOCODE_CLC, GEOCODE_SGC, CAPAlert, geocodes_from
 from .cap import (
     CAPDoc,
     CAPInfoDoc,
@@ -94,7 +94,10 @@ NS_CAP = "urn:oasis:names:tc:emergency:cap:1.2"
 # no province prefix and start with "00". Verified perfect separation on 552
 # live CAP files (summer/squall-heavy sample — re-verify against winter
 # gale/storm warnings). Fail-open: a mis-prefixed marine zone stays visible.
-_CLC_GEOCODE_KEY = "layer:EC-MSC-SMC:1.0:CLC"
+# Read off the canonicalized container, not the raw CAP ``valueName``: the
+# feed publishes ``layer:EC-MSC-SMC:<version>:CLC`` and ``geocodes_from()``
+# folds every version onto this one name.
+_CLC_GEOCODE_KEY = GEOCODE_CLC
 # The "00" prefix itself lives in the convention table; re-bound here so this
 # module still names the scheme it belongs to.
 ECCC_MARINE_CLC_PREFIX = _ECCC_MARINE_CLC_PREFIX
@@ -106,7 +109,8 @@ ECCC_MARINE_CLC_PREFIX = _ECCC_MARINE_CLC_PREFIX
 # over the CLC prefix: present on effectively every alert (CLC is occasionally
 # absent) and correct for water zones, which all share CLC prefix "00" but keep
 # their province in the SGC code (e.g. Lake Nipigon → 35 = Ontario).
-_SGC_GEOCODE_KEY = "profile:CAP-CP:Location:0.3"
+# Canonical name for ``profile:CAP-CP:Location:<version>``; see ``_CLC_GEOCODE_KEY``.
+_SGC_GEOCODE_KEY = GEOCODE_SGC
 
 # 2-letter province/territory code → StatCan SGC 2-digit code (SGC 2021).
 _PROVINCE_TO_SGC: dict[str, str] = {
@@ -263,14 +267,17 @@ def _point_in_polygons(
 def _matches_province_sgc(geocodes: Mapping[str, Sequence[str]], province: str) -> bool:
     """Check if a CAP body's SGC location codes fall in the configured province.
 
-    Reads ``profile:CAP-CP:Location:0.3`` geocodes from the CAP body (the Atom
-    envelope no longer carries province info after the alertready.ca migration);
-    the first two digits are the StatCan SGC province/territory code.
+    Reads ``profile:CAP-CP:Location:<version>`` geocodes from the CAP body (the
+    Atom envelope no longer carries province info after the alertready.ca
+    migration); the first two digits are the StatCan SGC province/territory
+    code. Takes the raw CAP mapping and canonicalizes it here, so a caller
+    cannot pass an un-normalized body and silently match nothing.
     """
     sgc_prefix = _PROVINCE_TO_SGC.get(province.upper())
     if sgc_prefix is None:
         return False
-    return any(v.startswith(sgc_prefix) for v in geocodes.get(_SGC_GEOCODE_KEY, ()))
+    canonical = geocodes_from(geocodes)
+    return any(v.startswith(sgc_prefix) for v in canonical.get(_SGC_GEOCODE_KEY, ()))
 
 
 def _bbox_of_polygons(
@@ -663,7 +670,8 @@ def _build_alert_from_cap(
     # Merge event_codes into parameters (parameters win on collision)
     merged_params: dict[str, str] = {**info.event_codes, **info.parameters}
 
-    clc = tuple(info.geocodes.get(_CLC_GEOCODE_KEY, ()))
+    geocodes = geocodes_from(info.geocodes)
+    clc = tuple(geocodes.get(_CLC_GEOCODE_KEY, ()))
 
     return CAPAlert(
         id=alert_id,
@@ -694,7 +702,7 @@ def _build_alert_from_cap(
         area_desc=info.area_desc,
         geometry=geometry,
         points=tuple((lon, lat) for lon, lat in points),
-        geocodes=geocodes_from(info.geocodes),
+        geocodes=geocodes,
         is_marine=_is_marine_eccc(clc),
         sender=doc.sender,
         sender_name=info.sender_name,

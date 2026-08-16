@@ -655,6 +655,6 @@ async def test_download_view_serves_a_live_entry(
     assert row["entity_id"].startswith("sensor.") and "cap_alert_" in row["entity_id"]
     assert row["identifier"] == "urn:oid:A"
     assert row["sender"] == "CWTO"
-    assert row["geocodes"]["profile:CAP-CP:Location:0.3"] == ["3506008"]
+    assert row["geocodes"]["SGC"] == ["3506008"]
     assert "description" not in row
     assert payload["conventions"]["rows_in_effect"][0]["key"] == "eccc"

@@ -143,12 +143,24 @@ ECCC and WMO both carry standard CAP 1.2 documents inside different envelopes (A
 ### Area geocodes
 
 `CAPAlert.geocodes` is the **complete** area-geocode surface for every provider: a
-`{scheme: (codes…)}` container keyed by the raw CAP `valueName` (or raw GeoJSON geocode
-key for NWS) exactly as the feed publishes it — `UGC`, `SAME`, `EMMA_ID`, `NUTS3`,
-`layer:EC-MSC-SMC:1.0:CLC`, `profile:CAP-CP:Location:0.3`, whatever a source invents next.
-Raw keys are used deliberately: a normalization table would need editing per source and
-can mislabel a scheme (an `EMMA_ID` once shipped as `geocode_same` — issue #24), whereas a
-raw key cannot lie about its origin.
+`{scheme: (codes…)}` container carrying the CAP `valueName` (or the GeoJSON geocode key for
+NWS) as the feed publishes it — `UGC`, `SAME`, `EMMA_ID`, `NUTS3`, whatever a source invents
+next. An unrecognized scheme passes through untouched: a per-source normalization table
+would need editing per source and can mislabel a scheme (an `EMMA_ID` once shipped as
+`geocode_same` — issue #24), whereas the published key cannot lie about its origin.
+
+The one exception is a scheme whose `valueName` **embeds its own version**, which ECCC's
+two do. Those publish under a canonical short name instead: `layer:EC-MSC-SMC:<version>:CLC`
+becomes `CLC`, `profile:CAP-CP:Location:<version>` becomes `SGC`. Rewriting is by anchored
+pattern (`model._CANONICAL_SCHEMES`), not by an enumerated list of known versions, so a
+source bumping its version costs no edit anywhere — ECCC has already done exactly that to
+its layer names (`:1.0:Alert_Name` → `:1.1:Alert_Name`). Two raw schemes that canonicalize
+together are unioned rather than one winning, so a feed publishing both versions mid-bump
+keeps every code exactly once.
+
+This matters because the container is the published attribute (below). Before the aliases
+came off the wire a consumer read `geocode_clc` and never saw a version; leaving the raw
+key in the container would have handed that maintenance to every card and template instead.
 
 Providers build the container with `model.geocodes_from()` — the one funnel, which
 de-duplicates values per scheme order-preserving (a value repeated across `<area>` blocks
@@ -157,16 +169,16 @@ is one code), drops empty schemes and values, and returns an immutable mapping.
 clean for its non-model consumers (ECCC province matching, marine detection). Serialization
 is sparse: `geocodes` is omitted entirely when empty.
 
-Well-known schemes are additionally **promoted** to `geocode_*` accessors, declared once in
-`model.GEOCODE_SCHEME_ALIASES` and derived as read-only properties — never stored, so the
-container stays the single source of truth:
+Well-known schemes are additionally **promoted** to `geocode_*` accessors, derived as
+read-only properties — never stored, so the container stays the single source of truth.
+Each is a direct lookup, since `geocodes_from()` has already settled the key:
 
-| Alias | Scheme(s) | Consumer |
+| Alias | Container key | Consumer |
 | --- | --- | --- |
 | `geocode_ugc` | `UGC` | zone matching |
 | `geocode_same` | `SAME` | zone matching |
-| `geocode_clc` | `layer:EC-MSC-SMC:1.0:CLC` | ECCC marine detection (`00…` = water zone) |
-| `geocode_sgc` | `profile:CAP-CP:Location:0.3` | visibility into what ECCC province filtering matches |
+| `geocode_clc` | `CLC` | ECCC marine detection (`00…` = water zone) |
+| `geocode_sgc` | `SGC` | visibility into what ECCC province filtering matches |
 
 They are **read paths in code, not attributes**. `to_attributes()` publishes the container
 and not the views: an alias is the same codes a second time, and on the live ECCC alert
@@ -176,9 +188,9 @@ promoted or not; the card's `collectZones` already flattens it.
 
 Promotion policy: **a new scheme needs no model change** — it lands in `geocodes` for free.
 An alias is only added when integration code reaches for a scheme often enough to want a
-name for it, which is what keeps "add a scheme" from meaning "add a field". Each alias maps
-to an *ordered accept-list* of `valueName`s (first non-empty wins) so a source bumping its
-scheme version (`…:1.0:CLC` → `…:1.1:CLC`) costs no provider edit.
+name for it, which is what keeps "add a scheme" from meaning "add a field". Version bumps
+are absorbed by canonicalization on the way into the container, so neither the alias nor
+any provider needs an edit when a source moves `…:1.0:CLC` to `…:1.1:CLC`.
 
 `is_marine` is **not** read back off the container — each provider computes it locally
 before constructing the alert (NWS from UGC + zone codes, ECCC from the CLC prefix), so
@@ -308,7 +320,7 @@ The two tokens are not interchangeable either, and `phase` cannot express the di
 **Area-group selection (`_select_region_info`)**: because a document holds an `<info>` block per area group, "the block for this language" is ambiguous the moment the document's areas are at different lifecycle stages. The rule is: among the blocks whose `<area>` matches the configured region, prefer a non-terminal one; if *every* region-matching block has ended, the alert is terminal here and that block is returned so its `lifecycle_status` retires the entity. Fail-open at every branch — an absent parameter is `active`, and no region-matching block means the document is skipped (not treated as terminal). Province mode keeps province granularity: an SGC prefix cannot distinguish sub-province areas, so "any in-province block still active ⇒ still active" is the intended reading — a false all-clear to users in the still-active part would be the worst failure. Streaming admission (`doc_matches_region`) is deliberately looser: it matches on *any* block, terminal included, so the update that ends a tracked alert is retained long enough for the rebuild to act on it.
 
 **Location matching**:
-- Province mode — **coarse pre-filter + post-fetch confirmation**. The alertready.ca envelope carries no geographic category, but every `status=Actual` entry still carries a `<georss:polygon>`. Fetching every national entry's CAP body just to read its province (~1800 alerts) cannot complete inside the poll timeout, so a coarse gate runs first: `_province_bbox_intersects` rejects an entry whose polygon bounding box does not intersect the configured province's box (`_PROVINCE_BBOX`, padded `_PROVINCE_BBOX_PAD_DEG = 0.5°`). Survivors' CAP bodies are then filtered authoritatively by the `profile:CAP-CP:Location:0.3` geocode: its first two digits are the StatCan SGC province/territory code (`_PROVINCE_TO_SGC`). SGC is preferred over the CLC prefix — present on effectively every alert and correct for water zones (all CLC `00…`, which carry no province). The bbox is deliberately generous (over-inclusion is cleaned up by SGC) and fails open: an entry with no parseable polygon, or an unknown province code, skips the gate and defers to SGC. CAP fetch failures fail closed (the alert is dropped, since province can't be verified without the CAP body). Bounded by the shared `CAPContentCache`, so steady-state re-polls are cheap.
+- Province mode — **coarse pre-filter + post-fetch confirmation**. The alertready.ca envelope carries no geographic category, but every `status=Actual` entry still carries a `<georss:polygon>`. Fetching every national entry's CAP body just to read its province (~1800 alerts) cannot complete inside the poll timeout, so a coarse gate runs first: `_province_bbox_intersects` rejects an entry whose polygon bounding box does not intersect the configured province's box (`_PROVINCE_BBOX`, padded `_PROVINCE_BBOX_PAD_DEG = 0.5°`). Survivors' CAP bodies are then filtered authoritatively by the `profile:CAP-CP:Location:<version>` geocode (canonicalized to `SGC`, see *Area geocodes*): its first two digits are the StatCan SGC province/territory code (`_PROVINCE_TO_SGC`). SGC is preferred over the CLC prefix — present on effectively every alert and correct for water zones (all CLC `00…`, which carry no province). The bbox is deliberately generous (over-inclusion is cleaned up by SGC) and fails open: an entry with no parseable polygon, or an unknown province code, skips the gate and defers to SGC. CAP fetch failures fail closed (the alert is dropped, since province can't be verified without the CAP body). Bounded by the shared `CAPContentCache`, so steady-state re-polls are cheap.
 - GPS / device-tracker mode — **pre-fetch**. Point-in-polygon against `<georss:polygon>` using a pure-Python ray-caster (no `shapely`; not in HA core). Fetch failures fall back to a metadata-only alert (location already verified by the envelope polygon).
 
 **Concurrency**: CAP XML is fetched with `asyncio.Semaphore(5)` for bounded concurrency. A shared `CAPContentCache` (LRU-256, Future-based in-flight coalescing) lives on `hass.data[DOMAIN]` and is reused across polls. Since CAP files are immutable per URL (each revision gets a new URL), cached bodies need no TTL. XML parsing is offloaded to `loop.run_in_executor` so a Canada-wide storm with dozens of CAP files doesn't block the event loop.

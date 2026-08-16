@@ -494,19 +494,21 @@ def test_build_alert_from_cap_populates_all_fields():
 
 
 def test_build_alert_from_cap_populates_geocode_clc():
-    # CLC area geocode (layer:EC-MSC-SMC:1.0:CLC) is carried onto the alert.
-    # Ottawa is a land zone -> province-numbered prefix (07), not marine ("00").
+    # CLC area geocode (layer:EC-MSC-SMC:1.0:CLC in the body) is carried onto
+    # the alert. Ottawa is a land zone -> province-numbered prefix (07), not
+    # marine ("00").
     alert = _make_alert_from_update_fixture()
     assert alert.geocode_clc == ("071100",)
 
 
 def test_build_alert_from_cap_populates_full_geocode_container():
-    # Every area geocode scheme in the CAP body is surfaced, keyed by its raw
-    # valueName — CLC and the StatCan SGC code that province filtering matches.
+    # Every area geocode scheme in the CAP body is surfaced. Both of ECCC's
+    # carry a version in their valueName, so both publish under their canonical
+    # short name — CLC and the StatCan SGC code that province filtering matches.
     alert = _make_alert_from_update_fixture()
     assert alert.geocodes == {
-        "layer:EC-MSC-SMC:1.0:CLC": ("071100",),
-        "profile:CAP-CP:Location:0.3": ("3506008",),
+        "CLC": ("071100",),
+        "SGC": ("3506008",),
     }
 
 
@@ -516,7 +518,7 @@ def test_build_alert_from_cap_populates_geocode_sgc():
     alert = _make_alert_from_update_fixture()
     assert alert.geocode_sgc == ("3506008",)
     attrs = alert.to_attributes()
-    assert attrs["geocodes"]["profile:CAP-CP:Location:0.3"] == ["3506008"]
+    assert attrs["geocodes"]["SGC"] == ["3506008"]
     assert "geocode_sgc" not in attrs
 
 
