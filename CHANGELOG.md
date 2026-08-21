@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.4.0 — 2026-08-21
+
+### Added
+- Break the alert count down by active vs upcoming (#104) (1f79245…)
+- Merge FMI warnings split at the window edge (#107) (92df357…)
+- Say why an alert was removed, not just that it was (#113) (cbbd9b4…)
+- Add the first non-weather CAP provider (#124) (77345c7…)
+- Add a config-entry diagnostics download (#143) (966bd8f…)
+- One entry per scope, and validate it before creating (#144) (a5bdc3f…)
+
+### Changed
+- Move the MeteoFrance dialect into the table (#106) (9d60554…)
+- Give the GPS helpers one home (#125) (922cc57…)
+- Split the flow steps into a flows package (#139) (86d7799…)
+
+### Documentation
+- Reconcile the docs with the shipped tree (#118) (0f3908c…)
+- Land the removal contract, the CORS bound, and the census (#119) (923f92f…)
+- Correct four claims the review falsified (#120) (46005ba…)
+- Separate the abstraction from its binding (#123) (abc701e…)
+- Re-check every shipped claim against the tree (#149) (4760002…)
+
+### Fixed
+- Report an early ECCC ending as cancel, not expired (#103) (4a77dcd…)
+- Drop the scheme name from the region-code example (#105) (68abe89…)
+- Stop prereleases from rewriting the changelog (#111) (05a1bb5…)
+- Collapse re-issues of non-VTEC products into one entity (#115) (1e33c2a…)
+- Stop treating one missed poll as a cancellation (#121) (b6e2d82…)
+- Require an exit before retaining an expiry-less alert (#122) (d68bbb1…)
+- Fire incident_removed once per ending (#145) (#146) (ff0a5b2…)
+- Bound the attribute payload the recorder stores (#150) (#153) (728354f…)
+- Publish versioned geocode schemes under a canonical key (#156) (42e4109…)
+
+### Maintenance
+- Restore the GA-only headings (#112) (e555798…)
+- Measure test coverage and gate on it (#136) (cd3fb0e…)
+- Add a live config flow walk (#141) (150fd89…)
+- Probe the NAAD stream against the GeoRSS index (#148) (c1a4992…)
+- Sweep long-form text and payload sizes across providers (#152) (1a6751a…)
+
+### test
+- Retire stub mode and import the integration once (#138) (66a53d1…)
+
 ## 0.3.1 — 2026-08-05
 
 ### Fixed
