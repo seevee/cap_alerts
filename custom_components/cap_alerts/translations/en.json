@@ -16,7 +16,8 @@
         "menu_options": {
           "nws_zone": "Zone ID",
           "nws_gps_loc": "GPS Coordinates",
-          "nws_gps_tracker": "GPS Tracker Entity"
+          "nws_gps_tracker": "GPS Tracker Entity",
+          "user": "Back to provider list"
         }
       },
       "nws_zone": {
@@ -48,7 +49,8 @@
         "menu_options": {
           "eccc_province": "Province",
           "eccc_gps_loc": "GPS Coordinates",
-          "eccc_gps_tracker": "GPS Tracker Entity"
+          "eccc_gps_tracker": "GPS Tracker Entity",
+          "user": "Back to provider list"
         }
       },
       "eccc_province": {
@@ -80,7 +82,8 @@
         "title": "MeteoAlarm Location Type",
         "menu_options": {
           "meteoalarm_country": "Fixed country",
-          "meteoalarm_country_source": "GPS Tracker + Country Source (fully mobile)"
+          "meteoalarm_country_source": "GPS Tracker + Country Source (fully mobile)",
+          "user": "Back to provider list"
         }
       },
       "meteoalarm_country": {
@@ -98,7 +101,8 @@
           "meteoalarm_country_only": "Country-wide",
           "meteoalarm_gps_polygon": "GPS Coordinates",
           "meteoalarm_gps_tracker": "GPS Tracker Entity",
-          "meteoalarm_region_picker": "Region picker"
+          "meteoalarm_region_picker": "Region picker",
+          "meteoalarm": "Back to mode selection"
         }
       },
       "meteoalarm_gps_polygon": {
@@ -153,7 +157,8 @@
           "wmo_country_wide": "All alerts (country-wide)",
           "wmo_gps_loc": "GPS Coordinates",
           "wmo_gps_tracker": "GPS Tracker Entity",
-          "wmo_geocode": "Area codes (prefix match)"
+          "wmo_geocode": "Area codes (prefix match)",
+          "wmo_source": "Back to source selection"
         }
       },
       "wmo_gps_loc": {
@@ -175,7 +180,8 @@
         "title": "GDACS Location Scope",
         "menu_options": {
           "gdacs_global": "All alerts (worldwide)",
-          "gdacs_gps_loc": "GPS Coordinates"
+          "gdacs_gps_loc": "GPS Coordinates",
+          "user": "Back to provider list"
         }
       },
       "gdacs_gps_loc": {
@@ -202,7 +208,8 @@
         "menu_options": {
           "reconfigure_nws_zone": "Zone ID",
           "reconfigure_nws_gps_loc": "GPS Coordinates",
-          "reconfigure_nws_gps_tracker": "GPS Tracker Entity"
+          "reconfigure_nws_gps_tracker": "GPS Tracker Entity",
+          "reconfigure": "Back to provider list"
         }
       },
       "reconfigure_nws_zone": {
@@ -234,7 +241,8 @@
         "menu_options": {
           "reconfigure_eccc_province": "Province",
           "reconfigure_eccc_gps_loc": "GPS Coordinates",
-          "reconfigure_eccc_gps_tracker": "GPS Tracker Entity"
+          "reconfigure_eccc_gps_tracker": "GPS Tracker Entity",
+          "reconfigure": "Back to provider list"
         }
       },
       "reconfigure_eccc_province": {
@@ -266,7 +274,8 @@
         "title": "MeteoAlarm Location Type",
         "menu_options": {
           "reconfigure_meteoalarm_country": "Fixed country",
-          "reconfigure_meteoalarm_country_source": "GPS Tracker + Country Source (fully mobile)"
+          "reconfigure_meteoalarm_country_source": "GPS Tracker + Country Source (fully mobile)",
+          "reconfigure": "Back to provider list"
         }
       },
       "reconfigure_meteoalarm_country": {
@@ -284,7 +293,8 @@
           "reconfigure_meteoalarm_country_only": "Country-wide",
           "reconfigure_meteoalarm_gps_polygon": "GPS Coordinates",
           "reconfigure_meteoalarm_gps_tracker": "GPS Tracker Entity",
-          "reconfigure_meteoalarm_region_picker": "Region picker"
+          "reconfigure_meteoalarm_region_picker": "Region picker",
+          "reconfigure_meteoalarm": "Back to mode selection"
         }
       },
       "reconfigure_meteoalarm_gps_polygon": {
@@ -339,7 +349,8 @@
           "reconfigure_wmo_country_wide": "All alerts (country-wide)",
           "reconfigure_wmo_gps_loc": "GPS Coordinates",
           "reconfigure_wmo_gps_tracker": "GPS Tracker Entity",
-          "reconfigure_wmo_geocode": "Area codes (prefix match)"
+          "reconfigure_wmo_geocode": "Area codes (prefix match)",
+          "reconfigure_wmo_source": "Back to source selection"
         }
       },
       "reconfigure_wmo_gps_loc": {
@@ -370,7 +381,8 @@
         "title": "GDACS Location Scope",
         "menu_options": {
           "reconfigure_gdacs_global": "All alerts (worldwide)",
-          "reconfigure_gdacs_gps_loc": "GPS Coordinates"
+          "reconfigure_gdacs_gps_loc": "GPS Coordinates",
+          "reconfigure": "Back to provider list"
         }
       },
       "reconfigure_gdacs_gps_loc": {

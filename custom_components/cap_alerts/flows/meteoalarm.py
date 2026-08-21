@@ -229,7 +229,8 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
         """MeteoAlarm: pick a fixed country or the fully-mobile mode."""
         return self.async_show_menu(
             step_id="meteoalarm",
-            menu_options=["meteoalarm_country", "meteoalarm_country_source"],
+            # "user" is the back edge (issue #140); see the NWS menu.
+            menu_options=["meteoalarm_country", "meteoalarm_country_source", "user"],
         )
 
     async def async_step_meteoalarm_country(
@@ -250,9 +251,18 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
             else:
                 self._meteoalarm_country = country
                 return await self.async_step_meteoalarm_filter()
+        # Revisited via the filter menu's back edge, the dropdown defaults to
+        # the country picked moments ago instead of resetting — the per-flow
+        # attribute survives the back on purpose (issue #140).
+        picked = getattr(self, "_meteoalarm_country", "")
+        country_kwargs: dict[str, Any] = {}
+        if picked in METEOALARM_COUNTRIES:
+            country_kwargs["default"] = picked
         return self.async_show_form(
             step_id="meteoalarm_country",
-            data_schema=vol.Schema({vol.Required(CONF_COUNTRY): _country_selector()}),
+            data_schema=vol.Schema(
+                {vol.Required(CONF_COUNTRY, **country_kwargs): _country_selector()}
+            ),
             errors=errors,
         )
 
@@ -266,6 +276,7 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
                 "meteoalarm_gps_polygon",
                 "meteoalarm_gps_tracker",
                 "meteoalarm_region_picker",
+                "meteoalarm",
             ],
         )
 
@@ -393,6 +404,7 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
             menu_options=[
                 "reconfigure_meteoalarm_country",
                 "reconfigure_meteoalarm_country_source",
+                "reconfigure",
             ],
         )
 
@@ -415,7 +427,12 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
             else:
                 self._meteoalarm_country = country
                 return await self.async_step_reconfigure_meteoalarm_filter()
-        existing = entry.data.get(CONF_COUNTRY, "")
+        # The in-flow pick outranks the stored value: revisited via a back
+        # edge, the form re-shows what was just picked, not what the entry
+        # still holds (issue #140).
+        existing = getattr(self, "_meteoalarm_country", "") or entry.data.get(
+            CONF_COUNTRY, ""
+        )
         country_kwargs: dict[str, Any] = {}
         if existing in METEOALARM_COUNTRIES:
             country_kwargs["default"] = existing
@@ -439,6 +456,7 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
                 "reconfigure_meteoalarm_gps_polygon",
                 "reconfigure_meteoalarm_gps_tracker",
                 "reconfigure_meteoalarm_region_picker",
+                "reconfigure_meteoalarm",
             ],
         )
 

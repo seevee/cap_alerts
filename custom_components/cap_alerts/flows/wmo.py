@@ -156,11 +156,22 @@ class WMOFlowMixin(ScopedEntryFlowMixin):
             else:
                 self._wmo_source_id = source_id
                 return await self.async_step_wmo_filter()
+        # Revisited via the filter menu's back edge, the dropdown defaults to
+        # the source picked moments ago instead of resetting — the per-flow
+        # attribute survives the back on purpose (issue #140).
+        picked = getattr(self, "_wmo_source_id", "")
+        source_kwargs: dict[str, Any] = {}
+        if picked:
+            source_kwargs["default"] = picked
         options = await self._wmo_source_options()
         return self.async_show_form(
             step_id="wmo_source",
             data_schema=vol.Schema(
-                {vol.Required(CONF_SOURCE_ID): _wmo_source_selector(options)}
+                {
+                    vol.Required(CONF_SOURCE_ID, **source_kwargs): _wmo_source_selector(
+                        options
+                    ),
+                }
             ),
             errors=errors,
         )
@@ -175,6 +186,7 @@ class WMOFlowMixin(ScopedEntryFlowMixin):
                 "wmo_gps_loc",
                 "wmo_gps_tracker",
                 "wmo_geocode",
+                "wmo_source",
             ],
         )
 
@@ -284,7 +296,12 @@ class WMOFlowMixin(ScopedEntryFlowMixin):
             else:
                 self._wmo_source_id = source_id
                 return await self.async_step_reconfigure_wmo_filter()
-        existing = entry.data.get(CONF_SOURCE_ID, "")
+        # The in-flow pick outranks the stored value: revisited via a back
+        # edge, the form re-shows what was just picked, not what the entry
+        # still holds (issue #140).
+        existing = getattr(self, "_wmo_source_id", "") or entry.data.get(
+            CONF_SOURCE_ID, ""
+        )
         source_kwargs: dict[str, Any] = {}
         if existing:
             source_kwargs["default"] = existing
@@ -311,6 +328,7 @@ class WMOFlowMixin(ScopedEntryFlowMixin):
                 "reconfigure_wmo_gps_loc",
                 "reconfigure_wmo_gps_tracker",
                 "reconfigure_wmo_geocode",
+                "reconfigure_wmo_source",
             ],
         )
 

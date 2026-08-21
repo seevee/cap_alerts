@@ -15,7 +15,8 @@
         "menu_options": {
           "nws_zone": "区域 ID",
           "nws_gps_loc": "GPS 坐标",
-          "nws_gps_tracker": "GPS 追踪器实体"
+          "nws_gps_tracker": "GPS 追踪器实体",
+          "user": "返回提供方列表"
         }
       },
       "nws_zone": {
@@ -47,7 +48,8 @@
         "menu_options": {
           "eccc_province": "省份",
           "eccc_gps_loc": "GPS 坐标",
-          "eccc_gps_tracker": "GPS 追踪器实体"
+          "eccc_gps_tracker": "GPS 追踪器实体",
+          "user": "返回提供方列表"
         }
       },
       "eccc_province": {
@@ -79,7 +81,8 @@
         "title": "MeteoAlarm 位置类型",
         "menu_options": {
           "meteoalarm_country": "固定国家",
-          "meteoalarm_country_source": "GPS 追踪器 + 国家来源（完全移动）"
+          "meteoalarm_country_source": "GPS 追踪器 + 国家来源（完全移动）",
+          "user": "返回提供方列表"
         }
       },
       "meteoalarm_country": {
@@ -97,7 +100,8 @@
           "meteoalarm_country_only": "全国范围",
           "meteoalarm_gps_polygon": "GPS 坐标",
           "meteoalarm_gps_tracker": "GPS 追踪器实体",
-          "meteoalarm_region_picker": "区域选择器"
+          "meteoalarm_region_picker": "区域选择器",
+          "meteoalarm": "返回模式选择"
         }
       },
       "meteoalarm_gps_polygon": {
@@ -152,7 +156,8 @@
           "wmo_country_wide": "所有警报（全国范围）",
           "wmo_gps_loc": "GPS 坐标",
           "wmo_gps_tracker": "GPS 追踪器实体",
-          "wmo_geocode": "区域代码（前缀匹配）"
+          "wmo_geocode": "区域代码（前缀匹配）",
+          "wmo_source": "返回来源选择"
         }
       },
       "wmo_gps_loc": {
@@ -184,7 +189,8 @@
         "menu_options": {
           "reconfigure_nws_zone": "区域 ID",
           "reconfigure_nws_gps_loc": "GPS 坐标",
-          "reconfigure_nws_gps_tracker": "GPS 追踪器实体"
+          "reconfigure_nws_gps_tracker": "GPS 追踪器实体",
+          "reconfigure": "返回提供方列表"
         }
       },
       "reconfigure_nws_zone": {
@@ -216,7 +222,8 @@
         "menu_options": {
           "reconfigure_eccc_province": "省份",
           "reconfigure_eccc_gps_loc": "GPS 坐标",
-          "reconfigure_eccc_gps_tracker": "GPS 追踪器实体"
+          "reconfigure_eccc_gps_tracker": "GPS 追踪器实体",
+          "reconfigure": "返回提供方列表"
         }
       },
       "reconfigure_eccc_province": {
@@ -248,7 +255,8 @@
         "title": "MeteoAlarm 位置类型",
         "menu_options": {
           "reconfigure_meteoalarm_country": "固定国家",
-          "reconfigure_meteoalarm_country_source": "GPS 追踪器 + 国家来源（完全移动）"
+          "reconfigure_meteoalarm_country_source": "GPS 追踪器 + 国家来源（完全移动）",
+          "reconfigure": "返回提供方列表"
         }
       },
       "reconfigure_meteoalarm_country": {
@@ -266,7 +274,8 @@
           "reconfigure_meteoalarm_country_only": "全国范围",
           "reconfigure_meteoalarm_gps_polygon": "GPS 坐标",
           "reconfigure_meteoalarm_gps_tracker": "GPS 追踪器实体",
-          "reconfigure_meteoalarm_region_picker": "区域选择器"
+          "reconfigure_meteoalarm_region_picker": "区域选择器",
+          "reconfigure_meteoalarm": "返回模式选择"
         }
       },
       "reconfigure_meteoalarm_gps_polygon": {
@@ -321,7 +330,8 @@
           "reconfigure_wmo_country_wide": "所有警报（全国范围）",
           "reconfigure_wmo_gps_loc": "GPS 坐标",
           "reconfigure_wmo_gps_tracker": "GPS 追踪器实体",
-          "reconfigure_wmo_geocode": "区域代码（前缀匹配）"
+          "reconfigure_wmo_geocode": "区域代码（前缀匹配）",
+          "reconfigure_wmo_source": "返回来源选择"
         }
       },
       "reconfigure_wmo_gps_loc": {
