@@ -129,6 +129,11 @@ python3 -m venv .venv
 scripts/flow_walk.py [--skip-network]
 ```
 
+`scripts/verify.sh` runs every gate above in one go and prints a single
+sha-anchored summary line; paste that line into the PR body rather than
+paraphrasing it. `--flow` adds `flow_walk.py`, which is off by default because
+it walks the deployed instance, not the working tree.
+
 `flow_walk.py` is the check the unit tests can't make: it walks every menu,
 form, and options schema through HA's own flow manager on a deployed instance.
 Run it after any config-flow change, and before a prerelease. A new provider
