@@ -67,6 +67,21 @@ def _entry(data: dict, options: dict | None = None) -> SimpleNamespace:
     return SimpleNamespace(entry_id="e1", data=dict(data), options=dict(options or {}))
 
 
+@pytest.fixture(autouse=True)
+def synced_issues(monkeypatch) -> list[SimpleNamespace]:
+    """Stand in for the sunset-repairs sync (issue #163), recording each call.
+
+    The real one reads Home Assistant's issue registry, which the stub ``hass``
+    here does not carry; its own behavior is covered in ``test_repairs.py``.
+    """
+    calls: list[SimpleNamespace] = []
+    monkeypatch.setattr(
+        "custom_components.cap_alerts.async_sync_issues",
+        lambda hass, entry: calls.append(entry),
+    )
+    return calls
+
+
 # ---------------------------------------------------------------------------
 # Reconfigure — the case the flow no longer reloads for
 # ---------------------------------------------------------------------------
@@ -123,6 +138,20 @@ async def test_every_reconfigure_shape_reloads(before: dict, after: dict):
 
     await _async_entry_updated(hass, entry)
 
+    assert hass.config_entries.reloaded == ["e1"]
+
+
+@pytest.mark.asyncio
+async def test_listener_syncs_repairs_before_deciding(synced_issues):
+    """A feed-source change reloads nothing, so this is its only re-evaluation."""
+    hass = _Hass()
+    coordinator = _Coordinator({"provider": "eccc", "province": "ON"})
+    entry = _entry({"provider": "eccc", "province": "BC"})
+    entry.runtime_data = coordinator
+
+    await _async_entry_updated(hass, entry)
+
+    assert synced_issues == [entry]
     assert hass.config_entries.reloaded == ["e1"]
 
 
