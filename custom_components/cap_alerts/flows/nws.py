@@ -10,7 +10,13 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlowResult
 
 from ..const import CONF_GPS_LOC, CONF_PROVIDER, CONF_TRACKER_ENTITY, CONF_ZONE_ID
-from .common import ScopedEntryFlowMixin, _tracker_schema, _validate_gps
+from .common import (
+    ScopedEntryFlowMixin,
+    _gps_schema,
+    _home_gps,
+    _tracker_schema,
+    _validate_gps,
+)
 
 _ZONE_RE = re.compile(r"^[A-Za-z]{2}[CZ]\d{3}(,[A-Za-z]{2}[CZ]\d{3})*$")
 
@@ -74,7 +80,7 @@ class NWSFlowMixin(ScopedEntryFlowMixin):
                 return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="nws_gps_loc",
-            data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
+            data_schema=_gps_schema(_home_gps(self.hass)),
             errors=errors,
         )
 
@@ -149,12 +155,8 @@ class NWSFlowMixin(ScopedEntryFlowMixin):
                 return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_nws_gps_loc",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_GPS_LOC, default=entry.data.get(CONF_GPS_LOC, "")
-                    ): str,
-                }
+            data_schema=_gps_schema(
+                entry.data.get(CONF_GPS_LOC) or _home_gps(self.hass)
             ),
             errors=errors,
         )

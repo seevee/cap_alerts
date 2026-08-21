@@ -24,6 +24,18 @@ REMOVAL_REASON_ENDED = "ended"
 # User-Agent for API requests — {0} is replaced with the HA instance ID
 USER_AGENT = "HomeAssistant-CAPAlerts/{0}"
 
+# Home Assistant's two "no home set" sentinels, for GPS prefill (issue #128).
+#
+# There are two because the value can go unset in two places. ``core_config.py``
+# initializes ``latitude``/``longitude`` to ``0``, and the onboarding map centers
+# on Amsterdam when a user skips the location step — so a bare falsy check misses
+# the second and prefills coordinates the user never chose. Core hits this too:
+# ``homeassistant.components.met.config_flow`` guards on exactly this pair.
+# Duplicated rather than imported, since depending on another integration for two
+# floats would make ``met`` a dependency of our config flow.
+HA_ONBOARDING_LATITUDE = 52.3731339
+HA_ONBOARDING_LONGITUDE = 4.8903147
+
 # Config keys
 CONF_PROVIDER = "provider"
 CONF_SOURCE_ID = "source_id"
