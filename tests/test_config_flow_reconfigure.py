@@ -37,6 +37,9 @@ from custom_components.cap_alerts.const import (
 
 DOMAIN = "cap_alerts"
 
+# The ``hass`` fixture's home, set by pytest-homeassistant-custom-component.
+_HOME = "32.87336,-117.22743"
+
 _WMO_FETCH = "custom_components.cap_alerts.flows.wmo.fetch_wmo_sources"
 _WMO_OPTIONS = [("mx-smn-es", "Mexico — SMN"), ("cn-cma-xx", "China — CMA")]
 _TRACKER = "device_tracker.phone"
@@ -176,7 +179,9 @@ async def test_reconfigure_nws_switches_zone_to_gps(hass, enable_custom_integrat
     result = await _reconfigure(
         hass, entry, "reconfigure_nws", "reconfigure_nws_gps_loc"
     )
-    assert _default(result, CONF_GPS_LOC) == ""
+    # No stored point to carry forward, so the field falls back to HA's home
+    # (issue #128) — the prefill itself is covered in ``test_gps_prefill``.
+    assert _default(result, CONF_GPS_LOC) == _HOME
 
     result = await _submit(hass, result, {CONF_GPS_LOC: "39.96,-82.99"})
     assert result["type"] == "abort"
@@ -667,8 +672,9 @@ async def test_reconfigure_gdacs_gps_rewrites_the_entry(
     result = await _reconfigure(
         hass, entry, "reconfigure_gdacs", "reconfigure_gdacs_gps_loc"
     )
-    # A global entry has no stored point, so the field starts empty.
-    assert _default(result, CONF_GPS_LOC) == ""
+    # A global entry has no stored point, so the field falls back to HA's home
+    # (issue #128) — the prefill itself is covered in ``test_gps_prefill``.
+    assert _default(result, CONF_GPS_LOC) == _HOME
 
     result = await _submit(hass, result, {CONF_GPS_LOC: "-33.87,151.21"})
     assert result["type"] == "abort"

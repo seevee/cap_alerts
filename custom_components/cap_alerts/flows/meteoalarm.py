@@ -37,6 +37,8 @@ from ..providers.meteoalarm import fetch_regions_for_country
 from .common import (
     ScopedEntryFlowMixin,
     OptionsSchema,
+    _gps_schema,
+    _home_gps,
     _tracker_schema,
     _validate_gps,
 )
@@ -293,7 +295,7 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
                 return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="meteoalarm_gps_polygon",
-            data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
+            data_schema=_gps_schema(_home_gps(self.hass)),
             errors=errors,
         )
 
@@ -467,12 +469,8 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
                 return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_meteoalarm_gps_polygon",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_GPS_LOC, default=entry.data.get(CONF_GPS_LOC, "")
-                    ): str,
-                }
+            data_schema=_gps_schema(
+                entry.data.get(CONF_GPS_LOC) or _home_gps(self.hass)
             ),
             errors=errors,
         )

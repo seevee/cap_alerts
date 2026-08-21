@@ -23,7 +23,13 @@ from ..const import (
     GDACS_DEFAULT_ALERT_LEVEL,
     GDACS_EVENT_TYPES,
 )
-from .common import ScopedEntryFlowMixin, OptionsSchema, _validate_gps
+from .common import (
+    ScopedEntryFlowMixin,
+    OptionsSchema,
+    _gps_schema,
+    _home_gps,
+    _validate_gps,
+)
 
 
 def _gdacs_event_type_selector() -> SelectSelector:
@@ -105,7 +111,7 @@ class GDACSFlowMixin(ScopedEntryFlowMixin):
                 return await self._async_create_scoped_entry(data)
         return self.async_show_form(
             step_id="gdacs_gps_loc",
-            data_schema=vol.Schema({vol.Required(CONF_GPS_LOC): str}),
+            data_schema=_gps_schema(_home_gps(self.hass)),
             errors=errors,
         )
 
@@ -140,12 +146,8 @@ class GDACSFlowMixin(ScopedEntryFlowMixin):
                 return await self._async_update_scoped_entry(entry, new_data)
         return self.async_show_form(
             step_id="reconfigure_gdacs_gps_loc",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_GPS_LOC, default=entry.data.get(CONF_GPS_LOC, "")
-                    ): str,
-                }
+            data_schema=_gps_schema(
+                entry.data.get(CONF_GPS_LOC) or _home_gps(self.hass)
             ),
             errors=errors,
         )

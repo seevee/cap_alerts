@@ -16,7 +16,7 @@ import aiohttp
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import AbortFlow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.instance_id import async_get as async_get_instance_id
@@ -34,6 +34,8 @@ from ..const import (
     CONF_SOURCE_ID,
     CONF_TRACKER_ENTITY,
     CONF_ZONE_ID,
+    HA_ONBOARDING_LATITUDE,
+    HA_ONBOARDING_LONGITUDE,
     METEOALARM_COUNTRY_NAMES,
     USER_AGENT,
     WMO_SOURCE_NAMES,
@@ -209,6 +211,48 @@ class ScopedEntryFlowMixin(ConfigFlow):
             data=data,
             title=_compute_device_title(data),
         )
+
+
+def _home_gps(hass: HomeAssistant) -> str | None:
+    """HA's home location as a ``"lat,lon"`` string, or ``None`` if unset.
+
+    Prefill for every GPS-coordinate step (issue #128): Home Assistant already
+    knows where the user lives, so the common case becomes pressing Submit
+    rather than going to look up a coordinate.
+
+    Returns ``None`` — not an empty string — when there is no usable home, so
+    callers can hand it straight to ``_gps_schema`` and get a field with no
+    default at all, exactly as before this existed. An empty-string default
+    would render the same but let a blank submission through as ``""``, which
+    reaches ``_validate_gps`` as ``invalid_gps`` instead of the frontend's own
+    "required" complaint.
+
+    Both unset sentinels are rejected; see ``HA_ONBOARDING_LATITUDE``. The
+    format matches what ``_validate_gps`` emits, so a prefilled value the user
+    accepts unchanged round-trips to itself and keys the same scope.
+    """
+    lat = hass.config.latitude
+    lon = hass.config.longitude
+    if not lat and not lon:
+        return None
+    if lat == HA_ONBOARDING_LATITUDE and lon == HA_ONBOARDING_LONGITUDE:
+        return None
+    return f"{lat},{lon}"
+
+
+def _gps_schema(default: str | None = None) -> vol.Schema:
+    """Schema with a single ``"lat,lon"`` text field.
+
+    Shared by every provider's GPS-coordinate step, mirroring
+    ``_tracker_schema``. ``default`` is the home location in setup flows and
+    the stored value in reconfigure flows; ``None`` renders an empty required
+    field.
+    """
+    if default is not None:
+        key: Any = vol.Required(CONF_GPS_LOC, default=default)
+    else:
+        key = vol.Required(CONF_GPS_LOC)
+    return vol.Schema({key: str})
 
 
 def _tracker_schema(default: str | None = None) -> vol.Schema:

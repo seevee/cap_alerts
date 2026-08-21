@@ -856,6 +856,29 @@ domain, and hassfest requires it to live in a file named `config_flow.py`):
 - **Reconfigure flow** — identity (provider, zone / GPS / tracker / province / country / regions / area-code prefixes). Shows the same top-level provider menu as initial setup, so NWS / ECCC / MeteoAlarm switches work without remove/re-add.
 - **Options flow** — behavior (scan interval, timeout, language, area-code prefixes). Applied live: updates `coordinator.update_interval` and timeout in place and calls `async_request_refresh()`. No reload, no coordinator teardown.
 
+### GPS prefill (issue #128)
+
+Every GPS-coordinate step defaults to Home Assistant's own home location, via
+`flows/common.py::_home_gps` fed into the shared `_gps_schema`. Setup steps get
+the home; reconfigure steps get the stored point and fall back to the home only
+when there is none, which is the mode-switch case (an NWS zone entry or a
+global GDACS entry moving to GPS mode).
+
+**A home can be unset two ways**, and only one is falsy. `core_config.py`
+initializes both coordinates to `0`, while the onboarding map centers on
+Amsterdam when the user skips the location step — so a bare truthiness check
+prefills coordinates nobody chose. Both are rejected; core's `met` integration
+guards on the same pair. `_home_gps` returns `None` rather than `""` in that
+case, so the field renders exactly as it did before the feature existed.
+
+The prefilled string is the format `_validate_gps` emits, so a value accepted
+unchanged round-trips to itself and keys the same scope as one typed by hand.
+
+Deliberately not a `LocationSelector`: it returns a dict with a radius rather
+than the `"lat,lon"` string every provider's GPS mode consumes, which would
+reach `_validate_gps`, `_compute_device_title` and `providers/gps.py` for what
+is fundamentally a prefill.
+
 ### One entry per scope (issue #130)
 
 Each entry's `unique_id` is a **canonical scope key** built from entry data by `flows/common.py::compute_scope_key`:
