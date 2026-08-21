@@ -89,7 +89,8 @@ class GDACSFlowMixin(ScopedEntryFlowMixin):
         """
         return self.async_show_menu(
             step_id="gdacs",
-            menu_options=["gdacs_global", "gdacs_gps_loc"],
+            # "user" is the back edge (issue #140); see the NWS menu.
+            menu_options=["gdacs_global", "gdacs_gps_loc", "user"],
         )
 
     async def async_step_gdacs_global(
@@ -122,7 +123,11 @@ class GDACSFlowMixin(ScopedEntryFlowMixin):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="reconfigure_gdacs",
-            menu_options=["reconfigure_gdacs_global", "reconfigure_gdacs_gps_loc"],
+            menu_options=[
+                "reconfigure_gdacs_global",
+                "reconfigure_gdacs_gps_loc",
+                "reconfigure",
+            ],
         )
 
     async def async_step_reconfigure_gdacs_global(

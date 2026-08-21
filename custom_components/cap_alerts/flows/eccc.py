@@ -66,7 +66,8 @@ class ECCCFlowMixin(ScopedEntryFlowMixin):
         """ECCC location type menu."""
         return self.async_show_menu(
             step_id="eccc",
-            menu_options=["eccc_province", "eccc_gps_loc", "eccc_gps_tracker"],
+            # "user" is the back edge (issue #140); see the NWS menu.
+            menu_options=["eccc_province", "eccc_gps_loc", "eccc_gps_tracker", "user"],
         )
 
     async def async_step_eccc_province(
@@ -128,6 +129,7 @@ class ECCCFlowMixin(ScopedEntryFlowMixin):
                 "reconfigure_eccc_province",
                 "reconfigure_eccc_gps_loc",
                 "reconfigure_eccc_gps_tracker",
+                "reconfigure",
             ],
         )
 

@@ -102,21 +102,26 @@ SETUP: dict[str, list[tuple[dict, Expect]]] = {
     "nws": [
         (
             {"next_step_id": "nws"},
-            menu("nws", "nws_zone", "nws_gps_loc", "nws_gps_tracker"),
+            menu("nws", "nws_zone", "nws_gps_loc", "nws_gps_tracker", "user"),
         ),
         ({"next_step_id": "nws_zone"}, form("nws_zone", "zone_id")),
     ],
     "eccc": [
         (
             {"next_step_id": "eccc"},
-            menu("eccc", "eccc_province", "eccc_gps_loc", "eccc_gps_tracker"),
+            menu("eccc", "eccc_province", "eccc_gps_loc", "eccc_gps_tracker", "user"),
         ),
         ({"next_step_id": "eccc_province"}, form("eccc_province", "province")),
     ],
     "meteoalarm": [
         (
             {"next_step_id": "meteoalarm"},
-            menu("meteoalarm", "meteoalarm_country", "meteoalarm_country_source"),
+            menu(
+                "meteoalarm",
+                "meteoalarm_country",
+                "meteoalarm_country_source",
+                "user",
+            ),
         ),
         ({"next_step_id": "meteoalarm_country"}, form("meteoalarm_country", "country")),
         # Submitting a country advances to the filter menu; it creates nothing.
@@ -128,6 +133,7 @@ SETUP: dict[str, list[tuple[dict, Expect]]] = {
                 "meteoalarm_gps_polygon",
                 "meteoalarm_gps_tracker",
                 "meteoalarm_region_picker",
+                "meteoalarm",
             ),
         ),
         (
@@ -152,12 +158,16 @@ SETUP: dict[str, list[tuple[dict, Expect]]] = {
                 "wmo_gps_loc",
                 "wmo_gps_tracker",
                 "wmo_geocode",
+                "wmo_source",
             ),
         ),
         ({"next_step_id": "wmo_geocode"}, form("wmo_geocode", "geocode_prefixes")),
     ],
     "gdacs": [
-        ({"next_step_id": "gdacs"}, menu("gdacs", "gdacs_global", "gdacs_gps_loc")),
+        (
+            {"next_step_id": "gdacs"},
+            menu("gdacs", "gdacs_global", "gdacs_gps_loc", "user"),
+        ),
         ({"next_step_id": "gdacs_gps_loc"}, form("gdacs_gps_loc", "gps_loc")),
     ],
 }
@@ -173,6 +183,7 @@ RECONFIGURE: dict[str, list[tuple[dict, Expect]]] = {
                 "reconfigure_nws_zone",
                 "reconfigure_nws_gps_loc",
                 "reconfigure_nws_gps_tracker",
+                "reconfigure",
             ),
         ),
         (
@@ -188,6 +199,7 @@ RECONFIGURE: dict[str, list[tuple[dict, Expect]]] = {
                 "reconfigure_eccc_province",
                 "reconfigure_eccc_gps_loc",
                 "reconfigure_eccc_gps_tracker",
+                "reconfigure",
             ),
         ),
         (
@@ -202,6 +214,7 @@ RECONFIGURE: dict[str, list[tuple[dict, Expect]]] = {
                 "reconfigure_meteoalarm",
                 "reconfigure_meteoalarm_country",
                 "reconfigure_meteoalarm_country_source",
+                "reconfigure",
             ),
         ),
         (
@@ -222,6 +235,7 @@ RECONFIGURE: dict[str, list[tuple[dict, Expect]]] = {
                 "reconfigure_wmo_gps_loc",
                 "reconfigure_wmo_gps_tracker",
                 "reconfigure_wmo_geocode",
+                "reconfigure_wmo_source",
             ),
         ),
         (
@@ -236,6 +250,7 @@ RECONFIGURE: dict[str, list[tuple[dict, Expect]]] = {
                 "reconfigure_gdacs",
                 "reconfigure_gdacs_global",
                 "reconfigure_gdacs_gps_loc",
+                "reconfigure",
             ),
         ),
         (

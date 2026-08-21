@@ -106,6 +106,7 @@ async def test_reconfigure_lists_every_provider(hass, enable_custom_integrations
                 "reconfigure_nws_zone",
                 "reconfigure_nws_gps_loc",
                 "reconfigure_nws_gps_tracker",
+                "reconfigure",
             ],
         ),
         (
@@ -114,6 +115,7 @@ async def test_reconfigure_lists_every_provider(hass, enable_custom_integrations
                 "reconfigure_eccc_province",
                 "reconfigure_eccc_gps_loc",
                 "reconfigure_eccc_gps_tracker",
+                "reconfigure",
             ],
         ),
         (
@@ -121,11 +123,12 @@ async def test_reconfigure_lists_every_provider(hass, enable_custom_integrations
             [
                 "reconfigure_meteoalarm_country",
                 "reconfigure_meteoalarm_country_source",
+                "reconfigure",
             ],
         ),
         (
             "reconfigure_gdacs",
-            ["reconfigure_gdacs_global", "reconfigure_gdacs_gps_loc"],
+            ["reconfigure_gdacs_global", "reconfigure_gdacs_gps_loc", "reconfigure"],
         ),
     ],
 )
@@ -137,6 +140,26 @@ async def test_reconfigure_provider_menus(
     result = await _reconfigure(hass, entry, step)
     assert result["type"] == "menu"
     assert result["menu_options"] == options
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        "reconfigure_nws",
+        "reconfigure_eccc",
+        "reconfigure_meteoalarm",
+        "reconfigure_gdacs",
+    ],
+)
+@pytest.mark.asyncio
+async def test_reconfigure_provider_menu_backs_to_the_provider_list(
+    hass, enable_custom_integrations, step: str
+):
+    """The trailing "reconfigure" option is a back edge to the root menu (#140)."""
+    entry = _entry(hass, provider="nws", zone_id="OHZ049")
+    result = await _reconfigure(hass, entry, step, "reconfigure")
+    assert result["type"] == "menu"
+    assert result["step_id"] == "reconfigure"
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +347,30 @@ async def test_reconfigure_meteoalarm_country_defaults_to_the_stored_one(
         "reconfigure_meteoalarm_gps_polygon",
         "reconfigure_meteoalarm_gps_tracker",
         "reconfigure_meteoalarm_region_picker",
+        "reconfigure_meteoalarm",
     ]
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_meteoalarm_filter_backs_to_a_prefilled_country_form(
+    hass, enable_custom_integrations
+):
+    """After a back, the country form shows the in-flow pick, not the stored
+    value — backing out must not cost the pick already made."""
+    entry = _entry(hass, provider="meteoalarm", country="FI")
+    result = await _reconfigure(
+        hass, entry, "reconfigure_meteoalarm", "reconfigure_meteoalarm_country"
+    )
+    result = await _submit(hass, result, {CONF_COUNTRY: "AT"})
+    result = await _submit(hass, result, {"next_step_id": "reconfigure_meteoalarm"})
+    assert result["type"] == "menu"
+    assert result["step_id"] == "reconfigure_meteoalarm"
+
+    result = await _submit(
+        hass, result, {"next_step_id": "reconfigure_meteoalarm_country"}
+    )
+    assert result["type"] == "form"
+    assert _default(result, CONF_COUNTRY) == "AT"
 
 
 @pytest.mark.asyncio
@@ -522,6 +568,21 @@ async def test_reconfigure_wmo_source_defaults_to_the_stored_id(
 
 
 @pytest.mark.asyncio
+async def test_reconfigure_wmo_filter_backs_to_a_prefilled_source_form(
+    hass, enable_custom_integrations
+):
+    """After a back, the source form shows the in-flow pick, not the stored
+    id. The re-entry runs outside the helper's patch, so only the handler's
+    per-flow cache keeps this render off the network."""
+    entry = _entry(hass, provider="wmo", source_id="cn-cma-xx")
+    result = await _wmo_filter(hass, entry)
+    result = await _submit(hass, result, {"next_step_id": "reconfigure_wmo_source"})
+    assert result["type"] == "form"
+    assert result["step_id"] == "reconfigure_wmo_source"
+    assert _default(result, CONF_SOURCE_ID) == "mx-smn-es"
+
+
+@pytest.mark.asyncio
 async def test_reconfigure_wmo_source_rejects_a_bad_id(
     hass, enable_custom_integrations
 ):
@@ -544,6 +605,7 @@ async def test_reconfigure_wmo_country_wide_rewrites_the_entry(
         "reconfigure_wmo_gps_loc",
         "reconfigure_wmo_gps_tracker",
         "reconfigure_wmo_geocode",
+        "reconfigure_wmo_source",
     ]
 
     result = await _submit(

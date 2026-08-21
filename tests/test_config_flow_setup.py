@@ -79,10 +79,10 @@ async def test_user_step_lists_every_provider(hass, enable_custom_integrations):
 @pytest.mark.parametrize(
     ("provider", "options"),
     [
-        ("nws", ["nws_zone", "nws_gps_loc", "nws_gps_tracker"]),
-        ("eccc", ["eccc_province", "eccc_gps_loc", "eccc_gps_tracker"]),
-        ("meteoalarm", ["meteoalarm_country", "meteoalarm_country_source"]),
-        ("gdacs", ["gdacs_global", "gdacs_gps_loc"]),
+        ("nws", ["nws_zone", "nws_gps_loc", "nws_gps_tracker", "user"]),
+        ("eccc", ["eccc_province", "eccc_gps_loc", "eccc_gps_tracker", "user"]),
+        ("meteoalarm", ["meteoalarm_country", "meteoalarm_country_source", "user"]),
+        ("gdacs", ["gdacs_global", "gdacs_gps_loc", "user"]),
     ],
 )
 @pytest.mark.asyncio
@@ -92,6 +92,17 @@ async def test_provider_menus(
     result = await _menu(hass, provider)
     assert result["type"] == "menu"
     assert result["menu_options"] == options
+
+
+@pytest.mark.parametrize("provider", ["nws", "eccc", "meteoalarm", "gdacs"])
+@pytest.mark.asyncio
+async def test_provider_menu_backs_to_the_provider_list(
+    hass, enable_custom_integrations, provider: str
+):
+    """The trailing "user" option is a back edge to the provider menu (#140)."""
+    result = await _menu(hass, provider, "user")
+    assert result["type"] == "menu"
+    assert result["step_id"] == "user"
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +247,35 @@ async def test_meteoalarm_country_leads_to_the_filter_menu(
         "meteoalarm_gps_polygon",
         "meteoalarm_gps_tracker",
         "meteoalarm_region_picker",
+        "meteoalarm",
     ]
+
+
+@pytest.mark.asyncio
+async def test_meteoalarm_filter_backs_to_a_prefilled_country_form(
+    hass, enable_custom_integrations
+):
+    """Backing out of the filter menu must not cost the pick already made:
+    the country form re-renders with the in-flow pick as its default."""
+    result = await _menu(hass, "meteoalarm", "meteoalarm_country")
+    result = await _submit(hass, result, {CONF_COUNTRY: "FI"})
+    result = await _submit(hass, result, {"next_step_id": "meteoalarm"})
+    assert result["type"] == "menu"
+    assert result["step_id"] == "meteoalarm"
+
+    result = await _submit(hass, result, {"next_step_id": "meteoalarm_country"})
+    assert result["type"] == "form"
+    key = next(k for k in result["data_schema"].schema if str(k) == CONF_COUNTRY)
+    assert key.default() == "FI"
+
+
+@pytest.mark.asyncio
+async def test_meteoalarm_country_offers_no_default_before_a_pick(
+    hass, enable_custom_integrations
+):
+    result = await _menu(hass, "meteoalarm", "meteoalarm_country")
+    key = next(k for k in result["data_schema"].schema if str(k) == CONF_COUNTRY)
+    assert key.default is vol.UNDEFINED
 
 
 @pytest.mark.parametrize("raw", ["", "   ", "ZZ", "Finland"])
@@ -430,7 +469,22 @@ async def test_wmo_filter_menu(hass, enable_custom_integrations):
         "wmo_gps_loc",
         "wmo_gps_tracker",
         "wmo_geocode",
+        "wmo_source",
     ]
+
+
+@pytest.mark.asyncio
+async def test_wmo_filter_backs_to_a_prefilled_source_form(
+    hass, enable_custom_integrations
+):
+    result = await _wmo_filter(hass)
+    # The back re-entry runs outside the helper's patch, so only the
+    # handler's per-flow cache keeps this render off the network.
+    result = await _submit(hass, result, {"next_step_id": "wmo_source"})
+    assert result["type"] == "form"
+    assert result["step_id"] == "wmo_source"
+    key = next(k for k in result["data_schema"].schema if str(k) == CONF_SOURCE_ID)
+    assert key.default() == "mx-smn-es"
 
 
 @pytest.mark.asyncio

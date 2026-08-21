@@ -44,7 +44,10 @@ class NWSFlowMixin(ScopedEntryFlowMixin):
         """NWS location type menu."""
         return self.async_show_menu(
             step_id="nws",
-            menu_options=["nws_zone", "nws_gps_loc", "nws_gps_tracker"],
+            # "user" is the back edge: a menu option's id dispatches to
+            # ``async_step_<id>``, and nothing requires it to point forward
+            # (issue #140). Last, so forward actions keep the prominent slots.
+            menu_options=["nws_zone", "nws_gps_loc", "nws_gps_tracker", "user"],
         )
 
     async def async_step_nws_zone(
@@ -114,6 +117,7 @@ class NWSFlowMixin(ScopedEntryFlowMixin):
                 "reconfigure_nws_zone",
                 "reconfigure_nws_gps_loc",
                 "reconfigure_nws_gps_tracker",
+                "reconfigure",
             ],
         )
 
