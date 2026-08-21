@@ -28,6 +28,7 @@ from tests.conftest import StubSession
 
 DOMAIN = "cap_alerts"
 _ZONES = "https://api.weather.gov/zones"
+_POINTS = "https://api.weather.gov/points"
 _MA_FRANCE = "https://feeds.meteoalarm.org/api/v1/warnings/feeds-france"
 _WMO_RSS = "https://severeweather.wmo.int/v2/cap-alerts/mx-smn-es/rss.xml"
 
@@ -81,14 +82,75 @@ async def test_nws_service_failure_is_not_a_bad_zone():
     assert await _validate("nws", {CONF_ZONE_ID: "OHZ049"}) == "cannot_connect"
 
 
-@pytest.mark.parametrize(
-    "config",
-    [{CONF_GPS_LOC: "40.0,-74.0"}, {CONF_TRACKER_ENTITY: "device_tracker.phone"}],
-)
-async def test_nws_point_modes_are_not_checkable(config: dict):
-    """A point query answers for any coordinate, so there is nothing to test."""
+async def test_nws_tracker_mode_is_not_checkable():
+    """A tracker is supposed to move, so there is no scope to test at setup."""
+    session = StubSession({})
+    result = await get_provider("nws").async_validate_config(
+        session, {CONF_TRACKER_ENTITY: "device_tracker.phone"}, user_agent="test"
+    )
+    assert result is None
+    assert session.requested == []
+
+
+# ---------------------------------------------------------------------------
+# NWS GPS — the point has to be one NWS serves (issue #160)
+# ---------------------------------------------------------------------------
+
+
+async def test_a_served_point_validates():
     _RESPONSES.clear()
-    assert await _validate("nws", config) is None
+    _RESPONSES[f"{_POINTS}/40.0,-74.0"] = "{}"
+    assert await _validate("nws", {CONF_GPS_LOC: "40.0,-74.0"}) is None
+
+
+async def test_a_point_outside_the_nws_domain_is_rejected():
+    """Geneva: well-formed, one Submit away since the #159 prefill, unserved."""
+    _RESPONSES.clear()
+    _RESPONSES[f"{_POINTS}/46.2044,6.1432"] = (404, "")
+    assert (
+        await _validate("nws", {CONF_GPS_LOC: "46.2044,6.1432"}) == "point_not_served"
+    )
+
+
+async def test_a_water_point_is_not_rejected():
+    """US marine zones answer ``/points/`` with 200, so 404 is safe to trust.
+
+    Probed 2026-08-21: near-shore, Great Lakes, bays, and offshore zones out
+    to ~80 nm all resolve (this point is AMZ152, off Cape Hatteras). Only
+    genuinely out-of-domain water 404s, and ``alerts?point=`` rejects those
+    same points with 400, so nothing pollable is turned away.
+    """
+    _RESPONSES.clear()
+    _RESPONSES[f"{_POINTS}/35.25,-75.35"] = "{}"
+    assert await _validate("nws", {CONF_GPS_LOC: "35.25,-75.35"}) is None
+
+
+async def test_nws_service_failure_is_not_a_bad_point():
+    _RESPONSES.clear()
+    _RESPONSES[f"{_POINTS}/40.0,-74.0"] = (503, "")
+    assert await _validate("nws", {CONF_GPS_LOC: "40.0,-74.0"}) == "cannot_connect"
+
+
+async def test_high_precision_coordinates_query_the_rounded_point():
+    """``/points/`` 301s more than four decimals; the validator rounds first."""
+    _RESPONSES.clear()
+    _RESPONSES[f"{_POINTS}/39.7392,-104.9903"] = "{}"
+    session = StubSession(_RESPONSES)
+    result = await get_provider("nws").async_validate_config(
+        session, {CONF_GPS_LOC: "39.739236,-104.990251"}, user_agent="test"
+    )
+    assert result is None
+    assert session.requested == [f"{_POINTS}/39.7392,-104.9903"]
+
+
+async def test_a_malformed_point_is_not_this_checks_problem():
+    """Shape belongs to ``_validate_gps``; the validator asks nothing."""
+    session = StubSession({})
+    result = await get_provider("nws").async_validate_config(
+        session, {CONF_GPS_LOC: "not,a-point"}, user_agent="test"
+    )
+    assert result is None
+    assert session.requested == []
 
 
 # ---------------------------------------------------------------------------
@@ -276,3 +338,84 @@ async def test_reconfigure_reports_an_unknown_zone_too(
     assert result["errors"] == {"base": "unknown_zone"}
     # The entry keeps the scope it had.
     assert entry.data[CONF_ZONE_ID] == "OHZ049"
+
+
+@pytest.mark.validate_scope
+@pytest.mark.asyncio
+async def test_the_form_reports_an_unserved_point(
+    hass, aioclient_mock, enable_custom_integrations
+):
+    """The prefill made this a one-click dead entry; now the form says why."""
+    aioclient_mock.get(f"{_POINTS}/46.2044,6.1432", status=404)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "nws"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "nws_gps_loc"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_GPS_LOC: "46.2044,6.1432"}
+    )
+
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "point_not_served"}
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
+@pytest.mark.validate_scope
+@pytest.mark.asyncio
+async def test_a_validated_point_still_creates_the_entry(
+    hass, aioclient_mock, enable_custom_integrations
+):
+    aioclient_mock.get(f"{_POINTS}/40.0,-74.0", text="{}")
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "nws"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "nws_gps_loc"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_GPS_LOC: "40.0,-74.0"}
+    )
+
+    assert result["type"] == "create_entry"
+    assert result["result"].unique_id == "nws:gps:40.0,-74.0"
+
+
+@pytest.mark.validate_scope
+@pytest.mark.asyncio
+async def test_reconfigure_reports_an_unserved_point_too(
+    hass, aioclient_mock, enable_custom_integrations
+):
+    """Moving an entry outside the domain is just as wrong as setting one up."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    aioclient_mock.get(f"{_POINTS}/46.2044,6.1432", status=404)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"provider": "nws", CONF_GPS_LOC: "40.0,-74.0"},
+        unique_id="nws:gps:40.0,-74.0",
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    for step in ("reconfigure_nws", "reconfigure_nws_gps_loc"):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": step}
+        )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_GPS_LOC: "46.2044,6.1432"}
+    )
+
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "point_not_served"}
+    # The entry keeps the scope it had.
+    assert entry.data[CONF_GPS_LOC] == "40.0,-74.0"

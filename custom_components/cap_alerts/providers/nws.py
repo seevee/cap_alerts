@@ -28,6 +28,11 @@ NWS_ALL_BASE = "https://api.weather.gov/alerts"
 # Takes a comma-separated ``id`` list and answers with one feature per zone it
 # knows, so the whole configured list costs one request.
 NWS_ZONES_BASE = "https://api.weather.gov/zones"
+# Point lookup, for validating a configured GPS coordinate the same way. 404s
+# outside the NWS domain and 200s inside it; coordinates with more than four
+# decimal places are answered with a 301 to the rounded form, so callers round
+# first. See ``async_validate_config``.
+NWS_POINTS_BASE = "https://api.weather.gov/points"
 MAX_PAGINATION_FOLLOWS = 5
 
 # How far back the cancellation lookup reaches. It only has to cover the gap
@@ -258,35 +263,68 @@ class NWSProvider:
         *,
         user_agent: str | None = None,
     ) -> str | None:
-        """Check that every configured zone is a zone NWS publishes.
+        """Check that the configured zone or point is one NWS serves.
 
-        Only zone mode is checkable: a point query answers for any coordinate
-        in or near the US and returns an empty collection rather than an error,
-        so there is nothing authoritative to test for GPS or tracker entries.
+        Zone mode: one request covers the whole list — ``/zones?id=A,B``
+        returns a feature per zone it knows — and a well-formed zone that
+        simply does not exist comes back as an empty collection, which is the
+        case ``_validate_zone`` cannot catch: ``OHZ999`` matches the pattern
+        and does not exist.
 
-        One request covers the whole list — ``/zones?id=A,B`` returns a feature
-        per zone it knows — and a well-formed zone that simply does not exist
-        comes back as an empty collection, which is the case ``_validate_zone``
-        cannot catch: ``OHZ999`` matches the pattern and does not exist.
+        GPS mode: ``/points/{lat},{lon}`` 404s outside the NWS domain and 200s
+        inside it, territories included (issue #160). The domain coincides
+        with the one ``alerts?point=`` enforces — everywhere ``/points/``
+        404s, the alerts endpoint answers 400 "out of bounds" — so a point
+        rejected here is one that would fail every poll, and a point that
+        passes will be accepted by the poll URL. Probed over water too: US
+        marine zones answer 200 (near-shore, Great Lakes, offshore 60–80 nm),
+        so the 404 rejects nothing a boater can use. Coordinates are rounded
+        to four decimal places because the endpoint 301s higher precision to
+        the rounded form, and ``_build_scope`` polls at that precision anyway.
+
+        Tracker mode stays unvalidated: a tracker is supposed to move.
         """
-        zones = str(config.get(CONF_ZONE_ID, "") or "").strip()
-        if not zones:
-            return None
         headers = {"Accept": "application/geo+json"}
         if user_agent:
             headers["User-Agent"] = user_agent
-        async with session.get(f"{NWS_ZONES_BASE}?id={zones}", headers=headers) as resp:
+
+        zones = str(config.get(CONF_ZONE_ID, "") or "").strip()
+        if zones:
+            async with session.get(
+                f"{NWS_ZONES_BASE}?id={zones}", headers=headers
+            ) as resp:
+                if resp.status != 200:
+                    # The shape is already guaranteed by ``_validate_zone``, so
+                    # a non-200 here is the service, not the input.
+                    return "cannot_connect"
+                data = await resp.json()
+            published = {
+                (feature.get("properties") or {}).get("id")
+                for feature in data.get("features", [])
+            }
+            wanted = [z.strip() for z in zones.split(",") if z.strip()]
+            return "unknown_zone" if any(z not in published for z in wanted) else None
+
+        gps = str(config.get(CONF_GPS_LOC, "") or "").strip()
+        if not gps:
+            return None
+        try:
+            parts = gps.split(",")
+            lat = round(float(parts[0].strip()), 4)
+            lon = round(float(parts[1].strip()), 4)
+        except (ValueError, IndexError):
+            # Shape is ``_validate_gps``'s job; nothing authoritative to ask.
+            return None
+        async with session.get(
+            f"{NWS_POINTS_BASE}/{lat},{lon}", headers=headers
+        ) as resp:
+            if resp.status == 404:
+                # The one answer that speaks to the input: NWS does not serve
+                # this point, and the poll URL would 400 on it every cycle.
+                return "point_not_served"
             if resp.status != 200:
-                # The shape is already guaranteed by ``_validate_zone``, so a
-                # non-200 here is the service, not the input.
                 return "cannot_connect"
-            data = await resp.json()
-        published = {
-            (feature.get("properties") or {}).get("id")
-            for feature in data.get("features", [])
-        }
-        wanted = [z.strip() for z in zones.split(",") if z.strip()]
-        return "unknown_zone" if any(z not in published for z in wanted) else None
+        return None
 
     async def async_fetch(
         self,

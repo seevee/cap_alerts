@@ -402,6 +402,7 @@
       "invalid_wmo_source": "Invalid WMO source ID. Select from the list or enter a valid source ID (e.g. mx-smn-es).",
       "invalid_zone": "Invalid zone ID format.",
       "no_regions_selected": "Select at least one region.",
+      "point_not_served": "The National Weather Service does not serve this point. NWS covers the United States, its territories, and nearby coastal waters — check the coordinates, or use a different provider for this location.",
       "unknown_country_feed": "MeteoAlarm no longer publishes a feed for this country. Pick another, or report it so the country list can be updated.",
       "unknown_wmo_source": "The WMO mirror does not publish this source. Pick one from the list — some registered sources are only served on national sites, which this integration cannot read.",
       "unknown_zone": "No such NWS zone. The format is right, but the National Weather Service does not publish a zone with that ID — check it at weather.gov/zones."
