@@ -183,12 +183,18 @@ pelmorex retains a shorter window. Continuous sampling since 2026-07-30 has
 found a gap in every sample, so as of this writing the union is still the only
 thing making the feed complete.
 
+Until then the sunset repairs (#163, `issues.py`) cover the two configurations
+that depend on the host: streaming off, and `feed_source: pelmorex`. Each gets
+a repair card with a confirm flow that writes the recommended option.
+
 Once pelmorex is gone it will simply fail every poll, which the union tolerates.
 Removing it means: drop `NAAD_FEED_PELMOREX` and the `pelmorex` value from
 `NAAD_FEED_HOSTS` / `NAAD_FEED_UNION_ORDER` in `providers/eccc.py`, drop
 `pelmorex` from the `CONF_FEED_SOURCE` selector in `flows/eccc.py` (leaving
 `auto` = alertready-only), and update the `feed_source` strings. If alertready's
-omission set has not cleared by then, escalate before removing.
+omission set has not cleared by then, escalate before removing. Dropping the
+`pelmorex` value retires `ISSUE_ECCC_FEED_SOURCE_PELMOREX` with it (the
+streaming-off repair stays, since the thin index is the reason it exists).
 
 ---
 

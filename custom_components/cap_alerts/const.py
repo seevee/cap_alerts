@@ -112,6 +112,14 @@ DEFAULT_STREAM_RESYNC_INTERVAL = 1800
 # The periodic resync is never gated by it: that fetch is the availability signal.
 NAAD_STREAM_BACKFILL_MIN_INTERVAL_S = DEFAULT_SCAN_INTERVAL
 
+# Repairs issue ids (issue #163), suffixed with the entry id so each affected
+# entry gets its own card. Also the translation keys under strings.json
+# "issues". Raised from the configuration alone, whenever it matches — see
+# issues.py for why there is no sunset detection.
+ISSUE_ECCC_STREAMING_OFF = "eccc_streaming_off"
+ISSUE_ECCC_FEED_SOURCE_PELMOREX = "eccc_feed_source_pelmorex"
+ISSUE_LEARN_MORE_URL = "https://github.com/seevee/cap_alerts/issues/163"
+
 # Buddhist-Era calendar correction. Some feeds (TMD, surfaced via WMO SWIC)
 # emit Buddhist-Era years — Gregorian + 543 — in CAP dateTime fields, e.g.
 # "2568-08-05T22:50:00+07:00". A year at or above this threshold is

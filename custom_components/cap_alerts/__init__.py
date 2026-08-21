@@ -19,6 +19,7 @@ from .const import (
 from .coordinator import AlertsDataUpdateCoordinator
 from .flows.common import compute_scope_key
 from .geometry_store import GeometryStore
+from .issues import async_delete_issues, async_sync_issues
 from .providers import get_provider
 from .providers.cap_content_cache import CAPContentCache
 from .views import CapAlertsGeometryView
@@ -63,6 +64,10 @@ def _async_ensure_scope_key(hass: HomeAssistant, entry: ConfigEntry) -> None:
 async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) -> bool:
     """Set up CAP Alerts from a config entry."""
     _async_ensure_scope_key(hass, entry)
+    # Before the first refresh: a feed source pinned to the retired NAAD host
+    # fails every first refresh, and the repair card is the only thing that
+    # will say why, so it must not wait on a successful setup (issue #163).
+    async_sync_issues(hass, entry)
     instance_id = await async_get_instance_id(hass)
     user_agent = USER_AGENT.format(instance_id)
 
@@ -103,6 +108,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) -
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clear the repairs raised for an entry that is being deleted."""
+    async_delete_issues(hass, entry)
+
+
 async def _async_entry_updated(
     hass: HomeAssistant, entry: CAPAlertsConfigEntry
 ) -> None:
@@ -120,6 +130,9 @@ async def _async_entry_updated(
     a reload tears down and re-establishes the ECCC NAAD stream socket, which
     is far too heavy a price for nudging a scan interval.
     """
+    # First, so a feed-source change — which reloads nothing — still
+    # re-evaluates the sunset repairs (issue #163).
+    async_sync_issues(hass, entry)
     coordinator: AlertsDataUpdateCoordinator = entry.runtime_data
     # A reconfigure rewrites entry data — provider, location, source, filter
     # mode — all of which are read once when the coordinator is constructed.

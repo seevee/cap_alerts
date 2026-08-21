@@ -41,7 +41,7 @@ Weather API → Provider.async_fetch() → list[CAPAlert]
 
 ```
 custom_components/cap_alerts/
-  __init__.py       # entry setup, coordinator wiring, platform forwarding; owns the shared GeometryStore and registers the REST view + WS command once per HA instance
+  __init__.py       # entry setup, coordinator wiring, platform forwarding; owns the shared GeometryStore and registers the REST view + WS command once per HA instance; syncs the ECCC sunset repairs on setup/update/remove
   const.py          # domain, defaults, user-agent format
   config_flow.py    # the composed flow handler (provider menus) + options flow; hassfest requires this exact filename
   flows/            # per-provider config flow steps, mixed into the handler above
@@ -63,6 +63,8 @@ custom_components/cap_alerts/
   store.py          # alert store: inter-poll diffing, transition detection, HA event firing (incl. removal_reason)
   icons.py          # event-type → mdi dispatch; MeteoAlarm classifies on awareness_type, others on event tables
   geometry_store.py # in-memory LRU cache of full GeoJSON polygons, keyed by geometry_ref (RFC §2.4); never persisted
+  issues.py         # repairs issues owed by an entry's config (#163): ECCC streaming off / feed source pinned to the retiring NAAD host; issue-registry only, no repairs import
+  repairs.py        # HA repairs platform: the confirm flows that apply each issue's recommended option; loaded lazily by the repairs component
   views.py          # GET /api/cap_alerts/geometry/{ref} → FeatureCollection
   websocket.py      # cap_alerts/geometry WS command, same payload as the REST view
   providers/
