@@ -11,9 +11,11 @@ whose ``<status>`` is ``System``, emitted at least every 60 s.
 This module deliberately owns only the transport: reassembly of complete
 ``<alert>…</alert>`` frames, heartbeat classification, a silence watchdog, and
 reconnect/backoff. It parses no alert semantics beyond heartbeat detection — raw
-document strings are handed to the caller's ``on_alert_doc`` callback. The TLS
-connection is created through an injectable ``connect`` callable so tests can
-drive a scripted reader without a socket.
+document strings are handed to the caller's ``on_alert_doc`` callback, and raw
+heartbeat documents to ``on_heartbeat``, since a heartbeat's ``<references>``
+lists the last ten alerts and the caller recovers any it missed from the NAAD
+repository (issue #164). The TLS connection is created through an injectable
+``connect`` callable so tests can drive a scripted reader without a socket.
 """
 
 from __future__ import annotations
@@ -66,7 +68,7 @@ class NAADStreamClient:
         port: int,
         *,
         on_alert_doc: Callable[[str], Awaitable[None]],
-        on_heartbeat: Callable[[], Awaitable[None]],
+        on_heartbeat: Callable[[str], Awaitable[None]],
         on_backfill_needed: Callable[[], Awaitable[None]],
         on_connection_change: Callable[[bool], None] | None = None,
         connect: ConnectFn | None = None,
@@ -332,8 +334,10 @@ class NAADStreamClient:
         return buffer, docs
 
     async def _dispatch(self, doc_str: str) -> None:
+        # Both callbacks get the raw document: classification is the transport's
+        # job, reading anything out of the document is the caller's.
         if self._is_heartbeat(doc_str):
-            await self._on_heartbeat()
+            await self._on_heartbeat(doc_str)
         else:
             await self._on_alert_doc(doc_str)
 

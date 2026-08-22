@@ -111,6 +111,23 @@ DEFAULT_STREAM_RESYNC_INTERVAL = 1800
 # streaming replaced, so a flapping socket can never cost more than polling did.
 # The periodic resync is never gated by it: that fetch is the availability signal.
 NAAD_STREAM_BACKFILL_MIN_INTERVAL_S = DEFAULT_SCAN_INTERVAL
+# The NAADS 48-hour short-term repository (issue #164): the LMD User Guide's
+# sanctioned path for "automatic retrieval if an LMD missed an alert", and the
+# only NAAD recovery source on the surviving domain. Every heartbeat lists the
+# last ten alerts as (sender, identifier, sent) triples, and each is served at
+# ``{base}/{YYYY-MM-DD}/{sent}I{identifier}.xml`` with ``:``, ``-`` and ``+``
+# folded to ``_`` (see ``providers.eccc.repository_url``). Verified 2026-08-22:
+# 372/372 CAP links on the GeoRSS index follow the rule, 10/10 heartbeat
+# references fetched by constructed URL, and bodies were already present the
+# instant they streamed. The repository cannot enumerate — directory paths 404 —
+# so it serves reference-driven recovery only, not cold start.
+NAAD_REPOSITORY_URL = "https://cap.alertready.ca"
+# How many heartbeats may try to fetch one referenced alert before it is given
+# up on. A reference stays in the heartbeat's last-ten window until ten newer
+# alerts push it out, which on a quiet night is hours; unbounded, a body the
+# repository will never serve (past 48 h, or a naming quirk) would cost a failed
+# fetch and a warning every minute for all of that.
+NAAD_REPOSITORY_FETCH_ATTEMPTS = 3
 
 # Repairs issue ids (issue #163), suffixed with the entry id so each affected
 # entry gets its own card. Also the translation keys under strings.json
