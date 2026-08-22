@@ -38,7 +38,13 @@ from ..const import (
     WMO_UNMIRRORED_SOURCES,
 )
 from ..model import CAPAlert, geocodes_from
-from .cap import CAPDoc, CAPInfoDoc, parse_cap_alert, resolve_chain_leaves
+from .cap import (
+    CAPDoc,
+    CAPInfoDoc,
+    alternate_info_index,
+    parse_cap_alert,
+    resolve_chain_leaves,
+)
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_shapes, points_from_circles
 from .gps import alert_polygons, parse_gps, point_in_polygon
@@ -375,11 +381,25 @@ def _select_info(doc: CAPDoc, language: str) -> CAPInfoDoc:
 
 
 def _select_alt_info(doc: CAPDoc, primary: CAPInfoDoc) -> CAPInfoDoc | None:
-    """Return the first ``<info>`` block that is not the selected one."""
-    for info in doc.infos:
-        if info is not primary:
-            return info
-    return None
+    """Return the ``<info>`` block carried as the alternate, if any.
+
+    The rule lives in ``cap.alternate_info_index`` and is shared with
+    MeteoAlarm: an English block in a language other than the primary's, else
+    the first other-language block in document order (issue #154). On
+    ``mo-smg-xx`` (``zh-mo``/``pt-PT``/``en-US``) a Chinese reader therefore
+    gets English as the alternate, not Portuguese.
+
+    A document with no ``<info>`` at all (CAP 1.2 allows it; a bare ``Cancel``
+    is the live shape) has ``_select_info`` hand back a blank block that is in
+    nobody's list, so the lookup takes a default rather than raising.
+    """
+    primary_index = next(
+        (i for i, info in enumerate(doc.infos) if info is primary), None
+    )
+    if primary_index is None:
+        return None
+    idx = alternate_info_index((info.language for info in doc.infos), primary_index)
+    return doc.infos[idx] if idx is not None else None
 
 
 def _build_alert(
@@ -391,9 +411,10 @@ def _build_alert(
 ) -> CAPAlert:
     """Build a ``CAPAlert`` from a parsed WMO CAP document.
 
-    ``alt`` is the non-selected ``<info>`` block on a multilingual document;
-    its text populates the ``*_alt`` fields, matching what ECCC and MeteoAlarm
-    already publish. Every other field comes from ``info``.
+    ``alt`` is the alternate ``<info>`` block ``_select_alt_info`` chose on a
+    multilingual document; its text populates the ``*_alt`` fields, matching
+    what ECCC and MeteoAlarm already publish. Every other field comes from
+    ``info``.
     """
     merged_params: dict[str, str] = {**info.event_codes, **info.parameters}
     points = points_from_circles(info.circles)

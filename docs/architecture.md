@@ -408,10 +408,14 @@ country; users who want multiple countries add multiple entries.
 is a CAP-1.2 document containing one or more `info` blocks — typically
 the local language and English. The provider picks the `info` whose
 `language` 2-letter prefix matches the configured language (falls back to
-`en`, then to the first block in document order) and stores the next
-remaining block in `headline_alt` / `description_alt` /
-`instruction_alt` / `language_alt`. Warnings whose `status` is set and
-not `Actual` are skipped at parse time.
+`en`, then to the first block in document order) and stores one alternate in
+`headline_alt` / `description_alt` / `instruction_alt` / `language_alt`: an
+English block in another language when the document has one, else the first
+other-language block in document order (`cap.alternate_info_index`, shared
+with WMO, issue #154). Belgium publishes four languages and Denmark three, so
+"the next remaining block" handed a French reader Dutch and a Dane
+Greenlandic. Warnings whose `status` is set and not `Actual` are skipped at
+parse time.
 
 A small equivalence table (`_LANG_EQUIVALENTS`) lets one prefix satisfy a
 request for another, an exact match still winning. It holds a single group,
@@ -791,8 +795,11 @@ block's `<language>`: casefolded exact, then BCP 47 primary subtag, then any
 English block, then document order. The English step is what makes the fallback
 predictable when a document lacks the preferred language; ECCC deliberately has
 no such step, since a French Canadian must not silently receive English. The
-first non-selected block populates the `*_alt` fields, as ECCC and MeteoAlarm
-already do. Duplicate tags resolve first-match-wins, which is why a source
+alternate that populates the `*_alt` fields is chosen by the rule shared with
+MeteoAlarm (`cap.alternate_info_index`, issue #154): an English block in
+another language, else the first other-language block, so `mo-smg-xx`
+(`zh-mo`/`pt-PT`/`en-US`) gives a Chinese reader English rather than
+Portuguese. Duplicate tags resolve first-match-wins, which is why a source
 emitting one `<info>` per *area group* (`ca-aema-xx`) still surfaces only its
 first group — the pre-existing limitation ECCC #45 covers, not a language
 concern. All three multi-language providers now select a block; their ladders

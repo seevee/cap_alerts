@@ -172,9 +172,10 @@ def classification_event(alert: CAPAlert) -> str:
     when it is English its event is classifiable while the user goes on reading
     their own language (issue #91).
 
-    Guarded on the alternate *being* English rather than merely existing:
-    ``*_alt`` holds the first non-selected block, which on a document ordered
-    ``zh``/``pt``/``en`` is Portuguese — no more matchable than the Chinese it
+    Guarded on the alternate *being* English rather than merely existing.
+    Since #154 the providers prefer an English block as the alternate, so the
+    guard is the backstop for documents with no English at all — a ``zh``/``pt``
+    body yields a Portuguese alternate, no more matchable than the Chinese it
     would replace.
 
     This is deliberately provider-neutral. WMO surfaced it, but MeteoAlarm

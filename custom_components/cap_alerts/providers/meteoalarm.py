@@ -72,7 +72,7 @@ from ..conventions import (
 )
 from ..conventions import meteoalarm_region_codes as _region_codes
 from ..model import CAPAlert, geocodes_from
-from .cap import parse_cap_polygon_text
+from .cap import alternate_info_index, parse_cap_polygon_text
 from .geometry import geometry_from_polygons
 from .gps import alert_polygons, parse_gps, point_in_polygon
 
@@ -214,7 +214,11 @@ def _pick_info_blocks(
     still honours the requested one; no live feed does today, but document
     order is the wrong tie-breaker for a language choice.
 
-    The alternate is the first remaining block, if any.
+    The alternate is chosen by ``cap.alternate_info_index``, shared with WMO:
+    an English block in another language, else the first other-language block
+    (issue #154). Belgium publishes ``nl-BE``/``fr-BE``/``en-GB``/``de-DE``
+    and Denmark ``da-DK``/``kl-GL``/``en-GB``, so a French or Danish reader
+    used to get Dutch or Greenlandic as the alternate.
     """
     primary_idx: int | None = None
     equiv_idx: int | None = None
@@ -235,12 +239,10 @@ def _pick_info_blocks(
         primary_idx = 0
 
     primary = infos[primary_idx]
-    alt: dict[str, Any] | None = None
-    for idx, info in enumerate(infos):
-        if idx == primary_idx:
-            continue
-        alt = info
-        break
+    alt_idx = alternate_info_index(
+        (str(info.get("language") or "") for info in infos), primary_idx
+    )
+    alt = infos[alt_idx] if alt_idx is not None else None
     return primary, alt
 
 

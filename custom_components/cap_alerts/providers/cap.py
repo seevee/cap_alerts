@@ -303,3 +303,51 @@ def resolve_chain_leaves(docs: list[CAPDoc]) -> list[CAPDoc]:
     referenced = {ref_id for doc in docs for _, ref_id, _ in doc.references}
     leaves = [doc for doc in docs if doc.identifier not in referenced]
     return leaves if leaves else docs
+
+
+# ---------------------------------------------------------------------------
+# Alternate-language block selection
+# ---------------------------------------------------------------------------
+
+
+def _primary_subtag(tag: str) -> str:
+    """The BCP 47 primary language subtag, casefolded (``zh-mo`` → ``zh``)."""
+    return tag.strip().casefold().split("-", 1)[0]
+
+
+def alternate_info_index(languages: Iterable[str], primary_index: int) -> int | None:
+    """Pick the ``<info>`` block that becomes the ``*_alt`` content (issue #154).
+
+    The configured language selects the primary block; this selects the one
+    alternate the flat ``*_alt`` fields can carry. There is no second language
+    preference to match against, so the rule is the one that serves both
+    consumers: ``icons.classification_event`` wants English, and a reader wants
+    the language they are likeliest to have (every 3+-language document on the
+    WMO and MeteoAlarm feeds carries English, swept 2026-08-21).
+
+    1. the first block in a *different* language from the primary whose
+       primary subtag is ``en``;
+    2. else the first block in a different language, in document order — on a
+       two-language document that is always "the other one", and a document
+       with no English at all still yields something rather than nothing;
+    3. else ``None``.
+
+    "Different language" compares primary subtags, so a block that repeats the
+    primary's language never qualifies: ``ca-msc-xx`` publishes one block per
+    area group (``en-CA``/``fr-CA``/``en-CA``/``fr-CA``), where preferring
+    "an English block" would hand an English primary an English twin, and
+    ``rs-hidmet-sr`` publishes ``sr`` and ``sr-Latn``, the same language in two
+    scripts. Blocks without a ``<language>`` compare equal to each other, so a
+    document of untagged blocks has no alternate.
+    """
+    tags = [_primary_subtag(tag) for tag in languages]
+    primary_lang = tags[primary_index]
+    candidates = [
+        idx
+        for idx, tag in enumerate(tags)
+        if idx != primary_index and tag != primary_lang
+    ]
+    for idx in candidates:
+        if tags[idx] == "en":
+            return idx
+    return candidates[0] if candidates else None
