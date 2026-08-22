@@ -13,9 +13,11 @@ a failed reconnect backfill does not flip availability (issue #16).
 from __future__ import annotations
 
 import asyncio
+import logging
 import ssl
 from datetime import datetime, timedelta, timezone
 
+import aiohttp
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -25,6 +27,8 @@ from pytest_homeassistant_custom_component.common import (
 
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er
+
+from custom_components.cap_alerts.providers.eccc import repository_url
 
 DOMAIN = "cap_alerts"
 FEED = "https://rss.alertready.ca/"
@@ -72,6 +76,29 @@ def _cap_xml(
         "<geocode><valueName>profile:CAP-CP:Location:0.3</valueName>"
         f"<value>{sgc}</value></geocode>"
         "</area></info></alert>"
+    )
+
+
+def _heartbeat_xml(*references: tuple[str, str, str]) -> str:
+    """A NAADS heartbeat as seen on the wire 2026-08-22.
+
+    ``<status>System</status>`` from ``NAADS-Heartbeat``, and a ``<references>``
+    list of ``sender,identifier,sent`` triples for the last alerts published —
+    the hook repository recovery hangs off (issue #164). No references means a
+    plain liveness tick.
+    """
+    refs = " ".join(
+        f"{sender},{identifier},{sent}" for sender, identifier, sent in references
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">'
+        "<identifier>08C047E5FEEE419EA778F0AB8E245FB6</identifier>"
+        "<sender>NAADS-Heartbeat</sender>"
+        f"<sent>{_iso(datetime.now(timezone.utc))}</sent>"
+        "<status>System</status><msgType>Alert</msgType><source>NAADS-1</source>"
+        "<scope>Public</scope><code>profile:CAP-CP:0.4</code>"
+        f"<references>{refs}</references></alert>"
     )
 
 
@@ -208,7 +235,7 @@ async def test_heartbeat_rebuilds_locally_without_fetch(
     assert hass.states.get(count_id).state == "1"
 
     calls_before = len(aioclient_mock.mock_calls)
-    await holder["on_heartbeat"]()
+    await holder["on_heartbeat"](_heartbeat_xml())
     await hass.async_block_till_done()
 
     # Heartbeat is a local rebuild: active alert retained, no GeoRSS/CAP fetch.
@@ -333,7 +360,7 @@ async def test_heartbeat_does_not_advance_last_updated(
     seeded = hass.states.get(last_updated_id).state
 
     freezer.tick(timedelta(seconds=120))
-    await holder["on_heartbeat"]()
+    await holder["on_heartbeat"](_heartbeat_xml())
     await hass.async_block_till_done()
     assert hass.states.get(last_updated_id).state == seeded
 
@@ -371,7 +398,7 @@ async def test_resync_backfill_fires_despite_heartbeats(
         freezer.tick(timedelta(seconds=600))
         async_fire_time_changed(hass)
         await hass.async_block_till_done()
-        await holder["on_heartbeat"]()
+        await holder["on_heartbeat"](_heartbeat_xml())
         await hass.async_block_till_done()
     assert len(aioclient_mock.mock_calls) == calls_before, "resync fired early"
 
@@ -404,7 +431,7 @@ async def test_periodic_backfill_failure_flips_unavailable_and_heartbeat_does_no
     assert hass.states.get(count_id).state == STATE_UNAVAILABLE
 
     # The stream is still alive, but a heartbeat is not evidence the data is good.
-    await holder["on_heartbeat"]()
+    await holder["on_heartbeat"](_heartbeat_xml())
     await hass.async_block_till_done()
     assert hass.states.get(count_id).state == STATE_UNAVAILABLE
 
@@ -625,7 +652,7 @@ async def test_heartbeats_do_not_re_announce_an_ended_alert(
     assert len(removed) == 1
 
     for _ in range(5):
-        await holder["on_heartbeat"]()
+        await holder["on_heartbeat"](_heartbeat_xml())
         await hass.async_block_till_done()
 
     assert hass.states.get(count_id).state == "0"
@@ -788,3 +815,250 @@ async def test_unload_stops_the_stream_task(
 
     assert holder["client"]._stopped.is_set()
     assert coordinator._stream_task is None
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat-driven recovery from the NAAD repository (issue #164)
+# ---------------------------------------------------------------------------
+
+
+def _reference(identifier: str, *, age: timedelta = timedelta(minutes=5)) -> tuple:
+    """A heartbeat reference triple, with the ``sent`` the repository URL folds."""
+    return ("CWTO", identifier, _iso(datetime.now(timezone.utc) - age))
+
+
+def _repository_calls(aioclient_mock, url: str) -> int:
+    return sum(1 for call in aioclient_mock.mock_calls if str(call[1]) == url)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_recovers_an_unseen_reference_from_the_repository(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """An alert issued while the socket was down arrives on the next heartbeat.
+
+    The heartbeat lists it, the repository serves it by a URL built from that
+    reference, and it goes through the same ingest a streamed document would.
+    Once recovered it is seen, so the next heartbeat listing it costs nothing.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    count_id = _count_id(hass, entry)
+    assert hass.states.get(count_id).state == "1"
+
+    missed = _reference("urn:oid:B")
+    url = repository_url(missed[2], "urn:oid:B")
+    aioclient_mock.get(url, text=_cap_xml("urn:oid:B", event="Rainfall Warning"))
+
+    await holder["on_heartbeat"](_heartbeat_xml(missed))
+    await hass.async_block_till_done()
+
+    assert hass.states.get(count_id).state == "2"
+    assert entry.runtime_data.repository_recovered == 1
+    assert _repository_calls(aioclient_mock, url) == 1
+
+    await holder["on_heartbeat"](_heartbeat_xml(missed))
+    await hass.async_block_till_done()
+    assert _repository_calls(aioclient_mock, url) == 1
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_does_not_refetch_streamed_or_backfilled_alerts(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """Steady state fetches nothing: every listed alert already arrived."""
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    count_id = _count_id(hass, entry)
+    await holder["on_alert_doc"](_cap_xml("urn:oid:B", event="Rainfall Warning"))
+    await hass.async_block_till_done()
+    assert hass.states.get(count_id).state == "2"
+
+    calls_before = len(aioclient_mock.mock_calls)
+    await holder["on_heartbeat"](
+        _heartbeat_xml(_reference("urn:oid:A"), _reference("urn:oid:B"))
+    )
+    await hass.async_block_till_done()
+
+    assert len(aioclient_mock.mock_calls) == calls_before
+    assert hass.states.get(count_id).state == "2"
+    assert entry.runtime_data.repository_recovered == 0
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_does_not_refetch_a_rejected_out_of_region_alert(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """Seen is recorded before admission, or every national alert is refetched.
+
+    The live set only holds admitted documents. Diffing the heartbeat against
+    it alone would make a BC alert look unseen to an Ontario entry on every
+    heartbeat, and fetch it once a minute until it left the window.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    await holder["on_alert_doc"](_cap_xml("urn:oid:BC", sgc="5915022"))
+    await hass.async_block_till_done()
+    assert "urn:oid:BC" not in coordinator._live_docs
+
+    calls_before = len(aioclient_mock.mock_calls)
+    for _ in range(3):
+        await holder["on_heartbeat"](_heartbeat_xml(_reference("urn:oid:BC")))
+        await hass.async_block_till_done()
+
+    assert len(aioclient_mock.mock_calls) == calls_before
+
+
+@pytest.mark.asyncio
+async def test_recovered_out_of_region_alert_is_not_retained_but_is_seen(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """A recovered body is screened by region like a streamed one, then remembered."""
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    count_id = _count_id(hass, entry)
+
+    listed = _reference("urn:oid:BC")
+    url = repository_url(listed[2], "urn:oid:BC")
+    aioclient_mock.get(url, text=_cap_xml("urn:oid:BC", sgc="5915022"))
+
+    for _ in range(2):
+        await holder["on_heartbeat"](_heartbeat_xml(listed))
+        await hass.async_block_till_done()
+
+    assert hass.states.get(count_id).state == "1"
+    assert "urn:oid:BC" not in coordinator._live_docs
+    assert coordinator.repository_recovered == 1
+    assert _repository_calls(aioclient_mock, url) == 1
+
+
+@pytest.mark.asyncio
+async def test_repository_fetch_gives_up_after_bounded_attempts(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch, caplog
+):
+    """A body the repository will not serve stops costing a fetch per heartbeat.
+
+    A reference stays in the heartbeat's last-ten window until ten newer alerts
+    displace it, which on a quiet night is hours of once-a-minute 404s.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+
+    gone = _reference("urn:oid:GONE")
+    url = repository_url(gone[2], "urn:oid:GONE")
+    aioclient_mock.get(url, status=404)
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(5):
+            await holder["on_heartbeat"](_heartbeat_xml(gone))
+            await hass.async_block_till_done()
+
+    assert _repository_calls(aioclient_mock, url) == 3
+    assert "urn:oid:GONE" in coordinator._seen
+    assert coordinator._repository_attempts == {}
+    give_ups = [
+        r for r in caplog.records if "giving up on urn:oid:GONE" in r.getMessage()
+    ]
+    assert len(give_ups) == 1
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_skips_references_older_than_48h(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """Past the repository's window there is nothing to fetch, and the live set would prune it anyway."""
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    calls_before = len(aioclient_mock.mock_calls)
+
+    await holder["on_heartbeat"](
+        _heartbeat_xml(_reference("urn:oid:OLD", age=timedelta(hours=49)))
+    )
+    await hass.async_block_till_done()
+
+    assert len(aioclient_mock.mock_calls) == calls_before
+    assert entry.runtime_data.repository_recovered == 0
+
+
+@pytest.mark.asyncio
+async def test_repository_outage_still_rebuilds_locally(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """A failed batch is retried on the next heartbeat; the rebuild still runs."""
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    count_id = _count_id(hass, entry)
+
+    errors = [aiohttp.ClientError("down"), TimeoutError()]
+
+    async def _boom(self, session, references, **kwargs):
+        raise errors.pop(0)
+
+    monkeypatch.setattr(
+        "custom_components.cap_alerts.providers.eccc.ECCCProvider"
+        ".async_fetch_docs_by_reference",
+        _boom,
+    )
+    missed = _reference("urn:oid:B")
+    for _ in range(2):
+        await holder["on_heartbeat"](_heartbeat_xml(missed))
+        await hass.async_block_till_done()
+
+    assert errors == []
+    assert hass.states.get(count_id).state == "1"
+    # Not seen and not counted against the give-up bound: the batch never ran.
+    assert "urn:oid:B" not in coordinator._seen
+    assert coordinator._repository_attempts == {}
+
+
+@pytest.mark.asyncio
+async def test_live_and_seen_sets_prune_past_48h(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """Both sets follow the repository's 48 h window, so neither grows for the life of the entry."""
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+
+    await holder["on_alert_doc"](_cap_xml("urn:oid:OLD", sent_offset_h=49))
+    await hass.async_block_till_done()
+
+    assert "urn:oid:OLD" not in coordinator._live_docs
+    assert "urn:oid:OLD" not in coordinator._seen
+    assert "urn:oid:A" in coordinator._seen

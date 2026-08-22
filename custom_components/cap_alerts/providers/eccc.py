@@ -9,6 +9,7 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Any
 from xml.etree.ElementTree import Element
 
@@ -23,6 +24,7 @@ from ..const import (
     CONF_LANGUAGE,
     CONF_PROVINCE,
     DEFAULT_FEED_SOURCE,
+    NAAD_REPOSITORY_URL,
 )
 from ..conventions import ECCC_MARINE_CLC_PREFIX as _ECCC_MARINE_CLC_PREFIX
 from ..conventions import conventions_for, is_marine_code
@@ -206,6 +208,61 @@ def _entry_oid(entry: Element) -> str:
     atom_id = entry.findtext(f"{{{NS_ATOM}}}id", "") or ""
     match = _ATOM_ID_OID_RE.search(atom_id)
     return match.group(0) if match else atom_id
+
+
+# ---------------------------------------------------------------------------
+# NAAD short-term repository (issue #164)
+# ---------------------------------------------------------------------------
+
+# The repository's filename folding: every character the NAADS naming convention
+# cannot carry in a path segment becomes an underscore, so
+# ``2026-08-22T00:07:04-00:00`` → ``2026_08_22T00_07_04_00_00`` and
+# ``urn:oid:2.49.0.1.124.2909968759.2026`` → ``urn_oid_2.49.0.1.124.2909968759.2026``.
+# GUID identifiers (Pelmorex, provincial EMOs) lose their hyphens the same way.
+_REPOSITORY_FOLD_RE = re.compile(r"[:+\-]")
+
+
+def _fold_repository_token(value: str) -> str:
+    return _REPOSITORY_FOLD_RE.sub("_", value)
+
+
+def repository_url(sent: str, identifier: str, *, day: str | None = None) -> str:
+    """The NAAD repository URL of one alert, from its ``sent`` and ``identifier``.
+
+    ``{base}/{day}/{sent}I{identifier}.xml`` with both tokens folded. ``day``
+    defaults to the date the ``sent`` string itself carries, which is what the
+    GeoRSS index links use for every alert observed (372/372 on 2026-08-22);
+    ``repository_url_candidates`` is the caller when that date is ambiguous.
+    """
+    day = day or sent[:10]
+    return (
+        f"{NAAD_REPOSITORY_URL}/{day}/"
+        f"{_fold_repository_token(sent)}I{_fold_repository_token(identifier)}.xml"
+    )
+
+
+def repository_url_candidates(sent: str, identifier: str) -> list[str]:
+    """The URLs at which the repository may serve an alert, in order to try.
+
+    NAAD writes ``sent`` as ``-00:00`` for nearly everything, so the date folder
+    and the UTC date agree. A few senders publish a local offset — Pelmorex test
+    messages at ``-04:00``, Manitoba EMO at ``-05:00``, 14 of 658 alerts
+    streamed in the week to 2026-08-21 — and none of those crossed midnight, so
+    which date the folder takes in that case is unverified. Offer the sent
+    date first (the observed rule) and the UTC date second, only when they
+    differ; an unparseable ``sent`` gets the observed rule alone.
+    """
+    urls = [repository_url(sent, identifier)]
+    try:
+        parsed = datetime.fromisoformat(sent)
+    except ValueError:
+        return urls
+    if parsed.tzinfo is None:
+        return urls
+    utc_day = parsed.astimezone(timezone.utc).strftime("%Y-%m-%d")
+    if utc_day != sent[:10]:
+        urls.append(repository_url(sent, identifier, day=utc_day))
+    return urls
 
 
 # ---------------------------------------------------------------------------
@@ -1112,6 +1169,48 @@ class ECCCProvider:
             user_agent=user_agent,
         )
         return [doc for _, _, doc in results if doc is not None]
+
+    async def async_fetch_docs_by_reference(
+        self,
+        session: aiohttp.ClientSession,
+        references: Sequence[tuple[str, str, str]],
+        *,
+        cap_content_cache: CAPContentCache | None = None,
+        user_agent: str | None = None,
+    ) -> dict[str, CAPDoc | None]:
+        """Fetch CAP documents from the NAAD repository by heartbeat reference.
+
+        ``references`` are the ``(sender, identifier, sent)`` triples a heartbeat's
+        ``<references>`` carries (issue #164). Each is tried at every
+        ``repository_url_candidates`` URL in order through the shared content
+        cache, and the first body that arrives is parsed. The result maps each
+        requested identifier to its document, or to ``None`` when no candidate
+        served a parseable body — the caller counts those against its retry
+        bound rather than this method deciding when to stop asking.
+
+        No region screening here: the repository knows nothing about the
+        configured scope, and the coordinator's admission applies the same test
+        to these documents as to streamed ones.
+        """
+        cache = (
+            cap_content_cache if cap_content_cache is not None else CAPContentCache()
+        )
+        semaphore = asyncio.Semaphore(5)
+        loop = asyncio.get_running_loop()
+
+        async def _fetch_one(
+            _sender: str, identifier: str, sent: str
+        ) -> tuple[str, CAPDoc | None]:
+            async with semaphore:
+                for url in repository_url_candidates(sent, identifier):
+                    body = await cache.get_or_fetch(session, url, user_agent=user_agent)
+                    if body is not None:
+                        doc = await loop.run_in_executor(None, parse_cap_alert, body)
+                        return identifier, doc
+            return identifier, None
+
+        results = await asyncio.gather(*[_fetch_one(*ref) for ref in references])
+        return dict(results)
 
     async def _collect(
         self,

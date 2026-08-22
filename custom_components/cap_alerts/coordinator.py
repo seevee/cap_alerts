@@ -45,6 +45,7 @@ from .const import (
     METEOALARM_COUNTRY_CODE_ALIASES,
     METEOALARM_COUNTRY_NAME_ALIASES,
     METEOALARM_COUNTRY_NAMES,
+    NAAD_REPOSITORY_FETCH_ATTEMPTS,
     NAAD_STREAM_BACKFILL_MIN_INTERVAL_S,
     NAAD_STREAM_HOST,
     NAAD_STREAM_PORT,
@@ -137,22 +138,27 @@ def filter_by_geocode_prefixes(
     return [a for a in alerts if matches_geocode_prefixes(a, wanted)]
 
 
-def _doc_sent_before(doc: CAPDoc, cutoff: datetime) -> bool:
-    """Whether a CAP doc's ``sent`` timestamp is before ``cutoff``.
+def _sent_before(sent_text: str, cutoff: datetime) -> bool:
+    """Whether a CAP ``sent`` timestamp string is before ``cutoff``.
 
-    Fails open — an unparseable or missing ``sent`` returns ``False`` so the doc
-    is retained rather than pruned on a formatting quirk. A tz-naive timestamp is
-    assumed UTC.
+    Fails open — an unparseable or missing ``sent`` returns ``False`` so the
+    record is retained rather than pruned on a formatting quirk. A tz-naive
+    timestamp is assumed UTC.
     """
-    if not doc.sent:
+    if not sent_text:
         return False
     try:
-        sent = datetime.fromisoformat(doc.sent)
+        sent = datetime.fromisoformat(sent_text)
     except ValueError:
         return False
     if sent.tzinfo is None:
         sent = sent.replace(tzinfo=timezone.utc)
     return sent < cutoff
+
+
+def _doc_sent_before(doc: CAPDoc, cutoff: datetime) -> bool:
+    """Whether a CAP doc's ``sent`` timestamp is before ``cutoff`` (see ``_sent_before``)."""
+    return _sent_before(doc.sent, cutoff)
 
 
 def _scope_key(config: Mapping[str, Any], options: Mapping[str, Any]) -> str:
@@ -285,6 +291,17 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             provider if isinstance(provider, BackfillProvider) else None
         )
         self._live_docs: dict[str, CAPDoc] = {}
+        # Every CAP identifier this entry has laid eyes on, admitted or not,
+        # mapped to its ``sent`` so it ages out on the same 48 h clock as the
+        # live set. This is what a heartbeat's <references> are diffed against
+        # (issue #164): the live set alone would make every out-of-region alert
+        # in the country look unseen, and get it refetched once a minute until
+        # it left the heartbeat's window.
+        self._seen: dict[str, str] = {}
+        # Failed repository fetches per identifier, for the give-up bound. Only
+        # ever holds identifiers in the current heartbeat's window.
+        self._repository_attempts: dict[str, int] = {}
+        self._repository_recovered = 0
         self._ingest_lock = asyncio.Lock()
         self._stream_client: NAADStreamClient | None = None
         self._stream_task: asyncio.Task[None] | None = None
@@ -504,6 +521,15 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         """When a GeoRSS backfill was last attempted (streaming entries only)."""
         return self._last_backfill_at
 
+    @property
+    def repository_recovered(self) -> int:
+        """How many CAP bodies heartbeat references have pulled from the repository.
+
+        Counts fetches, not admissions: a recovered document can still be
+        screened out by region. Since setup — it is not persisted.
+        """
+        return self._repository_recovered
+
     async def _async_update_data(self) -> dict[str, CAPAlert]:
         try:
             return await self._async_fetch_data()
@@ -707,13 +733,28 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
                 kept.append(doc)
         return kept
 
+    def _note_seen(self, docs: list[CAPDoc]) -> None:
+        """Record that these documents have been received, whatever admission says.
+
+        A document with no ``sent`` is stamped with the current time so it still
+        ages out; an identifier that never aged out would stay "seen" for the
+        life of the entry.
+        """
+        now_text = datetime.now(timezone.utc).isoformat()
+        for doc in docs:
+            if doc.identifier:
+                self._seen[doc.identifier] = doc.sent or now_text
+
     def _merge_docs(self, docs: list[CAPDoc]) -> None:
         """Upsert docs into the live set by CAP identifier and prune stale ones."""
+        self._note_seen(docs)
         for doc in docs:
             if doc.identifier:
                 self._live_docs[doc.identifier] = doc
         # The NAAD feeds carry a rolling 48 h window; drop anything older so the
-        # live set stays bounded and superseded/expired docs age out.
+        # live set stays bounded and superseded/expired docs age out. The seen
+        # set follows the same clock, since the repository it guards fetches
+        # from holds the same window.
         cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
         stale = [
             identifier
@@ -722,6 +763,13 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         ]
         for identifier in stale:
             del self._live_docs[identifier]
+        forgotten = [
+            identifier
+            for identifier, sent in self._seen.items()
+            if _sent_before(sent, cutoff)
+        ]
+        for identifier in forgotten:
+            del self._seen[identifier]
 
     async def _backfill(
         self, config: Mapping[str, Any], options: Mapping[str, Any]
@@ -835,10 +883,127 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         doc = await loop.run_in_executor(None, parse_cap_alert, doc_str)
         if doc is None or not doc.identifier:
             return
+        # Seen is recorded before admission on purpose: a national alert outside
+        # the region is still one the heartbeat will list, and the only way to
+        # know not to fetch it is to remember it arrived.
+        self._note_seen([doc])
         await self.async_ingest_docs([doc])
 
-    async def _on_stream_heartbeat(self) -> None:
-        await self.async_ingest_docs([])
+    async def _on_stream_heartbeat(self, doc_str: str) -> None:
+        """Rebuild on a heartbeat, first recovering anything the stream missed.
+
+        A heartbeat's ``<references>`` lists the last ten alerts NAAD published,
+        and the short-term repository serves each by a URL built from that
+        reference (issue #164). Any identifier not already seen — on the
+        socket, in a backfill, or from an earlier recovery — is fetched and fed
+        through the normal ingest, where ``_admit`` screens it by region exactly
+        as if it had streamed. That closes the one gap streaming has: an alert
+        issued in a reconnect window. The reconnect backfill is throttled to
+        the old poll cadence and the GeoRSS index omits live alerts daily, so
+        neither was guaranteed to catch it; this path is bounded to ten small
+        fetches per heartbeat and gated by nothing.
+
+        Steady state costs nothing: every streamed alert is noted before the
+        heartbeat that lists it. The first heartbeat after a (re)connect fetches
+        what the window holds that this entry has not seen — up to ten bodies,
+        most of them out of region and discarded on admission — which is also
+        how an alert the GeoRSS seed omitted gets recovered at startup.
+
+        The fetch runs inline, so the read loop waits on it: at most
+        ``timeout`` once per (re)connect, with the kernel buffering the socket.
+        """
+        loop = asyncio.get_running_loop()
+        heartbeat = await loop.run_in_executor(None, parse_cap_alert, doc_str)
+        references = self._unseen_references(
+            heartbeat.references if heartbeat is not None else []
+        )
+        recovered = await self._recover_from_repository(references)
+        await self.async_ingest_docs(recovered)
+
+    def _unseen_references(
+        self, references: Sequence[tuple[str, str, str]]
+    ) -> list[tuple[str, str, str]]:
+        """The heartbeat references still worth fetching.
+
+        Skips anything seen, anything whose ``sent`` is past the 48 h window the
+        repository holds (the live set would prune it on arrival anyway), and
+        anything already given up on. Attempt counts for identifiers no longer
+        in the window are dropped here, which keeps that dict bounded by the
+        window's size.
+        """
+        in_window = {identifier for _, identifier, _ in references}
+        self._repository_attempts = {
+            identifier: count
+            for identifier, count in self._repository_attempts.items()
+            if identifier in in_window
+        }
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+        return [
+            (sender, identifier, sent)
+            for sender, identifier, sent in references
+            if identifier
+            and identifier not in self._seen
+            and not _sent_before(sent, cutoff)
+        ]
+
+    async def _recover_from_repository(
+        self, references: Sequence[tuple[str, str, str]]
+    ) -> list[CAPDoc]:
+        """Fetch ``references`` from the NAAD repository, bookkeeping the misses.
+
+        A fetched document is marked seen and counted. A miss is counted against
+        ``NAAD_REPOSITORY_FETCH_ATTEMPTS``; at the bound the identifier is
+        marked seen and warned about once, so a body the repository will never
+        serve stops costing a fetch and a log line per heartbeat. A transport
+        failure of the whole batch (timeout, client error) is debug-logged and
+        retried on the next heartbeat without touching the counts.
+        """
+        provider = self._backfill_provider
+        if not references or provider is None:
+            return []
+        _LOGGER.info(
+            "ECCC: fetching %d alert(s) the NAAD heartbeat lists but the stream "
+            "did not deliver: %s",
+            len(references),
+            ", ".join(identifier for _, identifier, _ in references),
+        )
+        try:
+            async with asyncio.timeout(self._timeout):
+                results = await provider.async_fetch_docs_by_reference(
+                    async_get_clientsession(self.hass),
+                    references,
+                    cap_content_cache=self._cap_content_cache,
+                    user_agent=self._user_agent,
+                )
+        except (TimeoutError, aiohttp.ClientError) as err:
+            _LOGGER.debug(
+                "ECCC: repository fetch failed (%s); retrying on the next heartbeat",
+                err,
+            )
+            return []
+
+        recovered: list[CAPDoc] = []
+        for _sender, identifier, sent in references:
+            doc = results.get(identifier)
+            if doc is not None:
+                self._seen[identifier] = doc.sent or sent
+                self._repository_attempts.pop(identifier, None)
+                self._repository_recovered += 1
+                recovered.append(doc)
+                continue
+            attempts = self._repository_attempts.get(identifier, 0) + 1
+            if attempts < NAAD_REPOSITORY_FETCH_ATTEMPTS:
+                self._repository_attempts[identifier] = attempts
+                continue
+            self._repository_attempts.pop(identifier, None)
+            self._seen[identifier] = sent
+            _LOGGER.warning(
+                "ECCC: giving up on %s after %d failed NAAD repository fetches; "
+                "if it concerned this region it will arrive on the next resync",
+                identifier,
+                attempts,
+            )
+        return recovered
 
     async def async_start_stream(self) -> None:
         """Start the NAAD stream background task (no-op unless streaming). Idempotent."""

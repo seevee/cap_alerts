@@ -69,6 +69,7 @@ class _StubCoordinator:
         connected=False,
         live_documents=0,
         last_backfill=None,
+        repository_recovered=0,
         interval_seconds=300,
     ) -> None:
         self.data = {a.id: a for a in (alerts or [])}
@@ -83,6 +84,7 @@ class _StubCoordinator:
         self.stream_connected = connected
         self.live_doc_count = live_documents
         self.last_backfill_time = last_backfill
+        self.repository_recovered = repository_recovered
         self._entry = None
 
     def bind(self, entry) -> "_StubCoordinator":
@@ -182,6 +184,7 @@ async def test_reports_stream_state_for_a_streaming_entry(hass):
         connected=True,
         live_documents=42,
         last_backfill=datetime(2026, 8, 12, 9, 30, tzinfo=timezone.utc),
+        repository_recovered=3,
     )
 
     stream = (await _payload(hass, entry))["stream"]
@@ -191,6 +194,10 @@ async def test_reports_stream_state_for_a_streaming_entry(hass):
     assert stream["endpoint"] == f"{NAAD_STREAM_HOST}:8443"
     assert stream["live_documents"] == 42
     assert stream["last_backfill"] == "2026-08-12T09:30:00+00:00"
+    # Heartbeat-driven repository recovery (issue #164): the URL names the
+    # source, the count says whether it has ever fired on this entry.
+    assert stream["repository"] == "https://cap.alertready.ca"
+    assert stream["repository_recovered"] == 3
 
 
 async def test_stream_block_is_present_and_empty_for_a_polling_entry(hass):
@@ -201,6 +208,8 @@ async def test_stream_block_is_present_and_empty_for_a_polling_entry(hass):
 
     assert stream["enabled"] is False
     assert stream["endpoint"] is None
+    assert stream["repository"] is None
+    assert stream["repository_recovered"] == 0
 
 
 async def test_reports_configured_and_resolved_language(hass):

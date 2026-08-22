@@ -159,15 +159,29 @@ coordinator poll path — it's a config-flow-only concern.
 
 ---
 
-## NAAD 48-hour repository as a backfill source
+## NAAD 48-hour repository as a cold-start source
 
 ECCC streaming shipped in 0.2.0 and its design lives in
-[`architecture.md`](architecture.md) → *ECCC — NAAD streaming*. One end is still
-open: the NAADS **48-hour HTTP short-term repository** (and
-`alertsarchive.pelmorex.com`) is unused. Every backfill — cold start, reconnect,
-gap — goes through the GeoRSS feed, which is why the `_fetch_one_feed`
-truncation guard and the partial-feed tolerance below still matter. A repository
-fetch is bounded and per-identifier, so it would sidestep both.
+[`architecture.md`](architecture.md) → *ECCC — NAAD streaming*. The NAADS
+**48-hour HTTP short-term repository** is now in use for the gap it can close
+(#164): every heartbeat lists the last ten alerts as `(sender, identifier,
+sent)` triples, the repository serves each by a URL built from that triple,
+and the coordinator fetches whatever it has not seen. That covers a reconnect
+window without depending on the GeoRSS index, which omits live alerts in every
+sample taken since 2026-07-30.
+
+What stays open is **cold start**. Setup and the periodic resync still go
+through the GeoRSS feed, so the `_fetch_one_feed` truncation guard and the
+partial-feed tolerance below still matter, and an alert the alertready index
+omitted before setup is only recovered if it is still in the heartbeat's
+last-ten window. The repository cannot enumerate (directory paths 404, the
+filename encodes a `sent` you only learn from an index), and the one source
+that can — `alertsarchive.pelmorex.com`, a `POST datepicker=` HTML listing —
+sits on the domain the NAAD decoupling exists to move off, with no successor
+staged. Persisting the live doc set across restarts is the fallback design if
+the archive goes with the sunset; it has to bound what it writes, since
+nothing in the integration persists today and `GeometryStore` is kept
+unpersisted over SD-card write amplification.
 
 ---
 

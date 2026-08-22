@@ -68,6 +68,7 @@ from .const import (
     GDACS_RSS_24H_URL,
     GDACS_RSS_CURRENT_URL,
     METEOALARM_COUNTRY_SLUGS,
+    NAAD_REPOSITORY_URL,
     NAAD_STREAM_HOST,
     NAAD_STREAM_PORT,
     PLATFORM_VERSION,
@@ -182,6 +183,10 @@ async def async_get_config_entry_diagnostics(
             ),
             "live_documents": coordinator.live_doc_count,
             "last_backfill": _iso(coordinator.last_backfill_time),
+            # Heartbeat-driven recovery from the NAAD short-term repository
+            # (issue #164): the count says whether it has ever fired.
+            "repository": NAAD_REPOSITORY_URL if coordinator.streaming else None,
+            "repository_recovered": coordinator.repository_recovered,
         },
         "filters": {
             "exclude_marine": options.get(CONF_EXCLUDE_MARINE, False),

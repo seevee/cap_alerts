@@ -2075,3 +2075,98 @@ async def test_union_dedup_runs_after_region_filter():
     )
     assert len(alerts) == 1
     assert alerts[0].lifecycle_status == "ended"
+
+
+# ---------------------------------------------------------------------------
+# NAAD short-term repository (issue #164)
+# ---------------------------------------------------------------------------
+
+repository_url = _eccc_mod.repository_url
+repository_url_candidates = _eccc_mod.repository_url_candidates
+
+
+def test_repository_url_folds_sent_and_identifier():
+    """The naming convention, pinned to a live sample.
+
+    Probe of 2026-08-22: the GeoRSS index link for this alert and the URL built
+    from its CAP ``sent`` and ``identifier`` were the same string, and the
+    heartbeat reference for it fetched 200. GUID identifiers (Pelmorex test
+    messages, provincial EMOs) fold their hyphens the same way.
+    """
+    assert repository_url(
+        "2026-08-22T00:07:04-00:00", "urn:oid:2.49.0.1.124.2909968759.2026"
+    ) == (
+        "https://cap.alertready.ca/2026-08-22/"
+        "2026_08_22T00_07_04_00_00Iurn_oid_2.49.0.1.124.2909968759.2026.xml"
+    )
+    assert repository_url(
+        "2026-08-21T06:53:59-04:00", "6143CFCD-8B2A-40B0-A026-1271CA858521"
+    ) == (
+        "https://cap.alertready.ca/2026-08-21/"
+        "2026_08_21T06_53_59_04_00I6143CFCD_8B2A_40B0_A026_1271CA858521.xml"
+    )
+
+
+def test_repository_url_candidates_add_utc_date_across_midnight():
+    """A local-offset ``sent`` that crosses midnight in UTC gets both folders.
+
+    The observed rule is the sent string's own date (372/372 index links), but
+    every non-UTC sample sat mid-day, so the crossing case is unverified and the
+    UTC folder is offered second rather than guessed at.
+    """
+
+    def folders(sent: str) -> list[str]:
+        return [
+            url.split("/")[3] for url in repository_url_candidates(sent, "urn:oid:X")
+        ]
+
+    assert folders("2026-08-22T00:07:04-00:00") == ["2026-08-22"]
+    assert folders("2026-08-21T06:53:59-04:00") == ["2026-08-21"]
+    assert folders("2026-08-21T21:00:00-04:00") == ["2026-08-21", "2026-08-22"]
+    # Naive or unparseable timestamps get the observed rule alone.
+    assert folders("2026-08-21T21:00:00") == ["2026-08-21"]
+    assert repository_url_candidates("not-a-timestamp", "urn:oid:X") == [
+        repository_url("not-a-timestamp", "urn:oid:X")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_async_fetch_docs_by_reference_parses_bodies_and_reports_failures():
+    """Each reference maps to its parsed document, or to ``None`` on a miss.
+
+    The second candidate URL is tried only after the first fails; a body that
+    does not parse and a body nobody serves both come back as ``None`` for the
+    coordinator's retry bound to count.
+    """
+    served_id = "urn:oid:2.49.0.1.124.test.2026.NEW.EN"
+    served = repository_url("2026-08-21T12:00:00-00:00", served_id)
+    late_first = repository_url("2026-08-21T21:00:00-04:00", "urn:oid:LATE")
+    late_second = repository_url(
+        "2026-08-21T21:00:00-04:00", "urn:oid:LATE", day="2026-08-22"
+    )
+    broken = repository_url("2026-08-21T12:00:00-00:00", "urn:oid:BROKEN")
+    session = StubSession(
+        {
+            served: _fixture("eccc_cap_en_new_1.xml"),
+            late_second: _fixture("eccc_cap_en_update_1.xml"),
+            broken: "<alert><unclosed></alert",
+        }
+    )
+
+    results = await ECCCProvider().async_fetch_docs_by_reference(
+        session,
+        [
+            ("cap-pac@canada.ca", served_id, "2026-08-21T12:00:00-00:00"),
+            ("cap-pac@canada.ca", "urn:oid:LATE", "2026-08-21T21:00:00-04:00"),
+            ("cap-pac@canada.ca", "urn:oid:BROKEN", "2026-08-21T12:00:00-00:00"),
+            ("cap-pac@canada.ca", "urn:oid:GONE", "2026-08-21T12:00:00-00:00"),
+        ],
+        cap_content_cache=CAPContentCache(),
+    )
+
+    assert results[served_id].identifier == served_id
+    assert results["urn:oid:LATE"] is not None
+    assert session.requested.index(late_first) < session.requested.index(late_second)
+    assert results["urn:oid:BROKEN"] is None
+    assert results["urn:oid:GONE"] is None
+    assert set(results) == {served_id, "urn:oid:LATE", "urn:oid:BROKEN", "urn:oid:GONE"}

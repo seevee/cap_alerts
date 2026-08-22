@@ -150,21 +150,32 @@ def test_is_heartbeat_detects_system_status_without_sender():
 
 @pytest.mark.asyncio
 async def test_read_loop_dispatches_alerts_and_heartbeats():
+    """Both callbacks receive the raw document.
+
+    The heartbeat's is not decorative: its ``<references>`` are what the
+    coordinator diffs against to recover alerts missed while disconnected
+    (issue #164), and the transport hands the document over rather than
+    reading anything out of it.
+    """
     alerts: list[str] = []
-    heartbeats: list[int] = []
+    heartbeats: list[str] = []
 
     async def on_alert(doc: str) -> None:
         alerts.append(doc)
 
-    async def on_hb() -> None:
-        heartbeats.append(1)
+    async def on_hb(doc: str) -> None:
+        heartbeats.append(doc)
 
     client = _make_client(on_alert_doc=on_alert, on_heartbeat=on_hb)
     await client._read_loop(_reader(_ALERT, _HEARTBEAT))
 
     assert len(alerts) == 1
     assert "urn:oid:alert-1" in alerts[0]
+    # The frame, not the wire: the XML declaration ahead of ``<alert`` is
+    # framing noise the reassembler drops.
     assert len(heartbeats) == 1
+    assert heartbeats[0].startswith("<alert")
+    assert "urn:oid:hb-1" in heartbeats[0]
 
 
 @pytest.mark.asyncio

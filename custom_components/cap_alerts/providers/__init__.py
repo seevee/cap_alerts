@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol, runtime_checkable
 
 import aiohttp
@@ -76,6 +76,21 @@ class BackfillProvider(Protocol):
         user_agent: str | None = None,
     ) -> list[CAPDoc]:
         """Fetch region-relevant CAP documents. Raises UpdateFailed on transient errors."""
+        ...
+
+    async def async_fetch_docs_by_reference(
+        self,
+        session: aiohttp.ClientSession,
+        references: Sequence[tuple[str, str, str]],
+        *,
+        cap_content_cache: CAPContentCache | None = None,
+        user_agent: str | None = None,
+    ) -> dict[str, CAPDoc | None]:
+        """Fetch CAP documents by ``(sender, identifier, sent)`` reference (issue #164).
+
+        Maps each requested identifier to its document, or ``None`` when the
+        source could not serve it. Does not raise on a per-document miss.
+        """
         ...
 
 
