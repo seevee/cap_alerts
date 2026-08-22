@@ -122,7 +122,7 @@ Beware the no-warning marker: some senders signal "no alert" with
 | :-- | :-- | :-- |
 | `headline`, `description`, `instruction`, `note`, `web` | `str` | Primary-language content. |
 | `language` | `str` | BCP-47 of the primary content (e.g. `en-CA`). |
-| `event_alt`, `headline_alt`, `description_alt`, `instruction_alt` | `str` | Alternate-language siblings, present for bilingual feeds. |
+| `event_alt`, `headline_alt`, `description_alt`, `instruction_alt` | `str` | Alternate-language siblings, present for multilingual feeds. Past two languages the alternate is the English block when the primary isn't English, else the first other language in document order. |
 | `language_alt` | `str` | BCP-47 of the alternate content. |
 
 `event_alt` exists for classification, not display — `<event>` is CAP free

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -118,6 +119,39 @@ def test_language_merge_en_primary_when_preferred_missing(feed_de):
     gusts = next(a for a in alerts if a.event == "gale-force gusts")
     # No fr in fixture; falls back to en (the generic English fallback rule).
     assert gusts.language.startswith("en")
+
+
+def _warning_with_languages(feed: dict, languages: list[str]) -> dict:
+    """One ``feed_de`` warning re-published with an ``info`` block per language."""
+    warning = copy.deepcopy(feed["warnings"][0])
+    template = warning["alert"]["info"][0]
+    warning["alert"]["info"] = [
+        {**copy.deepcopy(template), "language": language} for language in languages
+    ]
+    return warning
+
+
+@pytest.mark.parametrize("preferred_prefix", ["nl", "fr", "de"])
+def test_three_language_feed_takes_english_as_alternate(feed_de, preferred_prefix):
+    """Issue #154: Belgium publishes nl/fr/en/de; the alternate is English.
+
+    Document order gave a French or German reader Dutch. Denmark's
+    ``da-DK``/``kl-GL``/``en-GB`` handed a Dane Greenlandic the same way.
+    """
+    warning = _warning_with_languages(feed_de, ["nl-BE", "fr-BE", "en-GB", "de-DE"])
+    alert = meteoalarm._warning_to_alert(warning, preferred_prefix)
+    assert alert is not None
+    assert alert.language.startswith(preferred_prefix)
+    assert alert.language_alt == "en-GB"
+
+
+def test_english_primary_takes_first_other_language(feed_de):
+    """With English as the primary, the alternate is the first other language."""
+    warning = _warning_with_languages(feed_de, ["nl-BE", "fr-BE", "en-GB", "de-DE"])
+    alert = meteoalarm._warning_to_alert(warning, "en")
+    assert alert is not None
+    assert alert.language == "en-GB"
+    assert alert.language_alt == "nl-BE"
 
 
 @pytest.mark.parametrize("preferred_prefix", ["nb", "nn", "no"])

@@ -488,6 +488,83 @@ def test_select_alt_info_single_block_is_none():
     assert _select_alt_info(doc, doc.infos[0]) is None
 
 
+def test_select_alt_info_empty_infos_is_none():
+    """A ``<info>``-less document (a bare Cancel) yields no alternate.
+
+    ``_select_info`` returns a blank block that is not in ``doc.infos``; the
+    alternate lookup must take that in stride rather than raise and fail the
+    whole poll for one empty document.
+    """
+    doc = _parse_cap_alert(
+        '<?xml version="1.0"?>'
+        '<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">'
+        "<identifier>WMO-CANCEL</identifier><sender>t</sender>"
+        "<sent>2026-08-01T12:00:00-00:00</sent><status>Actual</status>"
+        "<msgType>Cancel</msgType><scope>Public</scope></alert>"
+    )
+    assert doc is not None
+    primary = _select_info(doc, "en")
+    assert _select_alt_info(doc, primary) is None
+
+
+def test_select_alt_info_prefers_english_on_three_language_doc():
+    """Issue #154: the alternate is English, not whichever block comes next.
+
+    ``mo-smg-xx`` publishes ``zh-mo``/``pt-PT``/``en-US`` and ``fi-fmi-xx``
+    ``fi-FI``/``sv-FI``/``en-GB``; document order handed a Chinese reader
+    Portuguese and a Swedish reader Finnish.
+    """
+    doc = _multilang_doc(
+        [("zh-mo", "暴雨"), ("pt-PT", "Chuva forte"), ("en-US", "Heavy rain")]
+    )
+    primary = _select_info(doc, "zh-Hans")
+    assert primary is doc.infos[0]
+    assert _select_alt_info(doc, primary) is doc.infos[2]
+
+    doc = _multilang_doc(
+        [("fi-FI", "Myrsky"), ("sv-FI", "Storm"), ("en-GB", "Storm warning")]
+    )
+    primary = _select_info(doc, "sv")
+    assert primary is doc.infos[1]
+    assert _select_alt_info(doc, primary) is doc.infos[2]
+
+
+def test_select_alt_info_falls_back_to_document_order_without_english():
+    """No English block → the first other-language block, not nothing."""
+    doc = _doc("wmo_cap_multilang_no_en.xml")
+    primary = _select_info(doc, "zh-Hans")
+    assert primary.language == "zh-mo"
+    alt = _select_alt_info(doc, primary)
+    assert alt is not None
+    assert alt.language == "pt-PT"
+
+
+def test_select_alt_info_skips_same_language_blocks():
+    """A block repeating the primary's language never becomes the alternate.
+
+    ``ca-msc-xx`` publishes one block per area group, so "prefer English"
+    would hand an English primary an English twin; ``rs-hidmet-sr`` publishes
+    ``sr`` and ``sr-Latn``, one language in two scripts.
+    """
+    doc = _multilang_doc(
+        [("en-CA", "Group 1 EN"), ("en-CA", "Group 2 EN"), ("fr-CA", "Group 1 FR")]
+    )
+    primary = _select_info(doc, "en-CA")
+    assert primary is doc.infos[0]
+    assert _select_alt_info(doc, primary) is doc.infos[2]
+
+    doc = _multilang_doc([("en-GB", "Storm"), ("sr", "Олуја"), ("sr-Latn", "Oluja")])
+    primary = _select_info(doc, "sr")
+    assert primary is doc.infos[1]
+    assert _select_alt_info(doc, primary) is doc.infos[0]
+
+
+def test_select_alt_info_untagged_blocks_is_none():
+    """Blocks without ``<language>`` cannot be shown to differ, so no alternate."""
+    doc = _multilang_doc([("", "First"), ("", "Second")])
+    assert _select_alt_info(doc, doc.infos[0]) is None
+
+
 def test_build_alert_populates_alt_language_fields():
     doc = _doc("wmo_cap_multilang.xml")
     info = _select_info(doc, "zh-Hans")

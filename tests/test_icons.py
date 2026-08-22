@@ -115,7 +115,7 @@ def test_meteoalarm_awareness_type_classifies(alert_factory, awareness_type, exp
 
 
 def test_finnish_alert_with_swedish_alternate(alert_factory):
-    """Issue #97: FMI publishes fi/sv/en, so the alternate block is Swedish.
+    """Issue #97: FMI publishes fi/sv/en; before #154 the alternate was Swedish.
 
     The #91 English-alternate path can't reach the English event here, and some
     FMI alerts carry no English block at all — the awareness code does.
@@ -309,7 +309,7 @@ def test_localized_event_classifies_on_english_alternate(
 
 
 def test_non_english_alternate_does_not_hijack_classification(alert_factory):
-    """``*_alt`` holds the first non-selected block, which need not be English."""
+    """A document with no English block yields a non-English alternate (#154)."""
     assert (
         icon_for(
             alert_factory(
