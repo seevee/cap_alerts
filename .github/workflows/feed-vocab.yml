@@ -1,0 +1,63 @@
+# Twice a week, diff the live provider feeds' vocabulary against the
+# committed baseline (scripts/feed_vocab_probe.py) and surface anything new
+# as a provider-drift issue. Born from issue #172: ECCC's freeform
+# threat-area polygons were visible in the feed as new vocabulary for twelve
+# days before a user report landed.
+name: Feed vocabulary
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Monday and Thursday, off the hour to dodge the top-of-hour crunch.
+    - cron: "43 13 * * 1,4"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    name: Probe provider feeds
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Run probe
+        id: probe
+        # Stdlib-only script; no dependencies to install. Capture the exit
+        # code instead of failing here so the report still becomes an issue.
+        run: |
+          set +e
+          python scripts/feed_vocab_probe.py --report-file drift.md
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+      - name: Open or update the drift issue
+        if: hashFiles('drift.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # One rolling issue: append to the open provider-drift issue if there
+        # is one, otherwise open it. Closing the issue acknowledges the batch;
+        # the next drift opens a fresh one.
+        run: |
+          gh label create provider-drift \
+            --color D93F0B \
+            --description "A provider feed published vocabulary the integration has never seen" \
+            || true
+          existing=$(gh issue list --label provider-drift --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file drift.md
+          else
+            gh issue create \
+              --title "Provider feed vocabulary drift" \
+              --label provider-drift \
+              --body-file drift.md
+          fi
+      - name: Fail on probe error
+        # Exit 1 is drift (now filed as an issue — the job stays green);
+        # exit 2 means a provider could not be probed at all.
+        if: steps.probe.outputs.code != '0' && steps.probe.outputs.code != '1'
+        run: |
+          echo "probe exited ${{ steps.probe.outputs.code }}"
+          exit 1

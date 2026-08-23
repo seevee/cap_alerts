@@ -139,6 +139,12 @@ form, and options schema through HA's own flow manager on a deployed instance.
 Run it after any config-flow change, and before a prerelease. A new provider
 adds its rows to `SETUP`, `RECONFIGURE`, and `OPTIONS_SCHEMA` there.
 
+`scripts/feed_vocab_probe.py` (stdlib only) diffs each provider's live feed
+vocabulary against `scripts/feed_vocab_baseline.json`; a scheduled workflow
+runs it twice a week and files anything new as a `provider-drift` issue. See
+`docs/provider-watch.md` for the response playbook and the per-provider
+announcement channels.
+
 Coverage settings live in `.coveragerc`. Both floors are ratchets: raise them
 as gaps close, never lower one to make a PR pass.
 
