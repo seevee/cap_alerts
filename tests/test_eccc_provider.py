@@ -45,6 +45,10 @@ _headline_to_event = _eccc_mod._headline_to_event
 _best_event_name = _eccc_mod._best_event_name
 CAPDoc = _cap_mod.CAPDoc
 CAPInfoDoc = _cap_mod.CAPInfoDoc
+CAPAreaDoc = _cap_mod.CAPAreaDoc
+_dlc_areas = _eccc_mod._dlc_areas
+_dlc_status_at = _eccc_mod._dlc_status_at
+ECCC_TERMINAL_LOCATION_STATUSES = _eccc_mod.ECCC_TERMINAL_LOCATION_STATUSES
 
 
 from tests.conftest import StubSession  # noqa: E402 — after module setup
@@ -1534,7 +1538,7 @@ def test_is_terminal_info_fails_open_on_unknown_status():
             else {}
         )
         assert _is_terminal_info(info) is False, status
-    for status in ("ended", "transitioned_out"):
+    for status in ("ended", "cancelled", "transitioned_out"):
         info = CAPInfoDoc(
             parameters={"layer:EC-MSC-SMC:1.1:Alert_Location_Status": status}
         )
@@ -2170,3 +2174,191 @@ async def test_async_fetch_docs_by_reference_parses_bodies_and_reports_failures(
     assert results["urn:oid:BROKEN"] is None
     assert results["urn:oid:GONE"] is None
     assert set(results) == {served_id, "urn:oid:LATE", "urn:oid:BROKEN", "urn:oid:GONE"}
+
+
+# ---------------------------------------------------------------------------
+# CAM freeform threat areas — DLC geocode (issue #172)
+# ---------------------------------------------------------------------------
+#
+# Since 2026-08-11 severe thunderstorm and tornado warnings carry a
+# forecaster-drawn threat polygon alongside the legacy zone polygons for every
+# zone it touches. The fixture keeps that shape with rectangle geometry: the
+# zone ring spans lat 43..44 / lon -82..-80, the threat ring lat 43.4..43.6 /
+# lon -81.2..-80.8, so the points below are unambiguous.
+
+_IN_THREAT = (43.5, -81.0)
+_IN_ZONE_ONLY = (43.1, -81.9)
+_OUTSIDE_ALL = (10.0, 10.0)
+
+
+def _convective_docs(dlc_status: str = "issued") -> list:
+    """The CAM fixture parsed, its DLC value rewritten to ``dlc_status``.
+
+    The literal ``issued`` appears in the fixture only as the DLC geocode
+    value, so the rewrite touches nothing else.
+    """
+    xml = _fixture("eccc_cap_convective_dlc.xml").replace(
+        "<value>issued</value>", f"<value>{dlc_status}</value>"
+    )
+    doc = _parse_cap_alert(xml)
+    assert doc is not None
+    return [doc]
+
+
+def test_parse_cap_alert_populates_per_area_blocks():
+    """Each <area> keeps its own polygon ↔ geocode pairing; flat fields stay."""
+    (doc,) = _convective_docs()
+    info = doc.infos[0]
+    assert len(info.areas) == 2
+    zone, threat = info.areas
+    assert zone.area_desc == "London - Parkhill - Eastern Middlesex County"
+    assert "layer:EC-MSC-SMC:1.0:CLC" in zone.geocodes
+    assert len(zone.polygons) == 1
+    assert threat.area_desc == "new active threat area"
+    assert threat.geocodes["layer:EC-MSC-SMC:DLC:1.1"] == ["issued"]
+    assert len(threat.polygons) == 1
+    # The flattened fields are the union of the per-area ones, unchanged.
+    assert info.polygons == zone.polygons + threat.polygons
+    assert info.geocodes["profile:CAP-CP:Location:0.3"] == ["3539027", "3539033"]
+
+
+def test_dlc_areas_identifies_the_threat_area():
+    (doc,) = _convective_docs()
+    pairs = _dlc_areas(doc.infos[0])
+    assert len(pairs) == 1
+    status, area = pairs[0]
+    assert status == "issued"
+    assert area.area_desc == "new active threat area"
+    # The pre-CAM shape has no DLC geocode anywhere and stays on the old path.
+    legacy = _parse_cap_alert(_fixture("eccc_cap_en_new_1.xml"))
+    assert legacy is not None
+    assert all(_dlc_areas(info) == [] for info in legacy.infos)
+
+
+def test_gps_ignores_zone_polygons_when_threat_area_present():
+    """The issue #172 repro: inside the legacy zone, outside the threat."""
+    lat, lon = _IN_ZONE_ONLY
+    alerts = build_alerts_from_cap_docs(
+        _convective_docs(),
+        province="",
+        gps_lat=lat,
+        gps_lon=lon,
+        preferred_lang="en-CA",
+    )
+    assert alerts == []
+
+
+def test_gps_inside_threat_area_matches():
+    lat, lon = _IN_THREAT
+    alerts = build_alerts_from_cap_docs(
+        _convective_docs(),
+        province="",
+        gps_lat=lat,
+        gps_lon=lon,
+        preferred_lang="en-CA",
+    )
+    assert len(alerts) == 1
+    alert = alerts[0]
+    # The en/fr sibling infos still merge into one bilingual alert.
+    assert alert.language == "en-CA"
+    assert alert.language_alt == "fr-CA"
+    # An active DLC token leaves the info-level lifecycle in place.
+    assert alert.lifecycle_status == "active"
+
+
+def test_gps_without_dlc_still_matches_any_polygon():
+    """Pre-CAM documents keep the all-polygons behaviour."""
+    docs = _docs("eccc_cap_en_new_1.xml")
+    alerts = build_alerts_from_cap_docs(
+        docs, province="", gps_lat=45.2, gps_lon=-75.7, preferred_lang="en-CA"
+    )
+    assert len(alerts) == 1
+
+
+def test_province_mode_unaffected_by_threat_areas():
+    """Province granularity keeps the SGC rule; sub-province polygons don't gate."""
+    alerts = build_alerts_from_cap_docs(
+        _convective_docs(),
+        province="ON",
+        gps_lat=None,
+        gps_lon=None,
+        preferred_lang="en-CA",
+    )
+    assert len(alerts) == 1
+    assert alerts[0].lifecycle_status == "active"
+
+
+@pytest.mark.parametrize("status", ["ended", "cancelled"])
+def test_gps_terminal_threat_area_retires_with_that_token(status):
+    """A point covered only by a terminal threat area still builds an alert —
+    carrying the terminal token, so normalization retires it with a reason
+    instead of the entity lingering until ``expires``."""
+    lat, lon = _IN_THREAT
+    alerts = build_alerts_from_cap_docs(
+        _convective_docs(status),
+        province="",
+        gps_lat=lat,
+        gps_lon=lon,
+        preferred_lang="en-CA",
+    )
+    assert len(alerts) == 1
+    assert alerts[0].lifecycle_status == status
+    assert status in ECCC_TERMINAL_LOCATION_STATUSES
+
+
+def test_gps_unknown_dlc_token_fails_open_as_active():
+    lat, lon = _IN_THREAT
+    alerts = build_alerts_from_cap_docs(
+        _convective_docs("some_future_token"),
+        province="",
+        gps_lat=lat,
+        gps_lon=lon,
+        preferred_lang="en-CA",
+    )
+    assert len(alerts) == 1
+    assert alerts[0].lifecycle_status == "active"
+
+
+def test_dlc_status_at_prefers_active_area_on_overlap():
+    """An ``ended`` polygon overlapping a ``continued`` one is not an all-clear."""
+    ring = [[-81.2, 43.4], [-81.2, 43.6], [-80.8, 43.6], [-80.8, 43.4]]
+    info = CAPInfoDoc(
+        areas=[
+            CAPAreaDoc(
+                geocodes={"layer:EC-MSC-SMC:DLC:1.1": ["ended"]},
+                polygons=[list(ring)],
+            ),
+            CAPAreaDoc(
+                geocodes={"layer:EC-MSC-SMC:DLC:1.1": ["continued"]},
+                polygons=[list(ring)],
+            ),
+        ]
+    )
+    assert _dlc_status_at(info, 43.5, -81.0) == "continued"
+    # Outside every threat area, and without a configured point, there is no
+    # per-area signal to apply.
+    assert _dlc_status_at(info, 10.0, 10.0) == ""
+    assert _dlc_status_at(info, None, None) == ""
+
+
+def test_doc_matches_region_admits_terminal_threat_area():
+    """Streaming admission keeps the document that retires the alert (the
+    issue #45 shape, per-area) and still rejects one that never covered the
+    point at all."""
+    docs_ended = _convective_docs("ended")
+    lat, lon = _IN_THREAT
+    assert doc_matches_region(
+        docs_ended[0],
+        province="",
+        gps_lat=lat,
+        gps_lon=lon,
+        preferred_lang="en-CA",
+    )
+    lat, lon = _IN_ZONE_ONLY
+    assert not doc_matches_region(
+        docs_ended[0],
+        province="",
+        gps_lat=lat,
+        gps_lon=lon,
+        preferred_lang="en-CA",
+    )

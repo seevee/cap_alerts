@@ -26,10 +26,12 @@ from ..const import (
     DEFAULT_FEED_SOURCE,
     NAAD_REPOSITORY_URL,
 )
+from ..conventions import ECCC_LIFECYCLE_REMOVAL_REASONS
 from ..conventions import ECCC_MARINE_CLC_PREFIX as _ECCC_MARINE_CLC_PREFIX
 from ..conventions import conventions_for, is_marine_code
 from ..model import GEOCODE_CLC, GEOCODE_SGC, CAPAlert, geocodes_from
 from .cap import (
+    CAPAreaDoc,
     CAPDoc,
     CAPInfoDoc,
     parse_cap_alert,
@@ -563,17 +565,79 @@ _ALERT_LOCATION_STATUS_PARAM_KEYS: tuple[str, ...] = (
 )
 
 # Values meaning the alert has reached end-of-life *for that area group*:
-# "ended" is a natural expiry, "transitioned_out" means the area moved to a
-# different alert (yellow → orange), which arrives as its own document. Neither
-# is visible through msgType — ECCC keeps `Update` and leaves up to an hour of
-# `expires` on the clock — so this parameter is the only termination signal the
-# feed offers (issue #45). Fail-open by design: a block with no such parameter,
-# or with an unrecognised value, is treated as active. 11 of 92 sampled
-# documents came from non-ECCC senders (Amber, flood, 911) and carry no
-# Alert_Location_Status at all; reading absence as terminal would drop them.
+# "ended" is a natural expiry, "cancelled" a forecaster stopping it early,
+# "transitioned_out" means the area moved to a different alert (yellow →
+# orange), which arrives as its own document. None of them is visible through
+# msgType — ECCC keeps `Update` and leaves up to an hour of `expires` on the
+# clock — so this vocabulary is the only termination signal the feed offers
+# (issue #45). Fail-open by design: a block with no such parameter, or with an
+# unrecognised value, is treated as active. 11 of 92 sampled documents came
+# from non-ECCC senders (Amber, flood, 911) and carry no Alert_Location_Status
+# at all; reading absence as terminal would drop them.
+#
+# Derived from the convention table's removal-reason map rather than declared
+# a second time: the keys ARE the terminal set (issue #108), and a token added
+# to one place but not the other would retire alerts without a reason — or
+# vice versa. The same vocabulary is spoken by the CAM threat-area DLC geocode
+# (issue #172), so it is the terminal test there too.
 ECCC_TERMINAL_LOCATION_STATUSES: frozenset[str] = frozenset(
-    {"ended", "transitioned_out"}
+    ECCC_LIFECYCLE_REMOVAL_REASONS
 )
+
+# ECCC's Convective Alert Modernization (launched 2026-08-11) puts a
+# forecaster-drawn "threat area" polygon on severe thunderstorm and tornado
+# warnings, alongside the legacy zone polygons for every zone it touches — so
+# the zone polygons are a superset of where the threat actually is, and
+# point-testing all of them re-creates exactly the over-alerting the freeform
+# polygon exists to remove (issue #172). The threat ``<area>`` is the one
+# whose geocode valueName sits under this prefix (the layer version trails the
+# scheme name, unlike ``:1.0:CLC``); its *value* is a per-area lifecycle token
+# — observed live 2026-08-23: ``issued``, ``continued``, ``ended``,
+# ``cancelled`` — tested against ``ECCC_TERMINAL_LOCATION_STATUSES``, the same
+# vocabulary the per-group ``Alert_Location_Status`` speaks.
+ECCC_DLC_SCHEME_PREFIX = "layer:EC-MSC-SMC:DLC:"
+
+
+def _dlc_areas(info: CAPInfoDoc) -> list[tuple[str, CAPAreaDoc]]:
+    """The CAM threat areas of an ``<info>`` block, as (status, area) pairs.
+
+    Empty for the pre-CAM document shape (no ``<area>`` carries a DLC
+    geocode), which is what keeps every other alert on the all-polygons path.
+    """
+    pairs: list[tuple[str, CAPAreaDoc]] = []
+    for area in info.areas:
+        for scheme, values in area.geocodes.items():
+            if scheme.startswith(ECCC_DLC_SCHEME_PREFIX):
+                pairs.append((values[0] if values else "", area))
+                break
+    return pairs
+
+
+def _dlc_status_at(
+    info: CAPInfoDoc, gps_lat: float | None, gps_lon: float | None
+) -> str:
+    """The threat-area lifecycle token at the configured point, or ``""``.
+
+    A non-terminal covering area wins over a terminal one: an update whose
+    ``continued`` polygon still covers the point may also carry an ``ended``
+    polygon that overlaps it, and the threat being *somewhere else too* is not
+    an all-clear here. Returns ``""`` when no GPS point is configured, the
+    document has no threat areas, or none of them covers the point — all
+    cases where the info-level ``Alert_Location_Status`` remains the only
+    lifecycle signal.
+    """
+    if gps_lat is None or gps_lon is None:
+        return ""
+    covering = [
+        status
+        for status, area in _dlc_areas(info)
+        if _point_in_polygons(gps_lat, gps_lon, area.polygons)
+    ]
+    for status in covering:
+        if status not in ECCC_TERMINAL_LOCATION_STATUSES:
+            return status
+    return covering[0] if covering else ""
+
 
 # Trailing separator chars left over after stripping a status suffix from a
 # colour-coded headline like "Yellow Warning - Wind - in effect".
@@ -866,16 +930,29 @@ def _info_matches_region(
     """Whether a CAP ``<info>`` block falls inside the configured region.
 
     Province mode tests the authoritative SGC geocode; GPS/tracker mode runs a
-    point-in-polygon test against the CAP-body polygon.
+    point-in-polygon test against the CAP-body polygons.
+
+    When the block carries CAM threat areas (issue #172), *their* polygons are
+    the location test and the legacy zone polygons are ignored — the zones are
+    a superset of the threat by construction, so testing them puts users under
+    warnings for storms that are not at their location. A point covered only
+    by a *terminal* threat area still matches: that document is the one that
+    retires the tracked alert (the issue #45 shape, per-area), and rejecting
+    it would leave the entity up until ``expires``; the terminal token itself
+    is applied to the built alert's ``lifecycle_status`` downstream.
+
+    Province mode ignores threat areas entirely: they are sub-province, and
+    the SGC codes on the zone areas remain the province-granularity truth.
     """
     if province and not _matches_province_sgc(info.geocodes, province):
         return False
-    if (
-        gps_lat is not None
-        and gps_lon is not None
-        and not _point_in_polygons(gps_lat, gps_lon, info.polygons)
-    ):
-        return False
+    if gps_lat is not None and gps_lon is not None:
+        dlc = _dlc_areas(info)
+        if dlc:
+            return any(
+                _point_in_polygons(gps_lat, gps_lon, area.polygons) for _, area in dlc
+            )
+        return _point_in_polygons(gps_lat, gps_lon, info.polygons)
     return True
 
 
@@ -964,6 +1041,13 @@ def build_alerts_from_cap_docs(
         ):
             alert_id = _bilingual_key(doc, info)
             alert = _build_alert_from_cap(doc, info, meta, web_url, alert_id)
+            # A point covered only by a terminal threat area matched precisely
+            # so it could end here (issue #172): the per-area token replaces
+            # the info-level lifecycle, and normalization retires the alert
+            # through the same convention-table vocabulary.
+            dlc_status = _dlc_status_at(info, gps_lat, gps_lon)
+            if dlc_status in ECCC_TERMINAL_LOCATION_STATUSES:
+                alert = replace(alert, lifecycle_status=dlc_status)
             groups[alert.id].append(alert)
 
     return [_merge_languages(variants, preferred_lang) for variants in groups.values()]

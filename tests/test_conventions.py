@@ -208,6 +208,7 @@ def test_eccc_declares_a_reason_for_every_terminal_token():
     # token that retires an alert always has a reason to publish with it.
     assert dict(conventions_for("eccc").lifecycle_removal_reasons) == {
         "ended": "ended",
+        "cancelled": "ended",
         "transitioned_out": "superseded",
     }
 

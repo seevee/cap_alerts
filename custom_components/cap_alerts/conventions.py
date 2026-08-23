@@ -107,11 +107,15 @@ ECCC_MARINE_CLC_PREFIX = "00"
 #
 # The keys are also the terminal set — "this token ends the alert" and "here is
 # why" are one fact, so they are one declaration (issue #108). ``ended`` is an
-# all-clear for this area group; ``transitioned_out`` means the area moved to a
-# different alert, whose own ``incident_created`` carries the same news.
+# all-clear for this area group; ``cancelled`` is the forecaster stopping it
+# early, the same all-clear to a consumer (observed live 2026-08-23 on both
+# ``Alert_Location_Status`` and the CAM threat-area DLC geocode, issue #172);
+# ``transitioned_out`` means the area moved to a different alert, whose own
+# ``incident_created`` carries the same news.
 ECCC_LIFECYCLE_REMOVAL_REASONS: Mapping[str, str] = MappingProxyType(
     {
         "ended": REMOVAL_REASON_ENDED,
+        "cancelled": REMOVAL_REASON_ENDED,
         "transitioned_out": REMOVAL_REASON_SUPERSEDED,
     }
 )
