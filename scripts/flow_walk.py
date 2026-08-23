@@ -166,7 +166,7 @@ SETUP: dict[str, list[tuple[dict, Expect]]] = {
     "gdacs": [
         (
             {"next_step_id": "gdacs"},
-            menu("gdacs", "gdacs_global", "gdacs_gps_loc", "user"),
+            menu("gdacs", "gdacs_global", "gdacs_gps_loc", "gdacs_gps_tracker", "user"),
         ),
         ({"next_step_id": "gdacs_gps_loc"}, form("gdacs_gps_loc", "gps_loc")),
     ],
@@ -250,6 +250,7 @@ RECONFIGURE: dict[str, list[tuple[dict, Expect]]] = {
                 "reconfigure_gdacs",
                 "reconfigure_gdacs_global",
                 "reconfigure_gdacs_gps_loc",
+                "reconfigure_gdacs_gps_tracker",
                 "reconfigure",
             ),
         ),

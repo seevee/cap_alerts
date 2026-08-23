@@ -128,7 +128,12 @@ async def test_reconfigure_lists_every_provider(hass, enable_custom_integrations
         ),
         (
             "reconfigure_gdacs",
-            ["reconfigure_gdacs_global", "reconfigure_gdacs_gps_loc", "reconfigure"],
+            [
+                "reconfigure_gdacs_global",
+                "reconfigure_gdacs_gps_loc",
+                "reconfigure_gdacs_gps_tracker",
+                "reconfigure",
+            ],
         ),
     ],
 )
@@ -754,3 +759,19 @@ async def test_reconfigure_gdacs_gps_rejects_bad_coordinates(
     result = await _submit(hass, result, {CONF_GPS_LOC: "-33.87,181.0"})
     assert result["type"] == "form"
     assert result["errors"] == {"base": "invalid_gps"}
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_gdacs_tracker_carries_the_current_entity(
+    hass, enable_custom_integrations
+):
+    entry = _entry(hass, provider="gdacs", tracker_entity=_TRACKER)
+    result = await _reconfigure(
+        hass, entry, "reconfigure_gdacs", "reconfigure_gdacs_gps_tracker"
+    )
+    assert _default(result, CONF_TRACKER_ENTITY) == _TRACKER
+
+    result = await _submit(hass, result, {CONF_TRACKER_ENTITY: _NEW_TRACKER})
+    assert result["type"] == "abort"
+    assert entry.data == {CONF_PROVIDER: "gdacs", CONF_TRACKER_ENTITY: _NEW_TRACKER}
+    assert entry.title == "CAP Alerts GDACS (tablet)"
