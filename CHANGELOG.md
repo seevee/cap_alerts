@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 — 2026-08-23
+
+### Added
+- Add a device-tracker mode to GDACS (#171) (#173) (a9022f2…)
+
 ## 0.4.0 — 2026-08-21
 
 ### Added
