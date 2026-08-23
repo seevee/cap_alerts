@@ -203,6 +203,14 @@ def test_gdacs_gps_title():
     )
 
 
+def test_gdacs_tracker_title():
+    # Must not read as "Global": the tracker case comes before the GPS default.
+    assert (
+        _compute({CONF_PROVIDER: "gdacs", CONF_TRACKER_ENTITY: "device_tracker.phone"})
+        == "CAP Alerts GDACS (phone)"
+    )
+
+
 # --- Fallback ----------------------------------------------------------------
 
 
