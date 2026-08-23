@@ -2387,3 +2387,141 @@ def test_doc_matches_region_admits_terminal_threat_area():
         gps_lon=lon,
         preferred_lang="en-CA",
     )
+
+
+# ---------------------------------------------------------------------------
+# CAM threat areas on real bodies (issue #172)
+# ---------------------------------------------------------------------------
+#
+# The synthetic fixture above pins the rule; these pin it to the feed. Two
+# alert ids the reporter received while outside every freeform polygon:
+# ``94a8fb0c13a1`` is the CAP body they attached, ``c2081a4c2fdd`` is the
+# root of a three-revision chain fetched from rss.alertready.ca on
+# 2026-08-23, whose Update carries the two-area-group shape (a live group and
+# an ended group per language) the synthetic fixture does not.
+#
+# Every point below was picked off the real rings, and each test re-asserts
+# its geometric premise with the same ray-caster, so a re-fetched fixture
+# cannot silently move a point to the other side of a polygon.
+
+_REPORTER_IN_THREAT = (42.97723, -81.39972)
+_REPORTER_LONDON_ZONE_ONLY = (42.83904, -81.27106)
+# Chain points: inside revision 1's threat polygon, then either inside the
+# ended group's polygon of revision 2, or inside its continued polygon.
+_CHAIN_ENDED_AT_R2 = (43.12522, -81.46714)
+_CHAIN_CONTINUED_AT_R2 = (43.14062, -81.38467)
+_CHAIN_IN_R3_ENDED = (43.14057, -81.09492)
+
+
+def _real_doc(name: str):
+    doc = _parse_cap_alert(_fixture(name))
+    assert doc is not None
+    return doc
+
+
+def _chain() -> list:
+    return [
+        _real_doc("eccc_cap_cam_2382287671_alert.xml"),
+        _real_doc("eccc_cap_cam_4258489601_update.xml"),
+        _real_doc("eccc_cap_cam_0425565047_ended.xml"),
+    ]
+
+
+def _gps_build(docs: list, point: tuple[float, float]) -> list:
+    lat, lon = point
+    return build_alerts_from_cap_docs(
+        docs, province="", gps_lat=lat, gps_lon=lon, preferred_lang="en-CA"
+    )
+
+
+def _legacy_any_polygon_match(doc, point: tuple[float, float]) -> bool:
+    """What main did: the point against every polygon of every block."""
+    lat, lon = point
+    return any(_point_in_polygons(lat, lon, info.polygons) for info in doc.infos)
+
+
+def _threat_polygons(doc) -> list:
+    return [
+        ring
+        for info in doc.infos
+        for _, area in _dlc_areas(info)
+        for ring in area.polygons
+    ]
+
+
+def test_reporter_body_reproduces_the_reported_alert_id():
+    doc = _real_doc("eccc_cap_cam_1104140223_alert.xml")
+    lat, lon = _REPORTER_IN_THREAT
+    assert _point_in_polygons(lat, lon, _threat_polygons(doc))
+    (alert,) = _gps_build([doc], _REPORTER_IN_THREAT)
+    assert alert.id == "94a8fb0c13a1"
+    assert alert.lifecycle_status == "active"
+    assert (alert.language, alert.language_alt) == ("en-CA", "fr-CA")
+
+
+def test_reporter_body_zone_only_point_builds_nothing():
+    """The issue #172 report itself: inside a legacy zone, outside the threat."""
+    doc = _real_doc("eccc_cap_cam_1104140223_alert.xml")
+    lat, lon = _REPORTER_LONDON_ZONE_ONLY
+    assert _legacy_any_polygon_match(doc, _REPORTER_LONDON_ZONE_ONLY)
+    assert not _point_in_polygons(lat, lon, _threat_polygons(doc))
+    assert _gps_build([doc], _REPORTER_LONDON_ZONE_ONLY) == []
+    assert not doc_matches_region(
+        doc, province="", gps_lat=lat, gps_lon=lon, preferred_lang="en-CA"
+    )
+
+
+def test_reporter_chain_zone_only_point_never_builds():
+    """Every revision's zones cover the point; no revision's threat area does."""
+    chain = _chain()
+    for doc in chain:
+        assert _legacy_any_polygon_match(doc, _REPORTER_LONDON_ZONE_ONLY)
+        lat, lon = _REPORTER_LONDON_ZONE_ONLY
+        assert not _point_in_polygons(lat, lon, _threat_polygons(doc))
+    for k in range(1, len(chain) + 1):
+        assert _gps_build(chain[:k], _REPORTER_LONDON_ZONE_ONLY) == []
+
+
+@pytest.mark.parametrize(
+    ("point", "status_at_r2"),
+    [(_CHAIN_ENDED_AT_R2, "ended"), (_CHAIN_CONTINUED_AT_R2, "active")],
+)
+def test_reporter_chain_replays_a_point_in_the_initial_threat_area(point, status_at_r2):
+    """Revision 1 builds the reported id; revision 2 either ends it (the ended
+    group's polygon) or carries it on (the continued polygon); revision 3's
+    threat area is elsewhere, so the alert drops out for the store to retire."""
+    r1, r2, r3 = _chain()
+    (alert,) = _gps_build([r1], point)
+    assert alert.id == "c2081a4c2fdd"
+    assert alert.lifecycle_status == "active"
+
+    (alert_r2,) = _gps_build([r1, r2], point)
+    assert alert_r2.identifier == r2.identifier
+    assert alert_r2.lifecycle_status == status_at_r2
+
+    assert _gps_build([r1, r2, r3], point) == []
+
+
+def test_real_two_group_update_selects_the_group_covering_the_point():
+    """Revision 2 holds a live group and an ended group per language; the
+    block that speaks for the point is the one whose threat polygon covers
+    it, and the non-terminal one wins where both do."""
+    r2 = _chain()[1]
+    en_blocks = [info for info in r2.infos if info.language == "en-CA"]
+    assert [_location_status(info) for info in en_blocks] == ["active", "ended"]
+    (ended,) = _gps_build([r2], _CHAIN_ENDED_AT_R2)
+    assert ended.lifecycle_status == "ended"
+    (live,) = _gps_build([r2], _CHAIN_CONTINUED_AT_R2)
+    assert live.lifecycle_status == "active"
+    assert live.id != ended.id
+
+
+def test_real_all_clear_revision_retires_a_point_in_its_ended_threat_area():
+    r3 = _chain()[2]
+    lat, lon = _CHAIN_IN_R3_ENDED
+    assert _point_in_polygons(lat, lon, _threat_polygons(r3))
+    (alert,) = _gps_build([r3], _CHAIN_IN_R3_ENDED)
+    assert alert.lifecycle_status == "ended"
+    assert doc_matches_region(
+        r3, province="", gps_lat=lat, gps_lon=lon, preferred_lang="en-CA"
+    )
