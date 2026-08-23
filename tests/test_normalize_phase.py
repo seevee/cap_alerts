@@ -62,6 +62,24 @@ def test_lifecycle_status_ended_is_terminal(alert_factory):
     assert out.phase == "cancel"
 
 
+def test_lifecycle_status_cancelled_is_terminal(alert_factory):
+    # The forecaster stopped it early. Observed live 2026-08-23 on both the
+    # per-group Alert_Location_Status and the CAM threat-area DLC geocode
+    # (issue #172), which the ECCC provider writes into lifecycle_status when
+    # the configured point sits only in a terminal threat polygon.
+    (out,) = normalize_alerts(
+        [
+            alert_factory(
+                provider="eccc",
+                msg_type="Update",
+                expires="2099-01-01T00:00:00Z",
+                lifecycle_status="cancelled",
+            )
+        ]
+    )
+    assert out.phase == "cancel"
+
+
 def test_lifecycle_status_transitioned_out_is_terminal(alert_factory):
     # The area moved to a different alert (yellow → orange), which arrives as
     # its own document; this one is over for the area it covers.

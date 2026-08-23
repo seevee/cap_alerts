@@ -1,0 +1,118 @@
+<?xml version='1.0' encoding='UTF-8' standalone='no'?>
+<!-- Synthetic CAM (Convective Alert Modernization) severe thunderstorm
+     warning, modeled on urn:oid:2.49.0.1.124.1104140223 (issue #172): one
+     <info> per language, each carrying a legacy zone <area> (CLC geocode,
+     large polygon) plus a freeform threat <area> (DLC geocode, small polygon
+     inside the zone). Geometry is simplified to rectangles so tests can pick
+     points inside/outside each ring deterministically:
+       zone   ring: lat 43.0..44.0, lon -82.0..-80.0
+       threat ring: lat 43.4..43.6, lon -81.2..-80.8
+     The literal "issued" appears only as the DLC geocode value, so tests may
+     rewrite "<value>issued</value>" to exercise the terminal tokens. -->
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+    <identifier>urn:oid:2.49.0.1.124.9999000001.2026</identifier>
+    <sender>cap-pac@canada.ca</sender>
+    <sent>2026-08-22T21:17:50-00:00</sent>
+    <status>Actual</status>
+    <msgType>Alert</msgType>
+    <source>Env. Can. - Can. Met. Ctr. - Montréal</source>
+    <scope>Public</scope>
+    <info>
+        <language>en-CA</language>
+        <category>Met</category>
+        <event>thunderstorm</event>
+        <responseType>Prepare</responseType>
+        <urgency>Immediate</urgency>
+        <severity>Severe</severity>
+        <certainty>Observed</certainty>
+        <expires>2099-08-22T22:17:50-00:00</expires>
+        <senderName>Environment Canada</senderName>
+        <headline>severe thunderstorm warning in effect</headline>
+        <description>Conditions are favourable for a severe thunderstorm.</description>
+        <eventCode>
+            <valueName>profile:CAP-CP:Event:0.4</valueName>
+            <value>thunderstorm</value>
+        </eventCode>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>
+            <value>active</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Name</valueName>
+            <value>yellow warning - severe thunderstorm</value>
+        </parameter>
+        <area>
+            <areaDesc>London - Parkhill - Eastern Middlesex County</areaDesc>
+            <polygon>43.0,-82.0 44.0,-82.0 44.0,-80.0 43.0,-80.0 43.0,-82.0</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+                <value>041510</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539027</value>
+            </geocode>
+        </area>
+        <area>
+            <areaDesc>new active threat area</areaDesc>
+            <polygon>43.4,-81.2 43.6,-81.2 43.6,-80.8 43.4,-80.8 43.4,-81.2</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:DLC:1.1</valueName>
+                <value>issued</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539033</value>
+            </geocode>
+        </area>
+    </info>
+    <info>
+        <language>fr-CA</language>
+        <category>Met</category>
+        <event>orages</event>
+        <responseType>Prepare</responseType>
+        <urgency>Immediate</urgency>
+        <severity>Severe</severity>
+        <certainty>Observed</certainty>
+        <expires>2099-08-22T22:17:50-00:00</expires>
+        <senderName>Environnement Canada</senderName>
+        <headline>alerte d'orages violents en vigueur</headline>
+        <description>Les conditions sont propices à un orage violent.</description>
+        <eventCode>
+            <valueName>profile:CAP-CP:Event:0.4</valueName>
+            <value>thunderstorm</value>
+        </eventCode>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>
+            <value>active</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Name</valueName>
+            <value>alerte jaune - orages violents</value>
+        </parameter>
+        <area>
+            <areaDesc>London - Parkhill - comté de Middlesex Est</areaDesc>
+            <polygon>43.0,-82.0 44.0,-82.0 44.0,-80.0 43.0,-80.0 43.0,-82.0</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+                <value>041510</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539027</value>
+            </geocode>
+        </area>
+        <area>
+            <areaDesc>new active threat area</areaDesc>
+            <polygon>43.4,-81.2 43.6,-81.2 43.6,-80.8 43.4,-80.8 43.4,-81.2</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:DLC:1.1</valueName>
+                <value>issued</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539033</value>
+            </geocode>
+        </area>
+    </info>
+</alert>

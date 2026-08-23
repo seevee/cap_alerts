@@ -1,0 +1,606 @@
+<?xml version='1.0' encoding='UTF-8' standalone='no'?>
+<!-- Real CAM chain behind the #172 reporter's other alert id (c2081a4c2fdd),
+     revision 1 of 3: the initial Alert. Three zones plus one "new active
+     threat area" (DLC "issued"). Fetched from rss.alertready.ca on
+     2026-08-23; verbatim apart from this comment. -->
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+    <identifier>urn:oid:2.49.0.1.124.2382287671.2026</identifier>
+    <sender>cap-pac@canada.ca</sender>
+    <sent>2026-08-22T20:25:17-00:00</sent>
+    <status>Actual</status>
+    <msgType>Alert</msgType>
+    <source>Env. Can. - Can. Met. Ctr. – Montréal</source>
+    <scope>Public</scope>
+    <code>profile:CAP-CP:0.4</code>
+    <code>layer:SOREM:1.0</code>
+    <code>layer:EC-MSC-SMC:1.0</code>
+    <code>layer:EC-MSC-SMC:1.1</code>
+    <code>layer:SOREM:2.0</code>
+    <note>Service Notice – July 2026: The Environment and Climate Change Canada (ECCC) CAP Service undergoes changes from time to time as the business of alerting evolves. For Spring 2026, changes are expected to include... 1) ECCC's deployment to introduce free-form polygons to represent the true threat area of a weather hazard, which was originally scheduled for June 2026, is delayed. We will communicate the new date when it is available. Monitor https://dd.weather.gc.ca/doc/genots/ for notifications on the new launch date. Information about free-form polygons representing the true threat area of a weather hazard remains under media embargo until launch, 2) marine alerts will now be issued for smaller zone splits in certain areas of Atlantic and Pacific waters and 3) other minor improvements and corrections. For more information on these changes: https://comm.collab.science.gc.ca/mailman3/hyperkitty/list/dd_info@comm.collab.science.gc.ca/ | Notification de service – juillet 2026: Le service du PAC d’Environnement et Changement climatique Canada (ECCC) subit périodiquement des changements à mesure que le système d’alerte évolue. Pour le printemps 2026, il y aura des changements incluant... 1) Le déploiement par ECCC visant à introduire des polygones de forme libre pour représenter la zone réelle de menace d’un aléa météorologique, qui était initialement prévu pour juin 2026, est retardé. Nous communiquerons la nouvelle date lorsqu’elle sera disponible. Surveiller https://dd.weather.gc.ca/doc/genots/ pour les notifications concernant la nouvelle date de lancement. Les informations concernant les polygones de forme libre représentant la zone réelle de menace d’un aléa météorologique demeurent sous embargo médiatique jusqu’au lancement, 2) les alertes marines seront désormais émises pour des subdivisions de zones plus petites dans certaines régions des eaux de l’Atlantique et du Pacifique et 3) d’autres améliorations et corrections mineures. Pour plus d’informations sur ces changements: https://comm.collab.science.gc.ca/mailman3/hyperkitty/list/dd_info@comm.collab.science.gc.ca/</note>
+    <references />
+    <info>
+        <language>en-CA</language>
+        <category>Met</category>
+        <event>thunderstorm</event>
+        <responseType>Monitor</responseType>
+        <urgency>Immediate</urgency>
+        <severity>Moderate</severity>
+        <certainty>Likely</certainty>
+        <audience>general public</audience>
+        <eventCode>
+            <valueName>profile:CAP-CP:Event:0.4</valueName>
+            <value>thunderstorm</value>
+        </eventCode>
+        <eventCode>
+            <valueName>SAME</valueName>
+            <value>SVR</value>
+        </eventCode>
+        <effective>2026-08-22T20:25:17-00:00</effective>
+        <onset>2026-08-22T20:24:00-00:00</onset>
+        <expires>2026-08-22T22:23:17-00:00</expires>
+        <senderName>Environment Canada</senderName>
+        <headline>yellow warning - severe thunderstorm - in effect</headline>
+        <description>
+At 4:24 p.m. EDT, a severe thunderstorm is located over Clandeboye. This severe thunderstorm is moving northeast at 25 km/h. Strong wind gusts, up to quarter size hail and heavy rain are possible.
+
+Locations and nearby areas that could be impacted include: Denfield, Clandeboye, Lucan, Granton, Elimville, Woodham, Kirkton, Rannoch
+
+
+###
+
+Heavy rain may cause flash flooding and significant reductions to visibility. Large hail may cause significant damage and injury.
+</description>
+        <instruction>
+Take immediate cover if a thunderstorm approaches. If outside, protect yourself from flying debris and hail.
+
+Emergency Management Ontario recommends that you take cover immediately if threatening weather approaches.
+</instruction>
+        <web>https://weather.gc.ca/</web>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Type</valueName>
+            <value>warning</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Broadcast_Intrusive</valueName>
+            <value>no</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:SOREM:1.0:Broadcast_Immediately</valueName>
+            <value>No</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Parent_URI</valueName>
+            <value>msc/alert/environment/hazard/alert-3.0-ascii/consolidated-xml-2.0/20260822202517483/ON_00_01_LAND/STW/2024367971358947423202608220503_ON_00_01_LAND/actual/en_proper_complete_c-fr_proper_complete_c/NinJoWEL</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:CAP_count</valueName>
+            <value>A:22836 M:117360 C:136126</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Location_Status</valueName>
+            <value>active</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Name</valueName>
+            <value>yellow warning - severe thunderstorm</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Coverage</valueName>
+            <value>Ontario</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:SOREM:1.0:Broadcast_Text</valueName>
+            <value>At 4:25 p.m. Eastern Daylight Time Saturday, Environment Canada has issued a severe thunderstorm warning for Southwestern Ontario. Extra care and attention should be exercised in and around the following localities: Perth County, London, Middlesex and Huron County. Environment Canada meteorologists are tracking very dangerous thunderstorms capable of producing one or more of the following: destructive winds or baseball size or greater hail. Take cover immediately if threatening weather approaches. Intense lightning is likely and tornadoes are possible with any thunderstorm that develops.</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Designation_Code</valueName>
+            <value>ON_00_01_LAND</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:SOREM:2.0:WirelessImmediate</valueName>
+            <value>No</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>
+            <value>active</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Newly_Active_Areas</valueName>
+            <value>041510,046330,046340</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Event_End_Time</valueName>
+            <value>2026-08-22T21:24:00.000Z</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:MSC_Risk_Tiered_Ranking</valueName>
+            <value>8</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:MSC_Impact</valueName>
+            <value>moderate</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:MSC_Confidence</valueName>
+            <value>high</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Colour</valueName>
+            <value>yellow</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Speed</valueName>
+            <value>26.806522 km/h</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Direction</valueName>
+            <value>42.621136</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Geometry_Type</valueName>
+            <value>ISOLATED_CELL</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Point</valueName>
+            <value>43.173725,-81.441628</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Time</valueName>
+            <value>20260822202400000</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Motion_Description</valueName>
+            <value>northeast at 25 km/h</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Position_Description</valueName>
+            <value>over Clandeboye</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:List_of_Reference_Points</valueName>
+            <value>Denfield, Clandeboye, Lucan, Granton, Elimville, Woodham, Kirkton, Rannoch</value>
+        </parameter>
+        <area>
+            <areaDesc>London - Parkhill - Eastern Middlesex County</areaDesc>
+            <polygon>43.2367,-81.29 43.2034,-81.224 43.2276,-81.1502 43.235,-81.1208 43.1447,-81.0577 43.0498,-81.0347 43.0547,-81.019 43.0022,-80.9926 43.0239,-80.9269 42.9647,-80.9014 42.9163,-80.8934 42.9093,-80.8923 42.9084,-80.8984 42.8796,-81.085 42.8868,-81.0858 42.8858,-81.1117 42.8681,-81.1076 42.8399,-81.2201 42.8354,-81.2381 42.8274,-81.2701 42.8314,-81.2717 42.8318,-81.2719 42.8593,-81.2827 42.8886,-81.2979 42.8849,-81.3243 42.8854,-81.3488 42.9281,-81.3769 42.9724,-81.3998 43.0738,-81.6028 43.1806,-81.7931 43.1925,-81.8144 43.2041,-81.8392 43.2325,-81.8163 43.2428,-81.7968 43.2379,-81.7738 43.2368,-81.7716 43.2372,-81.7693 43.2393,-81.7485 43.2578,-81.6156 43.2706,-81.4655 43.2805,-81.4689 43.2889,-81.4689 43.293,-81.4306 43.2791,-81.3966 43.2638,-81.3636 43.2367,-81.29</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+                <value>041510</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539027</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539033</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539036</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539041</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539060</value>
+            </geocode>
+        </area>
+        <area>
+            <areaDesc>Goderich - Bluewater - Southern Huron County</areaDesc>
+            <polygon>43.5994,-81.2023 43.5134,-81.2779 43.4992,-81.2903 43.5265,-81.3532 43.4205,-81.4401 43.3818,-81.3424 43.3915,-81.3085 43.3592,-81.2894 43.3129,-81.3165 43.2638,-81.3636 43.2764,-81.4 43.293,-81.4306 43.2889,-81.4689 43.2787,-81.4627 43.2706,-81.4655 43.2506,-81.6138 43.2393,-81.7485 43.2368,-81.7716 43.2379,-81.7738 43.2428,-81.7968 43.2957,-81.78 43.2931,-81.755 43.3073,-81.753 43.3068,-81.7453 43.3101,-81.7431 43.3155,-81.7554 43.333,-81.7783 43.8383,-81.8031 43.8105,-81.721 43.7269,-81.5005 43.6013,-81.2052 43.5994,-81.2023</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+                <value>046330</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540005</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540010</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540025</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540028</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540040</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540063</value>
+            </geocode>
+        </area>
+        <area>
+            <areaDesc>Stratford - Mitchell - Southern Perth County</areaDesc>
+            <polygon>43.6013,-81.2052 43.4914,-80.937 43.4964,-80.8983 43.4982,-80.8687 43.4851,-80.8339 43.4682,-80.7961 43.4675,-80.7947 43.4665,-80.794 43.4363,-80.7603 43.4074,-80.7373 43.3797,-80.7342 43.3534,-80.7357 43.2893,-80.9111 43.235,-81.1208 43.2243,-81.1466 43.2034,-81.224 43.2036,-81.2246 43.2581,-81.3576 43.2638,-81.3636 43.3185,-81.3277 43.3592,-81.2894 43.3915,-81.3085 43.3818,-81.3424 43.4205,-81.4401 43.5406,-81.3416 43.5134,-81.2779 43.5994,-81.2023 43.6013,-81.2052</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+                <value>046340</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531011</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531013</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531016</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531025</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531030</value>
+            </geocode>
+        </area>
+        <area>
+            <areaDesc>new active threat area</areaDesc>
+            <polygon>43.13562,-81.384903 43.117523,-81.438431 43.132324,-81.49382 43.171368,-81.518692 43.211803,-81.498421 43.425522,-81.327866 43.276463,-81.106308 43.13562,-81.384903</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:DLC:1.1</valueName>
+                <value>issued</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539041</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531016</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531013</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531025</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540005</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539060</value>
+            </geocode>
+        </area>
+    </info>
+    <info>
+        <language>fr-CA</language>
+        <category>Met</category>
+        <event>orages</event>
+        <responseType>Monitor</responseType>
+        <urgency>Immediate</urgency>
+        <severity>Moderate</severity>
+        <certainty>Likely</certainty>
+        <audience>grand public</audience>
+        <eventCode>
+            <valueName>profile:CAP-CP:Event:0.4</valueName>
+            <value>thunderstorm</value>
+        </eventCode>
+        <eventCode>
+            <valueName>SAME</valueName>
+            <value>SVR</value>
+        </eventCode>
+        <effective>2026-08-22T20:25:17-00:00</effective>
+        <onset>2026-08-22T20:24:00-00:00</onset>
+        <expires>2026-08-22T22:23:17-00:00</expires>
+        <senderName>Environnement Canada</senderName>
+        <headline>alerte jaune - orages violents - en vigueur</headline>
+        <description>
+À 16h24 HAE, un orage violent se situe à proximité de Clandeboye. Cet orage violent se déplace vers le nord-est à 25 km/h. Des rafales fortes, de la grêle pouvant atteindre la taille d’une pièce de vingt-cinq cents et de la pluie forte sont possibles.
+
+Les régions et lieux à proximité possiblement touchés comprennent: Denfield, Clandeboye, Lucan, Granton, Elimville, Woodham, Kirkton, Rannoch
+
+###
+
+Les fortes pluies pourraient causer des crues soudaines et réduire considérablement la visibilité. La grosse grêle pourrait causer d'importants dégâts et des blessures graves.
+</description>
+        <instruction>
+Mettez-vous immédiatement à l'abri si un orage approche. Si vous êtes à l'extérieur, protégez-vous des débris volants et de la grêle.
+
+Gestion des situations d'urgence Ontario vous recommande de trouver un abri immédiatement si un phénomène météorologique menaçant est imminent.
+</instruction>
+        <web>https://meteo.gc.ca/</web>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Type</valueName>
+            <value>warning</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Broadcast_Intrusive</valueName>
+            <value>no</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:SOREM:1.0:Broadcast_Immediately</valueName>
+            <value>No</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Parent_URI</valueName>
+            <value>msc/alert/environment/hazard/alert-3.0-ascii/consolidated-xml-2.0/20260822202517483/ON_00_01_LAND/STW/2024367971358947423202608220503_ON_00_01_LAND/actual/en_proper_complete_c-fr_proper_complete_c/NinJoWEL</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:CAP_count</valueName>
+            <value>A:22836 M:117360 C:136126</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Location_Status</valueName>
+            <value>active</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Name</valueName>
+            <value>alerte jaune - orages violents</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Coverage</valueName>
+            <value>Ontario</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:SOREM:1.0:Broadcast_Text</valueName>
+            <value>À 16h25 heure avancée de l'Est le samedi, Environnement Canada a émis une alerte d'orages violents pour le sud-ouest  de l'Ontario. Une attention et des précautions additionnelles devraient être exercées près et autour des localités suivantes: le comté de Perth, London, Middlesex et le comté de Huron. Les météorologues d’Environnement Canada surveillent l'évolution d'orages violents très dangereux pouvant produire un ou plus des éléments suivants : vents destructeurs ou grêle de la taille d'une balle de baseball ou plus. Mettez-vous immédiatement à l'abri si un phénomène météorologique menaçant s'approche. De nombreux éclairs sont probables et il y a toujours un risque de tornade avec un orage.</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Designation_Code</valueName>
+            <value>ON_00_01_LAND</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:SOREM:2.0:WirelessImmediate</valueName>
+            <value>No</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Alert_Location_Status</valueName>
+            <value>active</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Newly_Active_Areas</valueName>
+            <value>041510,046330,046340</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Event_End_Time</valueName>
+            <value>2026-08-22T21:24:00.000Z</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:MSC_Risk_Tiered_Ranking</valueName>
+            <value>8</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:MSC_Impact</valueName>
+            <value>modéré</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:MSC_Confidence</valueName>
+            <value>élevée</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Colour</valueName>
+            <value>jaune</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Speed</valueName>
+            <value>26.806522 km/h</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Direction</valueName>
+            <value>42.621136</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Geometry_Type</valueName>
+            <value>ISOLATED_CELL</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Point</valueName>
+            <value>43.173725,-81.441628</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Time</valueName>
+            <value>20260822202400000</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Motion_Description</valueName>
+            <value>vers le nord-est à 25 km/h</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:Storm_Position_Description</valueName>
+            <value>à proximité de Clandeboye</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.1:List_of_Reference_Points</valueName>
+            <value>Denfield, Clandeboye, Lucan, Granton, Elimville, Woodham, Kirkton, Rannoch</value>
+        </parameter>
+        <area>
+            <areaDesc>London - Parkhill - comté de Middlesex Est</areaDesc>
+            <polygon>43.2367,-81.29 43.2034,-81.224 43.2276,-81.1502 43.235,-81.1208 43.1447,-81.0577 43.0498,-81.0347 43.0547,-81.019 43.0022,-80.9926 43.0239,-80.9269 42.9647,-80.9014 42.9163,-80.8934 42.9093,-80.8923 42.9084,-80.8984 42.8796,-81.085 42.8868,-81.0858 42.8858,-81.1117 42.8681,-81.1076 42.8399,-81.2201 42.8354,-81.2381 42.8274,-81.2701 42.8314,-81.2717 42.8318,-81.2719 42.8593,-81.2827 42.8886,-81.2979 42.8849,-81.3243 42.8854,-81.3488 42.9281,-81.3769 42.9724,-81.3998 43.0738,-81.6028 43.1806,-81.7931 43.1925,-81.8144 43.2041,-81.8392 43.2325,-81.8163 43.2428,-81.7968 43.2379,-81.7738 43.2368,-81.7716 43.2372,-81.7693 43.2393,-81.7485 43.2578,-81.6156 43.2706,-81.4655 43.2805,-81.4689 43.2889,-81.4689 43.293,-81.4306 43.2791,-81.3966 43.2638,-81.3636 43.2367,-81.29</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+                <value>041510</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539027</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539033</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539036</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539041</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539060</value>
+            </geocode>
+        </area>
+        <area>
+            <areaDesc>Goderich - Bluewater - comté de Huron Sud</areaDesc>
+            <polygon>43.5994,-81.2023 43.5134,-81.2779 43.4992,-81.2903 43.5265,-81.3532 43.4205,-81.4401 43.3818,-81.3424 43.3915,-81.3085 43.3592,-81.2894 43.3129,-81.3165 43.2638,-81.3636 43.2764,-81.4 43.293,-81.4306 43.2889,-81.4689 43.2787,-81.4627 43.2706,-81.4655 43.2506,-81.6138 43.2393,-81.7485 43.2368,-81.7716 43.2379,-81.7738 43.2428,-81.7968 43.2957,-81.78 43.2931,-81.755 43.3073,-81.753 43.3068,-81.7453 43.3101,-81.7431 43.3155,-81.7554 43.333,-81.7783 43.8383,-81.8031 43.8105,-81.721 43.7269,-81.5005 43.6013,-81.2052 43.5994,-81.2023</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+                <value>046330</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540005</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540010</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540025</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540028</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540040</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540063</value>
+            </geocode>
+        </area>
+        <area>
+            <areaDesc>Stratford - Mitchell - comté de Perth Sud</areaDesc>
+            <polygon>43.6013,-81.2052 43.4914,-80.937 43.4964,-80.8983 43.4982,-80.8687 43.4851,-80.8339 43.4682,-80.7961 43.4675,-80.7947 43.4665,-80.794 43.4363,-80.7603 43.4074,-80.7373 43.3797,-80.7342 43.3534,-80.7357 43.2893,-80.9111 43.235,-81.1208 43.2243,-81.1466 43.2034,-81.224 43.2036,-81.2246 43.2581,-81.3576 43.2638,-81.3636 43.3185,-81.3277 43.3592,-81.2894 43.3915,-81.3085 43.3818,-81.3424 43.4205,-81.4401 43.5406,-81.3416 43.5134,-81.2779 43.5994,-81.2023 43.6013,-81.2052</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+                <value>046340</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531011</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531013</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531016</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531025</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531030</value>
+            </geocode>
+        </area>
+        <area>
+            <areaDesc>new active threat area</areaDesc>
+            <polygon>43.13562,-81.384903 43.117523,-81.438431 43.132324,-81.49382 43.171368,-81.518692 43.211803,-81.498421 43.425522,-81.327866 43.276463,-81.106308 43.13562,-81.384903</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:DLC:1.1</valueName>
+                <value>issued</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539041</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531016</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531013</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3531025</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3540005</value>
+            </geocode>
+            <geocode>
+                <valueName>profile:CAP-CP:Location:0.3</valueName>
+                <value>3539060</value>
+            </geocode>
+        </area>
+    </info>
+<Signature Id="NAADS Signature" xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315" /><SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" /><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" /></Transforms><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256" /><DigestValue>PFz9KyKom/H0IxG/lgDgT4OknFfnFaLKa/HL3ECKu+w=</DigestValue></Reference></SignedInfo><SignatureValue>Q04JI1Yk+ddI7Tbl84HD2AysboTM17ke+uFwdHgxoOguGsTMesYPgTfe4m9e2nyfTCj3m08HBWxwFXATEFAVB4hxgitKw+zNfa9+h56FlFZcO4WibvhheyGfICEy0ocgAReYg9YBtSnBQPUfSTw6e/vmGrlzIRmuuyFrYCeIdjAQnGQjfSJd1gJCJ02B3kXHAkOlPqwjEhea7nDL+w2ZLsg1vo97GD83MsZqZbXEOKYNwFIrG77EsuojlTyT5K2H6Ich61hKb4CSe3Z8Dt/LKvyOsBsbxt0lBWA+UpUPSux++H6/qhdTCj5Ciuv780s9SVExcrB6yxgY728xJMo+Zg==</SignatureValue><KeyInfo><X509Data><X509Certificate>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</X509Certificate></X509Data></KeyInfo><Object xmlns=""><SignatureProperties><SignatureProperty Id="NAADS-DSS1" Target="https://dss1.naad-adna.pelmorex.com"><xc:value xmlns:xc="http://docs.oasis-open.org/emergency/cap/v1.2/CAP-v1.2.xsd" /></SignatureProperty><SignatureProperty Id="NAADS-DSS2" Target="https://dss2.naad-adna.pelmorex.com"><xc:value xmlns:xc="http://docs.oasis-open.org/emergency/cap/v1.2/CAP-v1.2.xsd" /></SignatureProperty></SignatureProperties></Object></Signature><Signature xmlns="http://www.w3.org/2000/09/xmldsig#" Id="Environment Canada">
+<SignedInfo>
+<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#" />
+<SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" />
+<Reference URI="">
+<Transforms>
+<Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" />
+</Transforms>
+<DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256" />
+<DigestValue>PFz9KyKom/H0IxG/lgDgT4OknFfnFaLKa/HL3ECKu+w=</DigestValue>
+</Reference>
+</SignedInfo>
+<SignatureValue>YlnGlvLg8CQGfh+Np0ey283bLji9nrmGLnkM7BavSO0KR8VWelKrjXCAKgjITC8g
+uYaPZsxM3d0aSGGVyEuSd4kX0uQQ+h2Hu46Vqx96Fb8ANdj9u592LOTdcu+yc1pB
+L6HqnmSjBat4bA7+0nl7Dgpe+0Sug0/HevmGuB7DtHxbVzjqomMQ8ovanli/agk4
+Vwj3lxQTM7QXzn5hHh/1w4+QjOB56AN9USU+zxUZVc5aSn1FwR4hfr8OoED4nl85
+S+82PMBhk25H6VwsT1t7AOI6sgNLg/ryNPUcqg8M8mixjSD2rg83AjSlDpRW5Qnx
+Umotg+sxp/2AvmUXYgdbLQ==</SignatureValue>
+<KeyInfo>
+<X509Data>
+<X509Certificate>MIIHDDCCBfSgAwIBAgIQM2dJyev0XEPJoQlSaOQgYDANBgkqhkiG9w0BAQsFADCB
+ujELMAkGA1UEBhMCVVMxFjAUBgNVBAoTDUVudHJ1c3QsIEluYy4xKDAmBgNVBAsT
+H1NlZSB3d3cuZW50cnVzdC5uZXQvbGVnYWwtdGVybXMxOTA3BgNVBAsTMChjKSAy
+MDEyIEVudHJ1c3QsIEluYy4gLSBmb3IgYXV0aG9yaXplZCB1c2Ugb25seTEuMCwG
+A1UEAxMlRW50cnVzdCBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eSAtIEwxSzAeFw0y
+NDA0MTkwOTQ3MDZaFw0yNTA1MTkwOTQ3MDRaMGwxCzAJBgNVBAYTAkNBMQ8wDQYD
+VQQIEwZRdWViZWMxETAPBgNVBAcTCEdhdGluZWF1MR8wHQYDVQQKExZTaGFyZWQg
+U2VydmljZXMgQ2FuYWRhMRgwFgYDVQQDDA8qLndlYXRoZXIuZ2MuY2EwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDARd6fBVAjKlOvocp442ydQbSCoxHW
+91i1r5TkucsGLkzm92HQsj4eVNCl6Uti3hd3yYL1QxFTImdyUs2ETlDoU/hVFEey
+IevKo3m3ufuv9YryXGtoRcthMITEPrIy6vOyNbGaxJw1J6/AkOs7oAm3kUlx6PS8
+vOnuoyik1r6Q9qx1XP9Z05cIyyIBhsyjdS124Jj01quCjz5COPMXKU1LlaU8LeSA
+qILe9DyC3XWluZGxZH+tGiw42mpiCD3JGlCsXQujU5y4jg2fq8/ePsM3OUzM/Dxs
+kGMMN7LAG9/H4CINJ+aXZQvlgTfIZp2eWLvHy5dnsbi3VAJOEtgRVzedAgMBAAGj
+ggNZMIIDVTAMBgNVHRMBAf8EAjAAMB0GA1UdDgQWBBSSLKB4osVSIvgfhk+6NayJ
+BDAXuDAfBgNVHSMEGDAWgBSConB03bxTP8971PfNf6dgxgpMvzBoBggrBgEFBQcB
+AQRcMFowIwYIKwYBBQUHMAGGF2h0dHA6Ly9vY3NwLmVudHJ1c3QubmV0MDMGCCsG
+AQUFBzAChidodHRwOi8vYWlhLmVudHJ1c3QubmV0L2wxay1jaGFpbjI1Ni5jZXIw
+MwYDVR0fBCwwKjAooCagJIYiaHR0cDovL2NybC5lbnRydXN0Lm5ldC9sZXZlbDFr
+LmNybDCBnQYDVR0RBIGVMIGSgg8qLndlYXRoZXIuZ2MuY2GCDXdlYXRoZXIuZ2Mu
+Y2GCC21ldGVvLmdjLmNhgg0qLm1ldGVvLmdjLmNhghUqLmFscGhhLndlYXRoZXIu
+Z2MuY2GCEyouYWxwaGEubWV0ZW8uZ2MuY2GCFCouYmV0YS53ZWF0aGVyLmdjLmNh
+ghIqLmJldGEubWV0ZW8uZ2MuY2EwDgYDVR0PAQH/BAQDAgWgMB0GA1UdJQQWMBQG
+CCsGAQUFBwMBBggrBgEFBQcDAjATBgNVHSAEDDAKMAgGBmeBDAECAjCCAYAGCisG
+AQQB1nkCBAIEggFwBIIBbAFqAHYAouMK5EXvva2bfjjtR2d3U9eCW4SU1yteGyzE
+uVCkR+cAAAGO9cCizQAABAMARzBFAiEA7hlkvyyYsnhbas5WDwoTkdGWf92Ukckw
+rGyUqMPZQjkCID8oQlHWS11haifx+i9tBr0epmrzkh2/bbneb9WNrlUvAHcATnWj
+J1yaEMM4W2zU3z9S6x3w4I4bjWnAsfpksWKaOd8AAAGO9cCi2AAABAMASDBGAiEA
+iE1jLaXrlPxrkIiq7NU0gH/sDiUlHCmMrT79KUy2V+YCIQCb2GrTID6NO3hb8bGs
+ctd8ipYRuu1FnDY8X3MGVDcWnAB3AObSMWNAd4zBEEEG13G5zsHSQPaWhIb7uocy
+Hf0eN45QAAABjvXAovkAAAQDAEgwRgIhALRWB9aVOe3Zi9j6MEVKJl1NKQKIycr3
+8IfKeHxckblpAiEA85xjN3iBFvEVT4yIxO4qKRelbpFGomgSrYnfwTSUwHIwDQYJ
+KoZIhvcNAQELBQADggEBADGEK5tU92TqoTWPh1lfSRTDVCpk5qhqmIuaTeYQMonV
+AgHF5rktrUhXmMzRJEef8XRwLvApT4zOn+TV+NOUpi8q6tDWxx7dE8+moIf6tXq8
+d4OQ+VDO/C6nz/xA8FqvxAbPfqCJ6DqgitSyXhF01XkNMfVcknGAzhc/HemuukI1
+3DTuaATlbaXkHjSp+O0mXCykCIgH/9eMuOoFMzhdQhtJiLf2MMVclJ72/YzgVveA
+XrSTVE5F4BYdp9hX+0BTg5zNgg1wwvVVOwuIOTFqSSJCzGHjl/1i8IyyPLKB3ilt
+B+0V7IdmIxlvPbL//qNkzyUVufkewAoLMqCOUIZA0eY=</X509Certificate>
+</X509Data>
+</KeyInfo>
+</Signature></alert>

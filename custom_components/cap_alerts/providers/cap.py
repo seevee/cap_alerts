@@ -30,6 +30,24 @@ _LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
+class CAPAreaDoc:
+    """Parsed contents of a single CAP <area> block.
+
+    ``CAPInfoDoc``'s flattened fields destroy the polygon ↔ geocode pairing
+    inside one ``<info>``, and ECCC's CAM threat areas (issue #172) are
+    distinguishable from the legacy zone areas only *by* that pairing — the
+    freeform polygon and its ``layer:EC-MSC-SMC:DLC:*`` geocode share an
+    ``<area>``. Kept alongside the flattened fields, not instead of them:
+    every existing consumer reads the flat set, and CAP 1.2 §3.2.4 makes the
+    union reading correct for all of them except per-area interpretation.
+    """
+
+    area_desc: str = ""
+    geocodes: dict[str, list[str]] = field(default_factory=dict)
+    polygons: list[list[list[float]]] = field(default_factory=list)
+
+
+@dataclass
 class CAPInfoDoc:
     """Parsed contents of a single CAP <info> block."""
 
@@ -58,6 +76,9 @@ class CAPInfoDoc:
     # record of what was published; deciding that a zero-radius circle is a
     # point is interpretation, and belongs to ``providers/geometry.py``.
     circles: list[tuple[float, float, float]] = field(default_factory=list)
+    # The same shapes and codes again, grouped per ``<area>`` block, for the
+    # consumers that need the pairing the flat fields discard.
+    areas: list[CAPAreaDoc] = field(default_factory=list)
 
 
 @dataclass
@@ -212,9 +233,11 @@ def _parse_info(info_el: Element, ns: str) -> CAPInfoDoc:
 
     area_descs: list[str] = []
     for area_el in info_el.findall(f"{{{ns}}}area"):
+        area = CAPAreaDoc()
         desc_el = area_el.find(f"{{{ns}}}areaDesc")
         if desc_el is not None and desc_el.text:
-            area_descs.append(desc_el.text.strip())
+            area.area_desc = desc_el.text.strip()
+            area_descs.append(area.area_desc)
 
         for gc_el in area_el.findall(f"{{{ns}}}geocode"):
             name_el = gc_el.find(f"{{{ns}}}valueName")
@@ -228,15 +251,21 @@ def _parse_info(info_el: Element, ns: str) -> CAPInfoDoc:
                 bucket = info.geocodes.setdefault(name_el.text.strip(), [])
                 value = val_el.text.strip()
                 # De-duplicate per scheme, order-preserving: a value repeated
-                # across ``<area>`` blocks is one code, not two.
+                # across ``<area>`` blocks is one code, not two. The per-area
+                # container keeps its own copy either way — a code shared by
+                # two areas belongs to both of them.
                 if value not in bucket:
                     bucket.append(value)
+                area_bucket = area.geocodes.setdefault(name_el.text.strip(), [])
+                if value not in area_bucket:
+                    area_bucket.append(value)
 
         for poly_el in area_el.findall(f"{{{ns}}}polygon"):
             if poly_el.text:
                 ring = parse_cap_polygon_text(poly_el.text.strip())
                 if ring:
                     info.polygons.append(ring)
+                    area.polygons.append(ring)
 
         # Both elements are 0..* and coequal (CAP 1.2 §3.2.4), so circles are
         # collected the same way polygons are rather than as an alternative
@@ -246,6 +275,8 @@ def _parse_info(info_el: Element, ns: str) -> CAPInfoDoc:
                 circle = _parse_cap_circle_text(circle_el.text.strip())
                 if circle is not None:
                     info.circles.append(circle)
+
+        info.areas.append(area)
 
     info.area_desc = ", ".join(area_descs)
     return info
