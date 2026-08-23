@@ -32,6 +32,7 @@ jobs:
           set +e
           python scripts/feed_vocab_probe.py --report-file drift.md
           echo "code=$?" >> "$GITHUB_OUTPUT"
+          if [ -f drift.md ]; then cat drift.md >> "$GITHUB_STEP_SUMMARY"; fi
       - name: Open or update the drift issue
         if: hashFiles('drift.md') != ''
         env:

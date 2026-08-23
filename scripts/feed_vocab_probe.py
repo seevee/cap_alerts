@@ -16,12 +16,20 @@ the result against ``scripts/feed_vocab_baseline.json``. New tokens are
 drift; tokens absent from a given run are not (a quiet week removes nothing),
 so the baseline only ever grows and its diffs stay reviewable.
 
-Values are deliberately tracked only where the value set is small and closed
-(CAP enums, lifecycle tokens, GDACS event types). Open sets — areaDesc,
-Alert_Name's colour × event product, identifiers — would page weekly on
-routine traffic. ECCC vocabulary is scoped to the cap-pac@canada.ca sender:
-the NAAD channel carries provincial EMOs, Amber alerts and test traffic
-whose comings and goings are not ECCC drift.
+**Every run that finds drift opens or updates a GitHub issue**, so the bar
+for what counts is deliberately high. A value set is tracked only when its
+full membership is known *up front* — a spec enumeration (CAP 1.2), a
+catalog endpoint (NWS ``/alerts/types``), or documented codes (GDACS event
+types, MeteoAlarm awareness codes) — or when it is a lifecycle vocabulary
+whose new token would change how alerts retire (ECCC ``Alert_Location_Status``,
+the DLC values). A set that would merely fill in as weather happens is not
+tracked at all: the first seeded baseline learned ``values.event`` from one
+afternoon's live NWS feed, and the first scheduled run filed an issue because
+a tornado warning had appeared (#175). Open sets — areaDesc, Alert_Name's
+colour × event product, identifiers, member-service parameter names — are
+out for the same reason. ECCC vocabulary is scoped to the cap-pac@canada.ca
+sender: the NAAD channel carries provincial EMOs, Amber alerts and test
+traffic whose comings and goings are not ECCC drift.
 
 WMO is not probed: the integration polls per-configured-source RSS and no
 bounded national endpoint exists, so a probe would either sample arbitrary
@@ -88,6 +96,11 @@ METEOALARM_COUNTRY_SLUGS: dict[str, str] = _const.METEOALARM_COUNTRY_SLUGS
 # providers/meteoalarm.py::METEOALARM_FEED_URL.
 NAAD_FEED_ALERTREADY = "https://rss.alertready.ca/"
 NWS_ACTIVE_URL = "https://api.weather.gov/alerts/active"
+# The full NWS product catalog (111 names on 2026-08-23). This, not the live
+# feed, is the ``values.event`` vocabulary: a product added or renamed here
+# is drift (the 2025 Excessive → Extreme Heat rename is what an icon table
+# needs to hear about); a known product going live is weather.
+NWS_TYPES_URL = "https://api.weather.gov/alerts/types"
 METEOALARM_FEED_URL = "https://feeds.meteoalarm.org/api/v1/warnings/feeds-{country}"
 
 BASELINE_PATH = Path(__file__).resolve().parent / "feed_vocab_baseline.json"
@@ -153,9 +166,57 @@ _CAP_ENUMS = {
     "values.certainty": ["Observed", "Likely", "Possible", "Unlikely", "Unknown"],
 }
 
+# NWS CAP ``parameters`` keys, per the api.weather.gov alert schema and the
+# products observed across a summer and a winter feed. Seeded so a seasonal
+# key (snow squalls) arriving in December is not "drift".
+_NWS_PARAMETER_KEYS = [
+    "AWIPSidentifier",
+    "BLOCKCHANNEL",
+    "CMAMlongtext",
+    "CMAMtext",
+    "EAS-ORG",
+    "NWSheadline",
+    "PIL",
+    "VTEC",
+    "WEAHandling",
+    "WMOidentifier",
+    "eventEndingTime",
+    "eventMotionDescription",
+    "expiredReferences",
+    "flashFloodDamageThreat",
+    "flashFloodDetection",
+    "hailThreat",
+    "maxHailSize",
+    "maxWindGust",
+    "snowSquallDetection",
+    "snowSquallImpact",
+    "thunderstormDamageThreat",
+    "tornadoDamageThreat",
+    "tornadoDetection",
+    "waterspoutDetection",
+    "windThreat",
+]
+
+# MeteoAlarm CAP Profile v2.0 §2.2.17: awareness_type codes 1–13 and
+# awareness_level codes 1–4. Tracked as the bare code, because the label
+# half of ``"10; Rain"`` is spelled per member service and already varies in
+# case on the live hub.
+_METEOALARM_AWARENESS_TYPE_CODES = [str(n) for n in range(1, 14)]
+_METEOALARM_AWARENESS_LEVEL_CODES = [str(n) for n in range(1, 5)]
+
 SPEC_VOCAB: dict[str, dict[str, list[str]]] = {
-    "eccc": _CAP_ENUMS,
-    "meteoalarm": _CAP_ENUMS,
+    "eccc": {
+        **_CAP_ENUMS,
+        "values.language": ["en-CA", "fr-CA"],
+        "values.Alert_Type": ["advisory", "statement", "warning", "watch"],
+        # Both languages, since the parameter is per-<info>.
+        "values.Colour": ["yellow", "orange", "red", "jaune", "rouge"],
+    },
+    "meteoalarm": {
+        **_CAP_ENUMS,
+        "values.awareness_type": _METEOALARM_AWARENESS_TYPE_CODES,
+        "values.awareness_level": _METEOALARM_AWARENESS_LEVEL_CODES,
+    },
     # NWS publishes the same sets under its GeoJSON property names.
     "nws": {
         **{
@@ -165,10 +226,14 @@ SPEC_VOCAB: dict[str, dict[str, list[str]]] = {
         },
         "values.messageType": _CAP_ENUMS["values.msgType"],
         "values.response": _CAP_ENUMS["values.responseType"],
+        "parameter_keys": _NWS_PARAMETER_KEYS,
     },
     "gdacs": {
         "values.alertlevel": ["Green", "Orange", "Red"],
         "values.episodealertlevel": ["Green", "Orange", "Red"],
+        # The seven hazard types GDACS publishes.
+        "values.eventtype": ["DR", "EQ", "FL", "TC", "TS", "VO", "WF"],
+        "values.iscurrent": ["true", "false"],
     },
 }
 
@@ -271,17 +336,26 @@ def xml_paths(root: ET.Element) -> set[str]:
     return paths
 
 
-def json_paths(obj: object, prefix: str = "") -> set[str]:
-    """Every key path in a JSON document, arrays collapsed to ``[]``."""
+def json_paths(
+    obj: object, prefix: str = "", *, opaque: frozenset[str] = frozenset()
+) -> set[str]:
+    """Every key path in a JSON document, arrays collapsed to ``[]``.
+
+    Keys in ``opaque`` are recorded but not descended: NWS ``parameters`` is
+    a per-product map whose keys are tracked as ``parameter_keys`` already,
+    and walking it would report every one of them a second time as a path.
+    """
     paths: set[str] = set()
     if isinstance(obj, dict):
         for key, value in obj.items():
             path = f"{prefix}.{key}" if prefix else str(key)
             paths.add(path)
-            paths |= json_paths(value, path)
+            if str(key) in opaque:
+                continue
+            paths |= json_paths(value, path, opaque=opaque)
     elif isinstance(obj, list):
         for item in obj:
-            paths |= json_paths(item, f"{prefix}[]")
+            paths |= json_paths(item, f"{prefix}[]", opaque=opaque)
     return paths
 
 
@@ -352,10 +426,11 @@ def probe_eccc(timeout: float, max_bodies: int, workers: int) -> Vocab:
         for tag in ("status", "msgType", "scope"):
             _add(vocab, f"values.{tag}", root.findtext(f"{{{NS_CAP}}}{tag}", "") or "")
         for info in root.findall(f"{{{NS_CAP}}}info"):
+            # No ``event``/``eventCode`` values: ECCC publishes no catalog to
+            # seed them from, so they would trickle in season by season.
             for tag in (
                 "language",
                 "category",
-                "event",
                 "responseType",
                 "urgency",
                 "severity",
@@ -366,7 +441,6 @@ def probe_eccc(timeout: float, max_bodies: int, workers: int) -> Vocab:
             for ec in info.findall(f"{{{NS_CAP}}}eventCode"):
                 name = (ec.findtext(f"{{{NS_CAP}}}valueName", "") or "").strip()
                 _add(vocab, "event_code_schemes", name)
-                _add(vocab, "values.eventCode", ec.findtext(f"{{{NS_CAP}}}value", ""))
             for param in info.findall(f"{{{NS_CAP}}}parameter"):
                 name = (param.findtext(f"{{{NS_CAP}}}valueName", "") or "").strip()
                 _add(vocab, "parameter_keys", name)
@@ -392,14 +466,14 @@ def probe_eccc(timeout: float, max_bodies: int, workers: int) -> Vocab:
 
 
 def probe_nws(timeout: float) -> Vocab:
-    """One national active-alerts GeoJSON request."""
+    """The national active-alerts GeoJSON plus the product catalog."""
     doc = json.loads(fetch(NWS_ACTIVE_URL, timeout=timeout))
     features = doc.get("features", [])
     if not features:
         # A quiet moment nationally is conceivable but has never been observed;
         # far more likely the response shape changed, which IS the finding.
         raise RuntimeError("NWS active feed returned no features")
-    vocab: Vocab = {"json_paths": json_paths(doc)}
+    vocab: Vocab = {"json_paths": json_paths(doc, opaque=frozenset({"parameters"}))}
     for feature in features:
         props = feature.get("properties", {})
         for key in (
@@ -410,7 +484,6 @@ def probe_nws(timeout: float) -> Vocab:
             "certainty",
             "urgency",
             "response",
-            "event",
         ):
             value = props.get(key)
             if isinstance(value, str):
@@ -421,7 +494,14 @@ def probe_nws(timeout: float) -> Vocab:
             _add(vocab, "geocode_keys", str(key))
         for key in props.get("eventCode", {}) or {}:
             _add(vocab, "event_code_schemes", str(key))
-    print(f"  nws: {len(features)} active alerts")
+
+    catalog = json.loads(fetch(NWS_TYPES_URL, timeout=timeout))
+    event_types = catalog.get("eventTypes") or []
+    if not event_types:
+        raise RuntimeError("NWS /alerts/types returned no eventTypes")
+    for name in event_types:
+        _add(vocab, "values.event", str(name))
+    print(f"  nws: {len(features)} active alerts, {len(event_types)} catalog products")
     return vocab
 
 
@@ -457,19 +537,22 @@ def probe_meteoalarm(timeout: float, workers: int) -> Vocab:
                 if isinstance(value, str):
                     _add(vocab, f"values.{tag}", value)
             for info in alert.get("info", []) or []:
-                for tag in ("language", "category", "severity", "certainty", "urgency"):
+                # No ``language``: 43 tags on the live hub and a member adding
+                # one is not something the integration has to react to.
+                for tag in ("category", "severity", "certainty", "urgency"):
                     value = info.get(tag)
                     values = value if isinstance(value, list) else [value]
                     for item in values:
                         if isinstance(item, str):
                             _add(vocab, f"values.{tag}", item)
+                # No ``parameter_keys``: beyond the profile's awareness_* pair,
+                # parameter names are per member service ("exposed gusts",
+                # "direction of approach") — an open set.
                 for param in info.get("parameter", []) or []:
                     name = str(param.get("valueName", "")).strip()
-                    _add(vocab, "parameter_keys", name)
-                    # awareness_* values are closed sets ("10; Wind") that a
-                    # hub-side taxonomy change would extend.
                     if name in ("awareness_type", "awareness_level"):
-                        _add(vocab, f"values.{name}", str(param.get("value", "")))
+                        code = str(param.get("value", "")).split(";", 1)[0].strip()
+                        _add(vocab, f"values.{name}", code)
                 for area in info.get("area", []) or []:
                     for gc in area.get("geocode", []) or []:
                         _add(vocab, "geocode_schemes", str(gc.get("valueName", "")))

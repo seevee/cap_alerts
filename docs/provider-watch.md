@@ -32,10 +32,19 @@ Responding to a drift issue:
    the baseline diff. Close the drift issue when the batch is dealt with.
 
 The baseline only grows; a token absent from one run is never drift, so a
-quiet week removes nothing. Expect some warm-up noise in the first weeks as
-rare-but-routine vocabulary (an NWS event type not active at seed time, a
-seasonal ECCC event) shows up once and gets folded in. The CAP 1.2 enums are
-pre-seeded so spec-legal values never page.
+quiet week removes nothing.
+
+Because every finding opens an issue, the probe is deliberately strict about
+*which* value sets it watches. A set is tracked only when its full membership
+is known up front (the CAP 1.2 enums, NWS's `/alerts/types` product catalog,
+GDACS's seven hazard codes, MeteoAlarm's awareness codes) or when it is a
+lifecycle vocabulary whose new token would change how alerts retire (ECCC
+`Alert_Location_Status`, the DLC values). Sets that would fill in as weather
+happens are not tracked at all: the first seeded baseline learned NWS event
+names from one afternoon's live feed, and the first scheduled run filed #175
+because a tornado warning had appeared. Structural vocabulary (element and
+key paths, geocode schemes, ECCC parameter keys) is closed by nature and is
+the main signal.
 
 WMO is not probed: it's per-configured-source RSS with no bounded national
 endpoint. GDACS index structure is covered; its per-event GeoJSON is not.
