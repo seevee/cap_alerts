@@ -2266,6 +2266,31 @@ def test_gps_inside_threat_area_matches():
     assert alert.lifecycle_status == "active"
 
 
+def test_gps_polygonless_threat_area_fails_open_to_zone_polygons():
+    """A DLC area with no usable polygon carries no location to test, so the
+    block falls back to the all-polygons path rather than rejecting everyone
+    in the zone."""
+    xml = _fixture("eccc_cap_convective_dlc.xml").replace(
+        "<polygon>43.4,-81.2 43.6,-81.2 43.6,-80.8 43.4,-80.8 43.4,-81.2</polygon>",
+        "<polygon>not,a 43.6,-81.2</polygon>",
+    )
+    doc = _parse_cap_alert(xml)
+    assert doc is not None
+    # The threat area is still recognised as such; it just has no ring.
+    ((_, threat),) = _dlc_areas(doc.infos[0])
+    assert threat.polygons == []
+    lat, lon = _IN_ZONE_ONLY
+    alerts = build_alerts_from_cap_docs(
+        [doc], province="", gps_lat=lat, gps_lon=lon, preferred_lang="en-CA"
+    )
+    assert len(alerts) == 1
+    assert alerts[0].lifecycle_status == "active"
+    lat, lon = _OUTSIDE_ALL
+    assert not doc_matches_region(
+        doc, province="", gps_lat=lat, gps_lon=lon, preferred_lang="en-CA"
+    )
+
+
 def test_gps_without_dlc_still_matches_any_polygon():
     """Pre-CAM documents keep the all-polygons behaviour."""
     docs = _docs("eccc_cap_en_new_1.xml")

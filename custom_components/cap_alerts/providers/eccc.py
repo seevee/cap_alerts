@@ -477,10 +477,12 @@ def _location_status(info: CAPInfoDoc) -> str:
 
 
 def _is_terminal_info(info: CAPInfoDoc) -> bool:
-    """Whether this area group has ended (``ended`` / ``transitioned_out``).
+    """Whether this area group has ended.
 
-    Fails open: an absent parameter, or a value outside
-    ``ECCC_TERMINAL_LOCATION_STATUSES``, is not terminal.
+    Terminal means the ``Alert_Location_Status`` token is one of
+    ``ECCC_TERMINAL_LOCATION_STATUSES`` (``ended``, ``cancelled``,
+    ``transitioned_out``). Fails open: an absent parameter, or a value outside
+    that set, is not terminal.
     """
     return _location_status(info) in ECCC_TERMINAL_LOCATION_STATUSES
 
@@ -943,15 +945,21 @@ def _info_matches_region(
 
     Province mode ignores threat areas entirely: they are sub-province, and
     the SGC codes on the zone areas remain the province-granularity truth.
+
+    Fails open on a threat area with no usable polygon: a DLC geocode whose
+    ``<polygon>`` is absent or unparseable carries no location to test, and
+    rejecting the whole block on it would silence the warning for every user
+    in the zone. Such a block takes the all-polygons path, like the rest of
+    this provider treats malformed geometry.
     """
     if province and not _matches_province_sgc(info.geocodes, province):
         return False
     if gps_lat is not None and gps_lon is not None:
-        dlc = _dlc_areas(info)
-        if dlc:
-            return any(
-                _point_in_polygons(gps_lat, gps_lon, area.polygons) for _, area in dlc
-            )
+        threat_polygons = [
+            ring for _, area in _dlc_areas(info) for ring in area.polygons
+        ]
+        if threat_polygons:
+            return _point_in_polygons(gps_lat, gps_lon, threat_polygons)
         return _point_in_polygons(gps_lat, gps_lon, info.polygons)
     return True
 
