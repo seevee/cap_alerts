@@ -53,10 +53,10 @@ Pick a provider, then a location mode:
 | Provider | Modes |
 |---|---|
 | NWS         | Zone ID (e.g. `ILZ014`, or comma-separated), GPS (`lat,lon`), `device_tracker` entity |
-| ECCC        | Province code (`AB`, `BC`, `ON`, …), GPS (`lat,lon`) |
+| ECCC        | Province code (`AB`, `BC`, `ON`, …), GPS (`lat,lon`), `device_tracker` entity |
 | MeteoAlarm  | Country (ISO 3166-1 alpha-2, e.g. `DE`), with optional GPS polygon filter or region multi-select (`EMMA_ID` for most countries, `NUTS3`/`NUTS2` for some, area names where a feed publishes no geocodes) |
 | WMO         | Source ID picked from the live SWIC registry (e.g. `mx-smn-es`; custom IDs accepted), country-wide or with optional GPS polygon filter |
-| GDACS       | Worldwide (every event in the index), or GPS (`lat,lon`) keeping only events whose affected area contains the point |
+| GDACS       | Worldwide (every event in the index), GPS (`lat,lon`) or `device_tracker` entity, keeping only events whose affected area contains the point |
 
 ### Options (per entry)
 
@@ -66,7 +66,7 @@ Pick a provider, then a location mode:
 - **Real-time streaming** (ECCC) — ingest alerts the moment they are issued, over the NAAD TCP streaming feed; the GeoRSS feed becomes a startup/reconnect backfill plus periodic resync. Default on. Turning it off falls back to GeoRSS polling on the scan interval. A diagnostic binary sensor reports the socket state (see Entities).
 - **Feed source** (ECCC) — which NAAD GeoRSS host serves polling/backfill: `auto` (default; fetches both hosts and unions their entries, since neither alone carries every live alert), or pin `alertready` / `pelmorex` as an escape hatch.
 - **Event types** (GDACS) — which hazards to track (Earthquake, Tropical Cyclone, Flood, Volcano, Drought, Wildfire, Tsunami). Every type by default. Applied to the RSS indexes before any geometry is fetched, so narrowing it also cuts the fetch cost.
-- **Minimum alert level** (GDACS) — `Green` (default, everything), `Orange` or `Red`. This is GDACS's own impact scale, and with no per-event CAP body to read a `<severity>` from it is also what the entity state derives from (Green → minor, Orange → severe, Red → extreme). Raise it to cut the volume of green wildfires and earthquakes.
+- **Minimum alert level** (GDACS) — `Green` (everything), `Orange` (default) or `Red`. This is GDACS's own impact scale, and with no per-event CAP body to read a `<severity>` from it is also what the entity state derives from (Green → minor, Orange → severe, Red → extreme). Lower it to `Green` if you want the full worldwide tail of minor wildfires and earthquakes.
 - **Exclude marine alerts** (NWS, ECCC) — opt-in filter that drops alerts carrying a marine zone code (NWS marine UGC area prefixes, ECCC CLC codes starting `00`). Default off.
 - **Area codes (prefix match)** (all providers except GDACS, which publishes no area codes) — opt-in narrowing on top of the location filter chosen at setup. Comma-separated prefixes (e.g. `13,37`); an alert is kept when any area code it publishes starts with one of them. Codes are hierarchical, so a shorter prefix covers a wider area (`13` = Hebei, `1307` = Zhangjiakou). Mainly for sources with no per-alert geometry and no region picker — notably WMO's `cn-cma-xx`, where it cuts a country-wide entry from ~234 alerts to ~28 for Hebei. Code lengths vary within a scheme, so prefer the leading digits over pasting a full code. Empty by default.
 

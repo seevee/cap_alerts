@@ -82,7 +82,7 @@ async def test_user_step_lists_every_provider(hass, enable_custom_integrations):
         ("nws", ["nws_zone", "nws_gps_loc", "nws_gps_tracker"]),
         ("eccc", ["eccc_province", "eccc_gps_loc", "eccc_gps_tracker"]),
         ("meteoalarm", ["meteoalarm_country", "meteoalarm_country_source"]),
-        ("gdacs", ["gdacs_global", "gdacs_gps_loc"]),
+        ("gdacs", ["gdacs_global", "gdacs_gps_loc", "gdacs_gps_tracker"]),
     ],
 )
 @pytest.mark.asyncio
@@ -544,3 +544,14 @@ async def test_gdacs_gps_rejects_bad_coordinates(hass, enable_custom_integration
     result = await _submit(hass, result, {CONF_GPS_LOC: "-33.87"})
     assert result["type"] == "form"
     assert result["errors"] == {"base": "invalid_gps"}
+
+
+@pytest.mark.asyncio
+async def test_gdacs_tracker_creates_an_entry(hass, enable_custom_integrations):
+    result = await _menu(hass, "gdacs", "gdacs_gps_tracker")
+    assert result["step_id"] == "gdacs_gps_tracker"
+    result = await _submit(hass, result, {CONF_TRACKER_ENTITY: _TRACKER})
+    assert result["type"] == "create_entry"
+    assert result["data"] == {CONF_PROVIDER: "gdacs", CONF_TRACKER_ENTITY: _TRACKER}
+    # The tracker name, not "Global": the entry follows the device (#171).
+    assert result["title"] == "CAP Alerts GDACS (phone)"

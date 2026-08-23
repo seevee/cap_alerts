@@ -157,7 +157,10 @@ SETUP: dict[str, list[tuple[dict, Expect]]] = {
         ({"next_step_id": "wmo_geocode"}, form("wmo_geocode", "geocode_prefixes")),
     ],
     "gdacs": [
-        ({"next_step_id": "gdacs"}, menu("gdacs", "gdacs_global", "gdacs_gps_loc")),
+        (
+            {"next_step_id": "gdacs"},
+            menu("gdacs", "gdacs_global", "gdacs_gps_loc", "gdacs_gps_tracker"),
+        ),
         ({"next_step_id": "gdacs_gps_loc"}, form("gdacs_gps_loc", "gps_loc")),
     ],
 }
@@ -236,6 +239,7 @@ RECONFIGURE: dict[str, list[tuple[dict, Expect]]] = {
                 "reconfigure_gdacs",
                 "reconfigure_gdacs_global",
                 "reconfigure_gdacs_gps_loc",
+                "reconfigure_gdacs_gps_tracker",
             ),
         ),
         (
