@@ -48,6 +48,8 @@ CAPInfoDoc = _cap_mod.CAPInfoDoc
 CAPAreaDoc = _cap_mod.CAPAreaDoc
 _dlc_areas = _eccc_mod._dlc_areas
 _dlc_status_at = _eccc_mod._dlc_status_at
+geometry_from_polygons = _eccc_mod.geometry_from_polygons
+geometry_from_shapes = _eccc_mod.geometry_from_shapes
 ECCC_TERMINAL_LOCATION_STATUSES = _eccc_mod.ECCC_TERMINAL_LOCATION_STATUSES
 
 
@@ -2525,3 +2527,89 @@ def test_real_all_clear_revision_retires_a_point_in_its_ended_threat_area():
     assert doc_matches_region(
         r3, province="", gps_lat=lat, gps_lon=lon, preferred_lang="en-CA"
     )
+
+
+# ---------------------------------------------------------------------------
+# CAM threat polygon as the published geometry (issue #178)
+# ---------------------------------------------------------------------------
+#
+# Issue #172 moved the location *test* onto the threat polygons; these pin
+# the published *geometry* there too, so a map card draws the forecaster's
+# ring instead of every zone it touches. Zone identity survives in
+# ``area_desc`` and the CLC/SGC geocodes; only the reconstructible zone
+# rings are dropped. Every threat ring in the real fixtures arrives closed,
+# so the counts below are exactly the feed's vertex counts.
+
+
+def _outer_ring_counts(geometry: dict) -> list[int]:
+    if geometry["type"] == "Polygon":
+        return [len(geometry["coordinates"][0])]
+    assert geometry["type"] == "MultiPolygon"
+    return [len(poly[0]) for poly in geometry["coordinates"]]
+
+
+def test_reporter_body_publishes_one_threat_ring_not_the_zone_union():
+    """The #178 shape: one closed 9-point ring, not two zone rings plus it."""
+    doc = _real_doc("eccc_cap_cam_1104140223_alert.xml")
+    info = doc.infos[0]
+    assert len(info.polygons) == 3  # the union the geometry used to be
+    (alert,) = _gps_build([doc], _REPORTER_IN_THREAT)
+    assert alert.geometry is not None
+    assert _outer_ring_counts(alert.geometry) == [9]
+    ((_, threat),) = _dlc_areas(info)
+    assert alert.geometry == geometry_from_polygons(threat.polygons)
+
+
+def test_update_body_publishes_issued_and_continued_rings_together():
+    """An update carrying both an ``issued`` and a ``continued`` threat area
+    (176 of 404 live DLC infos) publishes their union."""
+    r2 = _chain()[1]
+    (alert,) = _gps_build([r2], _CHAIN_CONTINUED_AT_R2)
+    assert alert.geometry is not None
+    assert _outer_ring_counts(alert.geometry) == [8, 7]
+
+
+def test_ended_body_publishes_the_ended_threat_ring():
+    """Terminal threat areas still shape the retiring document's geometry."""
+    r3 = _chain()[2]
+    (alert,) = _gps_build([r3], _CHAIN_IN_R3_ENDED)
+    assert alert.lifecycle_status == "ended"
+    assert alert.geometry is not None
+    assert _outer_ring_counts(alert.geometry) == [8]
+
+
+def test_province_mode_publishes_the_threat_geometry_too():
+    """The SGC rule still decides the match; the threat rings decide the
+    shape — the threat is where the weather is at any granularity."""
+    doc = _real_doc("eccc_cap_cam_1104140223_alert.xml")
+    (alert,) = build_alerts_from_cap_docs(
+        [doc], province="ON", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
+    )
+    assert alert.geometry is not None
+    assert _outer_ring_counts(alert.geometry) == [9]
+
+
+def test_polygonless_threat_area_keeps_the_union_geometry():
+    """Fail-open mirrors the matching rule: a DLC ring that cannot be a
+    polygon leaves the geometry on the all-polygons path."""
+    xml = _fixture("eccc_cap_convective_dlc.xml").replace(
+        "<polygon>43.4,-81.2 43.6,-81.2 43.6,-80.8 43.4,-80.8 43.4,-81.2</polygon>",
+        "<polygon>not,a 43.6,-81.2</polygon>",
+    )
+    doc = _parse_cap_alert(xml)
+    assert doc is not None
+    lat, lon = _IN_ZONE_ONLY
+    (alert,) = build_alerts_from_cap_docs(
+        [doc], province="", gps_lat=lat, gps_lon=lon, preferred_lang="en-CA"
+    )
+    assert alert.geometry == geometry_from_shapes(doc.infos[0].polygons, [])
+
+
+def test_pre_cam_document_keeps_the_union_geometry():
+    doc = _real_doc("eccc_cap_en_new_1.xml")
+    (alert,) = build_alerts_from_cap_docs(
+        [doc], province="", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
+    )
+    en_info = next(i for i in doc.infos if i.language == "en-CA")
+    assert en_info.polygons
+    assert alert.geometry == geometry_from_shapes(en_info.polygons, [])

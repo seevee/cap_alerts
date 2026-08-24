@@ -641,6 +641,35 @@ def _dlc_status_at(
     return covering[0] if covering else ""
 
 
+def _info_geometry(
+    info: CAPInfoDoc, points: list[list[float]]
+) -> dict[str, Any] | None:
+    """The published geometry of an ``<info>`` block (issue #178).
+
+    When the block carries CAM threat areas with usable polygons, *they* are
+    the geometry and the legacy zone rings are dropped: drawing the flat
+    union renders the storm as covering every zone it touches — the same
+    over-alerting issue #172 removed from the location test, visual instead
+    of a spurious entity. Nothing irreplaceable is lost: the zones survive
+    as ``area_desc`` text and CLC/SGC geocodes, and their rings are static
+    administrative boundaries, while the freeform threat ring exists
+    nowhere else. The threat is where the weather is, so this applies in
+    province mode as well as GPS.
+
+    Fails open like ``_info_matches_region``: no threat areas (the pre-CAM
+    document shape), or none whose ring survives validation, and the
+    geometry stays the all-polygons union with the point fallback.
+
+    Identity is deliberately unaffected: ``_bilingual_key`` hashes the flat
+    ``info.polygons`` set either way, so a CAM alert keeps its id and the
+    en/fr pairing invariant across this change.
+    """
+    threat_rings = [ring for _, area in _dlc_areas(info) for ring in area.polygons]
+    return geometry_from_polygons(threat_rings) or geometry_from_shapes(
+        info.polygons, points
+    )
+
+
 # Trailing separator chars left over after stripping a status suffix from a
 # colour-coded headline like "Yellow Warning - Wind - in effect".
 _TRAILING_SEPARATORS = re.compile(r"[\s\-–—:,;·]+$")
@@ -788,7 +817,7 @@ def _build_alert_from_cap(
 ) -> CAPAlert:
     """Build CAPAlert from CAP body fields."""
     points = points_from_circles(info.circles)
-    geometry = geometry_from_shapes(info.polygons, points)
+    geometry = _info_geometry(info, points)
 
     # Merge event_codes into parameters (parameters win on collision)
     merged_params: dict[str, str] = {**info.event_codes, **info.parameters}
