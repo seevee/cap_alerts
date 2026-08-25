@@ -77,9 +77,12 @@ def skip_scope_validation(request, monkeypatch):
 class _StubResponse:
     """Minimal aiohttp-compatible response for testing."""
 
-    def __init__(self, status: int, body: str) -> None:
+    def __init__(
+        self, status: int, body: str, headers: dict[str, str] | None = None
+    ) -> None:
         self.status = status
         self._body = body
+        self.headers = headers or {}
 
     async def text(self) -> str:
         return self._body
@@ -114,7 +117,8 @@ class StubSession:
 
     ``responses`` maps URL → one of:
     - ``str``: body with status 200
-    - ``(int, str)``: explicit (status, body)
+    - ``(int, str)`` or ``(int, str, dict)``: explicit (status, body[, response
+      headers])
     - ``callable``: zero-arg factory; the returned exception is raised on enter
     - ``list``: a per-call sequence of any of the above; successive GETs of the
       same URL consume the next element, and the last element repeats once the
@@ -125,9 +129,13 @@ class StubSession:
         self._responses = responses
         self._seq_index: dict[str, int] = {}
         self.requested: list[str] = []
+        # Request headers per call, parallel to ``requested`` (None when the
+        # caller sent none) — lets conditional-GET tests assert If-None-Match.
+        self.request_headers: list[dict[str, str] | None] = []
 
     def get(self, url: str, **kwargs: Any) -> Any:
         self.requested.append(url)
+        self.request_headers.append(kwargs.get("headers"))
         value = self._responses.get(url)
         if isinstance(value, list):
             idx = min(self._seq_index.get(url, 0), len(value) - 1) if value else 0
@@ -142,6 +150,5 @@ class StubSession:
         if callable(value):
             return _ErrorContext(value())
         if isinstance(value, tuple):
-            status, body = value
-            return _StubResponse(status, body)
+            return _StubResponse(*value)
         return _StubResponse(200, str(value))

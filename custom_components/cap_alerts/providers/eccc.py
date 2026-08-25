@@ -77,15 +77,16 @@ NAAD_FEED_HOSTS: dict[str, str] = {
 # and is the endpoint that survives the September 2026 sunset.
 NAAD_FEED_UNION_ORDER: tuple[str, ...] = ("alertready", "pelmorex")
 
-# The alertready.ca feed is a large (~7 MB) chunked response with no
-# Content-Length, served behind istio-envoy. When the upstream stream is
-# terminated early, aiohttp returns a partial (or empty) body *without* raising
-# a ClientError, so parsing it fails at a random offset ("no element found",
-# "unclosed token"). The endpoint offers no server-side filtering, compression,
-# range, or conditional GET, so the whole document must be pulled each poll. We
-# guard by requiring a complete document (non-empty, ending in </feed>) and
-# retrying a bounded number of times, so a single truncation doesn't blank the
-# entry for a whole poll cycle.
+# The feed is a large (~6 MB) document served behind istio-envoy. Until
+# 2026-08-25 alertready served it chunked with no Content-Length: an
+# early-terminated stream makes aiohttp return a partial (or empty) body
+# *without* raising a ClientError, so parsing fails at a random offset ("no
+# element found", "unclosed token"). Pelmorex fixed the transport that day —
+# Content-Length and a working ETag/If-None-Match (304) verified live on both
+# hosts — so each poll now revalidates with the stored ETag and an unchanged
+# feed costs a header exchange instead of the full download. The completeness
+# guard (non-empty, ending in </feed>) and bounded retry stay as a backstop:
+# the fix is upstream infrastructure, not a contract.
 _FEED_FETCH_ATTEMPTS = 3
 _FEED_RETRY_BACKOFF_S = 0.5
 
@@ -1155,6 +1156,13 @@ class ECCCProvider:
         # is in a failure streak so the union logs one warning per streak, reset
         # on that host's next success.
         self._feed_warned: dict[str, bool] = {}
+        # Conditional-GET state, keyed by feed source id: the (ETag, body) of
+        # the last feed that parsed, so a 304 revalidation can replay the body
+        # through the normal parse path. The raw text is cached rather than the
+        # parsed tree because the tree is ~3× larger resident (measured 19 MB
+        # against the 5.9 MB live feed) and a national feed rarely goes a whole
+        # poll interval unchanged — the win is skipping the download.
+        self._feed_conditional: dict[str, tuple[str, str]] = {}
 
     @property
     def name(self) -> str:
@@ -1514,27 +1522,45 @@ class ECCCProvider:
     ) -> Element:
         """Fetch and parse one NAAD Atom feed, guarding against truncated downloads.
 
-        The alertready.ca feed can be delivered incomplete: an early-terminated
-        chunked stream makes ``resp.text()`` return a partial or empty body
-        without raising, and parsing it fails at a random offset. A body that is
-        not a complete document (empty, or not ending in ``</feed>``) is treated
-        as a transient truncation and retried a bounded number of times before
-        surfacing ``UpdateFailed`` (retried by the coordinator next poll).
+        Conditional GET: when a previous poll stored this host's ``ETag``, the
+        request carries ``If-None-Match`` and a 304 replays the stored body
+        through the same completeness check and parse a fresh 200 takes — the
+        cache is only ever written after a successful parse, so the replay
+        cannot loop on a bad body. A truncated 200 leaves the cache untouched,
+        which lets the in-poll retry still revalidate to the last good body.
+
+        The truncation guard predates the upstream Content-Length fix and stays
+        as a backstop: an early-terminated stream makes ``resp.text()`` return
+        a partial or empty body without raising, and parsing it fails at a
+        random offset. A body that is not a complete document (empty, or not
+        ending in ``</feed>``) is treated as a transient truncation and retried
+        a bounded number of times before surfacing ``UpdateFailed`` (retried by
+        the coordinator next poll).
         """
+        cached = self._feed_conditional.get(source_id)
+        headers = {"If-None-Match": cached[0]} if cached else None
         last_error = "no attempts made"
         for attempt in range(1, _FEED_FETCH_ATTEMPTS + 1):
-            async with session.get(url) as resp:
-                if resp.status != 200:
+            async with session.get(url, headers=headers) as resp:
+                if cached is not None and resp.status == 304:
+                    etag, text = cached
+                elif resp.status != 200:
                     raise UpdateFailed(
                         f"ECCC NAAD feed {source_id} returned {resp.status}"
                     )
-                text = await resp.text()
+                else:
+                    etag = resp.headers.get("ETag", "")
+                    text = await resp.text()
 
             if text.rstrip().endswith("</feed>"):
                 try:
-                    return ET.fromstring(text)
+                    root = ET.fromstring(text)
                 except ET.ParseError as err:
                     last_error = f"failed to parse Atom feed: {err}"
+                else:
+                    if etag:
+                        self._feed_conditional[source_id] = (etag, text)
+                    return root
             else:
                 last_error = (
                     f"truncated feed response ({len(text)} bytes, missing </feed>)"

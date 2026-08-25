@@ -1016,6 +1016,90 @@ async def test_eccc_provider_retries_then_succeeds_on_truncated_feed(monkeypatch
     assert session.requested.count("https://rss.alertready.ca/") == 2
 
 
+def _feed_request_headers(session: StubSession, url: str) -> list[Any]:
+    """The request headers of each GET of ``url``, in call order."""
+    return [
+        headers
+        for requested, headers in zip(session.requested, session.request_headers)
+        if requested == url
+    ]
+
+
+@pytest.mark.asyncio
+async def test_eccc_feed_conditional_get_304_reuses_cached_body():
+    """A stored ETag is revalidated with If-None-Match; 304 replays the cached body."""
+    feed_url = "https://rss.alertready.ca/"
+    responses: dict[str, Any] = {
+        feed_url: [(200, _atom_xml(), {"ETag": '"v1"'}), (304, "")],
+        **_cap_responses(),
+    }
+    session = StubSession(responses)
+    provider = ECCCProvider()
+    config = {"province": "ON"}
+    options = {"language": "en-CA", "feed_source": "alertready"}
+
+    first = await provider.async_fetch(session, config, options)
+    second = await provider.async_fetch(session, config, options)
+
+    # The 304 poll produced the same alerts as the 200 that seeded the cache.
+    assert [a.id for a in second] == [a.id for a in first]
+    assert len(second) == 1
+    # First GET was unconditional; the second carried the stored ETag.
+    assert _feed_request_headers(session, feed_url) == [
+        None,
+        {"If-None-Match": '"v1"'},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_eccc_feed_without_etag_polls_unconditionally():
+    """A host that serves no ETag keeps getting plain GETs — nothing to revalidate."""
+    feed_url = "https://rss.alertready.ca/"
+    responses: dict[str, Any] = {feed_url: _atom_xml(), **_cap_responses()}
+    session = StubSession(responses)
+    provider = ECCCProvider()
+    config = {"province": "ON"}
+    options = {"language": "en-CA", "feed_source": "alertready"}
+
+    await provider.async_fetch(session, config, options)
+    await provider.async_fetch(session, config, options)
+
+    assert _feed_request_headers(session, feed_url) == [None, None]
+
+
+@pytest.mark.asyncio
+async def test_eccc_feed_truncated_response_retries_into_304(monkeypatch):
+    """A truncated 200 leaves the cache intact, so the in-poll retry can 304 to it.
+
+    The truncated body's fresh ETag must NOT be stored — only a body that
+    parsed is safe to replay on a later 304.
+    """
+    monkeypatch.setattr(_eccc_mod, "_FEED_RETRY_BACKOFF_S", 0)
+    feed_url = "https://rss.alertready.ca/"
+    truncated = _atom_xml()[: len(_atom_xml()) // 2]
+    responses: dict[str, Any] = {
+        feed_url: [
+            (200, _atom_xml(), {"ETag": '"v1"'}),
+            (200, truncated, {"ETag": '"v2"'}),
+            (304, ""),
+        ],
+        **_cap_responses(),
+    }
+    session = StubSession(responses)
+    provider = ECCCProvider()
+    config = {"province": "ON"}
+    options = {"language": "en-CA", "feed_source": "alertready"}
+
+    first = await provider.async_fetch(session, config, options)
+    second = await provider.async_fetch(session, config, options)
+
+    # Poll 2: attempt 1 truncated, attempt 2 revalidated to the v1 body.
+    assert [a.id for a in second] == [a.id for a in first]
+    assert session.requested.count(feed_url) == 3
+    # The cache still holds v1 — the truncated v2 response never replaced it.
+    assert provider._feed_conditional["alertready"][0] == '"v1"'
+
+
 def test_matches_province_sgc():
     """SGC location prefix decides province; unknown codes and missing key fail."""
     on = {"profile:CAP-CP:Location:0.3": ("3506008", "3558090")}
