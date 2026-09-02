@@ -29,7 +29,14 @@ a tornado warning had appeared (#175). Open sets — areaDesc, Alert_Name's
 colour × event product, identifiers, member-service parameter names — are
 out for the same reason. ECCC vocabulary is scoped to the cap-pac@canada.ca
 sender: the NAAD channel carries provincial EMOs, Amber alerts and test
-traffic whose comings and goings are not ECCC drift.
+traffic whose comings and goings are not ECCC drift. NWS parameter keys
+are read from NWS-originated alerts only: the active feed relays IPAWS
+traffic from local originators, who name their parameters however they
+like (a county emergency manager's ``timezone``, #184).
+
+Every new token is reported with the ids of the first few alerts that
+carried it, so a drift issue names documents to open rather than just a
+token that may have aged out of the feed by the time anyone reads it.
 
 WMO is not probed: the integration polls per-configured-source RSS and no
 bounded national endpoint exists, so a probe would either sample arbitrary
@@ -63,6 +70,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -111,6 +119,11 @@ PROVIDERS = ("eccc", "nws", "meteoalarm", "gdacs")
 
 # ECCC vocabulary is read from this sender only; see module docstring.
 ECCC_SENDER = "cap-pac@canada.ca"
+# NWS parameter keys likewise; the active feed also carries IPAWS relays.
+NWS_SENDER = "w-nws.webmaster@noaa.gov"
+
+# Alert ids printed per new token in the drift report.
+MAX_WITNESS_IDS = 3
 
 NS_ATOM = "http://www.w3.org/2005/Atom"
 NS_CAP = "urn:oasis:names:tc:emergency:cap:1.2"
@@ -307,11 +320,36 @@ def fetch_feed_complete(url: str, *, timeout: float, retries: int = 3) -> str:
 # ---------------------------------------------------------------------------
 
 Vocab = dict[str, set[str]]
+# (bucket, token) -> distinct alert ids seen with it, first-seen order (a dict
+# used as an ordered set).
+Witnesses = dict[tuple[str, str], dict[str, None]]
 
 
-def _add(vocab: Vocab, bucket: str, value: str) -> None:
-    if value:
-        vocab.setdefault(bucket, set()).add(value.strip())
+class Sample:
+    """One provider's observed vocabulary and the alerts that carried it.
+
+    Envelope-level vocabulary (feed metadata, catalog entries) is added with
+    no alert id and reports bare; everything read out of an alert document is
+    attributed to that alert's id so the drift report can name it (#184).
+    """
+
+    def __init__(self) -> None:
+        self.vocab: Vocab = {}
+        self.witnesses: Witnesses = {}
+
+    def add(self, bucket: str, value: str | None, alert_id: str | None = None) -> None:
+        token = (value or "").strip()
+        if not token:
+            return
+        self.vocab.setdefault(bucket, set()).add(token)
+        if alert_id:
+            self.witnesses.setdefault((bucket, token), {})[alert_id] = None
+
+    def add_all(
+        self, bucket: str, values: Iterable[str], alert_id: str | None = None
+    ) -> None:
+        for value in values:
+            self.add(bucket, value, alert_id)
 
 
 def _render_tag(tag: str) -> str:
@@ -322,8 +360,12 @@ def _render_tag(tag: str) -> str:
     return tag
 
 
-def xml_paths(root: ET.Element) -> set[str]:
-    """Every element path in the document, namespaces rendered as prefixes."""
+def xml_paths(root: ET.Element, prefix: str = "") -> set[str]:
+    """Every element path under ``root``, namespaces rendered as prefixes.
+
+    ``prefix`` is the path of ``root``'s parent, for walking one item of a
+    larger document and attributing its paths to that item.
+    """
     paths: set[str] = set()
 
     def walk(el: ET.Element, prefix: str) -> None:
@@ -332,7 +374,7 @@ def xml_paths(root: ET.Element) -> set[str]:
         for child in el:
             walk(child, path)
 
-    walk(root, "")
+    walk(root, prefix)
     return paths
 
 
@@ -364,7 +406,7 @@ def json_paths(
 # ---------------------------------------------------------------------------
 
 
-def probe_eccc(timeout: float, max_bodies: int, workers: int) -> Vocab:
+def probe_eccc(timeout: float, max_bodies: int, workers: int) -> Sample:
     """NAAD GeoRSS index → sampled CAP bodies → CAP vocabulary.
 
     alertready.ca only: it is the sanctioned host, retains ~48 h (the deepest
@@ -398,7 +440,7 @@ def probe_eccc(timeout: float, max_bodies: int, workers: int) -> Vocab:
                 break
 
     hrefs = hrefs[:max_bodies]
-    vocab: Vocab = {}
+    sample = Sample()
     fetched = 0
     skipped_senders = 0
 
@@ -422,9 +464,10 @@ def probe_eccc(timeout: float, max_bodies: int, workers: int) -> Vocab:
         if (root.findtext(f"{{{NS_CAP}}}sender", "") or "").strip() != ECCC_SENDER:
             skipped_senders += 1
             continue
-        vocab.setdefault("xml_paths", set()).update(xml_paths(root))
+        alert_id = (root.findtext(f"{{{NS_CAP}}}identifier", "") or "").strip()
+        sample.add_all("xml_paths", xml_paths(root), alert_id)
         for tag in ("status", "msgType", "scope"):
-            _add(vocab, f"values.{tag}", root.findtext(f"{{{NS_CAP}}}{tag}", "") or "")
+            sample.add(f"values.{tag}", root.findtext(f"{{{NS_CAP}}}{tag}"), alert_id)
         for info in root.findall(f"{{{NS_CAP}}}info"):
             # No ``event``/``eventCode`` values: ECCC publishes no catalog to
             # seed them from, so they would trickle in season by season.
@@ -437,22 +480,29 @@ def probe_eccc(timeout: float, max_bodies: int, workers: int) -> Vocab:
                 "certainty",
             ):
                 for el in info.findall(f"{{{NS_CAP}}}{tag}"):
-                    _add(vocab, f"values.{tag}", el.text or "")
+                    sample.add(f"values.{tag}", el.text, alert_id)
             for ec in info.findall(f"{{{NS_CAP}}}eventCode"):
-                name = (ec.findtext(f"{{{NS_CAP}}}valueName", "") or "").strip()
-                _add(vocab, "event_code_schemes", name)
+                sample.add(
+                    "event_code_schemes",
+                    ec.findtext(f"{{{NS_CAP}}}valueName"),
+                    alert_id,
+                )
             for param in info.findall(f"{{{NS_CAP}}}parameter"):
                 name = (param.findtext(f"{{{NS_CAP}}}valueName", "") or "").strip()
-                _add(vocab, "parameter_keys", name)
+                sample.add("parameter_keys", name, alert_id)
                 for tail, bucket in _ECCC_TRACKED_PARAM_TAILS.items():
                     if name.endswith(tail):
-                        _add(vocab, bucket, param.findtext(f"{{{NS_CAP}}}value", ""))
+                        sample.add(
+                            bucket, param.findtext(f"{{{NS_CAP}}}value"), alert_id
+                        )
             for area in info.findall(f"{{{NS_CAP}}}area"):
                 for gc in area.findall(f"{{{NS_CAP}}}geocode"):
                     name = (gc.findtext(f"{{{NS_CAP}}}valueName", "") or "").strip()
-                    _add(vocab, "geocode_schemes", name)
+                    sample.add("geocode_schemes", name, alert_id)
                     if name.startswith(_ECCC_DLC_SCHEME_PREFIX):
-                        _add(vocab, "values.DLC", gc.findtext(f"{{{NS_CAP}}}value", ""))
+                        sample.add(
+                            "values.DLC", gc.findtext(f"{{{NS_CAP}}}value"), alert_id
+                        )
 
     if not fetched:
         raise RuntimeError(
@@ -462,10 +512,10 @@ def probe_eccc(timeout: float, max_bodies: int, workers: int) -> Vocab:
         f"  eccc: {len(seen_oids)} Actual OIDs indexed, {fetched} bodies parsed, "
         f"{skipped_senders} non-{ECCC_SENDER} skipped"
     )
-    return vocab
+    return sample
 
 
-def probe_nws(timeout: float) -> Vocab:
+def probe_nws(timeout: float) -> Sample:
     """The national active-alerts GeoJSON plus the product catalog."""
     doc = json.loads(fetch(NWS_ACTIVE_URL, timeout=timeout))
     features = doc.get("features", [])
@@ -473,9 +523,19 @@ def probe_nws(timeout: float) -> Vocab:
         # A quiet moment nationally is conceivable but has never been observed;
         # far more likely the response shape changed, which IS the finding.
         raise RuntimeError("NWS active feed returned no features")
-    vocab: Vocab = {"json_paths": json_paths(doc, opaque=frozenset({"parameters"}))}
+    sample = Sample()
+    # Envelope paths belong to no alert; each feature's paths are attributed
+    # to it below.
+    sample.add_all("json_paths", json_paths({**doc, "features": []}))
+    skipped_senders = 0
     for feature in features:
         props = feature.get("properties", {})
+        alert_id = str(feature.get("id") or props.get("id") or "")
+        sample.add_all(
+            "json_paths",
+            json_paths(feature, "features[]", opaque=frozenset({"parameters"})),
+            alert_id,
+        )
         for key in (
             "status",
             "messageType",
@@ -487,27 +547,35 @@ def probe_nws(timeout: float) -> Vocab:
         ):
             value = props.get(key)
             if isinstance(value, str):
-                _add(vocab, f"values.{key}", value)
-        for key in props.get("parameters", {}) or {}:
-            _add(vocab, "parameter_keys", str(key))
+                sample.add(f"values.{key}", value, alert_id)
+        # Parameter keys from NWS-originated alerts only: an IPAWS relay's
+        # parameters are whatever its originator typed (#184).
+        if props.get("sender") == NWS_SENDER:
+            for key in props.get("parameters", {}) or {}:
+                sample.add("parameter_keys", str(key), alert_id)
+        else:
+            skipped_senders += 1
         for key in props.get("geocode", {}) or {}:
-            _add(vocab, "geocode_keys", str(key))
+            sample.add("geocode_keys", str(key), alert_id)
         for key in props.get("eventCode", {}) or {}:
-            _add(vocab, "event_code_schemes", str(key))
+            sample.add("event_code_schemes", str(key), alert_id)
 
     catalog = json.loads(fetch(NWS_TYPES_URL, timeout=timeout))
     event_types = catalog.get("eventTypes") or []
     if not event_types:
         raise RuntimeError("NWS /alerts/types returned no eventTypes")
     for name in event_types:
-        _add(vocab, "values.event", str(name))
-    print(f"  nws: {len(features)} active alerts, {len(event_types)} catalog products")
-    return vocab
+        sample.add("values.event", str(name))
+    print(
+        f"  nws: {len(features)} active alerts, {skipped_senders} non-{NWS_SENDER} "
+        f"(parameters skipped), {len(event_types)} catalog products"
+    )
+    return sample
 
 
-def probe_meteoalarm(timeout: float, workers: int) -> Vocab:
+def probe_meteoalarm(timeout: float, workers: int) -> Sample:
     """Every country feed the integration offers; key paths + CAP enums."""
-    vocab: Vocab = {}
+    sample = Sample()
     failures: list[str] = []
     warning_count = 0
 
@@ -528,14 +596,16 @@ def probe_meteoalarm(timeout: float, workers: int) -> Vocab:
         if doc is None:
             failures.append(slug)
             continue
-        vocab.setdefault("json_paths", set()).update(json_paths(doc))
+        sample.add_all("json_paths", json_paths({**doc, "warnings": []}))
         for warning in doc.get("warnings", []) or []:
             warning_count += 1
             alert = warning.get("alert", {}) or {}
+            alert_id = str(alert.get("identifier") or "")
+            sample.add_all("json_paths", json_paths(warning, "warnings[]"), alert_id)
             for tag in ("status", "msgType", "scope"):
                 value = alert.get(tag)
                 if isinstance(value, str):
-                    _add(vocab, f"values.{tag}", value)
+                    sample.add(f"values.{tag}", value, alert_id)
             for info in alert.get("info", []) or []:
                 # No ``language``: 43 tags on the live hub and a member adding
                 # one is not something the integration has to react to.
@@ -544,7 +614,7 @@ def probe_meteoalarm(timeout: float, workers: int) -> Vocab:
                     values = value if isinstance(value, list) else [value]
                     for item in values:
                         if isinstance(item, str):
-                            _add(vocab, f"values.{tag}", item)
+                            sample.add(f"values.{tag}", item, alert_id)
                 # No ``parameter_keys``: beyond the profile's awareness_* pair,
                 # parameter names are per member service ("exposed gusts",
                 # "direction of approach") — an open set.
@@ -552,10 +622,12 @@ def probe_meteoalarm(timeout: float, workers: int) -> Vocab:
                     name = str(param.get("valueName", "")).strip()
                     if name in ("awareness_type", "awareness_level"):
                         code = str(param.get("value", "")).split(";", 1)[0].strip()
-                        _add(vocab, f"values.{name}", code)
+                        sample.add(f"values.{name}", code, alert_id)
                 for area in info.get("area", []) or []:
                     for gc in area.get("geocode", []) or []:
-                        _add(vocab, "geocode_schemes", str(gc.get("valueName", "")))
+                        sample.add(
+                            "geocode_schemes", str(gc.get("valueName", "")), alert_id
+                        )
 
     if len(failures) == len(results):
         raise RuntimeError("every MeteoAlarm country feed failed")
@@ -567,28 +639,30 @@ def probe_meteoalarm(timeout: float, workers: int) -> Vocab:
     print(
         f"  meteoalarm: {len(results) - len(failures)} countries, {warning_count} warnings{note}"
     )
-    return vocab
+    return sample
 
 
-def probe_gdacs(timeout: float) -> Vocab:
+def probe_gdacs(timeout: float) -> Sample:
     """Both RSS indexes; item structure plus the closed type/level sets."""
-    vocab: Vocab = {}
+    sample = Sample()
     items = 0
     for url in (GDACS_RSS_CURRENT_URL, GDACS_RSS_24H_URL):
         root = ET.fromstring(fetch(url, timeout=timeout))
-        vocab.setdefault("xml_paths", set()).update(xml_paths(root))
+        sample.add_all("xml_paths", xml_paths(root))
         for item in root.iter("item"):
             items += 1
+            alert_id = (item.findtext("guid", "") or "").strip()
+            sample.add_all("xml_paths", xml_paths(item, "rss/channel"), alert_id)
             for tag in ("eventtype", "alertlevel", "episodealertlevel", "iscurrent"):
-                _add(
-                    vocab,
+                sample.add(
                     f"values.{tag}",
-                    item.findtext(f"{{http://www.gdacs.org}}{tag}", "") or "",
+                    item.findtext(f"{{http://www.gdacs.org}}{tag}"),
+                    alert_id,
                 )
     if not items:
         raise RuntimeError("GDACS indexes contained no items")
     print(f"  gdacs: {items} index items across both feeds")
-    return vocab
+    return sample
 
 
 # ---------------------------------------------------------------------------
@@ -623,18 +697,36 @@ def merge_vocab(
     return {bucket: sorted(tokens) for bucket, tokens in sorted(merged.items())}
 
 
+def _render_token(token: str, alert_ids: dict[str, None] | None) -> str:
+    if not alert_ids:
+        return f"`{token}`"
+    shown = ", ".join(f"`{alert_id}`" for alert_id in list(alert_ids)[:MAX_WITNESS_IDS])
+    if len(alert_ids) > MAX_WITNESS_IDS:
+        shown += ", …"
+    noun = "alert" if len(alert_ids) == 1 else "alerts"
+    return f"`{token}` in {len(alert_ids)} {noun}: {shown}"
+
+
 def build_report(
-    drift: dict[str, dict[str, list[str]]], failures: dict[str, str]
+    drift: dict[str, dict[str, list[str]]],
+    failures: dict[str, str],
+    witnesses: dict[str, Witnesses] | None = None,
 ) -> str:
-    """GitHub-issue-ready markdown for whatever the run found."""
+    """GitHub-issue-ready markdown for whatever the run found.
+
+    Each new token lists the first few alert ids that carried it, so the
+    reader can open the documents while the feed still has them.
+    """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     lines = [f"Feed vocabulary probe, {today}."]
     for provider, buckets in sorted(drift.items()):
+        seen = (witnesses or {}).get(provider, {})
         lines.append("")
         lines.append(f"### {provider}")
         for bucket, tokens in sorted(buckets.items()):
-            rendered = ", ".join(f"`{token}`" for token in tokens)
-            lines.append(f"- **{bucket}**: {rendered}")
+            lines.append(f"- **{bucket}**")
+            for token in tokens:
+                lines.append(f"  - {_render_token(token, seen.get((bucket, token)))}")
     if failures:
         lines.append("")
         lines.append("### Probe failures")
@@ -645,7 +737,9 @@ def build_report(
         "New tokens mean the provider changed something. Check the provider's "
         "announcement channel (docs/provider-watch.md), decide whether the "
         "integration needs to react, then accept the vocabulary with "
-        "`scripts/feed_vocab_probe.py --update` and PR the baseline change."
+        "`scripts/feed_vocab_probe.py --update` and PR the baseline change. "
+        "A token that has aged out of the feed by then goes into the baseline "
+        "by hand."
     )
     return "\n".join(lines) + "\n"
 
@@ -699,7 +793,7 @@ def main() -> int:
         print(f"error: no baseline at {args.baseline}; seed one with --update")
         return 2
 
-    observed: dict[str, Vocab] = {}
+    observed: dict[str, Sample] = {}
     failures: dict[str, str] = {}
     for provider in requested:
         print(f"probing {provider}…")
@@ -720,20 +814,20 @@ def main() -> int:
 
     drift = {
         provider: found
-        for provider, vocab in observed.items()
-        if (found := diff_vocab(baseline.get(provider), vocab))
+        for provider, sample in observed.items()
+        if (found := diff_vocab(baseline.get(provider), sample.vocab))
     }
 
     if args.update:
         merged = {
             provider: merge_vocab(
-                merge_vocab(baseline.get(provider), vocab),
+                merge_vocab(baseline.get(provider), sample.vocab),
                 {
                     bucket: set(tokens)
                     for bucket, tokens in SPEC_VOCAB.get(provider, {}).items()
                 },
             )
-            for provider, vocab in observed.items()
+            for provider, sample in observed.items()
         }
         # Providers not probed this run keep their existing sections.
         for provider, buckets in baseline.items():
@@ -751,7 +845,9 @@ def main() -> int:
         print(f"baseline updated: {args.baseline}")
 
     if drift or failures:
-        report = build_report(drift, failures)
+        report = build_report(
+            drift, failures, {p: s.witnesses for p, s in observed.items()}
+        )
         print()
         print(report, end="")
         if args.report_file:

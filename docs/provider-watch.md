@@ -24,12 +24,17 @@ Responding to a drift issue:
 
 1. Read the diff. A new geocode scheme, parameter key, or lifecycle value
    usually means provider behavior changed; a new element path can also mean
-   the envelope or signature machinery moved.
+   the envelope or signature machinery moved. Each token lists the first few
+   alert ids that carried it: open those documents while the feed still has
+   them (NAAD keeps 48 hours; the NWS API answers historical queries).
 2. Check the provider's announcement channel (below) for what shipped.
 3. Decide whether the integration needs to react (a parser, filter, or
    convention-table change) and file that work as its own issue.
 4. Accept the vocabulary: run `scripts/feed_vocab_probe.py --update` and PR
-   the baseline diff. Close the drift issue when the batch is dealt with.
+   the baseline diff. A token that has already aged out of the feed (a
+   tornado warning's wireless-alerting parameters, #184) is invisible to
+   `--update`; add it to the baseline by hand, the file is sorted JSON.
+   Close the drift issue when the batch is dealt with.
 
 The baseline only grows; a token absent from one run is never drift, so a
 quiet week removes nothing.
@@ -44,7 +49,10 @@ happens are not tracked at all: the first seeded baseline learned NWS event
 names from one afternoon's live feed, and the first scheduled run filed #175
 because a tornado warning had appeared. Structural vocabulary (element and
 key paths, geocode schemes, ECCC parameter keys) is closed by nature and is
-the main signal.
+the main signal. Parameter keys are read from the provider's own alerts only:
+the NAAD channel carries provincial EMOs and Amber alerts beside ECCC, and the
+NWS active feed relays IPAWS traffic from local originators who name their
+parameters however they like.
 
 WMO is not probed: it's per-configured-source RSS with no bounded national
 endpoint. GDACS index structure is covered; its per-event GeoJSON is not.

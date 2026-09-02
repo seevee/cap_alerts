@@ -42,6 +42,7 @@
    "layer:SOREM:1.0:Broadcast_Immediately",
    "layer:SOREM:1.0:Broadcast_Text",
    "layer:SOREM:2.0:WirelessImmediate",
+   "layer:SOREM:2.0:WirelessText",
    "profile:CAP-CP:0.4:MinorChange"
   ],
   "values.Alert_Location_Status": [
@@ -183,6 +184,10 @@
    "alert/info/parameter",
    "alert/info/parameter/value",
    "alert/info/parameter/valueName",
+   "alert/info/resource",
+   "alert/info/resource/mimeType",
+   "alert/info/resource/resourceDesc",
+   "alert/info/resource/uri",
    "alert/info/responseType",
    "alert/info/senderName",
    "alert/info/severity",
