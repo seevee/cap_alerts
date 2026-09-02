@@ -36,7 +36,10 @@ like (a county emergency manager's ``timezone``, #184).
 
 Every new token is reported with the ids of the first few alerts that
 carried it, so a drift issue names documents to open rather than just a
-token that may have aged out of the feed by the time anyone reads it.
+token that may have aged out of the feed by the time anyone reads it. NWS
+is also read over the last 48 h of alerts, not just the active instant,
+since the API answers historical queries; the other feeds show only what
+is live, and the daily schedule is what bounds the gap there.
 
 WMO is not probed: the integration polls per-configured-source RSS and no
 bounded national endpoint exists, so a probe would either sample arbitrary
@@ -54,8 +57,9 @@ Exit status:
     1  drift found (cron-friendly: non-zero means "look at the report")
     2  a provider could not be probed at all (drift, if any, still reported)
 
-Run weekly by .github/workflows/feed-vocab.yml, which opens/updates a
-``provider-drift`` issue from the report. To accept drift, review it, then
+Run daily by .github/workflows/feed-vocab.yml, which opens/updates a
+``provider-drift`` issue from the report (skipping a comment that would only
+repeat tokens already on the open issue). To accept drift, review it, then
 run ``--update`` and PR the baseline change.
 
 Stdlib only — run with system python3, no venv needed. (It loads
@@ -72,7 +76,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -104,6 +108,13 @@ METEOALARM_COUNTRY_SLUGS: dict[str, str] = _const.METEOALARM_COUNTRY_SLUGS
 # providers/meteoalarm.py::METEOALARM_FEED_URL.
 NAAD_FEED_ALERTREADY = "https://rss.alertready.ca/"
 NWS_ACTIVE_URL = "https://api.weather.gov/alerts/active"
+# The active set is one instant; a 30-minute tornado warning is in it only if
+# live at 13:43 UTC. Alerts sent in this window are read as well, so a product
+# that came and went between runs is still sampled. 48 h so consecutive daily
+# runs overlap, and to match the NAAD repository window.
+NWS_HISTORY_URL = "https://api.weather.gov/alerts?start={start}&end={end}&limit=500"
+NWS_LOOKBACK = timedelta(hours=48)
+NWS_MAX_PAGES = 40  # 20k alerts; two days ran 2,771 in 7 pages on 2026-09-02
 # The full NWS product catalog (111 names on 2026-08-23). This, not the live
 # feed, is the ``values.event`` vocabulary: a product added or renamed here
 # is drift (the 2025 Excessive → Extreme Heat rename is what an icon table
@@ -515,8 +526,50 @@ def probe_eccc(timeout: float, max_bodies: int, workers: int) -> Sample:
     return sample
 
 
+def _nws_alert_id(feature: dict) -> str:
+    return str(feature.get("id") or (feature.get("properties") or {}).get("id") or "")
+
+
+def _nws_feature(sample: Sample, feature: dict) -> bool:
+    """Read one GeoJSON feature into ``sample``; True if its sender is not NWS."""
+    props = feature.get("properties", {})
+    alert_id = _nws_alert_id(feature)
+    sample.add_all(
+        "json_paths",
+        json_paths(feature, "features[]", opaque=frozenset({"parameters"})),
+        alert_id,
+    )
+    for key in (
+        "status",
+        "messageType",
+        "category",
+        "severity",
+        "certainty",
+        "urgency",
+        "response",
+    ):
+        value = props.get(key)
+        if isinstance(value, str):
+            sample.add(f"values.{key}", value, alert_id)
+    for key in props.get("geocode", {}) or {}:
+        sample.add("geocode_keys", str(key), alert_id)
+    for key in props.get("eventCode", {}) or {}:
+        sample.add("event_code_schemes", str(key), alert_id)
+    # Parameter keys from NWS-originated alerts only: an IPAWS relay's
+    # parameters are whatever its originator typed (#184).
+    if props.get("sender") != NWS_SENDER:
+        return True
+    for key in props.get("parameters", {}) or {}:
+        sample.add("parameter_keys", str(key), alert_id)
+    return False
+
+
 def probe_nws(timeout: float) -> Sample:
-    """The national active-alerts GeoJSON plus the product catalog."""
+    """The active-alerts GeoJSON, the last 48 h of alerts, and the catalog.
+
+    The active endpoint is the one the integration polls, so its envelope is
+    the one watched; the history pages contribute alerts only.
+    """
     doc = json.loads(fetch(NWS_ACTIVE_URL, timeout=timeout))
     features = doc.get("features", [])
     if not features:
@@ -528,37 +581,32 @@ def probe_nws(timeout: float) -> Sample:
     # to it below.
     sample.add_all("json_paths", json_paths({**doc, "features": []}))
     skipped_senders = 0
+    seen: set[str] = set()
     for feature in features:
-        props = feature.get("properties", {})
-        alert_id = str(feature.get("id") or props.get("id") or "")
-        sample.add_all(
-            "json_paths",
-            json_paths(feature, "features[]", opaque=frozenset({"parameters"})),
-            alert_id,
-        )
-        for key in (
-            "status",
-            "messageType",
-            "category",
-            "severity",
-            "certainty",
-            "urgency",
-            "response",
-        ):
-            value = props.get(key)
-            if isinstance(value, str):
-                sample.add(f"values.{key}", value, alert_id)
-        # Parameter keys from NWS-originated alerts only: an IPAWS relay's
-        # parameters are whatever its originator typed (#184).
-        if props.get("sender") == NWS_SENDER:
-            for key in props.get("parameters", {}) or {}:
-                sample.add("parameter_keys", str(key), alert_id)
-        else:
-            skipped_senders += 1
-        for key in props.get("geocode", {}) or {}:
-            sample.add("geocode_keys", str(key), alert_id)
-        for key in props.get("eventCode", {}) or {}:
-            sample.add("event_code_schemes", str(key), alert_id)
+        seen.add(_nws_alert_id(feature))
+        skipped_senders += _nws_feature(sample, feature)
+
+    now = datetime.now(timezone.utc)
+    stamp = "%Y-%m-%dT%H:%M:%SZ"
+    url: str | None = NWS_HISTORY_URL.format(
+        start=(now - NWS_LOOKBACK).strftime(stamp), end=now.strftime(stamp)
+    )
+    history = 0
+    for _ in range(NWS_MAX_PAGES):
+        if not url:
+            break
+        page = json.loads(fetch(url, timeout=timeout))
+        page_features = page.get("features", []) or []
+        if not page_features:
+            break
+        for feature in page_features:
+            alert_id = _nws_alert_id(feature)
+            if alert_id in seen:
+                continue
+            seen.add(alert_id)
+            history += 1
+            skipped_senders += _nws_feature(sample, feature)
+        url = (page.get("pagination") or {}).get("next")
 
     catalog = json.loads(fetch(NWS_TYPES_URL, timeout=timeout))
     event_types = catalog.get("eventTypes") or []
@@ -567,8 +615,9 @@ def probe_nws(timeout: float) -> Sample:
     for name in event_types:
         sample.add("values.event", str(name))
     print(
-        f"  nws: {len(features)} active alerts, {skipped_senders} non-{NWS_SENDER} "
-        f"(parameters skipped), {len(event_types)} catalog products"
+        f"  nws: {len(features)} active alerts + {history} more sent in the last "
+        f"{NWS_LOOKBACK.total_seconds() / 3600:.0f} h, {skipped_senders} "
+        f"non-{NWS_SENDER} (parameters skipped), {len(event_types)} catalog products"
     )
     return sample
 

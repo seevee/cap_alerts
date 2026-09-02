@@ -1,15 +1,19 @@
-# Twice a week, diff the live provider feeds' vocabulary against the
-# committed baseline (scripts/feed_vocab_probe.py) and surface anything new
-# as a provider-drift issue. Born from issue #172: ECCC's freeform
-# threat-area polygons were visible in the feed as new vocabulary for twelve
-# days before a user report landed.
+# Daily, diff the live provider feeds' vocabulary against the committed
+# baseline (scripts/feed_vocab_probe.py) and surface anything new as a
+# provider-drift issue. Born from issue #172: ECCC's freeform threat-area
+# polygons were visible in the feed as new vocabulary for twelve days before
+# a user report landed.
 name: Feed vocabulary
 
 on:
   workflow_dispatch:
   schedule:
-    # Monday and Thursday, off the hour to dodge the top-of-hour crunch.
-    - cron: "43 13 * * 1,4"
+    # Daily, off the hour to dodge the top-of-hour crunch. Each feed shows
+    # only a window (NAAD keeps 48 h; NWS is read over the same 48 h via its
+    # historical query; the rest show what is live now), and twice a week
+    # left a 48 h hole every weekend in which a rare product, a tornado
+    # warning's wireless-alerting parameters (#184), was never seen.
+    - cron: "43 13 * * *"
 
 permissions:
   contents: read
@@ -40,6 +44,11 @@ jobs:
         # One rolling issue: append to the open provider-drift issue if there
         # is one, otherwise open it. Closing the issue acknowledges the batch;
         # the next drift opens a fresh one.
+        #
+        # Drift is measured against the committed baseline, so a token stays
+        # drift until its baseline PR merges. A run whose report only repeats
+        # tokens already on the open issue does not comment; a probe failure
+        # always does.
         run: |
           gh label create provider-drift \
             --color D93F0B \
@@ -47,13 +56,40 @@ jobs:
             || true
           existing=$(gh issue list --label provider-drift --state open \
             --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --body-file drift.md
-          else
+          if [ -z "$existing" ]; then
             gh issue create \
               --title "Provider feed vocabulary drift" \
               --label provider-drift \
               --body-file drift.md
+            exit 0
+          fi
+          # "provider<TAB>token" per vocabulary token in a report. Token
+          # lines are "  - `token` in N alerts: `id`, ..." (only the first
+          # span is the token) or, in reports older than #184,
+          # "- **bucket**: `a`, `b`".
+          tokens() {
+            awk '
+              /^### / { provider = $2 }
+              /^- \*\*/ || /^  - `/ {
+                line = $0
+                while (match(line, /`[^`]+`/)) {
+                  print provider "\t" substr(line, RSTART + 1, RLENGTH - 2)
+                  if (line ~ /^  - `/) break
+                  line = substr(line, RSTART + RLENGTH)
+                }
+              }' "$@" | sort -u
+          }
+          {
+            gh issue view "$existing" --json body --jq '.body'
+            gh issue view "$existing" --json comments --jq '.comments[].body'
+          } > reported.md
+          tokens reported.md > reported.txt
+          tokens drift.md > found.txt
+          if grep -q '^### Probe failures' drift.md \
+            || [ -n "$(comm -13 reported.txt found.txt)" ]; then
+            gh issue comment "$existing" --body-file drift.md
+          else
+            echo "every token in the report is already on #$existing; not commenting"
           fi
       - name: Fail on probe error
         # Exit 1 is drift (now filed as an issue — the job stays green);
