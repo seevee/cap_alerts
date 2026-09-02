@@ -14,10 +14,18 @@ human.
 structural vocabulary (element/key paths, geocode schemes, parameter keys,
 and the small closed value sets like severity, lifecycle tokens, and the ECCC
 DLC values), and diffs it against `scripts/feed_vocab_baseline.json`.
-`.github/workflows/feed-vocab.yml` runs it Monday and Thursday and opens or
-appends to a `provider-drift` issue when the feed publishes a token the
-baseline has never seen. The CAM change would have tripped it on day one:
-`layer:EC-MSC-SMC:DLC:1.1` was a new geocode scheme, and ten new
+`.github/workflows/feed-vocab.yml` runs it daily and opens or appends to a
+`provider-drift` issue when the feed publishes a token the baseline has never
+seen. Daily because each feed shows only a window (NAAD keeps 48 hours, the
+others show what is live now), and the earlier Monday-and-Thursday cadence
+left a 48-hour hole every weekend in which a rare product was never sampled
+(#184). NWS is the one feed with a historical query, so the probe reads the
+last 48 hours of NWS alerts as well as the active set, and a product that
+came and went between runs is still sampled there. A token stays drift until
+its baseline PR merges, so a run whose report only repeats what is already on
+the open issue stays quiet; a probe failure always posts. The CAM change
+would have tripped it on day one: `layer:EC-MSC-SMC:DLC:1.1` was a new
+geocode scheme, and ten new
 `Storm_*`/`MSC_*` parameter keys came with it.
 
 Responding to a drift issue:

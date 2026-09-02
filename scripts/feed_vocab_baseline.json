@@ -487,6 +487,8 @@
    "features[].properties.references[].identifier",
    "features[].properties.references[].sender",
    "features[].properties.references[].sent",
+   "features[].properties.replacedAt",
+   "features[].properties.replacedBy",
    "features[].properties.response",
    "features[].properties.scope",
    "features[].properties.sender",
