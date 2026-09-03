@@ -69,6 +69,16 @@ class AlertStore:
         # again, once per cycle, for as long as the source keeps publishing it
         # (issue #145). This is the memory that ``_previous`` cannot carry.
         self._tombstones: dict[str, datetime] = {}
+        # CAP <identifier> → when an already-announced ending was last observed,
+        # alongside ``_tombstones``. A revision that re-issues an ended record
+        # gets a fresh bilingual key (``sent`` is a key input), so the new id
+        # has no tombstone of its own even though it is the same ending
+        # (issue #185). The identifier survives that key change: a terminal
+        # alert whose ``references`` name an identifier already recorded here
+        # is that same ending under a new key, not a new one. Revival (the
+        # lineage going live again) pops the referenced identifiers back out,
+        # so a later, genuine ending of the same lineage is not swallowed too.
+        self._tombstoned_identifiers: dict[str, datetime] = {}
 
     def process(
         self,
@@ -101,6 +111,13 @@ class AlertStore:
         comes back *live* clears its tombstone and fires ``incident_created``,
         because a reissue is news and swallowing it is worse than a duplicate.
 
+        The same ending can also reappear under a *different* id: a source may
+        re-issue an already-ended record on a new revision (issue #185). The
+        id-keyed tombstone above cannot recognise that, so a terminal alert
+        whose ``references`` name the CAP identifier of an already-tombstoned
+        ending is treated the same way — suppressed, and its own id and
+        identifier folded into the tombstone so a third revision is caught too.
+
         Returns only the active alerts (``phase`` ∈ ``{new, update}``),
         with ``previous_phase`` and ``phase_changed`` set.
         """
@@ -116,6 +133,11 @@ class AlertStore:
         self._tombstones = {
             alert_id: seen
             for alert_id, seen in self._tombstones.items()
+            if seen > tombstone_cutoff
+        }
+        self._tombstoned_identifiers = {
+            identifier: seen
+            for identifier, seen in self._tombstoned_identifiers.items()
             if seen > tombstone_cutoff
         }
 
@@ -134,13 +156,27 @@ class AlertStore:
                     # This ending has already been announced and the source is
                     # still publishing the record. Refresh so the tombstone ages
                     # from the last sighting, not the first.
-                    self._tombstones[alert_id] = now
+                    self._tombstone(alert_id, alert.identifier, now)
+                    continue
+                if any(
+                    ref_id in self._tombstoned_identifiers
+                    for ref_id in (alert.references or ())
+                ):
+                    # Same ending, re-issued under a new bilingual key (issue
+                    # #185) — the id is unseen but the lineage isn't. Extend
+                    # the tombstone to this revision without re-announcing.
+                    self._tombstone(alert_id, alert.identifier, now)
                     continue
             else:
                 # Live again after an ending. The alert left the tracked set when
                 # it was terminated, so it is a new incident to us and takes the
-                # ordinary first-sighting path below.
+                # ordinary first-sighting path below. The lineage it references
+                # is no longer an ended one — clear it, or a later genuine
+                # ending of the same lineage would be swallowed as a duplicate
+                # of the ending this revival superseded.
                 self._tombstones.pop(alert_id, None)
+                for ref_id in alert.references or ():
+                    self._tombstoned_identifiers.pop(ref_id, None)
 
             if prev is None:
                 # Check for cross-poll supersession: this alert's <references>
@@ -162,7 +198,7 @@ class AlertStore:
                         phase_changed=phase_changed,
                     )
                     if terminal:
-                        self._tombstones[alert_id] = now
+                        self._tombstone(alert_id, alert.identifier, now)
                         self._fire_event(
                             EVENT_INCIDENT_REMOVED,
                             updated,
@@ -180,7 +216,7 @@ class AlertStore:
                     updated = replace(alert, phase_changed=True)
                     if terminal:
                         # First sight is already terminal — emit removed only.
-                        self._tombstones[alert_id] = now
+                        self._tombstone(alert_id, alert.identifier, now)
                         self._fire_event(
                             EVENT_INCIDENT_REMOVED,
                             updated,
@@ -203,7 +239,7 @@ class AlertStore:
                     phase_changed=phase_changed,
                 )
                 if terminal:
-                    self._tombstones[alert_id] = now
+                    self._tombstone(alert_id, alert.identifier, now)
                     self._fire_event(
                         EVENT_INCIDENT_REMOVED,
                         updated,
@@ -260,7 +296,7 @@ class AlertStore:
             # feeds, which withdraw ended alerts and return them hours later —
             # would otherwise announce the same ending twice, once here and once
             # as a first sighting that is already terminal.
-            self._tombstones[alert_id] = now
+            self._tombstone(alert_id, prev.identifier, now)
             inferred = _infer_terminal_phase(prev, now)
             terminal_alert = replace(
                 prev,
@@ -287,6 +323,19 @@ class AlertStore:
 
         self._previous = active
         return result
+
+    def _tombstone(self, alert_id: str, identifier: str, now: datetime) -> None:
+        """Record an announced ending under both its id and its CAP identifier.
+
+        The id defends against the same revision reappearing (issue #145); the
+        identifier defends against the *next* revision re-announcing the same
+        ending under a fresh bilingual key (issue #185). ``identifier`` may be
+        empty for a provider that doesn't carry one, in which case only the
+        id-keyed defence applies.
+        """
+        self._tombstones[alert_id] = now
+        if identifier:
+            self._tombstoned_identifiers[identifier] = now
 
     def _fire_event(
         self,

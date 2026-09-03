@@ -134,6 +134,13 @@ non-terminal again, so an alert that comes back live fires `incident_created` an
 can later fire a second `incident_removed`. Feeds do reissue, and suppressing
 that would be worse than the duplicate it prevents.
 
+**The same ending can also come back under a different id.** ECCC has been
+observed re-issuing an already-ended record on a fresh revision — a new
+bilingual key, since `sent` is a key input — with the new document's CAP
+`<references>` naming the one just announced (issue #185). The store follows
+that lineage, not just the id, so this is a no-op too; only a genuinely new
+ending, or one that went live again first, fires its own `incident_removed`.
+
 **Consumers should still be idempotent.** A restart clears the memory, as it
 clears everything else the store holds, so a terminal record read fresh after a
 restart fires one removal for an alert an automation may already have archived.
