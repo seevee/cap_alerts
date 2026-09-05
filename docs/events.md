@@ -23,6 +23,7 @@ Event names match the RFC §2.3 `incident_*` contract.
 | `entry_id` | `str` | extension | Config entry id. Useful when a Home Assistant install has multiple CAP Alerts entries (e.g. two NWS zones). Not in the RFC. |
 | `area_desc` | `str` | extension | Human-readable area description, denormalized onto the event for convenience. Not in the RFC. |
 | `removal_reason` | `str` | extension | Why the alert went away: `superseded` or `ended`. Fires on `incident_removed` only, and **omitted** whenever the provider gave no recognized reason. See below. Not in the RFC. |
+| `superseded_by` | `str` | extension | The successor's CAP identifier, when `removal_reason` is `superseded` **and** the source published a parseable reference to it. Omitted otherwise — including most `superseded` removals today. See below. Not in the RFC. |
 
 `previous_phase` is **not** on the event payload. Consumers can reconstruct
 it when `phase` appears in `changed_fields`: the previous phase was whatever
@@ -186,11 +187,38 @@ not for the whole CAP document: one document can end over one region
 while staying live over another (see *architecture.md → ECCC →
 Area-group selection*). It is not an all-clear for a neighbouring area.
 
-The superseding alert's `incident_id` is **not** on the payload. Whether
-CAP `<references>` reaches across event types at ECCC (a watch and a
-warning are separate chains) is a feed-behavior question that needs a
-captured upgrade to answer; until then the reason alone is what the
-integration can state truthfully.
+## `superseded_by` on `incident_removed` (ECCC only)
+
+`removal_reason: superseded` says an alert was replaced, but not by what —
+`incident_id` is not on the payload, and until issue #190 that was all a
+consumer could learn from the removal itself. It turns out CAP `<references>`
+never carries the answer: watch and warning are separate chains at ECCC, so a
+successor never references the alert it replaces and is never referenced back
+(confirmed 2026-09-02 on a 4-day `alertsarchive.pelmorex.com` sample). What
+does carry it is a CAP-CP parameter, `Transitioned_Out_CAP_Reference`, present
+on every `transitioned_out` area group measured (27/27) and cross-chain by
+design: it names the successor's own CAP `<identifier>`, which a consumer
+correlates against the successor entity's `identifier` attribute — not a new
+lookup path.
+
+**This dangles more often than not.** Of the 27 measured targets, 18 never
+appeared on NAAD — not in the archive, not at the constructed per-alert CAP
+URL. Whether ECCC publishes those elsewhere or drops them before publication
+is unknown. A dangling reference is not a malformed message: `superseded_by`
+is a hint that the successor *may* exist under that identifier, not a
+guarantee its entity will ever be found.
+
+**Omitted, not `null`.** The key is present only when `lifecycle_status` is
+`transitioned_out` *and* the parameter parses; every other ending — including
+ECCC's own `ended`/`cancelled` — and every non-ECCC provider carries no such
+key, the same contract as `removal_reason`.
+
+**Unverified on the reporter's motivating case.** All 27 measured transitions
+were marine squall→squall, one thunderstorm, and one heat — none a
+watch→warning upgrade, and the reporter says that pairing essentially doesn't
+happen at ECCC in practice (watches tend to stay up beside warnings). The
+field ships without ever having been observed on the case it was requested
+for.
 
 ## Cross-poll supersession (ECCC)
 

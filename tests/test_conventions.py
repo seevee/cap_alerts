@@ -13,6 +13,7 @@ from custom_components.cap_alerts.conventions import (
     SourceConventions,
     StageContext,
     conventions_for,
+    eccc_superseded_by,
     is_marine_code,
     meteoalarm_awareness_severity,
     nws_vtec_severity,
@@ -218,6 +219,70 @@ def test_only_eccc_declares_lifecycle_vocabulary(provider):
     # No other shipped source publishes a termination token, which is what
     # keeps their removal payloads free of the key.
     assert dict(conventions_for(provider).lifecycle_removal_reasons) == {}
+
+
+# ---------------------------------------------------------------------------
+# Successor extraction — Transitioned_Out_CAP_Reference (issue #190)
+# ---------------------------------------------------------------------------
+
+
+def test_only_eccc_declares_a_superseded_by_hook():
+    assert conventions_for("eccc").superseded_by is eccc_superseded_by
+    for provider in ("nws", "meteoalarm", "wmo"):
+        assert conventions_for(provider).superseded_by is None
+
+
+def test_eccc_superseded_by_parses_the_reference(alert_factory):
+    alert = alert_factory(
+        provider="eccc",
+        parameters={
+            "layer:EC-MSC-SMC:1.1:Transitioned_Out_CAP_Reference": (
+                "cap-pac@canada.ca,2.49.0.1.124.20260902154500.5678,"
+                "2026-09-02T15:45:00-04:00;013300"
+            )
+        },
+    )
+    assert eccc_superseded_by(alert) == "2.49.0.1.124.20260902154500.5678"
+
+
+def test_eccc_superseded_by_tolerates_a_comma_bearing_identifier(alert_factory):
+    # Mirrors providers/cap.py::_parse_references — the identifier is
+    # everything between the first and last comma-separated field.
+    alert = alert_factory(
+        provider="eccc",
+        parameters={
+            "layer:EC-MSC-SMC:1.1:Transitioned_Out_CAP_Reference": (
+                "cap-pac@canada.ca,id,with,commas,2026-09-02T15:45:00-04:00;013300"
+            )
+        },
+    )
+    assert eccc_superseded_by(alert) == "id,with,commas"
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        None,
+        {},
+        {"layer:EC-MSC-SMC:1.1:Transitioned_Out_CAP_Reference": ""},
+        {"layer:EC-MSC-SMC:1.1:Transitioned_Out_CAP_Reference": "   "},
+        # Missing the sent field entirely — only two comma-separated parts.
+        {
+            "layer:EC-MSC-SMC:1.1:Transitioned_Out_CAP_Reference": (
+                "cap-pac@canada.ca,2.49.0.1.124.x;013300"
+            )
+        },
+        # Right shape, wrong parameter key (a 1.0 layer, never observed live).
+        {
+            "layer:EC-MSC-SMC:1.0:Transitioned_Out_CAP_Reference": (
+                "cap-pac@canada.ca,2.49.0.1.124.x,2026-09-02T15:45:00-04:00;013300"
+            )
+        },
+    ],
+)
+def test_eccc_superseded_by_none_when_absent_or_malformed(alert_factory, parameters):
+    alert = alert_factory(provider="eccc", parameters=parameters)
+    assert eccc_superseded_by(alert) is None
 
 
 # ---------------------------------------------------------------------------

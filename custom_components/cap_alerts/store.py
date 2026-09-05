@@ -13,6 +13,7 @@ from .const import (
     EVENT_INCIDENT_CREATED,
     EVENT_INCIDENT_REMOVED,
     EVENT_INCIDENT_UPDATED,
+    REMOVAL_REASON_SUPERSEDED,
 )
 from .conventions import ABSENCE_RETAIN, conventions_for
 from .model import CAPAlert
@@ -364,6 +365,10 @@ class AlertStore:
             reason = _removal_reason(alert)
             if reason:
                 payload["removal_reason"] = reason
+            if reason == REMOVAL_REASON_SUPERSEDED:
+                successor = _superseded_by(alert)
+                if successor:
+                    payload["superseded_by"] = successor
         # entity_id: look up via entity registry by unique_id.
         # On first sighting the entity isn't registered yet; omit the key.
         unique_id = f"{self._entry_id}_{self._provider}_{alert.id}"
@@ -397,6 +402,22 @@ def _removal_reason(alert: CAPAlert) -> str:
         return ""
     conventions = conventions_for(alert.provider, alert.sender)
     return conventions.lifecycle_removal_reasons.get(alert.lifecycle_status, "")
+
+
+def _superseded_by(alert: CAPAlert) -> str | None:
+    """The successor's CAP identifier for a superseded ending, or None (issue #190).
+
+    Only called once ``_removal_reason`` has already resolved to
+    ``REMOVAL_REASON_SUPERSEDED`` for this alert's source. The extraction
+    itself is the source's own convention hook — ECCC's reads the
+    ``Transitioned_Out_CAP_Reference`` CAP parameter — so a source with no
+    such hook, or whose hook cannot parse this particular ending, publishes
+    nothing rather than a guess.
+    """
+    conventions = conventions_for(alert.provider, alert.sender)
+    if conventions.superseded_by is None:
+        return None
+    return conventions.superseded_by(alert)
 
 
 def _diff_fields(prev: CAPAlert, curr: CAPAlert) -> list[str]:
