@@ -348,8 +348,8 @@ class AlertStore:
     ) -> None:
         """Fire an HA event matching RFC §2.3 (schema documented in docs/events.md).
 
-        ``entry_id``, ``area_desc`` and ``removal_reason`` are project
-        extensions not in the RFC.
+        ``entry_id``, ``area_desc``, ``removal_reason`` and ``superseded_by``
+        are project extensions not in the RFC.
         """
         payload: dict = {
             "entry_id": self._entry_id,
