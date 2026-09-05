@@ -508,6 +508,107 @@ def test_removal_reason_survives_an_expired_phase(hass, alert_factory):
     assert payload["removal_reason"] == "superseded"
 
 
+def test_removed_carries_superseded_by_when_the_reference_parses(hass, alert_factory):
+    """The successor's CAP identifier rides alongside removal_reason (#190)."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "eccc")
+    store.process(normalize_alerts([_eccc(alert_factory, id="a")]))
+    hass.bus.async_fire.reset_mock()
+
+    store.process(
+        normalize_alerts(
+            [
+                _eccc(
+                    alert_factory,
+                    id="a",
+                    lifecycle_status="transitioned_out",
+                    parameters={
+                        "layer:EC-MSC-SMC:1.1:Transitioned_Out_CAP_Reference": (
+                            "cap-pac@canada.ca,2.49.0.1.124.x,"
+                            "2026-09-02T15:45:00-04:00;013300"
+                        )
+                    },
+                )
+            ]
+        )
+    )
+
+    _, payload = _fired(hass)[0]
+    assert payload["removal_reason"] == "superseded"
+    assert payload["superseded_by"] == "2.49.0.1.124.x"
+
+
+def test_removed_omits_superseded_by_when_the_reference_is_absent(hass, alert_factory):
+    """The dangling ~2/3 case from measurement: no key, not an error."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "eccc")
+    store.process(normalize_alerts([_eccc(alert_factory, id="a")]))
+    hass.bus.async_fire.reset_mock()
+
+    store.process(
+        normalize_alerts(
+            [_eccc(alert_factory, id="a", lifecycle_status="transitioned_out")]
+        )
+    )
+
+    _, payload = _fired(hass)[0]
+    assert payload["removal_reason"] == "superseded"
+    assert "superseded_by" not in payload
+
+
+def test_removed_omits_superseded_by_for_a_plain_ended_reason(hass, alert_factory):
+    """Not fired alongside every removal_reason — only superseded."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "eccc")
+    store.process(normalize_alerts([_eccc(alert_factory, id="a")]))
+    hass.bus.async_fire.reset_mock()
+
+    store.process(
+        normalize_alerts(
+            [
+                _eccc(
+                    alert_factory,
+                    id="a",
+                    lifecycle_status="ended",
+                    parameters={
+                        "layer:EC-MSC-SMC:1.1:Transitioned_Out_CAP_Reference": (
+                            "cap-pac@canada.ca,2.49.0.1.124.x,"
+                            "2026-09-02T15:45:00-04:00;013300"
+                        )
+                    },
+                )
+            ]
+        )
+    )
+
+    _, payload = _fired(hass)[0]
+    assert payload["removal_reason"] == "ended"
+    assert "superseded_by" not in payload
+
+
+def test_removed_omits_superseded_by_for_non_eccc_providers(hass, alert_factory):
+    """No hook declared, so the key never appears off ECCC."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "nws")
+    store.process(
+        normalize_alerts(
+            [alert_factory(id="a", msg_type="Cancel", lifecycle_status="ended")]
+        )
+    )
+
+    _, payload = _fired(hass)[0]
+    assert "removal_reason" not in payload
+    assert "superseded_by" not in payload
+
+
 def test_plain_cancel_has_no_removal_reason(hass, alert_factory):
     """No signal means no key — phase=cancel alone is all we know."""
     from custom_components.cap_alerts.normalize import normalize_alerts

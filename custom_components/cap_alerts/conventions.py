@@ -120,6 +120,45 @@ ECCC_LIFECYCLE_REMOVAL_REASONS: Mapping[str, str] = MappingProxyType(
     }
 )
 
+# CAP parameter naming the successor of a ``transitioned_out`` area group
+# (issue #190). Only the 1.1 layer has been observed — 27/27 measured
+# transitioned_out groups on a 4-day ``alertsarchive.pelmorex.com`` sample
+# carried it, none carried a 1.0 predecessor — unlike ``Alert_Name`` and
+# ``Alert_Location_Status``, which do.
+_TRANSITIONED_OUT_REFERENCE_PARAM_KEY = (
+    "layer:EC-MSC-SMC:1.1:Transitioned_Out_CAP_Reference"
+)
+
+
+def eccc_superseded_by(alert: CAPAlert) -> str | None:
+    """The successor CAP identifier for an ECCC ``transitioned_out`` ending.
+
+    The parameter's value is CAP ``<references>`` syntax
+    (``sender,identifier,sent``) with an ECCC-appended ``;<CLC>`` suffix — the
+    CLC is one of the block's own area codes, not part of the reference. Only
+    the identifier is surfaced; ``sender``/``sent`` are validated shape, not
+    published. The identifier field is joined back from every middle segment
+    (mirroring ``providers/cap.py::_parse_references``), tolerant of a
+    comma-bearing identifier.
+
+    Returns ``None`` when the parameter is absent or does not parse as that
+    shape. Measured to dangle — no matching document ever reaches NAAD — in 18
+    of 27 cases; that is a known feed gap, not a malformed message, so callers
+    must treat ``None`` as "nothing to publish", not an error.
+    """
+    if not alert.parameters:
+        return None
+    raw = alert.parameters.get(_TRANSITIONED_OUT_REFERENCE_PARAM_KEY, "").strip()
+    if not raw:
+        return None
+    reference, _, _clc = raw.partition(";")
+    parts = reference.split(",")
+    if len(parts) < 3:
+        return None
+    identifier = ",".join(parts[1:-1]).strip()
+    return identifier or None
+
+
 # VTEC significance → severity tier (NWS).
 _VTEC_SIG_SEVERITY = {
     "W": "severe",  # Warning
@@ -1032,6 +1071,14 @@ class SourceConventions:
     lifecycle_removal_reasons: Mapping[str, str] = field(
         default_factory=lambda: _NO_REMOVAL_REASONS
     )
+    # Successor CAP identifier for an ending this source's own vocabulary maps
+    # to ``REMOVAL_REASON_SUPERSEDED``, or None for a source that supplies no
+    # such extraction. Consulted only after ``removal_reason`` has already
+    # resolved to "superseded" (issue #190); the hook's own ``None`` return
+    # means "the parameter is absent or unparseable this time", not "this
+    # source never has one" — a source can be wired here and still omit the
+    # key on many individual endings.
+    superseded_by: Callable[[CAPAlert], str | None] | None = None
     # Source-specific severity derivation, or None to use CAP ``severity``.
     severity: Callable[[CAPAlert], str | None] | None = None
     # Replacement entity id for a finished alert, or None to keep the
@@ -1121,6 +1168,7 @@ CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
         "eccc": SourceConventions(
             marine_code_prefixes=frozenset({ECCC_MARINE_CLC_PREFIX}),
             lifecycle_removal_reasons=ECCC_LIFECYCLE_REMOVAL_REASONS,
+            superseded_by=eccc_superseded_by,
         ),
         "meteoalarm": SourceConventions(
             severity=meteoalarm_awareness_severity,
