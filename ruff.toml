@@ -1,0 +1,13 @@
+# Lint selection, pinned explicitly.
+#
+# ruff 0.16 widened its default rule set from E4/E7/E9/F to a curated set of
+# roughly thirty rule families. This repo never selected rules itself, so the
+# 0.15 -> 0.16 bump would have imported ~116 new findings, 23 of them inside
+# custom_components/. The selection below is the pre-0.16 default, so the
+# tool version and the rule set move independently. Widening the selection
+# is its own change, made deliberately rather than by a version bump.
+#
+# Formatting is `ruff format` with defaults; nothing here touches it.
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
