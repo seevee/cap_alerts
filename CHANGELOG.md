@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.0 — 2026-09-14
+
+### Added
+- Prefill GPS fields from the HA home location (#128) (#159) (97b5376…)
+- Validate NWS GPS mode against /points/ at setup (#161) (e39c25f…)
+- Add a back option to every menu (#140) (#162) (418d6e7…)
+- Raise a repair for ECCC entries that lose NAAD coverage at the sunset (#163) (#165) (15aeb23…)
+- Recover alerts missed during socket downtime from the NAAD repository (#164) (#167) (f58b4b7…)
+- Add a device-tracker mode to GDACS (#171) (#173) (04fa243…)
+- Revalidate the NAAD GeoRSS feed with conditional GET (#182) (19705be…)
+- Add superseded_by to incident_removed for ECCC transitions (#191) (281832e…)
+
+### Documentation
+- Record the payload bound and the #151 outcome (#169) (75e37f4…)
+
+### Fixed
+- Prefer an English <info> block as the alternate (#154) (#168) (e555790…)
+- Match GPS mode on CAM threat polygons, not legacy zones (#176) (f9a056c…)
+- Publish the CAM threat polygon as the alert geometry (#178) (#180) (52e553d…)
+- Follow CAP identifier lineage to dedupe reissued endings (#188) (ba97e25…)
+
+### Maintenance
+- Add verify.sh, one command for every CI gate (#166) (b4407b7…)
+- Add a feed vocabulary probe and its scheduled workflow (#174) (8b57992…)
+- Track only catalog-backed vocabulary in the feed probe (#179) (60bd3e9…)
+- Name the alerts behind each feed vocabulary drift (#184) (#186) (93ca898…)
+- Probe feed vocabulary daily, read NWS history, dedupe comments (#187) (38725cd…)
+- Bump test pins to HA 2026.9.0, ruff 0.16.6, mypy 2.3.1 (#193) (3008e20…)
+- Accept MeteoAlarm resource digest/size vocabulary (#198) (7f2ae26…)
+
 ## 0.4.0 — 2026-08-21
 
 ### Added
