@@ -1285,6 +1285,22 @@ async def test_cache_returns_none_on_timeout():
 
 
 @pytest.mark.asyncio
+async def test_cache_fetch_timeout_defaults_and_overrides():
+    """A caller that names no timeout gets the CAP-body default; one that
+    does gets exactly that, and a cache hit asks the session nothing (#196)."""
+    session = StubSession({"http://test/a.xml": "a", "http://test/b.xml": "b"})
+    cache = CAPContentCache()
+    await cache.get_or_fetch(session, "http://test/a.xml")
+    await cache.get_or_fetch(session, "http://test/b.xml", timeout=25)
+    await cache.get_or_fetch(session, "http://test/b.xml", timeout=99)
+    assert [t.total for t in session.request_timeouts] == [
+        _cap_cache_mod.DEFAULT_FETCH_TIMEOUT,
+        25,
+    ]
+    assert _cap_cache_mod.DEFAULT_FETCH_TIMEOUT == 10
+
+
+@pytest.mark.asyncio
 async def test_cache_coalesces_concurrent_requests_for_same_url():
     """Two concurrent get_or_fetch calls for the same URL trigger one HTTP GET."""
     fetch_count = 0

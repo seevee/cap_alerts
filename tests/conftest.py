@@ -132,10 +132,15 @@ class StubSession:
         # Request headers per call, parallel to ``requested`` (None when the
         # caller sent none) — lets conditional-GET tests assert If-None-Match.
         self.request_headers: list[dict[str, str] | None] = []
+        # Request timeout per call, likewise parallel (the aiohttp
+        # ``ClientTimeout`` object, or None) — lets per-caller timeout tests
+        # assert what reached the session.
+        self.request_timeouts: list[Any] = []
 
     def get(self, url: str, **kwargs: Any) -> Any:
         self.requested.append(url)
         self.request_headers.append(kwargs.get("headers"))
+        self.request_timeouts.append(kwargs.get("timeout"))
         value = self._responses.get(url)
         if isinstance(value, list):
             idx = min(self._seq_index.get(url, 0), len(value) - 1) if value else 0
