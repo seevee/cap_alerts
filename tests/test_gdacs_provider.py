@@ -17,8 +17,10 @@ from custom_components.cap_alerts.const import (
     GDACS_RSS_24H_URL,
     GDACS_RSS_CURRENT_URL,
 )
+from custom_components.cap_alerts.normalize import _bbox_from_geometry
 from custom_components.cap_alerts.providers import cap_content_cache as _cap_cache_mod
 from custom_components.cap_alerts.providers import gdacs as _gdacs_mod
+from custom_components.cap_alerts.providers.geometry import geometry_from_shapes
 from tests.conftest import StubSession
 
 _FIXTURES = Path(__file__).parent / "fixtures"
@@ -277,6 +279,41 @@ def test_shapes_from_geojson_keeps_an_unknown_class():
     payload["features"][1]["properties"]["Class"] = "Poly_SomethingNew"
     rings, _ = _shapes_from_geojson(json.dumps(payload))
     assert len(rings) == 1
+
+
+def _flood_without(klass: str) -> str:
+    """The flood fixture minus one feature class."""
+    payload = json.loads(_fixture("gdacs_geojson_fl.geojson"))
+    payload["features"] = [
+        f for f in payload["features"] if f["properties"]["Class"] != klass
+    ]
+    return json.dumps(payload)
+
+
+def test_shapes_from_geojson_prefers_the_footprint_to_the_country_outline():
+    """A flood file carries the affected area and the outline of the whole
+    country it is in; merging both makes the alert span the country (#195).
+
+    The fixture is FL 1103888 episode 91 trimmed down: three affected rings
+    on Long Island Sound, and a country layer reaching Hawaii.
+    """
+    rings, points = _shapes_from_geojson(_fixture("gdacs_geojson_fl.geojson"))
+    assert len(rings) == 3  # Poly_Affected's ring count, Poly_Global's 3 gone
+    assert points == [[-73.3711, 41.119]]
+    min_lon, min_lat, max_lon, max_lat = _bbox_from_geometry(
+        geometry_from_shapes(rings, points)
+    )
+    assert -75.0 < min_lon and max_lon < -71.0
+    assert 40.5 < min_lat and max_lat < 42.0
+
+
+def test_shapes_from_geojson_keeps_the_country_outline_without_a_footprint():
+    """Coarse beats empty: with no affected area in the file, the country
+    outline is the only place the flood is, so it stays."""
+    rings, _ = _shapes_from_geojson(_flood_without("Poly_Affected"))
+    assert len(rings) == 3  # Poly_Global's own ring count
+    min_lon, *_ = _bbox_from_geometry(geometry_from_shapes(rings, []))
+    assert min_lon < -150.0  # reaches Hawaii
 
 
 def test_shapes_from_geojson_rejects_the_html_miss():
@@ -540,6 +577,35 @@ async def test_gps_ignores_a_cyclone_forecast_track():
         cap_content_cache=CAPContentCache(),
     )
     assert inside_cone == []
+
+
+@pytest.mark.asyncio
+async def test_gps_flood_matches_the_footprint_not_the_country():
+    """Before #195 every GPS scope in the United States matched a flood in
+    Connecticut, because the country outline was part of the alert geometry.
+
+    The flood payload is served under the green earthquake's URL: the RSS
+    fixtures carry no flood, and the index record is irrelevant to where the
+    rings land.
+    """
+    responses = _full_responses()
+    responses[_geo_url(_EQ_GREEN)] = _fixture("gdacs_geojson_fl.geojson")
+
+    denver = await GDACSProvider().async_fetch(
+        StubSession(responses),
+        {CONF_GPS_LOC: "39.6875,-105.0866"},
+        _ALL_LEVELS,
+        cap_content_cache=CAPContentCache(),
+    )
+    assert denver == []
+
+    bridgeport = await GDACSProvider().async_fetch(
+        StubSession(responses),
+        {CONF_GPS_LOC: "41.18,-73.19"},
+        _ALL_LEVELS,
+        cap_content_cache=CAPContentCache(),
+    )
+    assert [a.id for a in bridgeport] == [_alert_id(_EQ_GREEN)]
 
 
 @pytest.mark.asyncio
