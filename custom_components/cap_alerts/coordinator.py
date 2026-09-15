@@ -498,6 +498,11 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         return config, options
 
     @property
+    def geometry_store(self) -> GeometryStore:
+        """The shared polygon store, for diagnostics."""
+        return self._geometry_store
+
+    @property
     def resolved_config(self) -> Mapping[str, Any]:
         """Entry data as the last resolution left it, or the raw data before one."""
         if self._resolved_config is None:

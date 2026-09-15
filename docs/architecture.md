@@ -1196,9 +1196,14 @@ expiry-bounded retention, which is safe but lingers.
 ### Geometry externalization (§2.4)
 
 Full GeoJSON polygons are **not** entity attributes. The coordinator writes them
-to a process-wide in-memory `GeometryStore` (LRU-bounded by total serialized
-bytes, cap 5 MB, keyed by `geometry_ref = "{entry_id}:{provider}:{alert_id}"`)
-and entities expose only the opaque `geometry_ref` handle. Nothing is persisted
+to a process-wide in-memory `GeometryStore` (LRU-bounded by serialized bytes,
+5 MB per config entry, keyed by `geometry_ref = "{entry_id}:{provider}:{alert_id}"`)
+and entities expose only the opaque `geometry_ref` handle. An entry evicts only
+its own refs (issue #197): a worldwide GDACS scope once held 4.3 MB of what was
+a 5 MB global cap, and the first sign that it had pushed a WMO entry's polygons
+out was a card drawing an empty frame off a 404. The first eviction on an entry
+logs at warning, and the entry's diagnostics report its share of the store and
+how many active alerts have a ref the store no longer holds. Nothing is persisted
 to `.storage`: geometry is ephemeral, re-fetchable from the feed, and writing
 hundreds of KB per poll cycle would accelerate SD-card wear on the Pi-class
 hardware much of the HA install base runs on. The store starts empty after a

@@ -41,6 +41,7 @@ from custom_components.cap_alerts.const import (
 )
 from custom_components.cap_alerts.conventions import FMI_SENDER, METEOFRANCE_SENDER
 from custom_components.cap_alerts.coordinator import AlertsDataUpdateCoordinator
+from custom_components.cap_alerts.geometry_store import GeometryStore
 from tests.conftest import make_alert
 
 DOMAIN = "cap_alerts"
@@ -71,8 +72,10 @@ class _StubCoordinator:
         last_backfill=None,
         repository_recovered=0,
         interval_seconds=300,
+        geometry_store=None,
     ) -> None:
         self.data = {a.id: a for a in (alerts or [])}
+        self.geometry_store = geometry_store or GeometryStore()
         self._resolved_config = resolved_config
         self._resolved_options = resolved_options
         self.last_update_success = success
@@ -312,6 +315,33 @@ async def test_alert_rows_carry_lifecycle_and_omit_the_body(hass):
     assert row["lifecycle_status"] == "ongoing"
     assert row["has_geometry"] is True
     assert not {"description", "instruction", "headline", "geometry"} & set(row)
+
+
+async def test_geometry_block_reports_the_share_and_what_fell_out(hass):
+    """``has_geometry`` on a row is the ref, and a ref outlives an eviction
+    (#197); the geometry block is where the card's 404 becomes visible."""
+    polygon = {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}
+    store = GeometryStore()
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_PROVIDER: "gdacs"}, options={})
+    kept_ref = f"{entry.entry_id}:gdacs:kept"
+    gone_ref = f"{entry.entry_id}:gdacs:gone"
+    entry.runtime_data = _StubCoordinator(
+        alerts=[
+            make_alert(id="kept", provider="gdacs", geometry_ref=kept_ref),
+            make_alert(id="gone", provider="gdacs", geometry_ref=gone_ref),
+            make_alert(id="flat", provider="gdacs"),
+        ],
+        geometry_store=store,
+    ).bind(entry)
+    await store.put(kept_ref, polygon)
+    await store.put("other-entry:gdacs:x", polygon)
+
+    block = (await _payload(hass, entry))["geometry"]
+
+    assert block["stored_refs"] == 1
+    assert block["stored_bytes"] == len(json.dumps(polygon, separators=(",", ":")))
+    assert block["budget_bytes"] == store.max_bytes
+    assert block["active_without_polygon"] == 1
 
 
 async def test_alert_rows_drop_what_the_feed_said_nothing_about(hass):
