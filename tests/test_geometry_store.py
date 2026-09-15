@@ -74,6 +74,63 @@ async def test_eviction_under_byte_cap(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_eviction_never_crosses_an_entry_boundary(caplog):
+    """The budget is per entry and an entry evicts only its own refs (#197):
+    one heavy scope used to push a sibling entry's polygons out of a global
+    cap, silently, and the card drew an empty frame off the 404."""
+    store = GeometryStore(max_bytes=2_000)
+    for i in range(3):
+        await store.put(f"light:wmo:{i}", _poly(20))
+    for i in range(10):
+        await store.put(f"heavy:gdacs:{i}", _poly(100))
+
+    assert all(store.has(f"light:wmo:{i}") for i in range(3))
+    heavy = [i for i in range(10) if store.has(f"heavy:gdacs:{i}")]
+    assert 9 in heavy and 0 not in heavy
+    _, heavy_bytes = store.usage("heavy")
+    assert heavy_bytes <= 2_000
+    assert store.usage("light")[0] == 3
+
+
+@pytest.mark.asyncio
+async def test_a_polygon_over_the_whole_budget_is_still_stored():
+    """A put that silently stored nothing would be worse than one polygon
+    over the line."""
+    store = GeometryStore(max_bytes=500)
+    await store.put("e:nws:small", _poly(5))
+    await store.put("e:nws:huge", _poly(200))
+    assert store.has("e:nws:huge")
+    assert not store.has("e:nws:small")
+
+
+@pytest.mark.asyncio
+async def test_eviction_logs_once_per_overflow(caplog):
+    """Nothing used to say so. One warning when an entry starts evicting,
+    debug while it keeps doing so, and a fresh warning after a put fits."""
+    store = GeometryStore(max_bytes=2_000)
+    for i in range(6):
+        await store.put(f"e:gdacs:{i}", _poly(100))
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "entry e is over its 2000 byte polygon budget" in warnings[0].message
+    assert "evicted its 1 oldest" in warnings[0].message
+
+    # A put that fits clears the flag; the next overflow warns again.
+    await store.purge_missing(set(), prefix="e:")
+    await store.put("e:gdacs:a", _poly(10))
+    for i in range(6):
+        await store.put(f"e:gdacs:{i}", _poly(100))
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 2
+
+
+def test_the_module_budget_is_the_default_and_stays_patchable(monkeypatch):
+    monkeypatch.setattr(gs_mod, "MAX_BYTES", 123)
+    assert GeometryStore().max_bytes == 123
+    assert GeometryStore(max_bytes=7).max_bytes == 7
+
+
+@pytest.mark.asyncio
 async def test_put_update_overwrites_same_key():
     store = GeometryStore()
     g1 = {"type": "Point", "coordinates": [0, 0]}

@@ -161,6 +161,10 @@ async def async_get_config_entry_diagnostics(
                 else None
             ),
         },
+        # Whether the polygons behind this entry's refs are still in the
+        # store (issue #197): has_geometry on an alert row is the ref, and a
+        # ref outlives an eviction, so this is where a card's 404 shows up.
+        "geometry": _geometry(coordinator, entry.entry_id, alerts),
         "update": {
             "success": coordinator.last_update_success,
             "last_success": _iso(coordinator.last_update_success_time),
@@ -347,6 +351,22 @@ def _alert_row(alert: CAPAlert, entity_id: str | None) -> dict[str, Any]:
             },
         }
     )
+
+
+def _geometry(
+    coordinator: Any, entry_id: str, alerts: list[CAPAlert]
+) -> dict[str, Any]:
+    """The entry's share of the geometry store and what has fallen out of it."""
+    store = coordinator.geometry_store
+    refs, stored_bytes = store.usage(entry_id)
+    return {
+        "stored_refs": refs,
+        "stored_bytes": stored_bytes,
+        "budget_bytes": store.max_bytes,
+        "active_without_polygon": sum(
+            1 for a in alerts if a.geometry_ref and not store.has(a.geometry_ref)
+        ),
+    }
 
 
 def _sparse(row: Mapping[str, Any]) -> dict[str, Any]:
