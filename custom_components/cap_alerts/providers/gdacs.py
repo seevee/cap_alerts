@@ -490,8 +490,26 @@ def _build_alert(
 # ---------------------------------------------------------------------------
 
 
+# ``(polygon rings, points)`` as _shapes_from_geojson returns them.
+_Shapes = tuple[list[list[list[float]]], list[list[float]]]
+
+
 class GDACSProvider:
-    """GDACS RSS indexes → CAPAlert, with per-episode GeoJSON geometry."""
+    """GDACS RSS indexes → CAPAlert, with per-episode GeoJSON geometry.
+
+    One instance lives as long as its config entry, and it remembers the last
+    usable shapes it built for each event (#203). A geometry fetch that fails,
+    runs past the poll deadline, or answers with GDACS's HTML "no such file"
+    page would otherwise ship the alert shape-less for the cycle and the
+    coordinator would purge the stored polygon with it, so the entity's shape
+    flickered with gdacs.org's mood. A stale footprint beats none: episodes
+    advance over hours to days, so the remembered shape is this episode's or
+    the previous one's. The memory is pruned to the events the indexes still
+    list, since withdrawal is the only end-of-life signal GDACS has.
+    """
+
+    def __init__(self) -> None:
+        self._last_shapes: dict[tuple[str, str], _Shapes] = {}
 
     @property
     def name(self) -> str:
@@ -585,13 +603,10 @@ class GDACSProvider:
         # what _GEOMETRY_FETCH_TIMEOUT answers; the fan-out is still right.
         semaphore = asyncio.Semaphore(10)
         unfinished: list[str] = []
+        reused: list[str] = []
 
-        async def _geometry_for(
-            item: _IndexItem,
-        ) -> tuple[list[list[list[float]]], list[list[float]]]:
-            url = _geojson_url(item)
-            if not url:
-                return [], []
+        async def _fetch_shapes(url: str) -> _Shapes:
+            """This poll's shapes for ``url``, empty on any kind of miss."""
             try:
                 # One deadline for the phase, applied per task so a fetch that
                 # finished keeps its result when a sibling does not.
@@ -618,14 +633,42 @@ class GDACSProvider:
                 _LOGGER.debug("GDACS: no usable geometry in %s", url)
             return shapes
 
+        async def _geometry_for(item: _IndexItem) -> _Shapes:
+            url = _geojson_url(item)
+            if not url:
+                return [], []
+            key = (item.event_type, item.event_id)
+            shapes = await _fetch_shapes(url)
+            if shapes[0] or shapes[1]:
+                self._last_shapes[key] = shapes
+                return shapes
+            previous = self._last_shapes.get(key)
+            if previous is None:
+                return shapes
+            reused.append(url)
+            return previous
+
         shapes = await asyncio.gather(*[_geometry_for(item) for item in items])
+        # Withdrawal from the indexes is the end of an event; so is falling
+        # outside the entry's type or level filter, which is the same absence
+        # from where this method stands.
+        listed = {(item.event_type, item.event_id) for item in items}
+        for key in [k for k in self._last_shapes if k not in listed]:
+            del self._last_shapes[key]
         if unfinished:
             _LOGGER.warning(
                 "GDACS: geometry phase reached the poll budget (%ss); %d of %d "
-                "fetches unfinished, those alerts ship without geometry this "
-                "cycle. A higher timeout or a narrower alert level helps",
+                "fetches unfinished, those alerts ship with a remembered shape "
+                "or none. A higher timeout or a narrower alert level helps",
                 poll_budget,
                 len(unfinished),
+                len(items),
+            )
+        if reused:
+            _LOGGER.warning(
+                "GDACS: %d of %d alerts carry a previous poll's geometry; this "
+                "cycle's fetch failed, was unfinished, or had no usable shape",
+                len(reused),
                 len(items),
             )
         alerts = [

@@ -382,6 +382,90 @@ async def test_geometry_phase_ends_before_the_poll_budget(monkeypatch, caplog):
     assert "1 of 5 fetches unfinished" in budget_lines[0].message
 
 
+async def _poll(provider, responses, options=None, **kwargs):
+    """One coordinator-shaped poll with a fresh cache, so a miss is a miss."""
+    return await provider.async_fetch(
+        StubSession(responses),
+        {},
+        {**_ALL_LEVELS, **(options or {})},
+        cap_content_cache=CAPContentCache(),
+        **kwargs,
+    )
+
+
+@pytest.mark.asyncio
+async def test_lost_fetch_reuses_the_previous_polls_geometry(monkeypatch, caplog):
+    """A stale footprint beats none (#203): the provider remembers the last
+    usable shapes per event, and a fetch that fails or runs past the poll
+    deadline ships them instead of nothing."""
+    provider = GDACSProvider()
+    first = {a.id: a for a in await _poll(provider, _full_responses())}
+    red_geometry = first[_alert_id(_EQ_RED)].geometry
+    assert red_geometry is not None
+
+    # Second poll: the red quake's file answers 503.
+    failing = {**_full_responses(), _geo_url(_EQ_RED): (503, "")}
+    second = {a.id: a for a in await _poll(provider, failing)}
+    assert second[_alert_id(_EQ_RED)].geometry == red_geometry
+    assert second[_alert_id(_EQ_GREEN)].geometry == first[_alert_id(_EQ_GREEN)].geometry
+    carried = [
+        r for r in caplog.records if "carry a previous poll's geometry" in r.message
+    ]
+    assert len(carried) == 1
+    assert "1 of 5 alerts" in carried[0].message
+
+    # Third poll: the same file runs past the phase deadline instead.
+    original = CAPContentCache.get_or_fetch
+
+    async def slow_for_one(self, session, url, **kwargs):
+        if url == _geo_url(_EQ_RED):
+            await asyncio.sleep(5)
+        return await original(self, session, url, **kwargs)
+
+    monkeypatch.setattr(CAPContentCache, "get_or_fetch", slow_for_one)
+    monkeypatch.setattr(_gdacs_mod, "_GEOMETRY_PHASE_MARGIN", 0)
+    third = {
+        a.id: a for a in await _poll(provider, _full_responses(), {CONF_TIMEOUT: 1})
+    }
+    assert third[_alert_id(_EQ_RED)].geometry == red_geometry
+
+
+@pytest.mark.asyncio
+async def test_geometry_memory_drops_when_the_event_leaves_the_index():
+    """Withdrawal is the only end-of-life signal GDACS has, and the memory
+    must not outlive it. Falling outside the entry's type filter is the same
+    absence from the provider's side."""
+    provider = GDACSProvider()
+    await _poll(provider, _full_responses())
+    assert ("EQ", _EQ_RED[1]) in provider._last_shapes
+
+    await _poll(provider, _full_responses(), {CONF_GDACS_EVENT_TYPES: ["TC", "VO"]})
+    assert ("EQ", _EQ_RED[1]) not in provider._last_shapes
+    assert ("TC", _TC_ORANGE[1]) in provider._last_shapes
+
+    failing = {**_full_responses(), _geo_url(_EQ_RED): (503, "")}
+    alerts = {a.id: a for a in await _poll(provider, failing)}
+    assert alerts[_alert_id(_EQ_RED)].geometry is None
+
+
+@pytest.mark.asyncio
+async def test_geometry_memory_never_invents_a_shape(caplog):
+    """An event that never had usable geometry stays shape-less on a lost
+    fetch; there is nothing to carry and nothing to log."""
+    provider = GDACSProvider()
+    html_miss = {
+        **_full_responses(),
+        _geo_url(_EQ_RED): "<!DOCTYPE html><html><body>GDACS</body></html>",
+    }
+    await _poll(provider, html_miss)
+    assert ("EQ", _EQ_RED[1]) not in provider._last_shapes
+
+    failing = {**_full_responses(), _geo_url(_EQ_RED): (503, "")}
+    alerts = {a.id: a for a in await _poll(provider, failing)}
+    assert alerts[_alert_id(_EQ_RED)].geometry is None
+    assert not [r for r in caplog.records if "previous poll" in r.message]
+
+
 @pytest.mark.asyncio
 async def test_fetch_global_unions_both_indexes():
     session = StubSession(_full_responses())
