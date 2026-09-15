@@ -113,6 +113,17 @@ _ALERT_LEVEL_SEVERITY: Mapping[str, str] = {
 # not.
 _FORECAST_CLASS_PREFIXES = ("Poly_Cones", "Poly_WindRadii", "Poly_Polygon_Point")
 
+# The one class the keep-unknown rule doesn't survive (#195). Every flood file
+# ships two area layers: ``Poly_Affected`` is the footprint, ``Poly_Global`` is
+# the outline of the affected *country*, with the footprint as one of its
+# rings. Merging both makes a flood in Connecticut span Hawaii to Maine: the
+# bbox zooms the card out to the whole country and GPS mode matches anyone in
+# it. So the country outline is dropped whenever the footprint is present, and
+# kept only when it is the sole area layer — coarse beats empty. Measured on
+# all 15 live FL events 2026-09-06: both layers always present, 10 differ.
+_AFFECTED_CLASS = "Poly_Affected"
+_COUNTRY_OUTLINE_CLASS = "Poly_Global"
+
 
 # ---------------------------------------------------------------------------
 # RSS index parsing
@@ -310,6 +321,16 @@ def _geojson_url(item: _IndexItem) -> str:
     )
 
 
+def _feature_class(feature: object) -> str:
+    """The ``Class`` property of a GeoJSON feature, or "" when it has none."""
+    if not isinstance(feature, dict):
+        return ""
+    properties = feature.get("properties")
+    if not isinstance(properties, dict):
+        return ""
+    return str(properties.get("Class") or "")
+
+
 def _shapes_from_geojson(
     body: str,
 ) -> tuple[list[list[list[float]]], list[list[float]]]:
@@ -319,6 +340,9 @@ def _shapes_from_geojson(
     FeatureCollection, which is the load-bearing case rather than a defensive
     one: GDACS answers a missing file with HTTP 200 and an HTML page, so the
     content is the only thing that distinguishes a real payload from a miss.
+
+    Forecast classes are excluded, and a flood's country outline is excluded
+    when its real footprint is in the same file (see ``_AFFECTED_CLASS``).
 
     Coordinates arrive in GeoJSON ``[lon, lat]`` order already, so nothing is
     flipped here.
@@ -333,16 +357,17 @@ def _shapes_from_geojson(
     if not isinstance(features, list):
         return [], []
 
+    classes = [_feature_class(feature) for feature in features]
+    has_footprint = _AFFECTED_CLASS in classes
+
     rings: list[list[list[float]]] = []
     points: list[list[float]] = []
-    for feature in features:
+    for feature, klass in zip(features, classes):
         if not isinstance(feature, dict):
             continue
-        properties = feature.get("properties")
-        klass = ""
-        if isinstance(properties, dict):
-            klass = str(properties.get("Class") or "")
         if klass.startswith(_FORECAST_CLASS_PREFIXES):
+            continue
+        if has_footprint and klass == _COUNTRY_OUTLINE_CLASS:
             continue
         geometry = feature.get("geometry")
         if not isinstance(geometry, dict):
