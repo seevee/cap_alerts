@@ -1,6 +1,6 @@
 # Architecture
 
-Design-level reference for `cap_alerts`. The README covers entity model, file layout, data flow, and key design decisions; this document captures the rationale behind choices that aren't self-evident from the code, plus field-mapping tables.
+Design-level reference for `cap_alerts`. The README covers the entity model and user-facing behavior, and `AGENTS.md` the file layout and per-poll data flow; this document captures the rationale behind choices that aren't self-evident from the code, plus field-mapping tables.
 
 For in-progress items and ideas not yet landed, see [`roadmap.md`](roadmap.md).
 
