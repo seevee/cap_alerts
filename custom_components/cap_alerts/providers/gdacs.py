@@ -63,6 +63,8 @@ from ..const import (
     CONF_ALERT_LEVEL,
     CONF_GDACS_EVENT_TYPES,
     CONF_GPS_LOC,
+    CONF_TIMEOUT,
+    DEFAULT_TIMEOUT,
     GDACS_ALERT_LEVELS,
     GDACS_CAP_CLASSIFICATION,
     GDACS_DEFAULT_ALERT_LEVEL,
@@ -123,6 +125,26 @@ _FORECAST_CLASS_PREFIXES = ("Poly_Cones", "Poly_WindRadii", "Poly_Polygon_Point"
 # all 15 live FL events 2026-09-06: both layers always present, 10 differ.
 _AFFECTED_CLASS = "Poly_Affected"
 _COUNTRY_OUTLINE_CLASS = "Poly_Global"
+
+# Per-file ceiling on a geometry fetch, in place of the content cache's 10 s
+# default that a CAP XML body gets (#196). GDACS geometry is not a CAP body:
+# the seven events at the default Orange floor weighed 4.8 MB on 2026-09-06,
+# the largest 2.4 MB, and gdacs.org served the same file in 5 s one minute
+# and 16 s the next. At 10 s, 7 of 28 fetches lost across four runs, and each
+# loss ships the alert with no geometry that cycle, so the entity's polygon
+# flickered poll to poll. 25 s is the useful ceiling: the coordinator's own
+# budget is DEFAULT_TIMEOUT (30 s) and it wraps the index fetches too.
+_GEOMETRY_FETCH_TIMEOUT = 25  # seconds
+
+# The geometry phase as a whole ends this many seconds before the entry's poll
+# budget does, whatever the per-file ceiling says. The per-file number only
+# protects a poll whose events fit in one concurrency batch; past that, one
+# slow file in the first batch leaves the second batch nothing, the poll's
+# own timeout fires, and the whole entry fails the cycle, every alert
+# unavailable for a poll interval. Fetches still running at the deadline
+# ship their alert without geometry instead, the same degradation a single
+# lost fetch gets. The margin covers building the alerts and the GPS pass.
+_GEOMETRY_PHASE_MARGIN = 3  # seconds
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +529,12 @@ class GDACSProvider:
             shared cache).
         (d) Builds CAPAlert objects and applies the optional GPS filter.
         """
+        # Clock the poll budget from here, before the index fetches, since the
+        # coordinator's timeout wraps those too.
+        poll_budget = float(options.get(CONF_TIMEOUT) or DEFAULT_TIMEOUT)
+        deadline = asyncio.get_running_loop().time() + max(
+            poll_budget - _GEOMETRY_PHASE_MARGIN, 1.0
+        )
         headers = {"User-Agent": user_agent} if user_agent else None
         bodies = await asyncio.gather(
             self._fetch_index(session, GDACS_RSS_CURRENT_URL, headers),
@@ -550,10 +578,13 @@ class GDACSProvider:
         cache = (
             cap_content_cache if cap_content_cache is not None else CAPContentCache()
         )
-        # Ten, not the five the CAP-body fetch used: these payloads are 2–10 KiB
-        # for every hazard but cyclones, and doubling the concurrency halved the
-        # wall time on a 40-event sample (6.0 s → 3.2 s, measured 2026-08-08).
+        # Ten, not the five the CAP-body fetch used: doubling the concurrency
+        # halved the wall time on a 40-event sample (6.0 s → 3.2 s, measured
+        # 2026-08-08, when every hazard but cyclones weighed 2–10 KiB). Floods
+        # and droughts have since grown to hundreds of KiB and beyond, which is
+        # what _GEOMETRY_FETCH_TIMEOUT answers; the fan-out is still right.
         semaphore = asyncio.Semaphore(10)
+        unfinished: list[str] = []
 
         async def _geometry_for(
             item: _IndexItem,
@@ -561,8 +592,20 @@ class GDACSProvider:
             url = _geojson_url(item)
             if not url:
                 return [], []
-            async with semaphore:
-                body = await cache.get_or_fetch(session, url, user_agent=user_agent)
+            try:
+                # One deadline for the phase, applied per task so a fetch that
+                # finished keeps its result when a sibling does not.
+                async with asyncio.timeout_at(deadline):
+                    async with semaphore:
+                        body = await cache.get_or_fetch(
+                            session,
+                            url,
+                            user_agent=user_agent,
+                            timeout=_GEOMETRY_FETCH_TIMEOUT,
+                        )
+            except TimeoutError:
+                unfinished.append(url)
+                return [], []
             if body is None:
                 _LOGGER.warning("GDACS: geometry fetch failed for %s", url)
                 return [], []
@@ -576,6 +619,15 @@ class GDACSProvider:
             return shapes
 
         shapes = await asyncio.gather(*[_geometry_for(item) for item in items])
+        if unfinished:
+            _LOGGER.warning(
+                "GDACS: geometry phase reached the poll budget (%ss); %d of %d "
+                "fetches unfinished, those alerts ship without geometry this "
+                "cycle. A higher timeout or a narrower alert level helps",
+                poll_budget,
+                len(unfinished),
+                len(items),
+            )
         alerts = [
             _build_alert(item, rings, points)
             for item, (rings, points) in zip(items, shapes)

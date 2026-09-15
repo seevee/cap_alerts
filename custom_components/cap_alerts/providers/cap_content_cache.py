@@ -27,6 +27,13 @@ _LOGGER = logging.getLogger(__name__)
 # entries, and bounds worst-case growth regardless of how large a body gets.
 DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 
+# Per-request ceiling for one body fetch. Sized for a CAP XML document of a
+# few KiB to a few hundred KiB; a caller fetching something larger passes its
+# own (GDACS geometry, issue #196). The coordinator's own poll budget wraps
+# every fetch either way, so this is the bound on one slow document, not on
+# the poll.
+DEFAULT_FETCH_TIMEOUT = 10  # seconds
+
 
 class CAPContentCache:
     """LRU cache for CAP XML bodies with Future-based in-flight coalescing.
@@ -89,8 +96,12 @@ class CAPContentCache:
         url: str,
         *,
         user_agent: str | None = None,
+        timeout: float = DEFAULT_FETCH_TIMEOUT,
     ) -> str | None:
         """Return cached body for URL, fetching on miss.
+
+        ``timeout`` bounds one HTTP request in seconds; a cache hit or an
+        in-flight coalesce never waits on it.
 
         Returns None on HTTP error, network error, or timeout.  Logs a
         warning at most once per URL per cache instance.
@@ -111,8 +122,10 @@ class CAPContentCache:
             headers: dict[str, str] = {}
             if user_agent:
                 headers["User-Agent"] = user_agent
-            timeout = aiohttp.ClientTimeout(total=10)
-            async with session.get(url, headers=headers, timeout=timeout) as resp:
+            client_timeout = aiohttp.ClientTimeout(total=timeout)
+            async with session.get(
+                url, headers=headers, timeout=client_timeout
+            ) as resp:
                 if resp.status != 200:
                     _LOGGER.warning("CAP fetch HTTP %s for %s", resp.status, url)
                 else:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from custom_components.cap_alerts.const import (
     CONF_ALERT_LEVEL,
     CONF_GDACS_EVENT_TYPES,
     CONF_GPS_LOC,
+    CONF_TIMEOUT,
     GDACS_RSS_24H_URL,
     GDACS_RSS_CURRENT_URL,
 )
@@ -328,6 +330,56 @@ def test_shapes_from_geojson_rejects_the_html_miss():
 # ---------------------------------------------------------------------------
 # Provider flow
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_geometry_fetches_carry_their_own_timeout():
+    """A geometry file is not a CAP body: the largest weigh megabytes and
+    gdacs.org serves them in anywhere from 5 s to over 20 s, so the cache's
+    10 s default lost a quarter of the fetches (#196)."""
+    session = StubSession(_full_responses())
+    await GDACSProvider().async_fetch(
+        session, {}, _ALL_LEVELS, cap_content_cache=CAPContentCache()
+    )
+    by_url = dict(zip(session.requested, session.request_timeouts))
+    geometry_urls = [u for u in by_url if u.endswith(".geojson")]
+    assert len(geometry_urls) == 5
+    assert {by_url[u].total for u in geometry_urls} == {
+        _gdacs_mod._GEOMETRY_FETCH_TIMEOUT
+    }
+    assert _gdacs_mod._GEOMETRY_FETCH_TIMEOUT > _cap_cache_mod.DEFAULT_FETCH_TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_geometry_phase_ends_before_the_poll_budget(monkeypatch, caplog):
+    """A per-file ceiling protects one slow fetch; past one concurrency batch
+    it would hand the poll's own timeout the whole entry. So the phase has a
+    deadline of its own, and a fetch still running there ships its alert
+    without geometry, the way one lost fetch always has (#196)."""
+    slow_url = _geo_url(_EQ_RED)
+    original = CAPContentCache.get_or_fetch
+
+    async def slow_for_one(self, session, url, **kwargs):
+        if url == slow_url:
+            await asyncio.sleep(5)
+        return await original(self, session, url, **kwargs)
+
+    monkeypatch.setattr(CAPContentCache, "get_or_fetch", slow_for_one)
+    monkeypatch.setattr(_gdacs_mod, "_GEOMETRY_PHASE_MARGIN", 0)
+    alerts = await GDACSProvider().async_fetch(
+        StubSession(_full_responses()),
+        {},
+        {**_ALL_LEVELS, CONF_TIMEOUT: 1},
+        cap_content_cache=CAPContentCache(),
+    )
+    by_id = {a.id: a for a in alerts}
+    assert len(by_id) == 5  # every alert still ships
+    assert by_id[_alert_id(_EQ_RED)].geometry is None
+    assert by_id[_alert_id(_EQ_GREEN)].geometry is not None
+    assert by_id[_alert_id(_TC_ORANGE)].geometry is not None
+    budget_lines = [r for r in caplog.records if "reached the poll budget" in r.message]
+    assert len(budget_lines) == 1
+    assert "1 of 5 fetches unfinished" in budget_lines[0].message
 
 
 @pytest.mark.asyncio
