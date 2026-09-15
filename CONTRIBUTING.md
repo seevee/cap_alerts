@@ -1,13 +1,34 @@
 # Contributing
 
-## Development Setup
+## Development setup
+
+Test, lint and type-check pins live in `requirements_test.txt`, and CI runs
+them from there. Mirror CI locally with a venv:
 
 ```bash
-pip install -r requirements_test.txt
-pytest                                  # run all tests
-ruff check custom_components tests      # lint
-mypy custom_components/cap_alerts       # type-check
+python3 -m venv .venv
+.venv/bin/pip install -r requirements_test.txt
+
+.venv/bin/python -m pytest tests -q --cov --cov-fail-under=96   # what CI runs
+.venv/bin/python -m pytest tests/test_coordinator.py            # single file
+.venv/bin/python -m pytest -k normalize                          # pattern
+
+.venv/bin/ruff check custom_components/ tests/ scripts/
+.venv/bin/ruff format --diff custom_components/ tests/ scripts/
+.venv/bin/mypy custom_components/cap_alerts
 ```
+
+The config flow is gated separately, at 100%:
+
+```bash
+.venv/bin/coverage report \
+  --include='custom_components/cap_alerts/config_flow.py,custom_components/cap_alerts/flows/*' \
+  --fail-under=100
+```
+
+Both coverage floors are ratchets: raise them as gaps close, never lower one
+to make a PR pass. `scripts/verify.sh` runs every gate above in one go and
+prints a single sha-anchored summary line; paste that line into the PR body.
 
 Changing the config flow? Deploy to a running Home Assistant and walk it:
 
@@ -20,15 +41,41 @@ It drives the real dialog over the REST API and asserts each step's menu
 options and form fields. Read-only: it never submits a step that would create
 or update an entry, aborts every flow it opens, and checks the entry count is
 unchanged. The tests cover the handler in-process, this covers it under HA's
-loader.
+loader. `scripts/verify.sh --flow` includes it.
 
-See the [Development section of the README](README.md#development) and [docs/architecture.md](docs/architecture.md) for how the integration is structured.
+## Code layout
+
+The integration lives entirely under `custom_components/cap_alerts/` and
+follows [HA custom component conventions](https://developers.home-assistant.io/docs/creating_integration_manifest).
+[`AGENTS.md`](AGENTS.md) carries the annotated file tree and the per-poll data
+flow; [`docs/architecture.md`](docs/architecture.md) carries the rationale
+behind alert identity, normalization and each provider's field mapping.
+
+When a change spans layers, follow the dependency order:
+**model → providers → coordinator → sensor → config_flow → `__init__`**.
+
+## Adding a provider
+
+1. Implement the `AlertProvider` protocol in `providers/<name>.py`: an
+   `async_fetch()` returning `list[CAPAlert]`, plus `async_validate_config()`
+   for the scope the config flow collects.
+2. Register it in `providers/__init__.py::get_provider()`.
+3. Add a convention row in `conventions.py::CONVENTIONS`. The conventions
+   test rejects a row that leaves alerts no way to end.
+4. Add a flow module in `flows/<name>.py` (a menu step plus one form per
+   location mode) and mix it into `CAPAlertsFlowHandler` in `config_flow.py`.
+5. Add the strings to `strings.json` and `translations/en.json`.
+6. Add the provider's rows to `SETUP`, `RECONFIGURE` and `OPTIONS_SCHEMA` in
+   `scripts/flow_walk.py`, and walk a deployed instance.
+7. Keep severity and phase mapping in `normalize.py`, not in the provider.
 
 ## Workflow
 
-1. Create a feature branch from `main`
-2. Make changes; keep `pytest`, `ruff`, and `mypy` green
-3. Open a PR targeting `main`
+`main` is protected; all changes go through PRs.
+
+1. Branch from `main`: `feat/<slug>`, `fix/<slug>`, `chore/<slug>`.
+2. Make changes; keep `pytest`, `ruff`, and `mypy` green.
+3. Open a PR targeting `main`.
 
 ## Translations
 
