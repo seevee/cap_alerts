@@ -655,20 +655,20 @@ class GDACSProvider:
         listed = {(item.event_type, item.event_id) for item in items}
         for key in [k for k in self._last_shapes if k not in listed]:
             del self._last_shapes[key]
+        if unfinished:
+            _LOGGER.warning(
+                "GDACS: geometry phase reached the poll budget (%ss); %d of %d "
+                "fetches unfinished, those alerts ship with a remembered shape "
+                "or none. A higher timeout or a narrower alert level helps",
+                poll_budget,
+                len(unfinished),
+                len(items),
+            )
         if reused:
             _LOGGER.warning(
                 "GDACS: %d of %d alerts carry a previous poll's geometry; this "
                 "cycle's fetch failed, was unfinished, or had no usable shape",
                 len(reused),
-                len(items),
-            )
-        if unfinished:
-            _LOGGER.warning(
-                "GDACS: geometry phase reached the poll budget (%ss); %d of %d "
-                "fetches unfinished, those alerts ship without geometry this "
-                "cycle. A higher timeout or a narrower alert level helps",
-                poll_budget,
-                len(unfinished),
                 len(items),
             )
         alerts = [
