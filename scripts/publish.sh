@@ -59,7 +59,20 @@ if [ "$PRERELEASE" = false ]; then
   CLIFF_FLAGS+=(--tag-pattern "^v[0-9]+\.[0-9]+\.[0-9]+$")
 fi
 
-NOTES=$(git-cliff --config cliff.toml "${CLIFF_FLAGS[@]}" --latest --strip header)
+NOTES=$(CLIFF_SURFACE=release git-cliff --config cliff.toml "${CLIFF_FLAGS[@]}" --latest --strip header)
+
+# The release PR body is the release notes once someone has edited it.
+# release.sh seeds that body with the same generated notes, so a body that
+# still matches the generation was never touched and the fresh copy ships.
+# Anything else, a narrative above the list or an annotated line, ships
+# verbatim: the PR is where the notes get reviewed, not the release edit box.
+PR_BODY=$(gh pr list --state merged --base main --head "release/v$VERSION" \
+  --json body --jq '.[0].body // empty' 2>/dev/null || true)
+PR_BODY=${PR_BODY//$'\r'/}
+if [ -n "$PR_BODY" ] && [ "$PR_BODY" != "$NOTES" ]; then
+  echo "Using the release PR body as the release notes"
+  NOTES="$PR_BODY"
+fi
 
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Release $TAG already exists, skipping"
