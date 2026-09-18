@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.1 — 2026-09-18
+
+### Added
+- Keep the last good geometry when a fetch fails (#204) (fb15aa9…)
+
+### Documentation
+- Restructure for HACS users, move dev material to CONTRIBUTING (#200) (d42f1ff…)
+
+### Fixed
+- Prefer the flood footprint over the country outline (#201) (03c1b2b…)
+- Give geometry fetches their own timeout and a poll deadline (#202) (e49345a…)
+- Budget the polygon store per entry and log evictions (#205) (c7230c4…)
+
 ## 0.5.0 — 2026-09-14
 
 ### Added
