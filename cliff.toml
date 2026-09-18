@@ -31,7 +31,7 @@ body = """
 > [!IMPORTANT]
 > **Breaking**
 {%- for commit in breaking %}
-> - {{ commit.breaking_description | default(value=commit.message) | upper_first }}
+> - {{ commit.breaking_description | default(value=commit.message) | replace(from="\n", to=" ") | upper_first }}
 {%- endfor %}
 {% endif -%}
 {%- for group, commits in commits | group_by(attribute="group") %}
