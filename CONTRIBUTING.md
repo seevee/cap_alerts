@@ -118,10 +118,26 @@ file after tagging a release:
 git cliff --config cliff.toml --output CHANGELOG.md
 ```
 
-Because entries come straight from commit subjects, a clean `type(scope): description`
-subject is what lands in the changelog. `chore(release):` and bare `ci:` commits are
-skipped. GitHub Release notes for a single tag can be generated with
-`git cliff --latest --strip header`.
+Each entry is a commit subject, so a clean `type(scope): description` subject is
+what lands. Three things in the commit reach the notes beyond the subject:
+
+- A `Closes #N` footer appends `(closes #N)` to the line, which is the link a
+  reporter looks for. Put the issue there rather than in the subject.
+- A `!` after the type (`feat(store)!: …`) or a `BREAKING CHANGE:` footer lifts the
+  commit into an `[!IMPORTANT]` callout at the top of the section.
+- The type picks the group, in this order: `feat` → Added, `fix` → Fixed,
+  `perf`/`refactor` → Changed, `docs` → Documentation, `chore`/`test` → Internal.
+  `chore(release):` and bare `ci:` commits are skipped.
+
+The same template renders two surfaces. `CHANGELOG.md` is the flat form with a
+version heading per release. `CLIFF_SURFACE=release` (set by `scripts/release.sh`
+and `scripts/publish.sh`) drops the heading, folds Documentation and Internal into a
+collapsed block and adds a compare link; that is what a GitHub Release body looks
+like. Preview the next release's notes with `scripts/release.sh --dry-run`.
+
+The release PR body is the release notes. `release.sh` seeds it with the generated
+list; write the narrative above that list before merging, and `publish.sh` ships the
+body verbatim. A body left untouched ships the freshly generated list alone.
 
 ## AI-Assisted Contributions
 
