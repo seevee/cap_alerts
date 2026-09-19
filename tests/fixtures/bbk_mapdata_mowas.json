@@ -1,0 +1,47 @@
+[
+  {
+    "id": "mow.DE-SL-SLS-W038-20260904-000",
+    "version": 19,
+    "startDate": "2026-09-04T13:05:28+02:00",
+    "severity": "Minor",
+    "urgency": "Immediate",
+    "type": "Update",
+    "i18nTitle": {
+      "de": "1. AKTUALISIERUNG: Bakteriologische Beeinträchtigung des Trinkwassers - Chlorung - Biringen, Fürweiler, Gerlfangen und Oberesch - Gde. ReSi",
+      "en": "Contaminated drinking water"
+    },
+    "transKeys": {
+      "event": "BBK-EVC-069"
+    }
+  },
+  {
+    "id": "mow.DE-BW-LB-W026-20260916-001",
+    "version": 20,
+    "startDate": "2026-09-16T16:17:01+02:00",
+    "severity": "Minor",
+    "urgency": "Immediate",
+    "type": "Update",
+    "i18nTitle": {
+      "de": "Trinkwasserverunreinigung - Winzerhausen Holzweiler Hof",
+      "en": "Contaminated drinking water"
+    },
+    "transKeys": {
+      "event": "BBK-EVC-069"
+    }
+  },
+  {
+    "id": "mow.DE-SH-FL-SE100-20260919-100-000",
+    "version": 20,
+    "startDate": "2026-09-20T00:00:51+02:00",
+    "severity": "Minor",
+    "urgency": "Immediate",
+    "type": "Alert",
+    "i18nTitle": {
+      "de": "Starke Rauchentwicklung - Hafetoftloit",
+      "en": "Fumes"
+    },
+    "transKeys": {
+      "event": "BBK-EVC-010"
+    }
+  }
+]

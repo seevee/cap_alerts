@@ -96,6 +96,7 @@ class BackfillProvider(Protocol):
 
 def get_provider(provider_id: str) -> AlertProvider:
     """Return a provider instance by ID."""
+    from .bbk import BBKProvider
     from .eccc import ECCCProvider
     from .gdacs import GDACSProvider
     from .meteoalarm import MeteoAlarmProvider
@@ -108,6 +109,7 @@ def get_provider(provider_id: str) -> AlertProvider:
         "meteoalarm": MeteoAlarmProvider,
         "wmo": WMOProvider,
         "gdacs": GDACSProvider,
+        "bbk": BBKProvider,
     }
     cls = providers.get(provider_id)
     if cls is None:

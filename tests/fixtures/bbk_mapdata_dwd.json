@@ -1,0 +1,28 @@
+[
+  {
+    "id": "dwdmap.2.49.0.0.276.0.DWD.PVW.1789822740000.0e032817-18f7-4426-ba05-2d596cd4616b.MUL",
+    "version": 20,
+    "startDate": "2026-09-19T14:59:00+02:00",
+    "expiresDate": "2026-09-21T08:00:00+02:00",
+    "severity": "Moderate",
+    "urgency": "Immediate",
+    "type": "Update",
+    "i18nTitle": {
+      "de": "Amtliche WARNUNG vor SCHWEREN STURMBÖEN",
+      "en": "Official WARNING of STORM-FORCE GUSTS"
+    }
+  },
+  {
+    "id": "dwdmap.2.49.0.0.276.0.DWD.PVW.1789834380000.9d13fcc3-432d-43b1-894b-4a2a3740d582.MUL",
+    "version": 20,
+    "startDate": "2026-09-19T18:13:00+02:00",
+    "expiresDate": "2026-09-20T00:00:00+02:00",
+    "severity": "Moderate",
+    "urgency": "Immediate",
+    "type": "Update",
+    "i18nTitle": {
+      "de": "Amtliche WARNUNG vor STURMBÖEN",
+      "en": "Official WARNING of GALE-FORCE GUSTS"
+    }
+  }
+]

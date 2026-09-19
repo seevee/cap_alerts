@@ -62,6 +62,15 @@ def test_wmo_auto_resolves_verbatim(ha_language: str, expected: str):
     assert _resolve("wmo", ha_language) == expected
 
 
+@pytest.mark.parametrize(
+    ("ha_language", "expected"),
+    [("de", "de"), ("en-GB", "en-GB"), ("", "en")],
+)
+def test_bbk_auto_resolves_verbatim(ha_language: str, expected: str):
+    """BBK blocks are de-DE / de / de-LS / en …; the shared matcher degrades."""
+    assert _resolve("bbk", ha_language) == expected
+
+
 def test_wmo_explicit_language_passes_through():
     assert _resolve("wmo", "en", {CONF_LANGUAGE: "zh-Hans"}) == "zh-Hans"
 

@@ -1,0 +1,225 @@
+{
+  "identifier": "dwdmap.2.49.0.0.276.0.DWD.PVW.1789822740000.0e032817-18f7-4426-ba05-2d596cd4616b.MUL",
+  "sender": "opendata@dwd.de",
+  "sent": "2026-09-19T14:59:00+02:00",
+  "status": "Actual",
+  "msgType": "Update",
+  "source": "PVW",
+  "scope": "Public",
+  "code": [
+    "DVN:20",
+    "id:2.49.0.0.276.0.DWD.PVW.1789822740000.0e032817-18f7-4426-ba05-2d596cd4616b"
+  ],
+  "references": "opendata@dwd.de,dwdmap.2.49.0.0.276.0.DWD.PVW.1789750500000.41038775-570c-4a6b-8000-c33f7cad7e54.MUL,2026-09-18T16:55:00-00:00",
+  "info": [
+    {
+      "language": "de-DE",
+      "category": [
+        "Met"
+      ],
+      "event": "SCHWERE STURMBÖEN",
+      "responseType": [
+        "Prepare"
+      ],
+      "urgency": "Immediate",
+      "severity": "Moderate",
+      "certainty": "Likely",
+      "eventCode": [
+        {
+          "valueName": "PROFILE_VERSION",
+          "value": "2.1.14"
+        },
+        {
+          "valueName": "LICENSE",
+          "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)"
+        },
+        {
+          "valueName": "II",
+          "value": "53"
+        },
+        {
+          "valueName": "GROUP",
+          "value": "WIND"
+        },
+        {
+          "valueName": "AREA_COLOR",
+          "value": "251 140 0"
+        }
+      ],
+      "effective": "2026-09-19T14:59:00+02:00",
+      "onset": "2026-09-19T14:59:00+02:00",
+      "expires": "2026-09-21T08:00:00+02:00",
+      "senderName": "Deutscher Wetterdienst",
+      "headline": "Amtliche WARNUNG vor SCHWEREN STURMBÖEN",
+      "description": "Es treten oberhalb 1000 m schwere Sturmböen mit Geschwindigkeiten zwischen 75 km/h (21 m/s, 41 kn, Bft 9) und 100 km/h (28 m/s, 55 kn, Bft 10) anfangs aus südwestlicher, später aus nordwestlicher Richtung auf.",
+      "instruction": "Gefahr durch: vereinzelt umstürzende Bäume; herabstürzende Gegenstände.<br/>Handlungsempfehlungen:<br/>Gerüste und frei stehende Objekte (z.B. Leinwände und Bühnen) sichern; z.B. Zelte und Abdeckungen befestigen, wenn mö…",
+      "web": "https://dwd.de/warnungen",
+      "contact": "Deutscher Wetterdienst",
+      "parameter": [
+        {
+          "valueName": "gusts",
+          "value": "75-100 [km/h]"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "south-west"
+        },
+        {
+          "valueName": "subsequent wind direction",
+          "value": "north-west"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "north-west"
+        },
+        {
+          "valueName": "PHGEM",
+          "value": "7087"
+        },
+        {
+          "valueName": "ZGEM",
+          "value": "7087"
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Stadt Wernigerode"
+        }
+      ]
+    },
+    {
+      "language": "en",
+      "category": [
+        "Met"
+      ],
+      "event": "storm-force gusts",
+      "responseType": [
+        "Prepare"
+      ],
+      "urgency": "Immediate",
+      "severity": "Moderate",
+      "certainty": "Likely",
+      "eventCode": [
+        {
+          "valueName": "PROFILE_VERSION",
+          "value": "2.1.14"
+        },
+        {
+          "valueName": "LICENSE",
+          "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)"
+        },
+        {
+          "valueName": "II",
+          "value": "53"
+        },
+        {
+          "valueName": "GROUP",
+          "value": "WIND"
+        },
+        {
+          "valueName": "AREA_COLOR",
+          "value": "251 140 0"
+        }
+      ],
+      "effective": "2026-09-19T14:59:00+02:00",
+      "onset": "2026-09-19T14:59:00+02:00",
+      "expires": "2026-09-21T08:00:00+02:00",
+      "senderName": "Deutscher Wetterdienst",
+      "headline": "Official WARNING of STORM-FORCE GUSTS",
+      "description": "There is a risk of storm-force gusts (level 2 of 4).<br/>Height range: &gt; 1000 m; Max. gusts: 75-100 km/h; Wind direction: south-west then north-west",
+      "instruction": "Hazard(s) caused by: single falling trees; objects falling to the ground.<br/>Recommendations for what to do:<br/>Secure scaffolding and free-standing objects (e.g. screens and platforms/stages). For example, fasten tent…",
+      "web": "https://dwd.de/warnungen",
+      "contact": "Deutscher Wetterdienst",
+      "parameter": [
+        {
+          "valueName": "gusts",
+          "value": "75-100 [km/h]"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "south-west"
+        },
+        {
+          "valueName": "subsequent wind direction",
+          "value": "north-west"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "north-west"
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Stadt Wernigerode"
+        }
+      ]
+    },
+    {
+      "language": "fr",
+      "category": [
+        "Met"
+      ],
+      "event": "Rafales de force tempête",
+      "responseType": [
+        "Prepare"
+      ],
+      "urgency": "Immediate",
+      "severity": "Moderate",
+      "certainty": "Likely",
+      "eventCode": [
+        {
+          "valueName": "PROFILE_VERSION",
+          "value": "2.1.14"
+        },
+        {
+          "valueName": "LICENSE",
+          "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)"
+        },
+        {
+          "valueName": "II",
+          "value": "53"
+        },
+        {
+          "valueName": "GROUP",
+          "value": "WIND"
+        },
+        {
+          "valueName": "AREA_COLOR",
+          "value": "251 140 0"
+        }
+      ],
+      "effective": "2026-09-19T14:59:00+02:00",
+      "onset": "2026-09-19T14:59:00+02:00",
+      "expires": "2026-09-21T08:00:00+02:00",
+      "senderName": "Deutscher Wetterdienst",
+      "headline": "ALERTE officielle INTEMPÉRIES PRONONCÉES pour RAFALES DE FORCE TEMPÊTE",
+      "description": "Il y a un risque de rafales de force tempête (Niveau 2 sur 4).<br/>Altitude &nbsp;: &gt; 1000 m&nbsp;; Rafale maximale: 75-100 km/h&nbsp;; Direction du vent &nbsp;: sud-ouest puis nord-ouest",
+      "instruction": "Danger en raison de&nbsp;: chute d&apos;arbres survenant par endroits&nbsp;; chute d&apos;objets.<br/>Recommandations d&apos;action&nbsp;:<br/>Sécurisez les échafaudages et les objets isolés (écrans, estrades, etc.)&nbsp…",
+      "web": "https://dwd.de/warnungen",
+      "contact": "Deutscher Wetterdienst",
+      "parameter": [
+        {
+          "valueName": "gusts",
+          "value": "75-100 [km/h]"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "south-west"
+        },
+        {
+          "valueName": "subsequent wind direction",
+          "value": "north-west"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "north-west"
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Stadt Wernigerode"
+        }
+      ]
+    }
+  ]
+}

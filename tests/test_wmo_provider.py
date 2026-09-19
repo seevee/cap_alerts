@@ -398,6 +398,7 @@ def _zamg_doc(*, polygon: bool = False) -> Any:
         ("de-DE", "en", False),
         ("", "en", False),
         ("en", "", False),
+        ("  ", "en", False),
         ("TL", "en", False),
     ],
 )
@@ -417,6 +418,14 @@ def test_select_info_picks_german_from_en_suffixed_source():
     info = _select_info(_zamg_doc(), "de")
     assert info.language == "de-DE"
     assert info.headline == "Sturmwarnung"
+
+
+def test_select_info_exact_tag_beats_an_earlier_subtag_match():
+    """MoWaS shape: ``de`` then ``de-LS``; asking for de-LS must reach it (#66)."""
+    doc = _multilang_doc([("de", "Klar"), ("de-LS", "Einfach"), ("en", "Plain")])
+    assert _select_info(doc, "de-LS").headline == "Einfach"
+    assert _select_info(doc, "DE-ls").headline == "Einfach"
+    assert _select_info(doc, "de").headline == "Klar"
 
 
 def test_select_info_falls_back_to_english():

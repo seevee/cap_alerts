@@ -166,6 +166,11 @@ def test_geocode_publishing_providers(provider):
     assert conventions_for(provider).publishes_geocodes is True
 
 
+def test_bbk_never_publishes_geocodes():
+    # ``area[]`` on warnung.bund.de carries areaDesc only (issue #66).
+    assert conventions_for("bbk").publishes_geocodes is False
+
+
 def test_gdacs_never_publishes_geocodes():
     # Declared absence: no GDACS CAP body carries a <geocode>, so the
     # area-code narrowing option is withheld from its options flow.
@@ -352,10 +357,13 @@ def test_every_retaining_source_has_a_way_out():
     # These fall back to absence-terminates for expiry-less alerts, by design.
     # For GDACS that fallback *is* the lifecycle: no CAP body carries an
     # <expires>, so withdrawal from the 24-hour index is what ends an event.
+    # BBK's MoWaS documents carry no <expires> either, and warnung.bund.de
+    # lists live warnings only, so withdrawal is the end there too.
     assert without_exit == {
         "meteoalarm",
         "wmo",
         "gdacs",
+        "bbk",
         f"meteoalarm/{METEOFRANCE_SENDER}",
         f"meteoalarm/{FMI_SENDER}",
     }

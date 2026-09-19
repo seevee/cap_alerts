@@ -1,0 +1,31 @@
+[
+  {
+    "id": "dwd.2.49.0.0.276.0.DWD.PVW.1789837260000.f831dd90-b825-45e6-b453-68d2579831c5.MUL",
+    "payload": {
+      "version": 20,
+      "type": "ALERT",
+      "id": "dwd.2.49.0.0.276.0.DWD.PVW.1789837260000.f831dd90-b825-45e6-b453-68d2579831c5.MUL",
+      "hash": "d954949d49b8635249ad568daca3c91fbc628bfd4170f2a05b53741ba52d03f1",
+      "data": {
+        "headline": "Amtliche WARNUNG vor STURMBÖEN",
+        "provider": "DWD",
+        "severity": "Moderate",
+        "urgency": "Immediate",
+        "msgType": "Alert",
+        "area": {
+          "type": "ZGEM",
+          "data": "2825,2832+1,2835+2,2839,2849,2851+5,2863,2922+3,2929,2931+6,2949+4,2955,2961+1,2969+5,2976,2986,2991,3004+3,3011+1,3014+2,3022+1,3033+7,3043+2,3053+75,3216+4,3222,7185,7194,7196,7199+1"
+        },
+        "valid": true
+      }
+    },
+    "i18nTitle": {
+      "de": "Amtliche WARNUNG vor STURMBÖEN",
+      "en": "Official WARNING of GALE-FORCE GUSTS"
+    },
+    "sent": "2026-09-19T19:00:24+02:00",
+    "onset": "2026-09-20T12:00:00+02:00",
+    "expires": "2026-09-20T20:00:00+02:00",
+    "effective": "2026-09-19T19:01:00+02:00"
+  }
+]

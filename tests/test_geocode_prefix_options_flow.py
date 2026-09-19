@@ -96,6 +96,14 @@ async def test_every_provider_is_offered_the_field(
 
 
 @pytest.mark.asyncio
+async def test_bbk_is_not_offered_the_field(hass, enable_custom_integrations):
+    """warnung.bund.de publishes no area geocodes, so the field is withheld (#66)."""
+    entry = _entry(hass, "bbk", zone_id="095640000000")
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert CONF_GEOCODE_PREFIXES not in {str(k) for k in result["data_schema"].schema}
+
+
+@pytest.mark.asyncio
 async def test_configured_prefixes_render_as_a_comma_list(
     hass, enable_custom_integrations
 ):

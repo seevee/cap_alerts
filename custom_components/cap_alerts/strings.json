@@ -8,7 +8,8 @@
           "eccc": "Environment Canada",
           "meteoalarm": "MeteoAlarm (Europe)",
           "wmo": "WMO Severe Weather",
-          "gdacs": "GDACS Global Disasters"
+          "gdacs": "GDACS Global Disasters",
+          "bbk": "BBK / NINA (Germany)"
         }
       },
       "nws": {
@@ -200,6 +201,39 @@
           "tracker_entity": "Tracker Entity"
         }
       },
+      "bbk": {
+        "title": "BBK Location Scope",
+        "menu_options": {
+          "bbk_region": "District (Regionalschlüssel)",
+          "bbk_gps_loc": "GPS Coordinates",
+          "bbk_gps_tracker": "GPS Tracker Entity",
+          "user": "Back to provider list"
+        }
+      },
+      "bbk_region": {
+        "title": "BBK District",
+        "data": {
+          "zone_id": "Regionalschlüssel (ARS)"
+        },
+        "data_description": {
+          "zone_id": "Amtlicher Regionalschlüssel of your district, 5 to 12 digits (e.g. 09564 or 095640000000 for Nürnberg). Warnings are published per district, so a municipality code is widened to its district. Covers MoWaS, KATWARN, BIWAPP, LHP flood warnings and DWD weather warnings of level 3 and up; German users who also run MeteoAlarm will see those weather warnings twice."
+        }
+      },
+      "bbk_gps_loc": {
+        "title": "BBK GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050). Fetches every channel's national index and keeps the warnings whose polygon contains the point."
+        }
+      },
+      "bbk_gps_tracker": {
+        "title": "BBK GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure CAP Alerts",
         "menu_options": {
@@ -207,7 +241,8 @@
           "reconfigure_eccc": "Environment Canada",
           "reconfigure_meteoalarm": "MeteoAlarm (Europe)",
           "reconfigure_wmo": "WMO Severe Weather",
-          "reconfigure_gdacs": "GDACS Global Disasters"
+          "reconfigure_gdacs": "GDACS Global Disasters",
+          "reconfigure_bbk": "BBK / NINA (Germany)"
         }
       },
       "reconfigure_nws": {
@@ -408,6 +443,39 @@
           "tracker_entity": "Tracker Entity"
         }
       },
+      "reconfigure_bbk": {
+        "title": "BBK Location Scope",
+        "menu_options": {
+          "reconfigure_bbk_region": "District (Regionalschlüssel)",
+          "reconfigure_bbk_gps_loc": "GPS Coordinates",
+          "reconfigure_bbk_gps_tracker": "GPS Tracker Entity",
+          "reconfigure": "Back to provider list"
+        }
+      },
+      "reconfigure_bbk_region": {
+        "title": "BBK District",
+        "data": {
+          "zone_id": "Regionalschlüssel (ARS)"
+        },
+        "data_description": {
+          "zone_id": "Amtlicher Regionalschlüssel of your district, 5 to 12 digits (e.g. 09564 or 095640000000 for Nürnberg). Warnings are published per district, so a municipality code is widened to its district. Covers MoWaS, KATWARN, BIWAPP, LHP flood warnings and DWD weather warnings of level 3 and up; German users who also run MeteoAlarm will see those weather warnings twice."
+        }
+      },
+      "reconfigure_bbk_gps_loc": {
+        "title": "BBK GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 52.5200,13.4050). Fetches every channel's national index and keeps the warnings whose polygon contains the point."
+        }
+      },
+      "reconfigure_bbk_gps_tracker": {
+        "title": "BBK GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
+        }
+      },
       "reconfigure_wmo_geocode": {
         "title": "WMO Area Codes",
         "data": {
@@ -421,6 +489,7 @@
     "error": {
       "cannot_connect": "Could not connect to the weather service.",
       "cannot_fetch_regions": "Could not load regions for this country. Try again or pick a different filter mode.",
+      "invalid_bbk_region": "Invalid Regionalschlüssel. Enter 5 to 12 digits (e.g. 09564).",
       "invalid_country": "Invalid country code. Use a MeteoAlarm-supported ISO 3166-1 alpha-2 code.",
       "invalid_geocode_prefix": "Invalid area code prefix. Enter a comma-separated list of codes made up of letters, digits, and : _ . - (max 32 characters each).",
       "invalid_gps": "Invalid GPS coordinates. Enter as latitude,longitude.",
@@ -429,6 +498,7 @@
       "invalid_zone": "Invalid zone ID format.",
       "no_regions_selected": "Select at least one region.",
       "point_not_served": "The National Weather Service does not serve this point. NWS covers the United States, its territories, and nearby coastal waters — check the coordinates, or use a different provider for this location.",
+      "unknown_bbk_region": "warnung.bund.de has no district under this Regionalschlüssel. Check the code on the NINA app's region page.",
       "unknown_country_feed": "MeteoAlarm no longer publishes a feed for this country. Pick another, or report it so the country list can be updated.",
       "unknown_wmo_source": "The WMO mirror does not publish this source. Pick one from the list — some registered sources are only served on national sites, which this integration cannot read.",
       "unknown_zone": "No such NWS zone. The format is right, but the National Weather Service does not publish a zone with that ID — check it at weather.gov/zones."
@@ -456,7 +526,7 @@
         "data_description": {
           "scan_interval": "How often to check for new alerts (60–3600). ECCC: applies only when real-time streaming is off.",
           "timeout": "Per-request API timeout (5–120)",
-          "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes. WMO: auto, or any BCP 47 tag the source publishes (e.g. zh-Hans); the source falls back to English when it does not carry your language.",
+          "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes. WMO: auto, or any BCP 47 tag the source publishes (e.g. zh-Hans); the source falls back to English when it does not carry your language. BBK: auto, de, de-LS (easy-read German), en or one of the app's other translations.",
           "streaming": "Stream ECCC alerts over the NAAD real-time feed for near-instant updates (recommended). When off, alerts are polled from the GeoRSS feed on the polling interval. ECCC only.",
           "feed_source": "Which NAAD GeoRSS host(s) to fetch. 'auto' combines both feeds so no alert carried by only one is missed (recommended). The legacy host retires around September 2026; pin a single host only to work around a specific feed issue. ECCC only.",
           "exclude_marine": "Hide alerts issued for marine/water zones (boating, open water). NWS and ECCC only.",

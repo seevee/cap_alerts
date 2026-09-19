@@ -113,6 +113,9 @@ _const_spec.loader.exec_module(_const)
 
 GDACS_RSS_CURRENT_URL: str = _const.GDACS_RSS_CURRENT_URL
 GDACS_RSS_24H_URL: str = _const.GDACS_RSS_24H_URL
+BBK_MAPDATA_URL: str = _const.BBK_MAPDATA_URL
+BBK_WARNING_URL: str = _const.BBK_WARNING_URL
+BBK_CHANNELS: tuple[str, ...] = _const.BBK_CHANNELS
 METEOALARM_COUNTRY_SLUGS: dict[str, str] = _const.METEOALARM_COUNTRY_SLUGS
 
 # Mirrors of constants that live in provider modules this script cannot import
@@ -160,7 +163,7 @@ BASELINE_PATH = Path(__file__).resolve().parent / "feed_vocab_baseline.json"
 
 USER_AGENT = "cap-alerts-feed-vocab-probe/1.0 (+https://github.com/seevee/cap_alerts)"
 
-PROVIDERS = ("eccc", "nws", "meteoalarm", "gdacs", "wmo")
+PROVIDERS = ("eccc", "nws", "meteoalarm", "gdacs", "wmo", "bbk")
 
 # ECCC vocabulary is read from this sender only; see module docstring.
 ECCC_SENDER = "cap-pac@canada.ca"
@@ -274,6 +277,27 @@ SPEC_VOCAB: dict[str, dict[str, list[str]]] = {
         **_CAP_ENUMS,
         "values.awareness_type": _METEOALARM_AWARENESS_TYPE_CODES,
         "values.awareness_level": _METEOALARM_AWARENESS_LEVEL_CODES,
+    },
+    "bbk": {
+        **_CAP_ENUMS,
+        # The DWD channel's hazard groups, as icons.py maps them (issue #66).
+        "values.GROUP": [
+            "WIND",
+            "TORNADO",
+            "THUNDERSTORM",
+            "RAIN",
+            "HAIL",
+            "SNOWFALL",
+            "ICE",
+            "GLAZE",
+            "FROST",
+            "THAW",
+            "FOG",
+            "HEAT",
+            "UV",
+        ],
+        # Every id prefix the API is known to mint; a new one is a new channel.
+        "values.id_prefix": ["dwd", "dwdmap", "mow", "kat", "biw", "lhp"],
     },
     # NWS publishes the same sets under its GeoJSON property names.
     "nws": {
@@ -753,6 +777,97 @@ def probe_gdacs(timeout: float) -> Sample:
     return sample
 
 
+def probe_bbk(timeout: float, max_bodies: int, workers: int) -> Sample:
+    """Five channel indexes, then every listed warning document (issue #66).
+
+    The document is CAP-over-JSON, so the vocabulary that matters is the CAP
+    enum set per ``info[]`` block plus the two code schemes the integration
+    classifies on: DWD's ``GROUP`` eventCode and BBK's
+    ``profile:DE-BBK-EVENTCODE``. Id prefixes are tracked because a new one
+    is a new channel the provider does not name. ``language`` is tracked
+    because the options form offers a closed list of them.
+    """
+    sample = Sample()
+    ids: dict[str, str] = {}
+    failures: list[str] = []
+    for channel in BBK_CHANNELS:
+        url = BBK_MAPDATA_URL.format(channel=channel)
+        try:
+            rows = json.loads(fetch(url, timeout=timeout))
+        except Exception as err:  # noqa: BLE001 — one channel down is reported, not fatal
+            failures.append(f"{channel}: {err}")
+            continue
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            warning_id = str(row.get("id") or "")
+            sample.add_all("index_paths", json_paths(row, "mapData[]"), warning_id)
+            for tag in ("severity", "urgency", "type"):
+                value = row.get(tag)
+                if isinstance(value, str):
+                    sample.add(f"index.{tag}", value, warning_id)
+            if warning_id:
+                sample.add("values.id_prefix", warning_id.partition(".")[0], warning_id)
+                ids.setdefault(warning_id, channel)
+    if len(failures) == len(BBK_CHANNELS):
+        raise RuntimeError(f"every BBK channel index failed: {'; '.join(failures)}")
+
+    def fetch_doc(warning_id: str) -> tuple[str, dict | None]:
+        try:
+            return warning_id, json.loads(
+                fetch(BBK_WARNING_URL.format(warning_id=warning_id), timeout=timeout)
+            )
+        except Exception:
+            return warning_id, None
+
+    sampled = sorted(ids)[:max_bodies]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        docs = list(pool.map(fetch_doc, sampled))
+
+    fetched = 0
+    for warning_id, doc in docs:
+        if not isinstance(doc, dict):
+            continue
+        fetched += 1
+        sample.add_all("json_paths", json_paths(doc), warning_id)
+        for tag in ("status", "msgType", "scope"):
+            value = doc.get(tag)
+            if isinstance(value, str):
+                sample.add(f"values.{tag}", value, warning_id)
+        for info in doc.get("info", []) or []:
+            if not isinstance(info, dict):
+                continue
+            for tag in (
+                "language",
+                "category",
+                "severity",
+                "certainty",
+                "urgency",
+                "responseType",
+            ):
+                value = info.get(tag)
+                values = value if isinstance(value, list) else [value]
+                for item in values:
+                    if isinstance(item, str):
+                        sample.add(f"values.{tag}", item, warning_id)
+            for code in info.get("eventCode", []) or []:
+                name = str(code.get("valueName", "")).strip()
+                sample.add("eventcode_names", name, warning_id)
+                if name in ("GROUP", "profile:DE-BBK-EVENTCODE"):
+                    sample.add(f"values.{name}", str(code.get("value", "")), warning_id)
+            for area in info.get("area", []) or []:
+                for gc in area.get("geocode", []) or []:
+                    sample.add(
+                        "geocode_schemes", str(gc.get("valueName", "")), warning_id
+                    )
+
+    note = (
+        f", {len(failures)} channels failed ({'; '.join(failures)})" if failures else ""
+    )
+    print(f"  bbk: {len(ids)} index entries, {fetched} documents fetched{note}")
+    return sample
+
+
 # ---------------------------------------------------------------------------
 # WMO: mirror lag (issue #210)
 # ---------------------------------------------------------------------------
@@ -1054,7 +1169,7 @@ def main() -> int:
         "--max-bodies",
         type=int,
         default=400,
-        help="cap on ECCC CAP bodies sampled per run",
+        help="cap on ECCC CAP bodies and BBK documents sampled per run",
     )
     parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
@@ -1089,6 +1204,10 @@ def main() -> int:
                 observed[provider] = probe_gdacs(args.timeout)
             elif provider == "wmo":
                 observed[provider] = probe_wmo(args.timeout, args.workers)
+            elif provider == "bbk":
+                observed[provider] = probe_bbk(
+                    args.timeout, args.max_bodies, args.workers
+                )
         except Exception as err:  # noqa: BLE001 — one provider down must not end the run
             failures[provider] = str(err)
             print(f"  FAILED: {err}")

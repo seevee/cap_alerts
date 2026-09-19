@@ -188,6 +188,23 @@ def test_wmo_tracker_title():
     assert _compute(data) == "CAP Alerts WMO (Mexico (SMN, Spanish) (phone))"
 
 
+# --- BBK ---------------------------------------------------------------------
+
+
+def test_bbk_region_title():
+    assert (
+        _compute({CONF_PROVIDER: "bbk", CONF_ZONE_ID: "095640000000"})
+        == "CAP Alerts BBK (095640000000)"
+    )
+
+
+def test_bbk_gps_title():
+    assert (
+        _compute({CONF_PROVIDER: "bbk", CONF_GPS_LOC: "52.52,13.405"})
+        == "CAP Alerts BBK (52.52,13.405)"
+    )
+
+
 # --- GDACS -------------------------------------------------------------------
 
 

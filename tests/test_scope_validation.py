@@ -229,6 +229,44 @@ async def test_gdacs_validates_without_asking_anything():
 
 
 # ---------------------------------------------------------------------------
+# BBK — the dashboard has to know the district
+# ---------------------------------------------------------------------------
+
+_BBK_DASHBOARD = "https://warnung.bund.de/api31/dashboard/095640000000.json"
+
+
+async def test_a_known_district_validates_even_when_quiet():
+    _RESPONSES.clear()
+    _RESPONSES[_BBK_DASHBOARD] = "[]"
+    assert await _validate("bbk", {CONF_ZONE_ID: "095640000000"}) is None
+
+
+async def test_an_unknown_district_is_rejected():
+    _RESPONSES.clear()
+    _RESPONSES[_BBK_DASHBOARD] = (404, "")
+    assert (
+        await _validate("bbk", {CONF_ZONE_ID: "095640000000"}) == "unknown_bbk_region"
+    )
+
+
+async def test_a_dashboard_error_is_cannot_connect():
+    _RESPONSES.clear()
+    _RESPONSES[_BBK_DASHBOARD] = (503, "")
+    assert await _validate("bbk", {CONF_ZONE_ID: "095640000000"}) == "cannot_connect"
+
+
+async def test_bbk_gps_scopes_ask_nothing():
+    session = StubSession({})
+    assert (
+        await get_provider("bbk").async_validate_config(
+            session, {CONF_GPS_LOC: "52.52,13.405"}, user_agent="test"
+        )
+        is None
+    )
+    assert session.requested == []
+
+
+# ---------------------------------------------------------------------------
 # Through the flow
 # ---------------------------------------------------------------------------
 

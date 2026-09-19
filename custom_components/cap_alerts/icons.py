@@ -93,6 +93,67 @@ _GDACS_EVENT_ICONS: dict[str, str] = {
     "wildfire": "mdi:fire",
 }
 
+# DWD ``GROUP`` eventCode → mdi, for the BBK provider's DWD channel (issue
+# #66). The code is the DWD CAP profile's hazard group — language-independent
+# and on every DWD document, where ``event`` is German prose ("SCHWERE
+# STURMBÖEN") and even the English block says "storm-force gusts", which no
+# weather table carries a needle for. Groups not listed fall through to the
+# text tables rather than to the fallback icon.
+_BBK_DWD_GROUP_ICONS: dict[str, str] = {
+    "WIND": "mdi:weather-windy",
+    "TORNADO": "mdi:weather-tornado",
+    "THUNDERSTORM": "mdi:weather-lightning",
+    "RAIN": "mdi:weather-pouring",
+    "HAIL": "mdi:weather-hail",
+    "SNOWFALL": "mdi:snowflake",
+    "ICE": "mdi:snowflake-melt",
+    "GLAZE": "mdi:snowflake-melt",
+    "FROST": "mdi:snowflake-thermometer",
+    "THAW": "mdi:snowflake-melt",
+    "FOG": "mdi:weather-fog",
+    "HEAT": "mdi:weather-sunny-alert",
+    "UV": "mdi:weather-sunny-alert",
+}
+
+# BBK civil-protection needles → mdi, matched against the English event and
+# headline. MoWaS / KATWARN / BIWAPP documents carry a generic ``event``
+# ("Gefahreninformation" in every language) and put the hazard in the
+# headline, which the API translates from a fixed catalogue ("Contaminated
+# drinking water", "Fumes"), so the headline is the classifier here. None of
+# these hazards is weather, so no weather table can carry them. Order matters
+# where one needle is inside another (``gas leak`` before ``gas``).
+_BBK_EVENT_SUBSTRINGS: tuple[tuple[str, str], ...] = (
+    ("drinking water", "mdi:water-alert"),
+    ("water supply", "mdi:water-off"),
+    ("gas leak", "mdi:gas-cylinder"),
+    ("gas ", "mdi:gas-cylinder"),
+    ("fumes", "mdi:smoke"),
+    ("smoke", "mdi:smoke"),
+    ("fire", "mdi:fire"),
+    ("explosive", "mdi:bomb"),
+    ("ordnance", "mdi:bomb"),
+    ("bomb", "mdi:bomb"),
+    ("evacuat", "mdi:exit-run"),
+    ("power outage", "mdi:flash-off"),
+    ("power failure", "mdi:flash-off"),
+    ("electricity", "mdi:flash-off"),
+    ("hazardous", "mdi:biohazard"),
+    ("chemical", "mdi:biohazard"),
+    ("radioactiv", "mdi:radioactive"),
+    ("radiation", "mdi:radioactive"),
+    ("disease", "mdi:virus"),
+    ("infection", "mdi:virus"),
+    ("water level", "mdi:home-flood"),
+    ("high water", "mdi:home-flood"),
+    ("flood", "mdi:home-flood"),
+    ("air pollution", "mdi:smog"),
+    ("test warning", "mdi:bullhorn"),
+    ("test alert", "mdi:bullhorn"),
+    ("siren", "mdi:bullhorn"),
+    ("all-clear", "mdi:check-circle"),
+    ("all clear", "mdi:check-circle"),
+)
+
 # ECCC event-name substrings → mdi. Matched after lowercasing ``event``.
 # Substring match handles ECCC's variable naming (e.g. "severe thunderstorm
 # warning", "tornado warning issued").
@@ -191,6 +252,35 @@ def classification_event(alert: CAPAlert) -> str:
     return alert.event
 
 
+def _bbk_english_headline(alert: CAPAlert) -> str:
+    """The English headline, from whichever block is English, or ``""``."""
+    if _is_english(alert.language):
+        return alert.headline
+    if _is_english(alert.language_alt):
+        return alert.headline_alt
+    return ""
+
+
+def _bbk_icon(alert: CAPAlert, event: str) -> str | None:
+    """BBK classification: DWD hazard group first, then civil-protection needles.
+
+    ``event`` is the already-lowercased classification event. The needle
+    sweep also reads the English headline, because the civil-protection
+    channels put the hazard there and leave ``event`` generic. Returns
+    ``None`` to let the caller fall through to the international tables,
+    which is where a DWD group this table does not know still classifies on
+    the English event text.
+    """
+    group = (alert.parameters or {}).get("GROUP", "")
+    if (icon := _BBK_DWD_GROUP_ICONS.get(str(group).strip().upper())) is not None:
+        return icon
+    text = f"{event} {_bbk_english_headline(alert)}".lower()
+    for needle, icon in _BBK_EVENT_SUBSTRINGS:
+        if needle in text:
+            return icon
+    return None
+
+
 def icon_for(alert: CAPAlert) -> str:
     """Return an ``mdi:*`` icon for ``alert`` based on provider + event."""
     # MeteoAlarm carries a coded hazard, so classify on that before touching
@@ -216,6 +306,10 @@ def icon_for(alert: CAPAlert) -> str:
         if (icon := _GDACS_EVENT_ICONS.get(event)) is not None:
             return icon
 
+    if alert.provider == "bbk":
+        if (icon := _bbk_icon(alert, event)) is not None:
+            return icon
+
     # MeteoAlarm services emit hyphenated/underscored compound terms (e.g.
     # ``high-temperature``, ``snow_ice``); fold separators to spaces so
     # substring needles match across naming styles. Harmless for the other
@@ -228,7 +322,7 @@ def icon_for(alert: CAPAlert) -> str:
     # then fall through rather than stopping: the early return here used to
     # hide ``tsunami``, ``tornado`` and ``smog`` from MeteoAlarm even though
     # ECCC's list below carries all three.
-    if alert.provider in ("meteoalarm", "wmo"):
+    if alert.provider in ("meteoalarm", "wmo", "bbk"):
         for needle, icon in _METEOALARM_EVENT_SUBSTRINGS:
             if needle in normalized:
                 return icon
