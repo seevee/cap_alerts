@@ -49,6 +49,9 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.redact import REDACTED
 
 from .const import (
+    BBK_CHANNELS,
+    BBK_DASHBOARD_URL,
+    BBK_MAPDATA_URL,
     CONF_COUNTRY,
     CONF_COUNTRY_ENTITY,
     CONF_EXCLUDE_MARINE,
@@ -261,6 +264,12 @@ def _endpoints(
     if provider == "gdacs":
         # Both indexes, always — the union is not configurable.
         return [GDACS_RSS_CURRENT_URL, GDACS_RSS_24H_URL]
+    if provider == "bbk":
+        ars = (config.get(CONF_ZONE_ID) or "").strip()
+        if ars:
+            return [BBK_DASHBOARD_URL.format(ars=ars)]
+        # GPS scopes union every channel index; the set is not configurable.
+        return [BBK_MAPDATA_URL.format(channel=c) for c in BBK_CHANNELS]
     return []
 
 

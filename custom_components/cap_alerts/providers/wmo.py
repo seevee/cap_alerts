@@ -41,9 +41,11 @@ from ..model import CAPAlert, geocodes_from
 from .cap import (
     CAPDoc,
     CAPInfoDoc,
-    alternate_info_index,
+    language_matches,
     parse_cap_alert,
     resolve_chain_leaves,
+    select_alt_info,
+    select_info,
 )
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_shapes, points_from_circles
@@ -315,91 +317,11 @@ def _compute_wmo_id(identifier: str, fallback_url: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _normalize_lang(value: str) -> str:
-    """Strip and casefold a BCP 47 tag for comparison."""
-    return value.strip().casefold()
-
-
-def _language_matches(info_lang: str, preferred: str) -> bool:
-    """Check language match with BCP 47 primary-subtag fallback.
-
-    Casefolded exact match wins (``EN-us`` == ``en-US``); failing that the
-    primary subtag (before the first ``-``) is compared, so ``zh-Hans``
-    matches ``zh-CN`` and a bare ``en`` matches ``en-GB``. An empty tag on
-    either side never matches.
-
-    The primary-subtag step is script-blind: a ``zh-Hans`` (Simplified)
-    preference matches a ``zh-HK``/``zh-mo`` (Traditional) block. That is
-    deliberate — a user only reaches those sources by choosing them
-    explicitly, and the related script beats an unrelated language.
-    """
-    if not info_lang or not preferred:
-        return False
-    info_norm = _normalize_lang(info_lang)
-    pref_norm = _normalize_lang(preferred)
-    if not info_norm or not pref_norm:
-        return False
-    if info_norm == pref_norm:
-        return True
-    return info_norm.split("-", 1)[0] == pref_norm.split("-", 1)[0]
-
-
-def _select_info(doc: CAPDoc, language: str) -> CAPInfoDoc:
-    """Pick the ``<info>`` block matching ``language``.
-
-    SWIC bodies are frequently multilingual and document order is *not*
-    language order: of the 110 sources sampled on 2026-08-03, 46 carried more
-    than one ``<info>`` block and 25 of those led with a non-English one.
-    ``at-zamg-en`` leads with ``de-DE``, so reading ``infos[0]`` served German
-    from the source whose ID ends ``-en``.
-
-    Preference order:
-    1. first block whose language matches (``_language_matches``);
-    2. first block whose primary subtag is ``en`` — a predictable fallback
-       when the document lacks the preferred language, rather than an
-       arbitrary one (a German user on ``mo-smg-xx`` gets ``en-US``, not
-       ``zh-mo``);
-    3. ``infos[0]``, so single-language documents, documents whose blocks
-       declare no ``<language>``, and an unset language option all behave
-       exactly as before.
-
-    First match wins on duplicate tags. ``ca-aema-xx`` emits one ``<info>``
-    per *area group* (``en-CA``/``fr-CA``/``en-CA``/``fr-CA``), so only its
-    first group survives — the same pre-existing limitation ``infos[0]`` had,
-    and the same defect class as ECCC issue #45.
-    """
-    if not doc.infos:
-        return CAPInfoDoc()
-    if language:
-        for info in doc.infos:
-            if _language_matches(info.language, language):
-                return info
-    for info in doc.infos:
-        if _normalize_lang(info.language).split("-", 1)[0] == "en":
-            return info
-    return doc.infos[0]
-
-
-def _select_alt_info(doc: CAPDoc, primary: CAPInfoDoc) -> CAPInfoDoc | None:
-    """Return the ``<info>`` block carried as the alternate, if any.
-
-    The rule lives in ``cap.alternate_info_index`` and is shared with
-    MeteoAlarm: an English block in a language other than the primary's, else
-    the first other-language block in document order (issue #154). On
-    ``mo-smg-xx`` (``zh-mo``/``pt-PT``/``en-US``) a Chinese reader therefore
-    gets English as the alternate, not Portuguese.
-
-    A document with no ``<info>`` at all (CAP 1.2 allows it; a bare ``Cancel``
-    is the live shape) has ``_select_info`` hand back a blank block that is in
-    nobody's list, so the lookup takes a default rather than raising.
-    """
-    primary_index = next(
-        (i for i, info in enumerate(doc.infos) if info is primary), None
-    )
-    if primary_index is None:
-        return None
-    idx = alternate_info_index((info.language for info in doc.infos), primary_index)
-    return doc.infos[idx] if idx is not None else None
+# Language selection is shared with the BBK provider (issue #66) and lives in
+# ``cap``; the private names are kept so this module reads as it always did.
+_language_matches = language_matches
+_select_info = select_info
+_select_alt_info = select_alt_info
 
 
 def _build_alert(

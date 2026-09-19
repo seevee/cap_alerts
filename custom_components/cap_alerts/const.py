@@ -474,3 +474,72 @@ GDACS_ALERT_LEVELS: tuple[str, ...] = ("Green", "Orange", "Red")
 # least headroom for a slow network. A user who wants the green tail can still
 # ask for it — they just take on both costs knowingly.
 GDACS_DEFAULT_ALERT_LEVEL = "Orange"
+
+# BBK (Bundesamt für Bevölkerungsschutz und Katastrophenhilfe) — the backend
+# behind the German NINA warning app (issue #66). Public, unauthenticated, CAP
+# 1.2 serialized as JSON. Two index shapes, one detail shape:
+#
+# * ``dashboard/{ars}.json`` lists the warnings relevant to one district. The
+#   ARS (Amtlicher Regionalschlüssel) is twelve digits and the endpoint answers
+#   only at *Kreis* level — the first five digits, zero-padded (probed
+#   2026-09-19: ``010510000000`` → 200, its municipality ``010510011011`` →
+#   404, an unknown twelve-digit code → 404, a malformed one → 400). That 404
+#   is what the config flow's scope check reads.
+# * ``{channel}/mapData.json`` is the national index of one channel. GPS and
+#   tracker scopes union all five, then keep the alerts whose polygon contains
+#   the point. There is no channel option: the civil-protection channels are
+#   the reason the provider exists, and the DWD channel is the same warnings
+#   MeteoAlarm Germany relays, so a user who has both simply gets both.
+# * ``warnings/{id}.json`` is the CAP document; ``warnings/{id}.geojson`` its
+#   polygons. Both are keyed by the immutable per-revision id, so the shared
+#   content cache holds them until the revision changes.
+BBK_API_BASE = "https://warnung.bund.de/api31"
+BBK_DASHBOARD_URL = BBK_API_BASE + "/dashboard/{ars}.json"
+BBK_MAPDATA_URL = BBK_API_BASE + "/{channel}/mapData.json"
+BBK_WARNING_URL = BBK_API_BASE + "/warnings/{warning_id}.json"
+BBK_GEOJSON_URL = BBK_API_BASE + "/warnings/{warning_id}.geojson"
+
+# The channels warnung.bund.de indexes, as they appear in the mapData path.
+# The DWD channel is the severity-filtered relay (NINA shows Warnstufen 3–5:
+# ``Moderate`` was live on 2026-09-19, ``Minor`` never is); LHP is the
+# federal-state flood portal. Ordered as the app lists them.
+BBK_CHANNELS: tuple[str, ...] = ("mowas", "katwarn", "biwapp", "lhp", "dwd")
+
+# Warning-id prefix → channel, for the ``bbk_channel`` parameter. The prefix
+# names the originating source on every id the API mints; ``dwdmap.`` is the
+# DWD channel's map-layer document (what mapData lists) and ``dwd.`` the
+# district document (what a dashboard lists) — both DWD.
+BBK_ID_PREFIX_CHANNELS: dict[str, str] = {
+    "mow": "mowas",
+    "kat": "katwarn",
+    "biw": "biwapp",
+    "lhp": "lhp",
+    "dwd": "dwd",
+    "dwdmap": "dwd",
+}
+
+# Width of a full Regionalschlüssel, and the leading digits that name a Kreis.
+BBK_ARS_LENGTH = 12
+BBK_ARS_KREIS_DIGITS = 5
+
+# ``<language>`` tags observed in BBK ``info[]`` blocks (both channels sampled
+# 2026-08-03 and 2026-09-19). DWD writes ``de-DE``, MoWaS ``de`` plus
+# ``de-LS`` — *Leichte Sprache*, the German easy-read register — and the
+# translations differ in case between channels (``en`` / ``EN``), so matching
+# is casefolded and falls back to the primary subtag. ``de-LS`` is offered as
+# its own choice: an exact match wins where a document carries it, and plain
+# German is what the primary-subtag fallback yields where it does not. The
+# options form shows these exactly; there is no custom value because the set
+# is the feed's, not a registry's.
+BBK_LANGUAGES: tuple[str, ...] = (
+    "auto",
+    "de",
+    "de-LS",
+    "en",
+    "ar",
+    "es",
+    "fr",
+    "pl",
+    "ru",
+    "tr",
+)

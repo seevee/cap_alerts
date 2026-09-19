@@ -1,0 +1,218 @@
+{
+  "identifier": "mow.DE-SL-SLS-W038-20260904-000",
+  "sender": "DE-SL-SLS-W038",
+  "sent": "2026-09-04T13:05:28+02:00",
+  "status": "Actual",
+  "msgType": "Update",
+  "scope": "Public",
+  "code": [
+    "DVN:19"
+  ],
+  "references": "DE-SL-SLS-W038,mow.DE-SL-SLS-W038-20260901-000,2026-09-01T14:57:23-00:00",
+  "info": [
+    {
+      "language": "de",
+      "category": [
+        "Health"
+      ],
+      "event": "Gefahreninformation",
+      "urgency": "Immediate",
+      "severity": "Minor",
+      "certainty": "Observed",
+      "eventCode": [
+        {
+          "valueName": "profile:DE-BBK-EVENTCODE",
+          "value": "BBK-EVC-069"
+        }
+      ],
+      "headline": "1. AKTUALISIERUNG: Bakteriologische Beeinträchtigung des Trinkwassers - Chlorung - Biringen, Fürweiler, Gerlfangen und Oberesch - Gde. ReSi",
+      "description": "UPDATE zur Pressemitteilung vom 01.09.2026<br/><br/>04.09.2026 | Bakteriologische Beeinträchtigung des Trinkwassers<br/>Schutzchlorung für den Ortsteil Hemmersdorf der Gemeinde Rehlingen<br/>Siersburg aufgehoben<br/><br/…",
+      "instruction": "Informieren Sie sich, zum Beispiel im Radio.<br/>- Infolge der Schutzchlorung kann das Trinkwasser in den betroffenen Ortsteilen leicht nach Chlor<br/>riechen. Von dem Chlorgehalt geht jedoch keine Gesundheitsgefährdung…",
+      "web": "https://twrs-gmbh.de/",
+      "contact": "TWRS Technische Werke der Gemeinde Rehlingen-Siersburg GmbH<br/>06835 501933",
+      "parameter": [
+        {
+          "valueName": "sender_signature",
+          "value": "Katastrophenschutzbehörde LK Saarlouis\nKaiser-Wilhelm-Straße 4-6\n66740 Saarlouis"
+        },
+        {
+          "valueName": "sender_langname",
+          "value": "Katastrophenschutzbehörde LK Saarlouis"
+        },
+        {
+          "valueName": "instructionCode",
+          "value": "BBK-ISC-149"
+        },
+        {
+          "valueName": "instructionText",
+          "value": "- Infolge der Schutzchlorung kann das Trinkwasser in den betroffenen Ortsteilen leicht nach Chlor<br/>riechen. Von dem C…"
+        },
+        {
+          "valueName": "warnVerwaltungsbereiche",
+          "value": "100440114114"
+        },
+        {
+          "valueName": "PHGEM",
+          "value": "5981,100001"
+        },
+        {
+          "valueName": "ZGEM",
+          "value": "5981,100001"
+        },
+        {
+          "valueName": "cellBroadcastId",
+          "value": "zWHi1uAwshmy"
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Biringen, Fürweiler, Gerlfangen und Oberesch - Gde. ReSi"
+        }
+      ]
+    },
+    {
+      "language": "de-LS",
+      "category": [
+        "Health"
+      ],
+      "event": "Gefahreninformation",
+      "urgency": "Immediate",
+      "severity": "Minor",
+      "certainty": "Observed",
+      "eventCode": [
+        {
+          "valueName": "profile:DE-BBK-EVENTCODE",
+          "value": "BBK-EVC-069"
+        }
+      ],
+      "headline": "Trinkwasserverschmutzung",
+      "description": "UPDATE zur Pressemitteilung vom 01.09.2026<br/><br/>04.09.2026 | Bakteriologische Beeinträchtigung des Trinkwassers<br/>Schutzchlorung für den Ortsteil Hemmersdorf der Gemeinde Rehlingen<br/>Siersburg aufgehoben<br/><br/…",
+      "instruction": "Informieren Sie sich, zum Beispiel im Radio.<br/>- Infolge der Schutzchlorung kann das Trinkwasser in den betroffenen Ortsteilen leicht nach Chlor<br/>riechen. Von dem Chlorgehalt geht jedoch keine Gesundheitsgefährdung…",
+      "web": "https://twrs-gmbh.de/",
+      "contact": "TWRS Technische Werke der Gemeinde Rehlingen-Siersburg GmbH<br/>06835 501933",
+      "parameter": [
+        {
+          "valueName": "sender_signature",
+          "value": "Katastrophenschutzbehörde LK Saarlouis\nKaiser-Wilhelm-Straße 4-6\n66740 Saarlouis"
+        },
+        {
+          "valueName": "sender_langname",
+          "value": "Katastrophenschutzbehörde LK Saarlouis"
+        },
+        {
+          "valueName": "instructionCode",
+          "value": "BBK-ISC-149"
+        },
+        {
+          "valueName": "instructionText",
+          "value": "- Infolge der Schutzchlorung kann das Trinkwasser in den betroffenen Ortsteilen leicht nach Chlor<br/>riechen. Von dem C…"
+        },
+        {
+          "valueName": "warnVerwaltungsbereiche",
+          "value": "100440114114"
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Biringen, Fürweiler, Gerlfangen und Oberesch - Gde. ReSi"
+        }
+      ]
+    },
+    {
+      "language": "en",
+      "category": [
+        "Health"
+      ],
+      "event": "Gefahreninformation",
+      "urgency": "Immediate",
+      "severity": "Minor",
+      "certainty": "Observed",
+      "eventCode": [
+        {
+          "valueName": "profile:DE-BBK-EVENTCODE",
+          "value": "BBK-EVC-069"
+        }
+      ],
+      "headline": "Contaminated drinking water",
+      "description": "UPDATE zur Pressemitteilung vom 01.09.2026<br/><br/>04.09.2026 | Bakteriologische Beeinträchtigung des Trinkwassers<br/>Schutzchlorung für den Ortsteil Hemmersdorf der Gemeinde Rehlingen<br/>Siersburg aufgehoben<br/><br/…",
+      "instruction": "Inform yourself, for example, on the radio.<br/>- Infolge der Schutzchlorung kann das Trinkwasser in den betroffenen Ortsteilen leicht nach Chlor<br/>riechen. Von dem Chlorgehalt geht jedoch keine Gesundheitsgefährdung a…",
+      "web": "https://twrs-gmbh.de/",
+      "contact": "TWRS Technische Werke der Gemeinde Rehlingen-Siersburg GmbH<br/>06835 501933",
+      "parameter": [
+        {
+          "valueName": "sender_signature",
+          "value": "Katastrophenschutzbehörde LK Saarlouis\nKaiser-Wilhelm-Straße 4-6\n66740 Saarlouis"
+        },
+        {
+          "valueName": "sender_langname",
+          "value": "Katastrophenschutzbehörde LK Saarlouis"
+        },
+        {
+          "valueName": "instructionCode",
+          "value": "BBK-ISC-149"
+        },
+        {
+          "valueName": "instructionText",
+          "value": "- Infolge der Schutzchlorung kann das Trinkwasser in den betroffenen Ortsteilen leicht nach Chlor<br/>riechen. Von dem C…"
+        },
+        {
+          "valueName": "warnVerwaltungsbereiche",
+          "value": "100440114114"
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Biringen, Fürweiler, Gerlfangen und Oberesch - Gde. ReSi"
+        }
+      ]
+    },
+    {
+      "language": "fr",
+      "category": [
+        "Health"
+      ],
+      "event": "Gefahreninformation",
+      "urgency": "Immediate",
+      "severity": "Minor",
+      "certainty": "Observed",
+      "eventCode": [
+        {
+          "valueName": "profile:DE-BBK-EVENTCODE",
+          "value": "BBK-EVC-069"
+        }
+      ],
+      "headline": "Pollution de l'eau potable",
+      "description": "UPDATE zur Pressemitteilung vom 01.09.2026<br/><br/>04.09.2026 | Bakteriologische Beeinträchtigung des Trinkwassers<br/>Schutzchlorung für den Ortsteil Hemmersdorf der Gemeinde Rehlingen<br/>Siersburg aufgehoben<br/><br/…",
+      "instruction": "Informez-vous, par exemple en écoutant la radio.<br/>- Infolge der Schutzchlorung kann das Trinkwasser in den betroffenen Ortsteilen leicht nach Chlor<br/>riechen. Von dem Chlorgehalt geht jedoch keine Gesundheitsgefährd…",
+      "web": "https://twrs-gmbh.de/",
+      "contact": "TWRS Technische Werke der Gemeinde Rehlingen-Siersburg GmbH<br/>06835 501933",
+      "parameter": [
+        {
+          "valueName": "sender_signature",
+          "value": "Katastrophenschutzbehörde LK Saarlouis\nKaiser-Wilhelm-Straße 4-6\n66740 Saarlouis"
+        },
+        {
+          "valueName": "sender_langname",
+          "value": "Katastrophenschutzbehörde LK Saarlouis"
+        },
+        {
+          "valueName": "instructionCode",
+          "value": "BBK-ISC-149"
+        },
+        {
+          "valueName": "instructionText",
+          "value": "- Infolge der Schutzchlorung kann das Trinkwasser in den betroffenen Ortsteilen leicht nach Chlor<br/>riechen. Von dem C…"
+        },
+        {
+          "valueName": "warnVerwaltungsbereiche",
+          "value": "100440114114"
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Biringen, Fürweiler, Gerlfangen und Oberesch - Gde. ReSi"
+        }
+      ]
+    }
+  ]
+}

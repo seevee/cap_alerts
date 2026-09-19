@@ -23,14 +23,16 @@ cards work too, see [Cards and automations](#cards-and-automations).*
 | **MeteoAlarm** | EUMETNET European aggregator | About 37 national services | Country (`DE`), with an optional GPS filter or a region multi-select |
 | **WMO** | WMO Severe Weather Information Centre | About 100 national services with no dedicated provider | Source ID from the live SWIC registry (`mx-smn-es`), with an optional GPS filter |
 | **GDACS** | Global Disaster Alert and Coordination System | Worldwide earthquakes, cyclones, floods, volcanoes, droughts, wildfires, tsunamis | Worldwide, GPS, or `device_tracker` entity |
+| **BBK** | German federal civil protection (the NINA app backend) | Germany: MoWaS, KATWARN, BIWAPP, LHP flood warnings, DWD weather warnings of level 3 and up | District (Regionalschlüssel, `09564`), GPS, or `device_tracker` entity |
 
 GPS and tracker modes keep only alerts whose affected area contains the point.
 The MeteoAlarm region picker lists `EMMA_ID` codes for most countries, `NUTS`
 codes for some, and area names where a feed publishes no geocodes.
 
-GDACS is the one non-weather source, and the reason the model is a CAP model
-rather than a weather model. Further providers (BoM, DWD, …) plug in behind the
-same provider protocol; see [Contributing](CONTRIBUTING.md#adding-a-provider).
+GDACS and BBK are the non-weather sources, and the reason the model is a CAP
+model rather than a weather model. Further providers (BoM, a direct DWD feed, …)
+plug in behind the same provider protocol; see
+[Contributing](CONTRIBUTING.md#adding-a-provider).
 
 ## Installation
 
@@ -74,13 +76,13 @@ Per provider:
 
 | Option | Providers | What it does |
 |---|---|---|
-| Language | ECCC, MeteoAlarm, WMO | Which `<info>` block to read. ECCC: `auto`, `en-CA` or `fr-CA`. MeteoAlarm: a two-letter prefix (`en`, `de`, `fr`). WMO: `auto` or any BCP 47 tag the source publishes (`zh-Hans`). NWS is English only. |
+| Language | ECCC, MeteoAlarm, WMO, BBK | Which `<info>` block to read. ECCC: `auto`, `en-CA` or `fr-CA`. MeteoAlarm: a two-letter prefix (`en`, `de`, `fr`). WMO: `auto` or any BCP 47 tag the source publishes (`zh-Hans`). BBK: `auto`, `de`, `de-LS` (easy-read German), `en` or one of the app's other translations. NWS is English only. |
 | Real-time streaming | ECCC | Ingest alerts the moment they are issued, over the NAAD socket. Default on. See [ECCC streaming](#eccc-streaming). |
 | Feed source | ECCC | Which NAAD GeoRSS host serves polling and backfill. `auto` (default) fetches both hosts and unions them. `alertready` or `pelmorex` pins one. |
 | Event types | GDACS | Which hazards to track. All by default. Applied before any geometry is fetched, so narrowing it also cuts fetch cost. |
 | Minimum alert level | GDACS | `Green`, `Orange` (default) or `Red`, on GDACS's own impact scale. The entity state derives from it too: Green → `minor`, Orange → `severe`, Red → `extreme`. |
 | Exclude marine alerts | NWS, ECCC | Drop alerts carrying a marine zone code. Default off. |
-| Area codes (prefix match) | All but GDACS | Keep only alerts whose area codes start with one of the listed prefixes (`13,37`). See [Area-code narrowing](#area-code-narrowing). |
+| Area codes (prefix match) | All but GDACS and BBK | Keep only alerts whose area codes start with one of the listed prefixes (`13,37`). See [Area-code narrowing](#area-code-narrowing). |
 
 #### ECCC streaming
 
@@ -247,6 +249,14 @@ policy.
   with significance: days for a major earthquake, a year for a drought.
   Identity is keyed on event type and event ID, so an episode re-issue
   updates the entity rather than minting a new one.
+- **BBK** reads the same CAP the NINA app does, serialized as JSON, with the
+  polygons from a separate per-warning GeoJSON. The district scope takes the
+  Amtlicher Regionalschlüssel and widens it to the district, which is the
+  granularity warnung.bund.de answers at. Weather warnings on the DWD channel
+  are the same ones MeteoAlarm Germany relays (levels 3 and up only), so a
+  German user running both gets those twice. MoWaS messages carry no expiry
+  and end when the feed withdraws them. Each alert names its channel in the
+  `bbk_channel` parameter.
 
 Per-field mappings and the reasoning behind each provider are in
 [`docs/architecture.md`](docs/architecture.md).

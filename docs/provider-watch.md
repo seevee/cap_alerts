@@ -109,6 +109,7 @@ nothing in the integration can fix it:
 | MeteoAlarm | no formal channel; [meteoalarm.org](https://meteoalarm.org/) news | probe covers it |
 | WMO SWIC | no formal channel; the [registry record](https://severeweather.wmo.int/v2/json/sources.json) names each authority's contact | probe covers mirror lag on the cap-sources feeds; vocabulary is announcement-only |
 | GDACS | no formal channel; [gdacs.org](https://www.gdacs.org/) | probe covers the indexes |
+| BBK / NINA | no formal channel; [BBK NINA pages](https://www.bbk.bund.de/DE/Warnung-Vorsorge/Warn-App-NINA/warn-app-nina_node.html) and the [bund.dev API listing](https://bund.dev/apis) | probe covers the channel indexes, documents, `GROUP` and `DE-BBK-EVENTCODE` codes, id prefixes |
 
 The dd_info list is the one that would have given months of lead time on CAM;
 it is where MSC announces Datamart and CAP format changes. The NAADS council

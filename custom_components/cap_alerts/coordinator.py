@@ -466,6 +466,9 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         #   zh-CN vs zh-HK), so the tag is passed verbatim — truncating first
         #   would discard the distinction and pick arbitrarily. Its matcher
         #   casefolds and degrades to the primary subtag on its own;
+        # - BBK blocks are tagged ``de-DE`` / ``de`` / ``de-LS`` / ``en`` …, so
+        #   the tag is passed verbatim like WMO's; the shared matcher degrades
+        #   to the primary subtag and then to English on its own;
         # - ECCC is bilingual EN/FR, so it resolves to one of two full tags.
         lang = options.get(CONF_LANGUAGE, "auto")
         if lang == "auto":
@@ -474,7 +477,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
                 options[CONF_LANGUAGE] = (
                     self.hass.config.language.split("-", 1)[0].lower() or "en"
                 )
-            elif provider == "wmo":
+            elif provider in ("wmo", "bbk"):
                 options[CONF_LANGUAGE] = self.hass.config.language.strip() or "en"
             else:
                 options[CONF_LANGUAGE] = (

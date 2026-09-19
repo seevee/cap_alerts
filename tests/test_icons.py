@@ -190,6 +190,99 @@ def test_gdacs_events(alert_factory, event, expected):
     assert icon_for(alert_factory(event=event, provider="gdacs")) == expected
 
 
+@pytest.mark.parametrize(
+    ("group", "expected"),
+    [
+        ("WIND", "mdi:weather-windy"),
+        ("THUNDERSTORM", "mdi:weather-lightning"),
+        ("HEAT", "mdi:weather-sunny-alert"),
+        ("GLAZE", "mdi:snowflake-melt"),
+        ("uv", "mdi:weather-sunny-alert"),
+    ],
+)
+def test_bbk_dwd_group_code_beats_the_german_event_text(alert_factory, group, expected):
+    """DWD's GROUP eventCode classifies where "SCHWERE STURMBÖEN" cannot."""
+    alert = alert_factory(
+        event="SCHWERE STURMBÖEN",
+        language="de-DE",
+        parameters={"GROUP": group},
+        provider="bbk",
+    )
+    assert icon_for(alert) == expected
+
+
+@pytest.mark.parametrize(
+    ("headline_en", "expected"),
+    [
+        ("Contaminated drinking water", "mdi:water-alert"),
+        ("Fumes", "mdi:smoke"),
+        ("Large fire", "mdi:fire"),
+        ("Bomb disposal", "mdi:bomb"),
+        ("Evacuation", "mdi:exit-run"),
+        ("Power outage", "mdi:flash-off"),
+        ("Gas leak", "mdi:gas-cylinder"),
+        ("Release of hazardous substances", "mdi:biohazard"),
+        ("Flooding", "mdi:home-flood"),
+        ("Test warning", "mdi:bullhorn"),
+        ("All-clear", "mdi:check-circle"),
+    ],
+)
+def test_bbk_civil_protection_classifies_on_the_english_headline(
+    alert_factory, headline_en, expected
+):
+    """MoWaS leaves ``event`` generic and puts the hazard in the headline."""
+    alert = alert_factory(
+        event="Gefahreninformation",
+        headline="Irgendeine Gefahr",
+        language="de",
+        event_alt="Gefahreninformation",
+        headline_alt=headline_en,
+        language_alt="en",
+        provider="bbk",
+    )
+    assert icon_for(alert) == expected
+
+
+def test_bbk_english_primary_reads_its_own_headline(alert_factory):
+    alert = alert_factory(
+        event="Gefahreninformation",
+        headline="Contaminated drinking water",
+        language="en",
+        provider="bbk",
+    )
+    assert icon_for(alert) == "mdi:water-alert"
+
+
+def test_bbk_unknown_group_falls_through_to_the_english_event(alert_factory):
+    """A group the table lacks still classifies on the international needles."""
+    alert = alert_factory(
+        event="STARKREGEN",
+        language="de-DE",
+        event_alt="heavy rain",
+        language_alt="en",
+        parameters={"GROUP": "SOMETHING_NEW"},
+        provider="bbk",
+    )
+    assert icon_for(alert) == "mdi:weather-pouring"
+
+
+def test_bbk_nothing_recognisable_falls_back(alert_factory):
+    alert = alert_factory(
+        event="Gefahreninformation",
+        headline="Sonstiges",
+        language="de",
+        headline_alt="Other",
+        language_alt="en",
+        provider="bbk",
+    )
+    assert icon_for(alert) == FALLBACK_ICON
+
+
+def test_bbk_needles_do_not_leak_to_other_providers(alert_factory):
+    alert = alert_factory(event="Contaminated drinking water", provider="nws")
+    assert icon_for(alert) == FALLBACK_ICON
+
+
 def test_gdacs_unknown_event_falls_back(alert_factory):
     assert (
         icon_for(alert_factory(event="Geomagnetic Storm", provider="gdacs"))

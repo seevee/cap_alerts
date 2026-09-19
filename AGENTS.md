@@ -4,7 +4,7 @@ This file provides guidance to AI agents working with code in this repository.
 
 ## Project Overview
 
-A Home Assistant custom integration (`cap_alerts`) that creates **one entity per active weather alert**, solving the 16KB attribute limit in `nws_alerts`. Alert data is modeled using CAP (Common Alerting Protocol) field names via a `CAPAlert` frozen dataclass. Ships with NWS and ECCC (Environment Canada) providers; designed for future providers (BoM, MeteoAlarm, DWD, WMO CAP, etc.).
+A Home Assistant custom integration (`cap_alerts`) that creates **one entity per active weather alert**, solving the 16KB attribute limit in `nws_alerts`. Alert data is modeled using CAP (Common Alerting Protocol) field names via a `CAPAlert` frozen dataclass. Ships with NWS, ECCC (Environment Canada), MeteoAlarm, WMO, GDACS and BBK / NINA (Germany) providers; designed for further providers (BoM, direct DWD, etc.).
 
 Companion frontend: [weather_alerts_card](../weather_alerts_card) — the card's `cap.ts` adapter is a thin passthrough since this integration handles all normalization.
 
@@ -51,6 +51,7 @@ custom_components/cap_alerts/
     meteoalarm.py   # MeteoAlarm steps: country, region picker, fully-mobile mode
     wmo.py          # WMO steps: source picker, geocode narrowing, language option
     gdacs.py        # GDACS steps + event-type/alert-level options
+    bbk.py          # BBK steps: Regionalschlüssel (district) form, GPS, tracker; language option
   coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info + NAAD stream lifecycle; provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs
   diagnostics.py    # config-entry diagnostics download: scope, endpoints, update health, filters, convention rows in effect; redacts location + credentials
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
@@ -61,7 +62,7 @@ custom_components/cap_alerts/
   normalize.py      # shared normalization: severity, phase, Buddhist-Era year fix, state truncation
   payload.py        # attribute-payload budget: measures what the recorder measures, trims long-form text then redundant keys in priority order (#150)
   store.py          # alert store: inter-poll diffing, transition detection, HA event firing (incl. removal_reason)
-  icons.py          # event-type → mdi dispatch; MeteoAlarm classifies on awareness_type, others on event tables
+  icons.py          # event-type → mdi dispatch; MeteoAlarm classifies on awareness_type, BBK on the DWD GROUP code then civil-protection headline needles, others on event tables
   geometry_store.py # in-memory LRU cache of full GeoJSON polygons, keyed by geometry_ref (RFC §2.4); never persisted
   issues.py         # repairs issues owed by an entry's config (#163): ECCC streaming off / feed source pinned to the retiring NAAD host; issue-registry only, no repairs import
   repairs.py        # HA repairs platform: the confirm flows that apply each issue's recommended option; loaded lazily by the repairs component
@@ -69,8 +70,8 @@ custom_components/cap_alerts/
   websocket.py      # cap_alerts/geometry WS command, same payload as the REST view
   providers/
     __init__.py           # AlertProvider protocol (fetch + config-flow scope validation) + get_provider() factory
-    cap.py                # shared, provider-neutral CAP 1.2 XML parsing (CAPDoc/CAPInfoDoc, parse_cap_alert, resolve_chain_leaves)
-    cap_content_cache.py  # LRU cache for fetched CAP XML bodies (shared: eccc + wmo)
+    cap.py                # shared, provider-neutral CAP 1.2 parsing: XML (parse_cap_alert) and JSON (cap_doc_from_json) into CAPDoc/CAPInfoDoc, resolve_chain_leaves, language-block selection (select_info)
+    cap_content_cache.py  # LRU cache for fetched bodies: CAP XML, CAP JSON, GeoJSON (shared: eccc, wmo, gdacs, bbk)
     geometry.py           # shared CAP shapes → GeoJSON; polygon/point selection, zero-radius circles
     gps.py                # shared GPS-mode helpers: lat,lon parsing, ray-cast point-in-polygon, rings off a CAPAlert geometry
     nws.py                # NWS GeoJSON API — zone/GPS/tracker
@@ -79,6 +80,7 @@ custom_components/cap_alerts/
     meteoalarm.py         # MeteoAlarm (EUMETNET) per-country CAP JSON
     wmo.py                # WMO SWIC per-source RSS → CAP XML; per-language <info> selection
     gdacs.py              # GDACS: two global RSS indexes unioned → CAPAlert (no CAP body exists); per-episode GeoJSON geometry, RSS-stage filters, eventid-based identity
+    bbk.py                # BBK / NINA (Germany): district dashboard or five channel indexes → CAP-over-JSON documents + per-warning GeoJSON; MoWaS/KATWARN/BIWAPP/LHP + DWD relay
   manifest.json
   translations/
 ```

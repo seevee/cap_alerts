@@ -94,6 +94,7 @@ async def test_reconfigure_lists_every_provider(hass, enable_custom_integrations
         "reconfigure_meteoalarm",
         "reconfigure_wmo",
         "reconfigure_gdacs",
+        "reconfigure_bbk",
     ]
 
 
@@ -135,6 +136,15 @@ async def test_reconfigure_lists_every_provider(hass, enable_custom_integrations
                 "reconfigure",
             ],
         ),
+        (
+            "reconfigure_bbk",
+            [
+                "reconfigure_bbk_region",
+                "reconfigure_bbk_gps_loc",
+                "reconfigure_bbk_gps_tracker",
+                "reconfigure",
+            ],
+        ),
     ],
 )
 @pytest.mark.asyncio
@@ -154,6 +164,7 @@ async def test_reconfigure_provider_menus(
         "reconfigure_eccc",
         "reconfigure_meteoalarm",
         "reconfigure_gdacs",
+        "reconfigure_bbk",
     ],
 )
 @pytest.mark.asyncio

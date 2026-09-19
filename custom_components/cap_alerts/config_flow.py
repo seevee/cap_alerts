@@ -38,7 +38,7 @@ from .const import (
     GDACS_EVENT_TYPES,
 )
 from .conventions import conventions_for
-from .flows import eccc, gdacs, meteoalarm, nws, wmo
+from .flows import bbk, eccc, gdacs, meteoalarm, nws, wmo
 from .flows.common import OptionsSchema, _validate_geocode_prefixes
 
 # Providers that add fields to the options form, in the order the setup menu
@@ -49,6 +49,7 @@ _OPTIONS_SCHEMAS: dict[str, Callable[[ConfigEntry], OptionsSchema]] = {
     "meteoalarm": meteoalarm.options_schema,
     "wmo": wmo.options_schema,
     "gdacs": gdacs.options_schema,
+    "bbk": bbk.options_schema,
 }
 
 
@@ -58,6 +59,7 @@ class CAPAlertsFlowHandler(
     meteoalarm.MeteoAlarmFlowMixin,
     wmo.WMOFlowMixin,
     gdacs.GDACSFlowMixin,
+    bbk.BBKFlowMixin,
     ConfigFlow,
     domain=DOMAIN,
 ):
@@ -78,7 +80,7 @@ class CAPAlertsFlowHandler(
         """Provider selection menu."""
         return self.async_show_menu(
             step_id="user",
-            menu_options=["nws", "eccc", "meteoalarm", "wmo", "gdacs"],
+            menu_options=["nws", "eccc", "meteoalarm", "wmo", "gdacs", "bbk"],
         )
 
     # ── Reconfigure flow ──
@@ -95,6 +97,7 @@ class CAPAlertsFlowHandler(
                 "reconfigure_meteoalarm",
                 "reconfigure_wmo",
                 "reconfigure_gdacs",
+                "reconfigure_bbk",
             ],
         )
 

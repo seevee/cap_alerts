@@ -1,0 +1,248 @@
+{
+  "identifier": "dwd.2.49.0.0.276.0.DWD.PVW.1789837260000.f831dd90-b825-45e6-b453-68d2579831c5.MUL",
+  "sender": "opendata@dwd.de",
+  "sent": "2026-09-19T19:00:24+02:00",
+  "status": "Actual",
+  "msgType": "Alert",
+  "source": "PVW",
+  "scope": "Public",
+  "code": [
+    "DVN:20",
+    "id:2.49.0.0.276.0.DWD.PVW.1789837260000.f831dd90-b825-45e6-b453-68d2579831c5"
+  ],
+  "info": [
+    {
+      "language": "de-DE",
+      "category": [
+        "Met"
+      ],
+      "event": "STURMBÖEN",
+      "responseType": [
+        "Prepare"
+      ],
+      "urgency": "Immediate",
+      "severity": "Moderate",
+      "certainty": "Likely",
+      "eventCode": [
+        {
+          "valueName": "PROFILE_VERSION",
+          "value": "2.1.14"
+        },
+        {
+          "valueName": "LICENSE",
+          "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)"
+        },
+        {
+          "valueName": "II",
+          "value": "52"
+        },
+        {
+          "valueName": "GROUP",
+          "value": "WIND"
+        },
+        {
+          "valueName": "AREA_COLOR",
+          "value": "251 140 0"
+        }
+      ],
+      "effective": "2026-09-19T19:01:00+02:00",
+      "onset": "2026-09-20T12:00:00+02:00",
+      "expires": "2026-09-20T20:00:00+02:00",
+      "senderName": "Deutscher Wetterdienst",
+      "headline": "Amtliche WARNUNG vor STURMBÖEN",
+      "description": "Es treten Sturmböen mit Geschwindigkeiten zwischen 55 km/h (15 m/s, 30 kn, Bft 7) und 70 km/h (20 m/s, 38 kn, Bft 8) anfangs aus westlicher, später aus nordwestlicher Richtung auf. In Schauernähe muss mit Sturmböen um 75…",
+      "instruction": "Gefahr durch: einzelne herabstürzende Äste; umherfliegende Gegenstände.<br/>Handlungsempfehlungen:<br/>frei stehende Objekte sichern (z.B. Leinwände und Möbel); z.B. Zelte und Abdeckungen befestigen; im Freien auf herabf…",
+      "web": "https://dwd.de/warnungen",
+      "contact": "Deutscher Wetterdienst",
+      "parameter": [
+        {
+          "valueName": "gusts",
+          "value": "55-70 [km/h]"
+        },
+        {
+          "valueName": "exposed gusts",
+          "value": "~75 [km/h]"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "west"
+        },
+        {
+          "valueName": "subsequent wind direction",
+          "value": "north-west"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "north-west"
+        },
+        {
+          "valueName": "PHGEM",
+          "value": "2825,2832+1,2835+2,2839,2849,2851+5,2863,2922+3,2929,2931+6,2949+4,2955,2961+1,2969+5,2976,2986,2991,3004+3,3011+1,3014+…"
+        },
+        {
+          "valueName": "ZGEM",
+          "value": "2825,2832+1,2835+2,2839,2849,2851+5,2863,2922+3,2929,2931+6,2949+4,2955,2961+1,2969+5,2976,2986,2991,3004+3,3011+1,3014+…"
+        },
+        {
+          "valueName": "furtherInformation",
+          "value": "Bitte informieren Sie sich fortlaufend über Aktualisierungen zur aktuellen Wetter- bzw. Warnsituation."
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Gemeinde Rietz-Neuendorf, Gemeinde Rabenstein/Fläming, Gemeinde Wandlitz, Gemeinde Neutrebbin, Berl. - Reinickendorf, Berl. - Konradshöhe, Berl. - Tegel, Berl. - Frohnau, Gemeinde Oderaue, Berl. - Heiligensee, Gemeinde Oberbarnim, Berl. - Waidmannslust, Gemeinde Schöneiche bei Berlin, Berl. - Hermsdorf, Berl. - Wittenau, Berl. - Lübars, Berl. - Borsigwalde, Berl. - Märkisches Viertel, Gemeinde Petershagen/Eggersdorf, Berl. - Schöneberg und 229 weitere."
+        }
+      ]
+    },
+    {
+      "language": "en",
+      "category": [
+        "Met"
+      ],
+      "event": "gale-force gusts",
+      "responseType": [
+        "Prepare"
+      ],
+      "urgency": "Immediate",
+      "severity": "Moderate",
+      "certainty": "Likely",
+      "eventCode": [
+        {
+          "valueName": "PROFILE_VERSION",
+          "value": "2.1.14"
+        },
+        {
+          "valueName": "LICENSE",
+          "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)"
+        },
+        {
+          "valueName": "II",
+          "value": "52"
+        },
+        {
+          "valueName": "GROUP",
+          "value": "WIND"
+        },
+        {
+          "valueName": "AREA_COLOR",
+          "value": "251 140 0"
+        }
+      ],
+      "effective": "2026-09-19T19:01:00+02:00",
+      "onset": "2026-09-20T12:00:00+02:00",
+      "expires": "2026-09-20T20:00:00+02:00",
+      "senderName": "Deutscher Wetterdienst",
+      "headline": "Official WARNING of GALE-FORCE GUSTS",
+      "description": "There is a risk of gale-force gusts (level 2 of 4).<br/>Max. gusts: 55-70 km/h; Wind direction: west then north-west; Increased gusts: near showers ~ 75 km/h",
+      "instruction": "Hazard(s) caused by: single branches falling; objects flying through the air.<br/>Recommendations for what to do:<br/>Secure free-standing objects (e.g. screens and furniture). For example, fasten tents and coverings. Wa…",
+      "web": "https://dwd.de/warnungen",
+      "contact": "Deutscher Wetterdienst",
+      "parameter": [
+        {
+          "valueName": "gusts",
+          "value": "55-70 [km/h]"
+        },
+        {
+          "valueName": "exposed gusts",
+          "value": "~75 [km/h]"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "west"
+        },
+        {
+          "valueName": "subsequent wind direction",
+          "value": "north-west"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "north-west"
+        },
+        {
+          "valueName": "furtherInformation",
+          "value": "Please check back regularly for updates on the current weather and warning situation."
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Gemeinde Rietz-Neuendorf, Gemeinde Rabenstein/Fläming, Gemeinde Wandlitz, Gemeinde Neutrebbin, Berl. - Reinickendorf, Berl. - Konradshöhe, Berl. - Tegel, Berl. - Frohnau, Gemeinde Oderaue, Berl. - Heiligensee, Gemeinde Oberbarnim, Berl. - Waidmannslust, Gemeinde Schöneiche bei Berlin, Berl. - Hermsdorf, Berl. - Wittenau, Berl. - Lübars, Berl. - Borsigwalde, Berl. - Märkisches Viertel, Gemeinde Petershagen/Eggersdorf, Berl. - Schöneberg und 229 weitere."
+        }
+      ]
+    },
+    {
+      "language": "fr",
+      "category": [
+        "Met"
+      ],
+      "event": "Rafales de force fort coup de vent",
+      "responseType": [
+        "Prepare"
+      ],
+      "urgency": "Immediate",
+      "severity": "Moderate",
+      "certainty": "Likely",
+      "eventCode": [
+        {
+          "valueName": "PROFILE_VERSION",
+          "value": "2.1.14"
+        },
+        {
+          "valueName": "LICENSE",
+          "value": "© GeoBasis-DE / BKG 2021 (Daten modifiziert)"
+        },
+        {
+          "valueName": "II",
+          "value": "52"
+        },
+        {
+          "valueName": "GROUP",
+          "value": "WIND"
+        },
+        {
+          "valueName": "AREA_COLOR",
+          "value": "251 140 0"
+        }
+      ],
+      "effective": "2026-09-19T19:01:00+02:00",
+      "onset": "2026-09-20T12:00:00+02:00",
+      "expires": "2026-09-20T20:00:00+02:00",
+      "senderName": "Deutscher Wetterdienst",
+      "headline": "ALERTE officielle INTEMPÉRIES PRONONCÉES pour RAFALES DE FORCE FORT COUP DE VENT",
+      "description": "Il y a un risque de rafales de force fort coup de vent (Niveau 2 sur 4).<br/>Rafale maximale: 55-70 km/h&nbsp;; Direction du vent &nbsp;: ouest puis nord-ouest&nbsp;; Rafales en hausse &nbsp;: à proximité des averses ~ 7…",
+      "instruction": "Danger en raison de&nbsp;: chute isolée de branches&nbsp;; objets emportés par le vent.<br/>Recommandations d&apos;action&nbsp;:<br/>Rangez ou fixez les objets isolés (écrans, meubles, etc.)&nbsp;; Fixez p. ex. les tente…",
+      "web": "https://dwd.de/warnungen",
+      "contact": "Deutscher Wetterdienst",
+      "parameter": [
+        {
+          "valueName": "gusts",
+          "value": "55-70 [km/h]"
+        },
+        {
+          "valueName": "exposed gusts",
+          "value": "~75 [km/h]"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "west"
+        },
+        {
+          "valueName": "subsequent wind direction",
+          "value": "north-west"
+        },
+        {
+          "valueName": "wind direction",
+          "value": "north-west"
+        },
+        {
+          "valueName": "furtherInformation",
+          "value": "Veuillez vous tenir informés en continu sur les conditions météo ou les alertes météorologiques actuelles."
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Gemeinde Rietz-Neuendorf, Gemeinde Rabenstein/Fläming, Gemeinde Wandlitz, Gemeinde Neutrebbin, Berl. - Reinickendorf, Berl. - Konradshöhe, Berl. - Tegel, Berl. - Frohnau, Gemeinde Oderaue, Berl. - Heiligensee, Gemeinde Oberbarnim, Berl. - Waidmannslust, Gemeinde Schöneiche bei Berlin, Berl. - Hermsdorf, Berl. - Wittenau, Berl. - Lübars, Berl. - Borsigwalde, Berl. - Märkisches Viertel, Gemeinde Petershagen/Eggersdorf, Berl. - Schöneberg und 229 weitere."
+        }
+      ]
+    }
+  ]
+}

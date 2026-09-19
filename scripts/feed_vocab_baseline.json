@@ -2,6 +2,187 @@
  "_meta": {
   "comment": "Known provider feed vocabulary; grown by scripts/feed_vocab_probe.py --update, never pruned."
  },
+ "bbk": {
+  "eventcode_names": [
+   "AREA_COLOR",
+   "GROUP",
+   "II",
+   "LICENSE",
+   "PROFILE_VERSION",
+   "profile:DE-BBK-EVENTCODE"
+  ],
+  "index.severity": [
+   "Minor",
+   "Moderate"
+  ],
+  "index.type": [
+   "Alert",
+   "Update"
+  ],
+  "index.urgency": [
+   "Immediate"
+  ],
+  "index_paths": [
+   "mapData[].expiresDate",
+   "mapData[].i18nTitle",
+   "mapData[].i18nTitle.ar",
+   "mapData[].i18nTitle.de",
+   "mapData[].i18nTitle.en",
+   "mapData[].i18nTitle.es",
+   "mapData[].i18nTitle.fr",
+   "mapData[].i18nTitle.pl",
+   "mapData[].i18nTitle.ru",
+   "mapData[].i18nTitle.tr",
+   "mapData[].id",
+   "mapData[].severity",
+   "mapData[].startDate",
+   "mapData[].transKeys",
+   "mapData[].transKeys.event",
+   "mapData[].type",
+   "mapData[].urgency",
+   "mapData[].version"
+  ],
+  "json_paths": [
+   "code",
+   "identifier",
+   "info",
+   "info[].area",
+   "info[].area[].areaDesc",
+   "info[].category",
+   "info[].certainty",
+   "info[].contact",
+   "info[].description",
+   "info[].effective",
+   "info[].event",
+   "info[].eventCode",
+   "info[].eventCode[].value",
+   "info[].eventCode[].valueName",
+   "info[].expires",
+   "info[].headline",
+   "info[].instruction",
+   "info[].language",
+   "info[].onset",
+   "info[].parameter",
+   "info[].parameter[].value",
+   "info[].parameter[].valueName",
+   "info[].responseType",
+   "info[].senderName",
+   "info[].severity",
+   "info[].urgency",
+   "info[].web",
+   "msgType",
+   "references",
+   "scope",
+   "sender",
+   "sent",
+   "source",
+   "status"
+  ],
+  "values.GROUP": [
+   "FOG",
+   "FROST",
+   "GLAZE",
+   "HAIL",
+   "HEAT",
+   "ICE",
+   "RAIN",
+   "SNOWFALL",
+   "THAW",
+   "THUNDERSTORM",
+   "TORNADO",
+   "UV",
+   "WIND"
+  ],
+  "values.category": [
+   "CBRNE",
+   "Env",
+   "Fire",
+   "Geo",
+   "Health",
+   "Infra",
+   "Met",
+   "Other",
+   "Rescue",
+   "Safety",
+   "Security",
+   "Transport"
+  ],
+  "values.certainty": [
+   "Likely",
+   "Observed",
+   "Possible",
+   "Unknown",
+   "Unlikely"
+  ],
+  "values.id_prefix": [
+   "biw",
+   "dwd",
+   "dwdmap",
+   "kat",
+   "lhp",
+   "mow"
+  ],
+  "values.language": [
+   "ar",
+   "de",
+   "de-DE",
+   "de-LS",
+   "en",
+   "es",
+   "fr",
+   "pl",
+   "ru",
+   "tr"
+  ],
+  "values.msgType": [
+   "Ack",
+   "Alert",
+   "Cancel",
+   "Error",
+   "Update"
+  ],
+  "values.profile:DE-BBK-EVENTCODE": [
+   "BBK-EVC-010",
+   "BBK-EVC-069"
+  ],
+  "values.responseType": [
+   "AllClear",
+   "Assess",
+   "Avoid",
+   "Evacuate",
+   "Execute",
+   "Monitor",
+   "None",
+   "Prepare",
+   "Shelter"
+  ],
+  "values.scope": [
+   "Private",
+   "Public",
+   "Restricted"
+  ],
+  "values.severity": [
+   "Extreme",
+   "Minor",
+   "Moderate",
+   "Severe",
+   "Unknown"
+  ],
+  "values.status": [
+   "Actual",
+   "Draft",
+   "Exercise",
+   "System",
+   "Test"
+  ],
+  "values.urgency": [
+   "Expected",
+   "Future",
+   "Immediate",
+   "Past",
+   "Unknown"
+  ]
+ },
  "eccc": {
   "event_code_schemes": [
    "SAME",

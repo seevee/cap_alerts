@@ -1203,6 +1203,14 @@ CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
         # nothing else, while every earthquake, cyclone, flood, volcano and
         # wildfire observed stayed true right up to the poll it vanished on.
         "gdacs": SourceConventions(publishes_geocodes=False),
+        # BBK's ``area[]`` carries ``areaDesc`` only (both channels verified
+        # 2026-09-19; the occasional ``AreaId: 0`` is noise), so the area-code
+        # narrowing option is withheld as for GDACS. Default absence policy on
+        # purpose: DWD documents publish ``expires`` and are retained until
+        # it, while MoWaS documents publish none and have no terminal
+        # vocabulary, so they end the moment the index withdraws them — which
+        # is what withdrawal means on warnung.bund.de (issue #66).
+        "bbk": SourceConventions(publishes_geocodes=False),
     }
 )
 

@@ -486,6 +486,29 @@ async def test_an_entry_with_no_location_yet_reports_no_endpoint(hass):
     assert (await _payload(hass, entry))["source"]["endpoints"] == []
 
 
+async def test_a_bbk_district_entry_reports_its_dashboard(hass):
+    entry = _entry({CONF_PROVIDER: "bbk", CONF_ZONE_ID: "095640000000"})
+
+    payload = await _payload(hass, entry)
+
+    assert payload["entry"]["scope"] == {"mode": "zone", "value": "095640000000"}
+    assert payload["source"]["endpoints"] == [
+        "https://warnung.bund.de/api31/dashboard/095640000000.json"
+    ]
+
+
+async def test_a_bbk_gps_entry_reports_every_channel_index_and_no_point(hass):
+    entry = _entry({CONF_PROVIDER: "bbk", CONF_GPS_LOC: "52.52,13.405"})
+
+    payload = await _payload(hass, entry)
+
+    assert payload["entry"]["scope"]["mode"] == "gps"
+    endpoints = payload["source"]["endpoints"]
+    assert len(endpoints) == 5
+    assert all(url.endswith("/mapData.json") for url in endpoints)
+    assert "52.52" not in json.dumps(payload)
+
+
 async def test_a_worldwide_entry_reports_a_scope_rather_than_a_gap(hass):
     """GDACS with no GPS filter is fully configured, not half-configured."""
     entry = _entry({CONF_PROVIDER: "gdacs"})

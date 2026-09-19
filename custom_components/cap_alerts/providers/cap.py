@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import Any
 from xml.etree.ElementTree import Element
 
 from defusedxml import ElementTree as ET
@@ -382,3 +383,223 @@ def alternate_info_index(languages: Iterable[str], primary_index: int) -> int | 
         if tags[idx] == "en":
             return idx
     return candidates[0] if candidates else None
+
+
+def language_matches(info_lang: str, preferred: str) -> bool:
+    """Check language match with BCP 47 primary-subtag fallback.
+
+    Casefolded exact match wins (``EN-us`` == ``en-US``); failing that the
+    primary subtag (before the first ``-``) is compared, so ``zh-Hans``
+    matches ``zh-CN`` and a bare ``en`` matches ``en-GB``. An empty tag on
+    either side never matches.
+
+    The primary-subtag step is script-blind: a ``zh-Hans`` (Simplified)
+    preference matches a ``zh-HK``/``zh-mo`` (Traditional) block. That is
+    deliberate — a user only reaches those sources by choosing them
+    explicitly, and the related script beats an unrelated language. The same
+    step is what lets a ``de-LS`` (easy-read German) preference land on plain
+    ``de`` where a BBK document publishes no easy-read block.
+    """
+    if not info_lang or not preferred:
+        return False
+    info_norm = info_lang.strip().casefold()
+    pref_norm = preferred.strip().casefold()
+    if not info_norm or not pref_norm:
+        return False
+    if info_norm == pref_norm:
+        return True
+    return info_norm.split("-", 1)[0] == pref_norm.split("-", 1)[0]
+
+
+def select_info(doc: CAPDoc, language: str) -> CAPInfoDoc:
+    """Pick the ``<info>`` block matching ``language``.
+
+    Multilingual bodies do not put the languages in a predictable order: of
+    the 110 WMO sources sampled on 2026-08-03, 46 carried more than one
+    ``<info>`` block and 25 of those led with a non-English one
+    (``at-zamg-en`` leads with ``de-DE``), and BBK's MoWaS documents lead with
+    ``de`` then ``de-LS`` before any translation.
+
+    Preference order:
+    1. first block whose tag equals ``language`` (casefolded), anywhere in the
+       document, then the first whose *primary subtag* matches
+       (``language_matches``). Two passes rather than one, because MoWaS
+       leads with ``de`` and follows with ``de-LS``: a single pass would hand
+       an easy-read preference the plain-German block it walks past first;
+    2. first block whose primary subtag is ``en`` — a predictable fallback
+       when the document lacks the preferred language, rather than an
+       arbitrary one (a German user on ``mo-smg-xx`` gets ``en-US``, not
+       ``zh-mo``);
+    3. ``infos[0]``, so single-language documents, documents whose blocks
+       declare no ``<language>``, and an unset language option all behave
+       exactly as before.
+
+    First match wins on duplicate tags. ``ca-aema-xx`` emits one ``<info>``
+    per *area group* (``en-CA``/``fr-CA``/``en-CA``/``fr-CA``), so only its
+    first group survives — the same pre-existing limitation ``infos[0]`` had,
+    and the same defect class as ECCC issue #45.
+    """
+    if not doc.infos:
+        return CAPInfoDoc()
+    if language:
+        wanted = language.strip().casefold()
+        for info in doc.infos:
+            if info.language.strip().casefold() == wanted:
+                return info
+        for info in doc.infos:
+            if language_matches(info.language, language):
+                return info
+    for info in doc.infos:
+        if _primary_subtag(info.language) == "en":
+            return info
+    return doc.infos[0]
+
+
+def select_alt_info(doc: CAPDoc, primary: CAPInfoDoc) -> CAPInfoDoc | None:
+    """Return the ``<info>`` block carried as the alternate, if any.
+
+    The rule is ``alternate_info_index``: an English block in a language other
+    than the primary's, else the first other-language block in document order
+    (issue #154). On ``mo-smg-xx`` (``zh-mo``/``pt-PT``/``en-US``) a Chinese
+    reader therefore gets English as the alternate, not Portuguese.
+
+    A document with no ``<info>`` at all (CAP 1.2 allows it; a bare ``Cancel``
+    is the live shape) has ``select_info`` hand back a blank block that is in
+    nobody's list, so the lookup takes a default rather than raising.
+    """
+    primary_index = next(
+        (i for i, info in enumerate(doc.infos) if info is primary), None
+    )
+    if primary_index is None:
+        return None
+    idx = alternate_info_index((info.language for info in doc.infos), primary_index)
+    return doc.infos[idx] if idx is not None else None
+
+
+# ---------------------------------------------------------------------------
+# CAP serialized as JSON
+# ---------------------------------------------------------------------------
+#
+# BBK (issue #66) publishes CAP 1.2 with the XML element names as JSON keys:
+# ``identifier`` … ``references`` at the top level, ``info`` as a list of
+# blocks, ``eventCode`` / ``parameter`` / ``geocode`` as lists of
+# ``{"valueName", "value"}`` pairs, and ``area`` as a list. Fields that are
+# 0..* in the schema (``category``, ``responseType``) arrive as lists; a
+# serializer that writes a single string for them is accepted too. The reader
+# yields the same ``CAPDoc`` the XML parser does, so everything downstream —
+# language selection, chain resolution, the alert builder — is shared.
+
+
+def _json_text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _json_texts(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, list):
+        return [
+            item.strip() for item in value if isinstance(item, str) and item.strip()
+        ]
+    return []
+
+
+def _json_pairs(value: Any) -> list[tuple[str, str]]:
+    """``[{"valueName": n, "value": v}, …]`` → ``[(n, v), …]``, blanks dropped."""
+    pairs: list[tuple[str, str]] = []
+    if not isinstance(value, list):
+        return pairs
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        name = _json_text(item.get("valueName"))
+        val = item.get("value")
+        text = (
+            val.strip() if isinstance(val, str) else str(val) if val is not None else ""
+        )
+        if name and text:
+            pairs.append((name, text))
+    return pairs
+
+
+def _info_from_json(block: dict[str, Any]) -> CAPInfoDoc:
+    info = CAPInfoDoc(
+        language=_json_text(block.get("language")),
+        category=", ".join(_json_texts(block.get("category"))),
+        event=_json_text(block.get("event")),
+        response_type=_json_texts(block.get("responseType")),
+        urgency=_json_text(block.get("urgency")),
+        severity=_json_text(block.get("severity")),
+        certainty=_json_text(block.get("certainty")),
+        effective=_json_text(block.get("effective")),
+        onset=_json_text(block.get("onset")),
+        expires=_json_text(block.get("expires")),
+        sender_name=_json_text(block.get("senderName")),
+        headline=_json_text(block.get("headline")),
+        description=_json_text(block.get("description")),
+        instruction=_json_text(block.get("instruction")),
+        web=_json_text(block.get("web")),
+    )
+    for name, value in _json_pairs(block.get("eventCode")):
+        info.event_codes[name] = value
+    for name, value in _json_pairs(block.get("parameter")):
+        info.parameters[name] = value
+
+    area_descs: list[str] = []
+    areas = block.get("area")
+    for area_block in areas if isinstance(areas, list) else []:
+        if not isinstance(area_block, dict):
+            continue
+        area = CAPAreaDoc(area_desc=_json_text(area_block.get("areaDesc")))
+        if area.area_desc:
+            area_descs.append(area.area_desc)
+        for name, value in _json_pairs(area_block.get("geocode")):
+            bucket = info.geocodes.setdefault(name, [])
+            if value not in bucket:
+                bucket.append(value)
+            area_bucket = area.geocodes.setdefault(name, [])
+            if value not in area_bucket:
+                area_bucket.append(value)
+        for text in _json_texts(area_block.get("polygon")):
+            ring = parse_cap_polygon_text(text)
+            if ring:
+                info.polygons.append(ring)
+                area.polygons.append(ring)
+        for text in _json_texts(area_block.get("circle")):
+            circle = _parse_cap_circle_text(text)
+            if circle is not None:
+                info.circles.append(circle)
+        info.areas.append(area)
+
+    info.area_desc = ", ".join(area_descs)
+    return info
+
+
+def cap_doc_from_json(payload: Any) -> CAPDoc | None:
+    """Build a ``CAPDoc`` from a CAP 1.2 document serialized as JSON.
+
+    ``payload`` is the already-decoded object. Returns ``None`` when it is not
+    a JSON object or carries no ``identifier`` — the same "not a CAP document"
+    answer ``parse_cap_alert`` gives for unparseable XML — so a host that
+    answers a missing warning with some other JSON body is a skipped alert,
+    not a crash.
+    """
+    if not isinstance(payload, dict):
+        return None
+    identifier = _json_text(payload.get("identifier"))
+    if not identifier:
+        return None
+    doc = CAPDoc(
+        identifier=identifier,
+        sender=_json_text(payload.get("sender")),
+        sent=_json_text(payload.get("sent")),
+        status=_json_text(payload.get("status")),
+        msg_type=_json_text(payload.get("msgType")),
+        scope=_json_text(payload.get("scope")),
+    )
+    doc.references = _parse_references(" ".join(_json_texts(payload.get("references"))))
+    infos = payload.get("info")
+    for block in infos if isinstance(infos, list) else []:
+        if isinstance(block, dict):
+            doc.infos.append(_info_from_json(block))
+    return doc

@@ -56,6 +56,7 @@ DOMAIN = "cap_alerts"
             "wmo:source:mx-smn-es",
         ),
         ({CONF_PROVIDER: "gdacs"}, "gdacs:global"),
+        ({CONF_PROVIDER: "bbk", CONF_ZONE_ID: "095640000000"}, "bbk:zone:095640000000"),
     ],
 )
 def test_scope_key_shape(data: dict, expected: str):

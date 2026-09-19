@@ -126,14 +126,14 @@ class AlertProvider(Protocol):
 Providers are decoupled from HA internals. The coordinator resolves these **before** calling the provider:
 
 - **Tracker mode** → resolves `device_tracker` entity to lat/lon; provider sees `CONF_GPS_LOC` only.
-- **Language `"auto"`** (ECCC) → resolves to `en-CA` or `fr-CA` using `hass.config.language`.
+- **Language `"auto"`** → per provider: ECCC resolves to `en-CA` or `fr-CA`, MeteoAlarm to the two-letter prefix, WMO and BBK pass `hass.config.language` through verbatim.
 
 Keeps providers testable without a running HA instance.
 
 ### Why a separate layer
 
 1. **Batching varies.** NWS takes multi-zone queries (`?zone=OHC049,OHC035`). ECCC returns a national feed with no server-side filtering. BoM, DWD, MeteoAlarm each differ.
-2. **Parsing varies wildly.** GeoJSON features (NWS), Atom XML with CAP extensions (ECCC, MeteoAlarm), flat JSON (BoM), JSONP keyed by warncell (DWD). One coordinator method can't sanely handle all of them.
+2. **Parsing varies wildly.** GeoJSON features (NWS), Atom XML with CAP extensions (ECCC), CAP-over-JSON (MeteoAlarm, BBK), RSS indexes of CAP XML (WMO), RSS items with no CAP body (GDACS). One coordinator method can't sanely handle all of them.
 3. **Testing.** Providers run against recorded API responses without a coordinator or HA.
 
 ### Shared CAP parsing (`cap.py`)
@@ -871,6 +871,86 @@ to hashing the CAP URL when the identifier is missing.
 
 ---
 
+## BBK / NINA — CAP-over-JSON mapping (issue #66)
+
+**API**: `https://warnung.bund.de/api31`, public, unauthenticated. The
+`nina.api.proxy.bund.dev` mirror did not answer during probing; the origin
+does. Three endpoints, all keyed by the warning id the API mints:
+
+| Endpoint | Role | Notes |
+| :-- | :-- | :-- |
+| `dashboard/{ars}.json` | district index | `ars` is the 12-digit Amtlicher Regionalschlüssel at **Kreis** level: first five digits, zero-padded. Municipality codes 404 (`010510011011` vs its district `010510000000`, probed 2026-09-19), unknown codes 404, malformed 400 |
+| `{channel}/mapData.json` | national index per channel | `mowas` / `katwarn` / `biwapp` / `lhp` / `dwd`; GPS scopes union all five |
+| `warnings/{id}.json` | the CAP document | CAP 1.2 with JSON keys; a superseded `dwd.` id 302s to an archive URL, which aiohttp follows |
+| `warnings/{id}.geojson` | the polygons | `FeatureCollection` of `[lon, lat]` `Polygon`s with styling props; `area[]` in the document carries only `areaDesc` |
+
+**Scopes.** District (typed ARS, stored under `zone_id`, validated live: the
+dashboard's 404 becomes `unknown_bbk_region`), GPS coordinates and GPS
+tracker. There is no national mode and, per the issue discussion, **no channel
+selector and no severity option**: the civil-protection channels are the reason
+the provider exists, and the DWD channel is the same Warnstufe 3–5 warnings
+MeteoAlarm Germany relays. The ARS is typed rather than picked because the
+official municipality registry is 11,284 rows and 430 KB (6 s to fetch on
+2026-09-19), and the dashboard only answers at district level anyway; a
+municipality code is widened to its district, as the NINA app does.
+
+**Parsing.** `cap.cap_doc_from_json` reads the document into the same `CAPDoc`
+the XML parser produces — `category` and `responseType` arrive as lists,
+`eventCode` / `parameter` / `geocode` as `{valueName, value}` pairs,
+`references` as the usual comma triples — so language selection
+(`cap.select_info`, shared with WMO), `resolve_chain_leaves` and the alert
+builder are all shared code. Field mapping is the WMO one; additions:
+
+| `CAPAlert` field | Source |
+| :-- | :-- |
+| `id` | `sha256(identifier)[:12]`, one per revision (see identity below) |
+| `sender_name` | `info.senderName`, else the `sender_langname` parameter (MoWaS names the authority there and leaves `senderName` empty; `sender` is a station code like `DE-SL-SLS-W038`) |
+| `parameters` | eventCodes + parameters + `bbk_channel` (`dwd` / `mowas` / `katwarn` / `biwapp` / `lhp`, from the id prefix; `dwdmap.` and `dwd.` are both DWD) |
+| `geometry` | the `.geojson` polygons; `None` when that fetch fails, and the alert still ships |
+| `geocodes` | empty in practice; the convention row declares `publishes_geocodes=False` so the prefix filter is withheld |
+
+**Languages.** `info[]` carries 8–9 blocks: DWD tags them `de-DE` / `en` /
+`ar` / `es` / `fr` / `pl` / `ru` / `tr`, MoWaS `de` / `de-LS` / `en` / … with
+case differing between channels. `de-LS` is *Leichte Sprache*, the easy-read
+register, and is offered as its own option. `select_info` therefore takes an
+exact casefolded match anywhere in the document before a primary-subtag match
+(MoWaS leads with `de`, so a one-pass matcher would never reach `de-LS`), and
+a `de-LS` preference on a DWD document degrades to `de-DE` by subtag. `auto`
+passes `hass.config.language` through; a language the document lacks falls
+back to English, then to the first block.
+
+**Identity and lifecycle.** Every revision is a new document naming its
+predecessor in `references` — MoWaS re-dates the id
+(`mow.DE-SL-SLS-W038-20260904-000` → `…-20260901-000`), DWD mints a fresh
+epoch and uuid — and the predecessor leaves the index (and usually the host:
+the DWD predecessor 404'd) when the successor is listed. The id is therefore
+per revision, like ECCC's and WMO's, and the store's `references`-aware
+supersession turns the hop into `incident_updated`; `resolve_chain_leaves`
+still runs within a poll as insurance. MoWaS documents publish **no
+`expires`** (and no `onset`), so under the default absence policy they end
+when the index withdraws them, which is the feed's contract. DWD documents
+carry `expires` and are retained until it when the index blinks.
+
+**Pre-fetch filtering.** Dashboard rows carry `expires` and DWD mapData rows
+`expiresDate`; rows already past are dropped before any document is fetched
+(fail-open on an unparseable value). The civil-protection channels publish no
+expiry on the index, so every row of theirs is fetched.
+
+**Icons.** DWD's `GROUP` eventCode (`WIND`, `THUNDERSTORM`, `HEAT`, …) is the
+classifier for the weather channel — `event` is German prose and even the
+English block's "storm-force gusts" matches no weather needle. The
+civil-protection channels leave `event` generic (`Gefahreninformation` in
+every language) and put the hazard in a catalogue-translated headline
+("Contaminated drinking water", "Fumes"), so a BBK needle table runs over the
+English event *and headline*, then falls through to the international
+substring tables.
+
+**Deferred.** Last-good-shape retention (the GDACS #203 pattern) — not
+observed as needed against warnung.bund.de; a district-name lookup for the
+ARS field; a direct `opendata.dwd.de` provider (the entry above).
+
+---
+
 ## Alert Store (`store.py`)
 
 Holds the previous poll's alerts in memory and diffs incoming alerts to detect new / phase-change / removed transitions. Only stateful component between polls — providers and the coordinator remain stateless.
@@ -1094,13 +1174,13 @@ provider is a CAP consumer rather than a bespoke JSON mapping.
 
 #### Germany has three routes to DWD, and they are not interchangeable
 
-MeteoAlarm (shipped), BBK / NINA (issue #66) and this feed all carry DWD
-warnings. Measured 2026-08-07/08:
+MeteoAlarm, BBK / NINA (both shipped) and this feed all carry DWD warnings.
+Measured 2026-08-07/08, BBK re-measured 2026-09-19:
 
-| | MeteoAlarm `feeds-germany` | DWD opendata | BBK / NINA |
+| | MeteoAlarm `feeds-germany` (shipped) | DWD opendata | BBK / NINA (shipped) |
 | :-- | :-- | :-- | :-- |
 | Origin | DWD only — 656/656 entries sender `opendata@dwd.de` | DWD | DWD subset + MoWaS / KATWARN / BIWAPP / LHP |
-| Severity | all bands: Minor 259, Moderate 318, Severe 79 | all | Warnstufen 3–5 only |
+| Severity | all bands: Minor 259, Moderate 318, Severe 79 | all | Warnstufen 3–5 only (12/12 live DWD entries `Moderate` on 2026-09-19, so orange crosses) |
 | Granularity | Kreis (`WARNCELLID` `1…`) | COMMUNEUNION *or* DISTRICT | own |
 | Geometry | none | inline `<polygon>` | separate `.geojson` fetch |
 | Languages | 8 inline | one per archive | 8–9 inline |
@@ -1130,13 +1210,14 @@ Consequences for provider design:
 - **BBK's civil-protection channels are the real gap.** MoWaS / KATWARN /
   BIWAPP / LHP traffic has no MeteoAlarm equivalent, no DWD equivalent, and no
   other HA path.
-- **Cross-provider duplication is already reachable.** A German user running
-  MeteoAlarm alongside a future BBK entry gets duplicate entities for every
+- **Cross-provider duplication is real and accepted.** A German user running
+  MeteoAlarm alongside a BBK entry gets duplicate entities for every
   Warnstufe 3–5 warning: separate config entries, separate coordinators, no
-  cross-entry dedupe. Adding BBK collides with a shipped provider, not a
-  hypothetical one. The identifiers do share a core — BBK emits `dwd.<OID>.MUL`
-  where MeteoAlarm relays `<OID>.MUL` and opendata `<OID>.<LANG>` — so dedupe is
-  a string operation, but it has nowhere to run today.
+  cross-entry dedupe. The identifiers do share a core — BBK emits
+  `dwd.<OID>.MUL` where MeteoAlarm relays `<OID>.MUL` and opendata
+  `<OID>.<LANG>` — so dedupe is a string operation, but it has nowhere to run
+  today. If it lands it will be general cross-provider dedupe, not a German
+  special case (issue #66).
 
 ---
 
