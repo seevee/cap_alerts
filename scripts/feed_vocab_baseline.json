@@ -705,5 +705,10 @@
    "Past",
    "Unknown"
   ]
+ },
+ "wmo": {
+  "mirror_lag": [
+   "eg-ema-en@2026-08-01"
+  ]
  }
 }

@@ -755,6 +755,31 @@ authority via normalization. Buddhist-Era years in the RFC-2822 `cap:expires`
 `const.py` threshold with `normalize._gregorian` — so genuinely-expired Thai
 alerts are pre-dropped instead of read as ~543 years in the future.
 
+**Mirror lag** (issue #210): the mirror is a copy, and it can stop following a
+source without any signal in the feed itself. Three DNMG (Timor-Leste) alerts
+issued over 2024-2025 exist in the authority's own feed and never reached the
+mirror, whose newest `tl-dnmg-en` item is from December 2023; to a user of
+that source an empty feed looks exactly like no warnings in force. The
+authority feed is the registry record's `capAlertFeed`, and for ~120 of the
+language feeds that is a folder on WMO's `cap-sources` S3 bucket, one CAP file
+per alert plus a lazily-purged `rss.xml` of recent ones. That feed is not a
+drop-in: its items carry no `cap:` extensions, so the expiry pre-filter above
+cannot run and every listed item costs a body fetch (bounded, the largest
+lists 50). The bodies are byte-identical to the mirror's, so an alert's
+identity survives either path. A lagging mirror is indistinguishable from a
+quiet authority inside one poll, so there is no runtime fallback; the
+scheduled probe measures it instead (`docs/provider-watch.md`, *WMO mirror
+lag*), filing only while the authority is still publishing, and offering the
+authority feed as a per-entry source is roadmap work.
+Mirrors known to lag on 2026-09-19, with the date of their newest item:
+`tl-dnmg-en` (2023-12-20), `tl-dnmg-pt` (2023-09-21), `tl-dnmg-tet`
+(2022-11-10), `ci-sodexam-fr` (2024-10-04), `om-met-ar` (2023-10-24),
+`cg-anac-en` (2024-11-08), `ls-lms-st` (2025-05-21), `eg-ema-en`
+(2026-08-01), and five that have never carried an item their authority
+published: `af-andma-en`, `ao-inamet-pt`, `cf-dmn-fr`, `gw-inm-fr`,
+`sr-meteo-en`/`-nl`. The probe's baseline is the maintained list; this one is
+a snapshot.
+
 **Shared CAP parsing**: the CAP body parsing lives in the provider-neutral
 `providers/cap.py` module, used verbatim by both WMO and ECCC. `parse_cap_alert`
 is namespace-agnostic (handles the `urn:oasis:names:tc:emergency:cap:1.2`

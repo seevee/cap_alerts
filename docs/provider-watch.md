@@ -62,8 +62,42 @@ the NAAD channel carries provincial EMOs and Amber alerts beside ECCC, and the
 NWS active feed relays IPAWS traffic from local originators who name their
 parameters however they like.
 
-WMO is not probed: it's per-configured-source RSS with no bounded national
-endpoint. GDACS index structure is covered; its per-event GeoJSON is not.
+WMO vocabulary is not probed: it's per-configured-source RSS with no bounded
+national endpoint. GDACS index structure is covered; its per-event GeoJSON is
+not.
+
+### WMO mirror lag
+
+The same probe watches WMO for a different failure. The integration polls the
+SWIC mirror, not the authority's own feed, and the mirror can silently stop
+following a source: three Timor-Leste alerts issued over 2024-2025 never
+reached it, and a user on `tl-dnmg-en` saw an empty feed, which looks exactly
+like no warnings in force (#210). About 120 of the registry's language feeds
+live on WMO's own `cap-sources` S3 bucket, one file per alert and publicly
+listable, so the probe compares each mirror's newest item with the newest
+`Actual` alert in its bucket and reports a mirror more than a week behind,
+provided the authority has published in the last 90 days. A stall behind a
+dormant source costs no one anything and would only be noise; it files the
+day the source publishes again, since the token was never accepted. On
+2026-09-19, the day it was written, 14 of the 93 mirrored feeds were behind
+and one of them, Egypt's `eg-ema-en`, had a live authority; that one is the
+seeded baseline, the rest are listed under the WMO section of
+`docs/architecture.md`. The `mirror_lag` token carries the
+date the mirror stopped (`tl-dnmg-en@2023-12-20`), so a mirror that recovers
+and stalls again is new drift, and the witness is the newest alert the mirror
+is missing.
+
+Responding to a mirror-lag token is different from vocabulary drift, since
+nothing in the integration can fix it:
+
+1. Confirm it against the witness: the alert exists in the bucket and the
+   mirror's feed for that source doesn't list it.
+2. Report the source to SWIC (their contact is on the registry page each
+   record links to). There is no formal channel; #210's reporter went
+   through the SWIC site.
+3. Add the source to the mirror-lag list under the WMO section of
+   `docs/architecture.md`, so a user picking it can find out why it's empty.
+4. Accept the token with `--update` as for vocabulary, and close the issue.
 
 ## The human half: announcement channels
 
@@ -73,7 +107,7 @@ endpoint. GDACS index structure is covered; its per-event GeoJSON is not.
 | NAAD (Pelmorex) | [NAAD governance council summaries](https://alerts.pelmorex.com/) | skim quarterly |
 | NWS | [Service Change Notices](https://www.weather.gov/notification/) and the [weather-gov/api](https://github.com/weather-gov/api) repo discussions | subscribe / GitHub watch |
 | MeteoAlarm | no formal channel; [meteoalarm.org](https://meteoalarm.org/) news | probe covers it |
-| WMO SWIC | no formal channel | announcement-only (no probe) |
+| WMO SWIC | no formal channel; the [registry record](https://severeweather.wmo.int/v2/json/sources.json) names each authority's contact | probe covers mirror lag on the cap-sources feeds; vocabulary is announcement-only |
 | GDACS | no formal channel; [gdacs.org](https://www.gdacs.org/) | probe covers the indexes |
 
 The dd_info list is the one that would have given months of lead time on CAM;
