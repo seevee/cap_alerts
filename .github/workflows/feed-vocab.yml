@@ -2,7 +2,9 @@
 # baseline (scripts/feed_vocab_probe.py) and surface anything new as a
 # provider-drift issue. Born from issue #172: ECCC's freeform threat-area
 # polygons were visible in the feed as new vocabulary for twelve days before
-# a user report landed.
+# a user report landed. The same run checks the WMO mirror against each
+# source's own feed (#210): a mirror that stops following its source shows a
+# user an empty feed, and that too files here while the source is publishing.
 name: Feed vocabulary
 
 on:
@@ -52,7 +54,7 @@ jobs:
         run: |
           gh label create provider-drift \
             --color D93F0B \
-            --description "A provider feed published vocabulary the integration has never seen" \
+            --description "A provider feed changed under us: new vocabulary, or a WMO mirror behind its source" \
             || true
           existing=$(gh issue list --label provider-drift --state open \
             --json number --jq '.[0].number // empty')

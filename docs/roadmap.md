@@ -159,6 +159,35 @@ coordinator poll path — it's a config-flow-only concern.
 
 ---
 
+## WMO authority feed as a per-entry source (issue #210)
+
+The SWIC mirror can stop following a source (14 of 93 mirrored cap-sources
+feeds lagged by more than a week on 2026-09-19, Timor-Leste by two years), and
+a user of a lagging source sees an empty feed. The scheduled probe now reports
+the lag (`docs/provider-watch.md`), but nothing routes around it.
+
+**Proposed**: a `feed_source` option on WMO entries, `mirror` (default) or
+`authority`, modelled on ECCC's `CONF_FEED_SOURCE`. `authority` resolves the
+registry record's `capAlertFeed` for the entry's source at setup and polls the
+cap-sources `rss.xml` instead of the mirror. Constraints measured 2026-09-19:
+
+- Only the ~47 authorities on the cap-sources bucket (about 120 language
+  feeds) have this shape; the other ~70 registry feeds are national hosts of
+  no common format and stay mirror-only. The option should be offered only
+  when the registry record resolves to the bucket.
+- The bucket's `rss.xml` carries no `cap:` extensions, so the expiry
+  pre-filter can't run and every listed item costs a body fetch. It is a
+  lazily-purged "recent" list rather than an active one (98 of 120 were
+  empty, the largest listed 50, sampled bodies ran 142 expired to 19 live),
+  so the body-level phase logic retires most of what it lists. Cost is
+  fetches, not correctness, and the shared CAP content cache absorbs repeats.
+- Bodies are byte-identical to the mirror's, so `_compute_wmo_id` gives the
+  same entity either way and switching source churns nothing.
+- Not an automatic fallback: a lagging mirror is indistinguishable from a
+  quiet authority inside one poll, and detecting it means polling both.
+
+---
+
 ## NAAD 48-hour repository as a cold-start source
 
 ECCC streaming shipped in 0.2.0 and its design lives in
