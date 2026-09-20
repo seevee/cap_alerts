@@ -9,7 +9,8 @@
           "meteoalarm": "MeteoAlarm (Europe)",
           "wmo": "WMO Severe Weather",
           "gdacs": "GDACS Global Disasters",
-          "bbk": "BBK / NINA (Germany)"
+          "bbk": "BBK / NINA (Germany)",
+          "au": "Australia (state fire and emergency services)"
         }
       },
       "nws": {
@@ -234,6 +235,22 @@
           "tracker_entity": "Tracker Entity"
         }
       },
+      "au": {
+        "title": "Australia Location Scope",
+        "menu_options": {
+          "au_state": "State",
+          "user": "Back to provider list"
+        }
+      },
+      "au_state": {
+        "title": "Australian State",
+        "data": {
+          "province": "State"
+        },
+        "data_description": {
+          "province": "Which state's feed to follow. Each state's fire or emergency service publishes its own CAP-AU feed: NSW RFS, Queensland Fire Department, DFES Emergency WA, TasALERT. Every incident in the feed becomes an entity, so narrow it with the minimum alert level option under Configure, or by distance on the card. Victoria, SA, NT and ACT publish no CAP feed."
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure CAP Alerts",
         "menu_options": {
@@ -242,7 +259,8 @@
           "reconfigure_meteoalarm": "MeteoAlarm (Europe)",
           "reconfigure_wmo": "WMO Severe Weather",
           "reconfigure_gdacs": "GDACS Global Disasters",
-          "reconfigure_bbk": "BBK / NINA (Germany)"
+          "reconfigure_bbk": "BBK / NINA (Germany)",
+          "reconfigure_au": "Australia (state fire and emergency services)"
         }
       },
       "reconfigure_nws": {
@@ -476,6 +494,22 @@
           "tracker_entity": "Tracker Entity"
         }
       },
+      "reconfigure_au": {
+        "title": "Australia Location Scope",
+        "menu_options": {
+          "reconfigure_au_state": "State",
+          "reconfigure": "Back to provider list"
+        }
+      },
+      "reconfigure_au_state": {
+        "title": "Australian State",
+        "data": {
+          "province": "State"
+        },
+        "data_description": {
+          "province": "Which state's feed to follow. Each state's fire or emergency service publishes its own CAP-AU feed: NSW RFS, Queensland Fire Department, DFES Emergency WA, TasALERT. Every incident in the feed becomes an entity, so narrow it with the minimum alert level option under Configure, or by distance on the card. Victoria, SA, NT and ACT publish no CAP feed."
+        }
+      },
       "reconfigure_wmo_geocode": {
         "title": "WMO Area Codes",
         "data": {
@@ -531,7 +565,7 @@
           "feed_source": "Which NAAD GeoRSS host(s) to fetch. 'auto' combines both feeds so no alert carried by only one is missed (recommended). The legacy host retires around September 2026; pin a single host only to work around a specific feed issue. ECCC only.",
           "exclude_marine": "Hide alerts issued for marine/water zones (boating, open water). NWS and ECCC only.",
           "gdacs_event_types": "Which GDACS hazards to track. Filtering happens before any alert is fetched, so narrowing this also cuts the fetch cost. Leave every type selected (the default) to track them all, including hazards GDACS adds later. GDACS only.",
-          "alert_level": "Lowest GDACS alert level to fetch: Green (all), Orange, or Red. This is GDACS's own impact scale, not CAP severity: it decides which events are fetched, not how they are shown. Raise it to cut the volume of green earthquakes. GDACS only.",
+          "alert_level": "GDACS: lowest alert level to fetch, Green (all), Orange, or Red, on GDACS's own impact scale; it decides which events are fetched, not how they are shown. Raise it to cut the volume of green earthquakes. Australia: lowest Australian Warning System tier to keep, All, Advice, Watch and Act or Emergency Warning; All also keeps the informational tiers below the ladder (planned burns, incidents with no warning). GDACS and Australia only.",
           "geocode_prefixes": "Optional. Comma-separated area-code prefixes (e.g. 13,37). Keeps only alerts whose area codes start with one of them, on top of the location filter chosen at setup. Codes are hierarchical, so a shorter prefix covers a wider area (13 = Hebei, 1307 = Zhangjiakou). Matched against every code scheme the source publishes. Code lengths vary within a scheme, so pasting a full code may match nothing — prefer the leading digits. Leave empty to disable."
         }
       }

@@ -126,14 +126,14 @@ class AlertProvider(Protocol):
 Providers are decoupled from HA internals. The coordinator resolves these **before** calling the provider:
 
 - **Tracker mode** → resolves `device_tracker` entity to lat/lon; provider sees `CONF_GPS_LOC` only.
-- **Language `"auto"`** → per provider: ECCC resolves to `en-CA` or `fr-CA`, MeteoAlarm to the two-letter prefix, WMO and BBK pass `hass.config.language` through verbatim.
+- **Language `"auto"`** → per provider: ECCC resolves to `en-CA` or `fr-CA`, MeteoAlarm to the two-letter prefix, WMO and BBK pass `hass.config.language` through verbatim. NWS, GDACS and AU take no language.
 
 Keeps providers testable without a running HA instance.
 
 ### Why a separate layer
 
 1. **Batching varies.** NWS takes multi-zone queries (`?zone=OHC049,OHC035`). ECCC returns a national feed with no server-side filtering. BoM, DWD, MeteoAlarm each differ.
-2. **Parsing varies wildly.** GeoJSON features (NWS), Atom XML with CAP extensions (ECCC), CAP-over-JSON (MeteoAlarm, BBK), RSS indexes of CAP XML (WMO), RSS items with no CAP body (GDACS). One coordinator method can't sanely handle all of them.
+2. **Parsing varies wildly.** GeoJSON features (NWS), Atom XML with CAP extensions (ECCC), CAP-over-JSON (MeteoAlarm, BBK), RSS indexes of CAP XML (WMO), RSS items with no CAP body (GDACS), EDXL-DE envelopes of CAP XML (AU). One coordinator method can't sanely handle all of them.
 3. **Testing.** Providers run against recorded API responses without a coordinator or HA.
 
 ### Shared CAP parsing (`cap.py`)
@@ -948,6 +948,94 @@ substring tables.
 **Deferred.** Last-good-shape retention (the GDACS #203 pattern) — not
 observed as needed against warnung.bund.de; a district-name lookup for the
 ARS field; a direct `opendata.dwd.de` provider (the entry above).
+
+---
+
+## Australia — EDXL-wrapped CAP-AU state feeds (issue #127)
+
+Every Australian state runs its own agency and its own feed; there is no
+national aggregator. Four publish the same profile, an EDXL-DE
+`EDXLDistribution` envelope carrying one CAP-AU 1.0 `<alert>` per
+`contentObject`, so they share one provider and one entry per state (all four
+profiled 2026-09-19):
+
+| State | Agency | Feed | Notes |
+| :-- | :-- | :-- | :-- |
+| NSW | NSW Rural Fire Service | `rfs.nsw.gov.au/feeds/majorIncidentsCAP.xml` | 556 KB / 99 alerts; default-namespace CAP; `<incidents>`; HTML in `description` |
+| QLD | Queensland Fire Department | S3 `bushfireAlert_capau.xml` | `cap:`-prefixed; 0.5 km marker circles |
+| WA | DFES Emergency WA | `api.emergency.wa.gov.au/v1/capau` | `cap:`-prefixed; 403 on HEAD and every other path; no `AlertLevel` parameter; `expires == sent`; a malformed `eventCode` (its `valueName` sits outside it) the parser drops |
+| TAS | TasALERT (TFS + SES) | `alert.tas.gov.au/data/cap-au.xml` | multi-hazard (SES storm advice); `<incidents>` with an agency prefix; a real 10 km circle alongside polygons |
+
+Victoria's OSOM feed is GeoJSON with an embedded `cap` object, not CAP
+transport, and belongs to a provider of its own; SA, NT and ACT publish no CAP.
+
+**Scope.** A state, picked from a closed dropdown and stored under
+`province`, the sub-national key ECCC already uses, so the scope key, the
+entry title (`CAP Alerts AU (NSW)`) and diagnostics need no new case. Scope
+validation returns `None`: there is nothing upstream to ask. **No GPS or
+tracker mode**: a point can only be tested against polygons, and 44/99 NSW
+and 53/73 QLD alerts carry a location marker and no polygon, so a GPS scope
+would silently drop most of a feed, the inconsistency #27 warned about. The
+card's radius filter over `points` is the intended consumer.
+
+**Parsing.** The envelope is the only new parsing and it lives in the
+provider, as ECCC's Atom and WMO's RSS do: every element in the CAP 1.2
+namespace named `alert` is handed to `cap.cap_doc_from_element`, which reads
+the namespace off the element's own tag and so takes the `cap:`-prefixed and
+default-namespace variants identically. `CAPDoc` gained `incidents` (CAP 1.2
+§3.2.1) for this provider's identity. Field mapping is the WMO one; the
+differences:
+
+| `CAPAlert` field | Source |
+| :-- | :-- |
+| `id` | `sha256("{state}:{incidents or identifier}")[:12]`. NSW and TAS re-mint `identifier` on every update (NSW writes `{sent}:{incident}`) and keep `<incidents>` constant; QLD and WA publish none and use the identifier |
+| `expires` | **never carried.** NSW and TAS stamp the envelope's `dateTimeSent` + 24 h on every alert (receding every poll), QLD `sent` + 24 h, WA `sent` itself, which `normalize` would read as already expired. A regeneration TTL, not an end time |
+| `parameters` | every non-empty CAP parameter; on WA, `AlertLevel` is filled in from the headline so the attribute surface is uniform |
+| `description`, `instruction` | flattened from the HTML NSW and QLD embed (`<br />` → newline, tags dropped, entities unescaped); the dropped anchor targets are the `web` URL |
+| `geometry` | the fire-ground polygon(s) where published; else the marker point |
+| `points` | circles up to `AU_POINT_RADIUS_KM` (0.5): NSW `0`, WA `0.0`, QLD `0.5`. TAS's 10 km circle is an area and stays out |
+| `geocodes` | one constant ISO 3166-2 code per feed (`AU-NSW`); the convention row declares `publishes_geocodes=False` so prefix narrowing is withheld |
+
+**Severity** is the Australian Warning System tier, read by the `au`
+convention row (`au_alert_level_severity`): Emergency Warning → `extreme`,
+Watch and Act → `severe`, Advice → `moderate`, and the agencies' own tiers
+below the ladder (QLD `Information`, NSW `Not Applicable` and `Planned Burn`)
+→ `minor`. CAP `<severity>` is uniform or near-uniform on every feed (QLD:
+68 `Minor` and 5 `Moderate` across two tiers; NSW's planned burns say
+`Unknown`), so it is the fallback, not the source. WA's tier comes from the
+headline prefix ("Bushfire Advice MONITOR CONDITIONS - …"). No Watch and Act
+or Emergency Warning was live when profiled (pre-season); the ladder is the
+national standard every state agency publishes under.
+
+**Lifecycle.** With no expiry, no terminal vocabulary and no termination
+lookup, `store._retain_on_absence` ends an alert the moment its feed
+withdraws it, the GDACS arrangement, and the contract of a "current
+incidents" feed (WA sets RSS `ttl` 1; NSW regenerates every minute or two).
+That is also why a non-200 or unparseable body raises `UpdateFailed` rather
+than returning `[]`: under this rule an empty result says every incident
+ended. Whether QLD mints a new `WARN-n` per update of one fire is
+unobservable from one capture and is a soak item.
+
+**Options.** The shared polling fields plus a minimum alert level (`All`
+default, `Advice`, `Watch and Act`, `Emergency Warning`) on `alert_level`, the
+key GDACS uses. Applied in the provider after parsing on the same tier
+derivation the severity hook uses, so the floor and the entity state cannot
+disagree. `All` is the default because a state feed is not a global one and a
+planned burn is something a user in that state may want on the map; NSW is 99
+entities under `All` and 40 under `Advice`. No language option (single
+language), no marine toggle, no geocode prefix field.
+
+**Icons.** A needle sweep over the event text plus the `IncidentType`
+parameter (fire / storm / flood / tsunami / cyclone / heat / smoke / hazmat /
+closure / rescue), then the international tables. The govshare `eventCode`
+would classify three feeds but WA's is malformed, so text is the one
+classifier that reaches all four.
+
+**Deferred.** Conditional GET: three of the four hosts publish an ETag (WA
+rejects HEAD), but ECCC's implementation is host-specific; aiohttp negotiates
+gzip meanwhile, which takes NSW to 65 KB on the wire. Victoria (GeoJSON
+transport). A WMO-style per-state name lookup is unnecessary with four
+states.
 
 ---
 

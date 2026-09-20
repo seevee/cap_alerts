@@ -80,6 +80,7 @@ async def test_user_step_lists_every_provider(hass, enable_custom_integrations):
         "wmo",
         "gdacs",
         "bbk",
+        "au",
     ]
 
 
@@ -91,6 +92,7 @@ async def test_user_step_lists_every_provider(hass, enable_custom_integrations):
         ("meteoalarm", ["meteoalarm_country", "meteoalarm_country_source", "user"]),
         ("gdacs", ["gdacs_global", "gdacs_gps_loc", "gdacs_gps_tracker", "user"]),
         ("bbk", ["bbk_region", "bbk_gps_loc", "bbk_gps_tracker", "user"]),
+        ("au", ["au_state", "user"]),
     ],
 )
 @pytest.mark.asyncio
@@ -102,7 +104,9 @@ async def test_provider_menus(
     assert result["menu_options"] == options
 
 
-@pytest.mark.parametrize("provider", ["nws", "eccc", "meteoalarm", "gdacs", "bbk"])
+@pytest.mark.parametrize(
+    "provider", ["nws", "eccc", "meteoalarm", "gdacs", "bbk", "au"]
+)
 @pytest.mark.asyncio
 async def test_provider_menu_backs_to_the_provider_list(
     hass, enable_custom_integrations, provider: str

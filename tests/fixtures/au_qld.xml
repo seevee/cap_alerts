@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edxlde:EDXLDistribution xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2" xmlns:edxlde="urn:oasis:names:tc:emergency:EDXL:DE:1.0">
+  <edxlde:distributionID>Queensland Fire Department CAP-au Feed</edxlde:distributionID>
+  <edxlde:senderID>giskedron@fire.qld.gov.au</edxlde:senderID>
+  <edxlde:dateTimeSent>2026-09-20T09:42:53+10:00</edxlde:dateTimeSent>
+  <edxlde:distributionStatus>Actual</edxlde:distributionStatus>
+  <edxlde:distributionType>Report</edxlde:distributionType>
+  <edxlde:combinedConfidentiality>UNCLASSIFIED AND NOT SENSITIVE</edxlde:combinedConfidentiality>
+  <edxlde:language>en-AU</edxlde:language>
+  <edxlde:targetArea>
+    <edxlde:subdivision>AU-QLD</edxlde:subdivision>
+  </edxlde:targetArea>
+  <edxlde:contentObject>
+    <edxlde:xmlContent>
+      <edxlde:embeddedXMLContent>
+        <cap:alert>
+          <cap:identifier>WARN-633</cap:identifier>
+          <cap:sender>giskedron@fire.qld.gov.au</cap:sender>
+          <cap:sent>2026-09-19T14:30:31+10:00</cap:sent>
+          <cap:status>Actual</cap:status>
+          <cap:msgType>Alert</cap:msgType>
+          <cap:scope>Public</cap:scope>
+          <cap:code>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0</cap:code>
+          <cap:info>
+            <cap:language>en-AU</cap:language>
+            <cap:category>Fire</cap:category>
+            <cap:event>Fire</cap:event>
+            <cap:responseType>Monitor</cap:responseType>
+            <cap:urgency>Future</cap:urgency>
+            <cap:severity>Moderate</cap:severity>
+            <cap:certainty>Possible</cap:certainty>
+            <cap:eventCode>
+              <cap:valueName>https://govshare.gov.au/xmlui/handle/10772/6495</cap:valueName>
+              <cap:value>bushFire</cap:value>
+            </cap:eventCode>
+            <cap:expires>2026-09-20T14:30:31.6+10:00</cap:expires>
+            <cap:senderName>Queensland Fire Department</cap:senderName>
+            <cap:headline>STAY INFORMED - Wongawallan (near Oxenford) - fire as at 2:29pm Saturday, 19 September 2026</cap:headline>
+            <cap:description>*** There is more than one warning for this area. To see all current warnings, visit the Qld Fire website ***
+
+A fire is burning off Wongawallan Drive. It is moving towards Ruffles Road. This fire could burn for days.
+
+Stay informed because the situation could change.</cap:description>
+            <cap:instruction>- Check for warning updates often and listen to your local radio station.
+
+- Decide what you will do if the bushfire gets closer.
+
+- If the smoke is thick where you are, stay inside and close windows and doors.
+
+- If you need medication to help you breathe keep it close. Smoke can make it hard to breathe.
+
+- Do not fly drones around the fire as they affect firefighting.
+
+- If you are in danger, call Triple Zero (000) now.
+- &lt;a href="https://www.fire.qld.gov.au/Current-Incidents"&gt;Click here for current QFD incidents and warnings&lt;/a&gt;&lt;br&gt; - &lt;a  href="https://www.fire.qld.gov.au/prepare/bushfire/prepare-for-bushfire-season"&gt;Click here for bushfire preparation tips&lt;/a&gt;&lt;br&gt; - &lt;a  href="https://apps.des.qld.gov.au/air-quality/#health_levels_info"&gt;Click here for health advice and air quality information&lt;/a&gt;&lt;br&gt; - Follow QFD on &lt;a  href="https://www.facebook.com/qldfiredepartment"&gt;Facebook&lt;/a&gt; and &lt;a href="https://x.com/QldFireDept"&gt;X.com&lt;/a&gt;&lt;br&gt; - &lt;a href="https://qldtraffic.qld.gov.au"&gt;Click here for road closure information or call 131940&lt;/a&gt;</cap:instruction>
+            <cap:web>https://www.fire.qld.gov.au</cap:web>
+            <cap:parameter>
+              <cap:valueName>Location</cap:valueName>
+              <cap:value>Between Ruffles Road, Solomon Lane, Crest Hill Drive, Skyridge Drive and Wongawallan Drive</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>Status</cap:valueName>
+              <cap:value>Actual</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>AlertLevel</cap:valueName>
+              <cap:value>Advice</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>ControlAuthority</cap:valueName>
+              <cap:value>Queensland Fire Department</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>IsFire</cap:valueName>
+              <cap:value>Yes</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>IncidentType</cap:valueName>
+              <cap:value>FIRE VEGETATION</cap:value>
+            </cap:parameter>
+            <cap:resource>
+              <cap:resourceDesc>map</cap:resourceDesc>
+              <cap:mimeType>text/html</cap:mimeType>
+              <cap:uri>https://www.fire.qld.gov.au</cap:uri>
+            </cap:resource>
+            <cap:area>
+              <cap:areaDesc>Between Ruffles Road, Solomon Lane, Crest Hill Drive, Skyridge Drive and Wongawallan Drive</cap:areaDesc>
+              <cap:polygon>-27.8956636237777,153.268088522255 -27.8953532991583,153.247918309153 -27.867868717442,153.237150456971 -27.8647991170252,153.272224001358 -27.8956636237777,153.268088522255</cap:polygon>
+              <cap:circle>-27.879572887196982,153.25640000486902 0.5</cap:circle>
+              <cap:geocode>
+                <cap:valueName>http://www.iso.org/iso/country_codes.html</cap:valueName>
+                <cap:value>AU-QLD</cap:value>
+              </cap:geocode>
+            </cap:area>
+          </cap:info>
+        </cap:alert>
+      </edxlde:embeddedXMLContent>
+    </edxlde:xmlContent>
+  </edxlde:contentObject>
+  <edxlde:contentObject>
+    <edxlde:contentDescription>Weymouth Rd</edxlde:contentDescription>
+    <edxlde:xmlContent>
+      <edxlde:embeddedXMLContent>
+        <cap:alert>
+          <cap:identifier>QF7-26-110229</cap:identifier>
+          <cap:sender>giskedron@fire.qld.gov.au</cap:sender>
+          <cap:sent>2026-08-23T21:37:21+10:00</cap:sent>
+          <cap:status>Actual</cap:status>
+          <cap:msgType>Alert</cap:msgType>
+          <cap:scope>Public</cap:scope>
+          <cap:code>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0</cap:code>
+          <cap:info>
+            <cap:language>en-AU</cap:language>
+            <cap:category>Fire</cap:category>
+            <cap:event>Fire</cap:event>
+            <cap:responseType>Monitor</cap:responseType>
+            <cap:urgency>Expected</cap:urgency>
+            <cap:severity>Minor</cap:severity>
+            <cap:certainty>Likely</cap:certainty>
+            <cap:eventCode>
+              <cap:valueName>https://govshare.gov.au/xmlui/handle/10772/6495</cap:valueName>
+              <cap:value>bushFire</cap:value>
+            </cap:eventCode>
+            <cap:expires>2026-08-24T21:37:21+10:00</cap:expires>
+            <cap:senderName>Queensland Fire Department</cap:senderName>
+            <cap:headline>Information - IRON RANGE</cap:headline>
+            <cap:description>There is a vegetation fire at this location. Smoke may affect residents and motorists in the area. Residents should close their doors and windows and keep medication close by if suffering from a respiratory condition. Motorists should use caution and drive to conditions. If you believe your property is under threat, you should call Triple Zero (000) immediately.</cap:description>
+            <cap:instruction>- &lt;a href="https://www.fire.qld.gov.au/Current-Incidents"&gt;Click here for current QFD incidents and warnings&lt;/a&gt;&lt;br&gt; - &lt;a  href="https://www.fire.qld.gov.au/prepare/bushfire/prepare-for-bushfire-season"&gt;Click here for bushfire preparation tips&lt;/a&gt;&lt;br&gt; - &lt;a  href="https://apps.des.qld.gov.au/air-quality/#health_levels_info"&gt;Click here for health advice and air quality information&lt;/a&gt;&lt;br&gt; - Follow QFD on &lt;a  href="https://www.facebook.com/qldfiredepartment"&gt;Facebook&lt;/a&gt; and &lt;a href="https://x.com/QldFireDept"&gt;X.com&lt;/a&gt;&lt;br&gt; - &lt;a href="https://qldtraffic.qld.gov.au"&gt;Click here for road closure information or call 131940&lt;/a&gt;</cap:instruction>
+            <cap:web>https://www.fire.qld.gov.au</cap:web>
+            <cap:parameter>
+              <cap:valueName>Location</cap:valueName>
+              <cap:value>IRON RANGE</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>Status</cap:valueName>
+              <cap:value>Actual</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>AlertLevel</cap:valueName>
+              <cap:value>Information</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>ControlAuthority</cap:valueName>
+              <cap:value>Queensland Fire Department</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>IsFire</cap:valueName>
+              <cap:value>Yes</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>IncidentType</cap:valueName>
+              <cap:value>FIRE PERMITTED BURN</cap:value>
+            </cap:parameter>
+            <cap:resource>
+              <cap:resourceDesc>map</cap:resourceDesc>
+              <cap:mimeType>text/html</cap:mimeType>
+              <cap:uri>https://www.fire.qld.gov.au</cap:uri>
+            </cap:resource>
+            <cap:area>
+              <cap:areaDesc>IRON RANGE</cap:areaDesc>
+              <cap:circle>-12.615603999999999,143.43103099999999 0.5</cap:circle>
+              <cap:geocode>
+                <cap:valueName>http://www.iso.org/iso/country_codes.html</cap:valueName>
+                <cap:value>AU-QLD</cap:value>
+              </cap:geocode>
+            </cap:area>
+          </cap:info>
+        </cap:alert>
+      </edxlde:embeddedXMLContent>
+    </edxlde:xmlContent>
+  </edxlde:contentObject>
+</edxlde:EDXLDistribution>

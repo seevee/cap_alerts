@@ -109,6 +109,7 @@ nothing in the integration can fix it:
 | MeteoAlarm | no formal channel; [meteoalarm.org](https://meteoalarm.org/) news | probe covers it |
 | WMO SWIC | no formal channel; the [registry record](https://severeweather.wmo.int/v2/json/sources.json) names each authority's contact | probe covers mirror lag on the cap-sources feeds; vocabulary is announcement-only |
 | GDACS | no formal channel; [gdacs.org](https://www.gdacs.org/) | probe covers the indexes |
+| Australia (NSW RFS, QFD, DFES, TasALERT) | no formal channel; each agency's own site, and the [CAP-AU profile page](https://www.bom.gov.au/metadata/CAP-AU/About.shtml) for the national standard | probe covers all four feeds: envelope and alert paths, `AlertLevel` / `IncidentType` values, event codes, geocode schemes, marker-circle radii |
 | BBK / NINA | no formal channel; [BBK NINA pages](https://www.bbk.bund.de/DE/Warnung-Vorsorge/Warn-App-NINA/warn-app-nina_node.html) and the [bund.dev API listing](https://bund.dev/apis) | probe covers the channel indexes, documents, `GROUP` and `DE-BBK-EVENTCODE` codes, id prefixes |
 
 The dd_info list is the one that would have given months of lead time on CAM;

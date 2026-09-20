@@ -154,6 +154,32 @@ _BBK_EVENT_SUBSTRINGS: tuple[tuple[str, str], ...] = (
     ("all clear", "mdi:check-circle"),
 )
 
+# Australian state feeds (issue #127): needles over the event text plus the
+# ``IncidentType`` parameter. The event is a short fixed vocabulary per agency
+# ("Bushfire", "Grass Fire", "Fire", "Storm", "Facility Closure", "Other
+# Non-Urgent Alerts"), and where it is generic — NSW's "Other" — the incident
+# type says what it is ("Structure Fire", "Hazard Reduction", "Assist Other
+# Agency"). The govshare ``eventCode`` would do the same job on three feeds,
+# but WA's is malformed and the parser drops it, so text is the one classifier
+# that reaches all four. Order matters where one needle sits inside another.
+_AU_EVENT_SUBSTRINGS: tuple[tuple[str, str], ...] = (
+    ("thunderstorm", "mdi:weather-lightning"),
+    ("cyclone", "mdi:weather-hurricane"),
+    ("tsunami", "mdi:tsunami"),
+    ("flood", "mdi:home-flood"),
+    ("storm", "mdi:weather-lightning"),
+    ("heat", "mdi:weather-sunny-alert"),
+    ("smoke", "mdi:smoke"),
+    ("hazardous material", "mdi:biohazard"),
+    ("hazmat", "mdi:biohazard"),
+    ("chemical", "mdi:biohazard"),
+    ("fire", "mdi:fire"),
+    ("burn", "mdi:fire"),
+    ("hazard reduction", "mdi:fire"),
+    ("closure", "mdi:cancel"),
+    ("rescue", "mdi:lifebuoy"),
+)
+
 # ECCC event-name substrings → mdi. Matched after lowercasing ``event``.
 # Substring match handles ECCC's variable naming (e.g. "severe thunderstorm
 # warning", "tornado warning issued").
@@ -281,6 +307,20 @@ def _bbk_icon(alert: CAPAlert, event: str) -> str | None:
     return None
 
 
+def _au_icon(alert: CAPAlert, event: str) -> str | None:
+    """Australian classification over the event text and ``IncidentType``.
+
+    ``event`` is the already-lowercased classification event. Returns
+    ``None`` to let the caller fall through to the international tables.
+    """
+    incident_type = (alert.parameters or {}).get("IncidentType", "")
+    text = f"{event} {incident_type}".lower()
+    for needle, icon in _AU_EVENT_SUBSTRINGS:
+        if needle in text:
+            return icon
+    return None
+
+
 def icon_for(alert: CAPAlert) -> str:
     """Return an ``mdi:*`` icon for ``alert`` based on provider + event."""
     # MeteoAlarm carries a coded hazard, so classify on that before touching
@@ -308,6 +348,10 @@ def icon_for(alert: CAPAlert) -> str:
 
     if alert.provider == "bbk":
         if (icon := _bbk_icon(alert, event)) is not None:
+            return icon
+
+    if alert.provider == "au":
+        if (icon := _au_icon(alert, event)) is not None:
             return icon
 
     # MeteoAlarm services emit hyphenated/underscored compound terms (e.g.

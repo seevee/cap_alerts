@@ -286,3 +286,16 @@ stale data — staleness surfaced by the last-updated sensor — is arguably saf
 than graying out an active warning. Reconciling the two needs
 **failure-type-aware** availability, not a blanket override, which would reverse
 #16 for the mobile case.
+
+## Conditional GET on single-document feeds
+
+The Australian state feeds (#127) are one document per poll, 19 KB to 556 KB,
+fetched whole every cycle. NSW, QLD and TAS answer with an `ETag` and
+`Last-Modified` (WA rejects `HEAD` and was not checked); NSW regenerates every
+minute or two, so a 304 would only save the transfer on the quieter feeds, but
+QLD and TAS sit still for long stretches. ECCC already revalidates its GeoRSS
+hosts with `If-None-Match` and replays the stored body on 304, but that state
+lives in the ECCC provider, keyed by feed source. Lifting it into a shared
+"single-document feed" helper would let AU, and any future feed of the same
+shape, revalidate for free. Not urgent: aiohttp negotiates gzip, which takes
+NSW to 65 KB on the wire.

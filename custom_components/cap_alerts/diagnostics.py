@@ -49,6 +49,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.redact import REDACTED
 
 from .const import (
+    AU_FEEDS,
     BBK_CHANNELS,
     BBK_DASHBOARD_URL,
     BBK_MAPDATA_URL,
@@ -270,6 +271,9 @@ def _endpoints(
             return [BBK_DASHBOARD_URL.format(ars=ars)]
         # GPS scopes union every channel index; the set is not configurable.
         return [BBK_MAPDATA_URL.format(channel=c) for c in BBK_CHANNELS]
+    if provider == "au":
+        feed = AU_FEEDS.get((config.get(CONF_PROVINCE) or "").strip().upper())
+        return [feed[1]] if feed else []
     return []
 
 

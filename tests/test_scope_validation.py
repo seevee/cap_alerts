@@ -255,6 +255,18 @@ async def test_a_dashboard_error_is_cannot_connect():
     assert await _validate("bbk", {CONF_ZONE_ID: "095640000000"}) == "cannot_connect"
 
 
+async def test_au_state_scopes_ask_nothing():
+    """The state is a closed list and the feed is fixed; nothing to check."""
+    session = StubSession({})
+    assert (
+        await get_provider("au").async_validate_config(
+            session, {CONF_PROVINCE: "NSW"}, user_agent="test"
+        )
+        is None
+    )
+    assert session.requested == []
+
+
 async def test_bbk_gps_scopes_ask_nothing():
     session = StubSession({})
     assert (

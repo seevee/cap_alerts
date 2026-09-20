@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edxlde:EDXLDistribution xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2" xmlns:edxlde="urn:oasis:names:tc:emergency:EDXL:DE:1.0">
+  <edxlde:distributionID>DFES_ID_Warnings</edxlde:distributionID>
+  <edxlde:senderID>emergencywa@dfes.wa.gov.au</edxlde:senderID>
+  <edxlde:dateTimeSent>2026-09-20T07:51:33.586+08:00</edxlde:dateTimeSent>
+  <edxlde:distributionStatus>Actual</edxlde:distributionStatus>
+  <edxlde:distributionType>Report</edxlde:distributionType>
+  <edxlde:combinedConfidentiality>UNCLASSIFIED AND NOT SENSITIVE</edxlde:combinedConfidentiality>
+  <edxlde:language>en-AU</edxlde:language>
+  <edxlde:contentObject>
+    <edxlde:contentDescription>MONITOR CONDITIONS - LAKE ARGYLE</edxlde:contentDescription>
+    <edxlde:xmlContent>
+      <edxlde:embeddedXMLContent>
+        <cap:alert>
+          <cap:identifier>6aaddd5d2335d4dcd52abb23</cap:identifier>
+          <cap:sender>emergencywa@dfes.wa.gov.au</cap:sender>
+          <cap:sent>2026-09-19T09:06:56.523+08:00</cap:sent>
+          <cap:status>Actual</cap:status>
+          <cap:msgType>Alert</cap:msgType>
+          <cap:source>DFES</cap:source>
+          <cap:scope>Public</cap:scope>
+          <cap:code>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0</cap:code>
+          <cap:info>
+            <cap:category>Fire</cap:category>
+            <cap:event>Bushfire</cap:event>
+            <cap:responseType />
+            <cap:urgency>Future </cap:urgency>
+            <cap:severity>Minor </cap:severity>
+            <cap:certainty>Observed </cap:certainty>
+            <cap:audience />
+            <cap:valueName>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0:AUeventLIST:1.0</cap:valueName>
+            <cap:eventCode>
+              <cap:value>Bushfire</cap:value>
+            </cap:eventCode>
+            <cap:onset>2026-09-19T09:06:56.523+08:00</cap:onset>
+            <cap:expires>2026-09-19T09:06:56.523+08:00</cap:expires>
+            <cap:senderName>Department of Fire and Emergency Services WA</cap:senderName>
+            <cap:headline>Bushfire Advice MONITOR CONDITIONS - LAKE ARGYLE</cap:headline>
+            <cap:description>A Bushfire Advice is in place for people travelling along Lake Argyle Road in
+the vicinity of the Alligator Hole community and Matchbox Creek in LAKE ARGYLE
+in the SHIRE OF WYNDHAM-EAST KIMBERLEY.</cap:description>
+            <cap:instruction> * Stay alert and monitor your surroundings.
+
+ * Read through your plan and decide what you will do if the situation gets
+   worse. If you do not have a plan, make one now on Emergency WA
+   [https://emergency.wa.gov.au/plan], or in the Emergency WA app
+   [https://emergency.wa.gov.au/app/plan].
+
+ * Watch for signs of a bushfire, especially smoke and flames.
+
+ * Close all doors and windows, and turn off evaporative air conditioners but
+   keep water running through the system if possible.
+
+ * If you have a respiratory condition and you have been affected by smoke you
+   should contact your local doctor or call 1800MEDICARE (1800 633 422
+   [tel:1800633422]).
+
+If driving
+
+ * Turn your headlights on and drive slowly.
+
+ * Watch for emergency services personnel and follow their directions.
+
+ * If you cannot see clearly, pull over, keep your headlights and hazard lights
+   on, and wait until the smoke clears.</cap:instruction>
+            <cap:web>https://emergency.wa.gov.au/warnings/6aaddd5d2335d4dcd52abb23</cap:web>
+            <cap:contact>DFES Media on 9395 9543</cap:contact>
+            <cap:parameter>
+              <cap:valueName>DFES_Region</cap:valueName>
+              <cap:value>KIMBERLEY</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>CAD_ID</cap:valueName>
+              <cap:value>817487</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>Agency_Responsible</cap:valueName>
+              <cap:value>Department of Fire and Emergency Services (DFES)</cap:value>
+            </cap:parameter>
+            <cap:resource>
+              <cap:resourceDesc>map</cap:resourceDesc>
+              <cap:mimeType>text/html</cap:mimeType>
+            </cap:resource>
+            <cap:area>
+              <cap:areaDesc>A Bushfire Advice is in place for people travelling along Lake Argyle Road in
+the vicinity of the Alligator Hole community and Matchbox Creek in LAKE ARGYLE
+in the SHIRE OF WYNDHAM-EAST KIMBERLEY.</cap:areaDesc>
+              <cap:alertLevel>Bushfire Advice</cap:alertLevel>
+              <cap:polygon>-16.03628355003235,128.81714599798 -16.037814074214666,128.82598230321514 -16.036205921570854,128.8324738420024 -16.03296180542786,128.84316272592804 -16.02655065878345,128.85377124230666 -16.022619543947982,128.86404064066897 -16.020791287615623,128.86912886729266 -16.019521333473975,128.8739434969355 -16.019423371988296,128.87553298876475 -16.019977738466594,128.8810314725519 -16.020938636712316,128.88091611974528 -16.024449571728,128.88130062909903 -16.024966967454347,128.87560989063758 -16.037287281886364,128.8494313946975 -16.044161506689576,128.81889172633748 -16.04423706269027,128.817832721301 -16.044282008189782,128.81750879216963 -16.044598182387872,128.81618472459303 -16.040311570805784,128.81530035307384 -16.035100996367277,128.81422372687774 -16.03628355003235,128.81714599798</cap:polygon>
+              <cap:circle>-16.03406709103146,128.84716011405118 0.0</cap:circle>
+              <cap:geocode>
+                <cap:valueName>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0:ISO 3166-2 </cap:valueName>
+                <cap:value>AU-WA</cap:value>
+              </cap:geocode>
+            </cap:area>
+          </cap:info>
+        </cap:alert>
+      </edxlde:embeddedXMLContent>
+    </edxlde:xmlContent>
+  </edxlde:contentObject>
+  <edxlde:contentObject>
+    <edxlde:contentDescription>Park Closure for Nyinggulara National Park (Ex-Ningaloo) in the SHIRE OF EXMOUTH.</edxlde:contentDescription>
+    <edxlde:xmlContent>
+      <edxlde:embeddedXMLContent>
+        <cap:alert>
+          <cap:identifier>69c3670c8ecdafcd633709bf</cap:identifier>
+          <cap:sender>emergencywa@dfes.wa.gov.au</cap:sender>
+          <cap:sent>2026-03-30T13:39:20.610+08:00</cap:sent>
+          <cap:status>Actual</cap:status>
+          <cap:msgType>Alert</cap:msgType>
+          <cap:source>DFES</cap:source>
+          <cap:scope>Public</cap:scope>
+          <cap:code>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0</cap:code>
+          <cap:info>
+            <cap:category>Infra</cap:category>
+            <cap:event>Facility Closure</cap:event>
+            <cap:responseType />
+            <cap:urgency>Immediate </cap:urgency>
+            <cap:severity>Minor </cap:severity>
+            <cap:certainty>Observed </cap:certainty>
+            <cap:audience />
+            <cap:valueName>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0:AUeventLIST:1.0</cap:valueName>
+            <cap:eventCode>
+              <cap:value>Facility Closure</cap:value>
+            </cap:eventCode>
+            <cap:onset>2026-03-30T13:39:20.610+08:00</cap:onset>
+            <cap:expires>2026-03-30T13:39:20.610+08:00</cap:expires>
+            <cap:senderName>Department of Fire and Emergency Services WA</cap:senderName>
+            <cap:headline>Facility or Park Closure</cap:headline>
+            <cap:description />
+            <cap:instruction> * People are urged to avoid the area, follow the advice of Parks and Wildlife
+   Service staff and observe signage.
+ * People already in the area should leave for a safer place.
+ * For more information, contact your local Parks and Wildlife Service office.</cap:instruction>
+            <cap:web>https://emergency.wa.gov.au/warnings/69c3670c8ecdafcd633709bf</cap:web>
+            <cap:contact>DFES Media on 9395 9543</cap:contact>
+            <cap:parameter>
+              <cap:valueName>DFES_Region</cap:valueName>
+              <cap:value>PILBARA</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>CAD_ID</cap:valueName>
+              <cap:value />
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>Agency_Responsible</cap:valueName>
+              <cap:value>Parks and Wildlife Service at the Department of Biodiversity, Conservation and Attractions</cap:value>
+            </cap:parameter>
+            <cap:resource>
+              <cap:resourceDesc>map</cap:resourceDesc>
+              <cap:mimeType>text/html</cap:mimeType>
+            </cap:resource>
+            <cap:area>
+              <cap:areaDesc />
+              <cap:alertLevel>Facility or Park Closure</cap:alertLevel>
+              <cap:polygon />
+              <cap:circle>-22.57225252389948,113.72833900605667 0.0</cap:circle>
+              <cap:geocode>
+                <cap:valueName>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0:ISO 3166-2 </cap:valueName>
+                <cap:value>AU-WA</cap:value>
+              </cap:geocode>
+            </cap:area>
+          </cap:info>
+        </cap:alert>
+      </edxlde:embeddedXMLContent>
+    </edxlde:xmlContent>
+  </edxlde:contentObject>
+</edxlde:EDXLDistribution>

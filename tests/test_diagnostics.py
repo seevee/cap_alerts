@@ -509,6 +509,18 @@ async def test_a_bbk_gps_entry_reports_every_channel_index_and_no_point(hass):
     assert "52.52" not in json.dumps(payload)
 
 
+async def test_an_au_state_entry_reports_its_feed(hass):
+    entry = _entry({CONF_PROVIDER: "au", CONF_PROVINCE: "QLD"})
+
+    payload = await _payload(hass, entry)
+
+    assert payload["entry"]["scope"] == {"mode": "province", "value": "QLD"}
+    assert payload["source"]["endpoints"] == [
+        "https://publiccontent-gis-psba-qld-gov-au.s3.amazonaws.com"
+        "/content/Feeds/BushfireCurrentIncidents/bushfireAlert_capau.xml"
+    ]
+
+
 async def test_a_worldwide_entry_reports_a_scope_rather_than_a_gap(hass):
     """GDACS with no GPS filter is fully configured, not half-configured."""
     entry = _entry({CONF_PROVIDER: "gdacs"})

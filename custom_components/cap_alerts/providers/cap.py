@@ -92,6 +92,11 @@ class CAPDoc:
     status: str = ""
     msg_type: str = ""
     scope: str = ""
+    # CAP 1.2 §3.2.1 ``<incidents>``: the sender's own incident reference,
+    # verbatim. Some senders re-mint ``identifier`` on every update and keep
+    # the incident constant (NSW RFS writes ``sent:incident`` as the
+    # identifier), which makes this the stable identity where it exists.
+    incidents: str = ""
     references: list[tuple[str, str, str]] = field(default_factory=list)
     infos: list[CAPInfoDoc] = field(default_factory=list)
 
@@ -290,7 +295,19 @@ def parse_cap_alert(xml_text: str) -> CAPDoc | None:
     except ET.ParseError as exc:
         _LOGGER.debug("CAP XML parse error: %s", exc)
         return None
+    return cap_doc_from_element(root)
 
+
+def cap_doc_from_element(root: Element) -> CAPDoc:
+    """Read an already-parsed CAP ``<alert>`` element into a CAPDoc.
+
+    The entry point for envelopes that carry several alerts in one document
+    (EDXL-DE ``embeddedXMLContent``, issue #127): the provider parses the
+    envelope once and hands each ``<alert>`` element here, rather than
+    re-serializing it to text for ``parse_cap_alert``. The namespace is read
+    off the element's own tag, so a ``cap:``-prefixed alert inside a
+    default-namespace envelope resolves exactly as a standalone document does.
+    """
     # Detect namespace from root tag
     root_tag = root.tag
     if root_tag.startswith("{"):
@@ -310,6 +327,7 @@ def parse_cap_alert(xml_text: str) -> CAPDoc | None:
         status=_text("status"),
         msg_type=_text("msgType"),
         scope=_text("scope"),
+        incidents=_text("incidents"),
     )
     doc.references = _parse_references(_text("references"))
 
@@ -596,6 +614,7 @@ def cap_doc_from_json(payload: Any) -> CAPDoc | None:
         status=_json_text(payload.get("status")),
         msg_type=_json_text(payload.get("msgType")),
         scope=_json_text(payload.get("scope")),
+        incidents=" ".join(_json_texts(payload.get("incidents"))),
     )
     doc.references = _parse_references(" ".join(_json_texts(payload.get("references"))))
     infos = payload.get("info")

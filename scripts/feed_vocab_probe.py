@@ -163,7 +163,7 @@ BASELINE_PATH = Path(__file__).resolve().parent / "feed_vocab_baseline.json"
 
 USER_AGENT = "cap-alerts-feed-vocab-probe/1.0 (+https://github.com/seevee/cap_alerts)"
 
-PROVIDERS = ("eccc", "nws", "meteoalarm", "gdacs", "wmo", "bbk")
+PROVIDERS = ("eccc", "nws", "meteoalarm", "gdacs", "wmo", "bbk", "au")
 
 # ECCC vocabulary is read from this sender only; see module docstring.
 ECCC_SENDER = "cap-pac@canada.ca"
@@ -172,6 +172,19 @@ NWS_SENDER = "w-nws.webmaster@noaa.gov"
 
 # Alert ids printed per new token in the drift report.
 MAX_WITNESS_IDS = 3
+
+# The four Australian state feeds (issue #127), one EDXL-DE envelope each.
+# Mirrors ``const.AU_FEEDS``; duplicated because this script is stdlib-only.
+AU_FEEDS = {
+    "NSW": "https://www.rfs.nsw.gov.au/feeds/majorIncidentsCAP.xml",
+    "QLD": (
+        "https://publiccontent-gis-psba-qld-gov-au.s3.amazonaws.com"
+        "/content/Feeds/BushfireCurrentIncidents/bushfireAlert_capau.xml"
+    ),
+    "WA": "https://api.emergency.wa.gov.au/v1/capau",
+    "TAS": "https://alert.tas.gov.au/data/cap-au.xml",
+}
+NS_EDXL = "urn:oasis:names:tc:emergency:EDXL:DE:1.0"
 
 NS_ATOM = "http://www.w3.org/2005/Atom"
 NS_CAP = "urn:oasis:names:tc:emergency:cap:1.2"
@@ -309,6 +322,19 @@ SPEC_VOCAB: dict[str, dict[str, list[str]]] = {
         "values.messageType": _CAP_ENUMS["values.msgType"],
         "values.response": _CAP_ENUMS["values.responseType"],
         "parameter_keys": _NWS_PARAMETER_KEYS,
+    },
+    "au": {
+        **_CAP_ENUMS,
+        # The Australian Warning System ladder plus the informational tiers the
+        # agencies publish below it; conventions.py maps each to a severity.
+        "values.AlertLevel": [
+            "Advice",
+            "Watch and Act",
+            "Emergency Warning",
+            "Information",
+            "Not Applicable",
+            "Planned Burn",
+        ],
     },
     "gdacs": {
         "values.alertlevel": ["Green", "Orange", "Red"],
@@ -1143,6 +1169,84 @@ def build_report(
 # ---------------------------------------------------------------------------
 
 
+def probe_au(timeout: float) -> Sample:
+    """The four state feeds, every alert in each (issue #127).
+
+    Each feed is one EDXL-DE document, so there is nothing to sample: every
+    ``<alert>`` is read. Tracked beyond the CAP enums are the parameter keys
+    (three feeds carry the tier in ``AlertLevel``; a fourth starting to would
+    change how WA is read), the tier values themselves, ``IncidentType`` (the
+    icon classifier's second input), the govshare event codes, geocode
+    schemes and the marker-circle radii — the provider reads circles up to
+    0.5 km as points, so a feed moving its marker radius shows up here.
+    """
+    sample = Sample()
+    failures: list[str] = []
+    alerts = 0
+    for state, url in AU_FEEDS.items():
+        try:
+            root = ET.fromstring(fetch(url, timeout=timeout))
+        except Exception as err:  # noqa: BLE001 — one state down is reported, not fatal
+            failures.append(f"{state}: {err}")
+            continue
+        sample.add_all("envelope_paths", xml_paths(root))
+        for alert in root.iter(f"{{{NS_CAP}}}alert"):
+            alerts += 1
+            alert_id = (
+                f"{state}:{(alert.findtext(f'{{{NS_CAP}}}identifier') or '').strip()}"
+            )
+            sample.add_all("xml_paths", xml_paths(alert), alert_id)
+            for tag in ("status", "msgType", "scope"):
+                sample.add(
+                    f"values.{tag}", alert.findtext(f"{{{NS_CAP}}}{tag}"), alert_id
+                )
+            for info in alert.findall(f"{{{NS_CAP}}}info"):
+                for tag in (
+                    "language",
+                    "category",
+                    "responseType",
+                    "urgency",
+                    "severity",
+                    "certainty",
+                ):
+                    for el in info.findall(f"{{{NS_CAP}}}{tag}"):
+                        sample.add(f"values.{tag}", el.text, alert_id)
+                for ec in info.findall(f"{{{NS_CAP}}}eventCode"):
+                    sample.add(
+                        "event_code_schemes",
+                        ec.findtext(f"{{{NS_CAP}}}valueName"),
+                        alert_id,
+                    )
+                    sample.add(
+                        "values.eventCode", ec.findtext(f"{{{NS_CAP}}}value"), alert_id
+                    )
+                for param in info.findall(f"{{{NS_CAP}}}parameter"):
+                    name = (param.findtext(f"{{{NS_CAP}}}valueName", "") or "").strip()
+                    sample.add("parameter_keys", name, alert_id)
+                    if name in ("AlertLevel", "IncidentType"):
+                        sample.add(
+                            f"values.{name}",
+                            param.findtext(f"{{{NS_CAP}}}value"),
+                            alert_id,
+                        )
+                for area in info.findall(f"{{{NS_CAP}}}area"):
+                    for gc in area.findall(f"{{{NS_CAP}}}geocode"):
+                        sample.add(
+                            "geocode_schemes",
+                            gc.findtext(f"{{{NS_CAP}}}valueName"),
+                            alert_id,
+                        )
+                    for circle in area.findall(f"{{{NS_CAP}}}circle"):
+                        parts = (circle.text or "").split()
+                        if len(parts) == 2:
+                            sample.add("values.circle_radius", parts[1], alert_id)
+    if len(failures) == len(AU_FEEDS):
+        raise RuntimeError(f"every AU state feed failed: {'; '.join(failures)}")
+    note = f", {len(failures)} feeds failed ({'; '.join(failures)})" if failures else ""
+    print(f"  au: {alerts} alerts across {len(AU_FEEDS) - len(failures)} feeds{note}")
+    return sample
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Diff live provider feed vocabulary against the baseline."
@@ -1208,6 +1312,8 @@ def main() -> int:
                 observed[provider] = probe_bbk(
                     args.timeout, args.max_bodies, args.workers
                 )
+            elif provider == "au":
+                observed[provider] = probe_au(args.timeout)
         except Exception as err:  # noqa: BLE001 — one provider down must not end the run
             failures[provider] = str(err)
             print(f"  FAILED: {err}")
