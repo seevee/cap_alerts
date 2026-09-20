@@ -144,6 +144,13 @@ The release PR body is the release notes. `release.sh` seeds it with the generat
 list; write the narrative above that list before merging, and `publish.sh` ships the
 body verbatim. A body left untouched ships the freshly generated list alone.
 
+`publish.sh` also attaches `cap_alerts.zip` to the release: the integration's
+files at the zip root, archived from the tagged tree. `hacs.json` names that
+asset (`zip_release` + `filename`), so HACS installs it instead of the source
+archive. That is what makes installs visible: GitHub counts asset downloads
+and never counts source archives. HACS reads `hacs.json` at the tag it installs,
+so releases from before the asset existed still install the old way.
+
 ## AI-Assisted Contributions
 
 AI coding assistants are welcome as tools, under two rules:

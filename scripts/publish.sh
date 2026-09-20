@@ -13,7 +13,8 @@ usage() {
   cat <<'USAGE'
 Usage: publish.sh <version>
 
-Creates a git tag and GitHub Release from main.
+Creates a git tag and GitHub Release from main, with the HACS install asset
+(hacs.json "filename", built from the tagged tree) attached.
 
 Examples:
   ./scripts/publish.sh 0.3.0
@@ -78,12 +79,34 @@ if [ -n "$PR_BODY" ] && [ "$PR_BODY" != "$NOTES" ]; then
   NOTES="$PR_BODY"
 fi
 
+# The release asset is what HACS installs (hacs.json: zip_release + filename),
+# and it is the only download GitHub counts: a source archive never shows up
+# in the release's download_count, which is why every integration release
+# before v0.6.0 reads as zero installs. HACS extracts the zip straight into
+# custom_components/cap_alerts/, so the integration's files sit at the zip
+# root with no wrapping directory. Archiving the tagged tree rather than the
+# working copy keeps __pycache__ and anything untracked out of it.
+ASSET_NAME=$(python -c "import json; print(json.load(open('hacs.json'))['filename'])")
+ASSET_DIR=$(mktemp -d)
+ASSET="$ASSET_DIR/$ASSET_NAME"
+git archive --format=zip -o "$ASSET" "$TAG:custom_components/cap_alerts"
+echo "Built $ASSET_NAME from $TAG ($(python -c "import sys, zipfile; print(len(zipfile.ZipFile(sys.argv[1]).namelist()))" "$ASSET") entries)"
+
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Release $TAG already exists, skipping"
+  if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "$ASSET_NAME"; then
+    echo "Asset $ASSET_NAME already attached, skipping"
+  else
+    gh release upload "$TAG" "$ASSET"
+    echo "Asset $ASSET_NAME attached to $TAG"
+  fi
 else
   gh release create "$TAG" \
     --title "$TAG" \
     --notes "$NOTES" \
-    $([ "$PRERELEASE" = true ] && echo "--prerelease")
-  echo "Release $TAG published"
+    $([ "$PRERELEASE" = true ] && echo "--prerelease") \
+    "$ASSET"
+  echo "Release $TAG published with $ASSET_NAME"
 fi
+
+rm -rf "$ASSET_DIR"
