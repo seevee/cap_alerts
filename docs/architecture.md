@@ -988,7 +988,7 @@ differences:
 
 | `CAPAlert` field | Source |
 | :-- | :-- |
-| `id` | `sha256("{state}:{incidents or identifier}")[:12]`. NSW and TAS re-mint `identifier` on every update (NSW writes `{sent}:{incident}`) and keep `<incidents>` constant; QLD and WA publish none and use the identifier |
+| `id` | `sha256("{state}:{incidents}:{eventCode}")[:12]` where the feed publishes `<incidents>`, else `sha256("{state}:{identifier}")`. NSW and TAS re-mint `identifier` on every update (NSW writes `{sent}:{incident}`, TAS a global counter) and keep `<incidents>` constant; TAS also publishes more than one product per incident (a Bushfire Advice and a Smoke Alert for one fire, #218), which the govshare `eventCode` separates. QLD and WA publish no `<incidents>` and use the identifier |
 | `expires` | **never carried.** NSW and TAS stamp the envelope's `dateTimeSent` + 24 h on every alert (receding every poll), QLD `sent` + 24 h, WA `sent` itself, which `normalize` would read as already expired. A regeneration TTL, not an end time |
 | `parameters` | every non-empty CAP parameter; on WA, `AlertLevel` is filled in from the headline so the attribute surface is uniform |
 | `description`, `instruction` | flattened from the HTML NSW and QLD embed (`<br />` → newline, tags dropped, entities unescaped); the dropped anchor targets are the `web` URL |

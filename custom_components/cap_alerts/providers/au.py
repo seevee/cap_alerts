@@ -38,11 +38,16 @@ regenerates every minute or two). It is also why a failed or unparseable
 fetch raises rather than returning ``[]``: under that rule an empty result
 says every incident ended.
 
-**Identity** is ``sha256("{state}:{incidents or identifier}")[:12]``. NSW
-and TAS re-mint ``identifier`` on every update (NSW writes
-``{sent}:{incident}``) and keep CAP ``<incidents>`` constant, so the incident
-is what holds one entity per fire there; QLD (``WARN-633``) and WA (the
-warning page's id) publish no ``<incidents>`` and use the identifier.
+**Identity** is ``sha256("{state}:{incidents}:{eventCode}")[:12]`` where
+the feed publishes CAP ``<incidents>`` and ``sha256("{state}:{identifier}")``
+where not. NSW and TAS re-mint ``identifier`` on every update (NSW writes
+``{sent}:{incident}``; TAS a global counter, ``IDT21037-83466`` one day and
+``-83572`` the next for the same storm) and keep ``<incidents>`` constant, so
+the incident is what holds one entity per fire there. TAS also publishes
+more than one product per incident (a Bushfire Advice and a Smoke Alert for
+the same fire, issue #218), which the govshare ``eventCode`` separates. QLD
+(``WARN-633``) and WA (the warning page's id) publish no ``<incidents>`` and
+use the identifier.
 
 **Location markers.** Every alert on every feed carries exactly one
 ``<circle>`` at a street address — radius ``0`` on NSW and WA, ``0.5`` on
@@ -144,10 +149,26 @@ def edxl_alert_elements(xml_text: str) -> list[Element] | None:
 # ---------------------------------------------------------------------------
 
 
-def compute_au_id(state: str, doc: CAPDoc) -> str:
-    """Hash the stable incident reference to a 12-hex id."""
-    key = doc.incidents.strip() or doc.identifier.strip()
-    return hashlib.sha256(f"{state}:{key}".encode()).hexdigest()[:12]
+def compute_au_id(state: str, doc: CAPDoc, info: CAPInfoDoc) -> str:
+    """Hash the stable incident reference plus the product to a 12-hex id.
+
+    ``<incidents>`` is the identity where a feed publishes it (NSW, TAS) and
+    the identifier where not (QLD, WA). TasALERT publishes more than one
+    product per incident — a Bushfire Advice and a Bushfire Smoke Alert for
+    the same fire, both carrying its ``TFS:…`` reference (issue #218) — so
+    the incident alone would fold them onto one entity and the store would
+    keep whichever the feed listed last. The govshare ``eventCode``
+    (``bushFire`` vs ``smoke``) tells the products apart and does not move
+    across a product's re-issues. The identifier path is left alone: that is
+    already one id per document.
+    """
+    incidents = doc.incidents.strip()
+    if not incidents:
+        key = f"{state}:{doc.identifier.strip()}"
+    else:
+        product = ",".join(sorted(v for v in info.event_codes.values() if v))
+        key = f"{state}:{incidents}:{product}"
+    return hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
 def alert_level_rank(level: str) -> int:
@@ -198,7 +219,7 @@ def _build_alert(state: str, doc: CAPDoc, info: CAPInfoDoc, url: str) -> CAPAler
         parameters[AU_ALERT_LEVEL_PARAMETER] = level
     points = points_from_circles(info.circles, AU_POINT_RADIUS_KM)
     return CAPAlert(
-        id=compute_au_id(state, doc),
+        id=compute_au_id(state, doc, info),
         url=url,
         identifier=doc.identifier,
         event=info.event or info.headline,

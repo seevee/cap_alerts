@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<EDXLDistribution xmlns="urn:oasis:names:tc:emergency:EDXL:DE:1.0">
+  <distributionID>TFSUniqueID:2026-09-21T02:45:57+10:00</distributionID>
+  <senderID>fire@fire.tas.gov.au</senderID>
+  <dateTimeSent>2026-09-21T02:45:57+10:00</dateTimeSent>
+  <distributionStatus>Actual</distributionStatus>
+  <distributionType>Report</distributionType>
+  <combinedConfidentiality>UNCLASSIFIED AND NOT SENSITIVE</combinedConfidentiality>
+  <language>en-AU</language>
+
+<contentObject>
+  <contentDescription>Information about Bushfire Advice - Seven Mile Beach - Threat is reduced</contentDescription>
+  <xmlContent>
+    <embeddedXMLContent>
+      <alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+        <identifier>036999-20092026-83558</identifier>
+        <sender>fire@fire.tas.gov.au</sender>
+        <sent>2026-09-20T19:03:14+10:00</sent>
+        <status>Actual</status>
+        <msgType>Alert</msgType>
+        <scope>Public</scope>
+        <code>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0</code>
+        <incidents>TFS:036999-20092026</incidents>
+        <info>
+          <category>Fire</category>
+          <event>Bushfire</event>
+          <responseType>Monitor</responseType>
+          <urgency>Expected</urgency>
+          <severity>Moderate</severity>
+          <certainty>Observed</certainty>
+          <eventCode>
+            <valueName>https://govshare.gov.au/xmlui/handle/10772/6495</valueName>
+            <value>bushFire</value>
+          </eventCode>
+          <effective>2026-09-20T19:03:14+10:00</effective>
+          <expires>2026-09-22T02:45:57+10:00</expires>
+          <senderName>Tasmania Fire Service</senderName>
+          <headline>Bushfire Advice - Seven Mile Beach - Threat is reduced</headline>
+          <description>Tasmania Fire Service has issued a Bushfire Advice for Seven Mile Beach - Threat is reduced.There is a fire at Seven Mile Beach. There is no immediate threat.If you have a bushfire plan, check it now.Well prepared homes are expected to be defendable in these conditions.Monitor conditions, and if they get more dangerous, and you are not well prepared, plan to go to a safer place.If your plan is to leave, the best option is to stay with family or friends.For fire updates, listen to ABC Local Radio or visit tasalert.comCommunity Information:For information on current road closures, visit the Tasmania Police website: police.tas.gov.au/community-alerts/People at higher risk from the effects of smoke, including those with medical conditions, are advised to have a personal plan for avoiding smoke and managing their health. Advice is available from the Department of Health health.tas.gov.au/health-topics/environmental-health/air-quality or Asthma Australia.</description>
+           
+          <instruction>A fire has started. There is no immediate danger. Stay up to date in case the situation changes.</instruction><web>https://alert.tas.gov.au/?id=989a1f2a-a409-4317-84c6-6292dbf1824b</web>
+          <!-- FireDangerClass parameter is only used in QLD jurisdiction -->
+                    <parameter>
+            <valueName>Status</valueName>
+            <value>Patrol</value>
+          </parameter>
+          <parameter>
+            <valueName>Fireground</valueName>
+            <value>Not reported</value>
+          </parameter>
+          <parameter>
+            <valueName>AlertLevel</valueName>
+            <value>Advice</value>
+          </parameter>
+          <parameter>
+            <valueName>IncidentType</valueName>
+            <value>Bushfire</value>
+          </parameter>
+          <parameter>
+            <valueName>CouncilArea</valueName>
+            <value>Not Available</value>
+          </parameter>
+          <parameter>
+            <valueName>IsFire</valueName>
+            <value>Yes</value>
+          </parameter>
+          <parameter>
+            <valueName>Agency</valueName>
+            <value>Tasmania Fire Service</value>
+          </parameter>
+          <resource>
+            <resourceDesc>map</resourceDesc>
+            <mimeType>text/html</mimeType>
+            <uri>https://alert.tas.gov.au/?id=989a1f2a-a409-4317-84c6-6292dbf1824b</uri>
+          </resource>
+          <area>
+            <areaDesc>Pittwater Road to Sandy Point and surrounds</areaDesc>
+            <polygon>-42.83315,147.53922 -42.83738,147.52612 -42.84478,147.53519 -42.83965,147.55524 -42.83666,147.58142 -42.84497,147.60404 -42.84692,147.61348 -42.8412,147.60949 -42.83285,147.59799 -42.8292,147.56683 -42.83315,147.53922</polygon>
+            <circle>-42.83444,147.58827 10</circle>
+                        <geocode>
+              <valueName>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0:ISO3166-2</valueName>
+              <value>AU-TAS</value>
+            </geocode>
+          </area>
+        </info>
+      </alert>
+    </embeddedXMLContent>
+  </xmlContent>
+</contentObject>
+<contentObject>
+  <contentDescription>Information about Bushfire Smoke Alert - Dodges Ferry, Carlton, Seven Mile Beach - Avoid smoke</contentDescription>
+  <xmlContent>
+    <embeddedXMLContent>
+      <alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+        <identifier>036999-20092026-83484</identifier>
+        <sender>fire@fire.tas.gov.au</sender>
+        <sent>2026-09-20T18:56:46+10:00</sent>
+        <status>Test</status>
+        <msgType>Alert</msgType>
+        <scope>Public</scope>
+        <code>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0</code>
+        <incidents>TFS:036999-20092026</incidents>
+        <info>
+          <category>Fire</category>
+          <event>Smoke Alert</event>
+          <responseType>Monitor</responseType>
+          <urgency>Unknown</urgency>
+          <severity>Minor</severity>
+          <certainty>Observed</certainty>
+          <eventCode>
+            <valueName>https://govshare.gov.au/xmlui/handle/10772/6495</valueName>
+            <value>smoke</value>
+          </eventCode>
+          <effective>2026-09-20T18:56:46+10:00</effective>
+          <expires>2026-09-22T02:45:57+10:00</expires>
+          <senderName>Tasmania Fire Service</senderName>
+          <headline>Bushfire Smoke Alert - Dodges Ferry, Carlton, Seven Mile Beach - Avoid smoke</headline>
+          <description>Bushfire Smoke Alert - Dodges Ferry, Carlton, Seven Mile Beach - Avoid smokeThis is a Smoke Alert message for Dodges Ferry, Carlton, Seven Mile Beach and surrounds – Avoid smoke.There is a bushfire at Pittwater Road, Seven Mile BeachThere is no threat to communities.There is expected to be smoke, ash and embers from this fire visible around Dodges Ferry, Carlton, Seven Mile Beach and surrounds.What to do:People at higher risk from the effects of smoke, including those with medical conditions, should enact their personal plan for avoiding smoke and managing their health.People traveling in the area should be careful if driving in smoke. Turn on your headlights, drive slowly and be aware of emergency services in the area.If you live in the area of the fire, stay informed and monitor conditions locally by listening to ABC radio or visiting tasalert.comCommunity Information:For information on current road closures, visit the Tasmania Police website: police.tas.gov.au/community-alerts/Health advice is available from the Department of Health health.tas.gov.au/health-topics/environmental-health/air-quality or Asthma Australia asthma.org.au/triggers/wood-heaters-woodfires-and-bushfires/</description>
+           
+          <instruction>Unknown</instruction><web>https://alert.tas.gov.au/?id=b3437359-3dfa-4fb7-8c41-2aa7386bb250</web>
+          <!-- FireDangerClass parameter is only used in QLD jurisdiction -->
+                    <parameter>
+            <valueName>Status</valueName>
+            <value>Patrol</value>
+          </parameter>
+          <parameter>
+            <valueName>Fireground</valueName>
+            <value>Not reported</value>
+          </parameter>
+          <parameter>
+            <valueName>AlertLevel</valueName>
+            <value>Not Yet Known</value>
+          </parameter>
+          <parameter>
+            <valueName>IncidentType</valueName>
+            <value>Bushfire</value>
+          </parameter>
+          <parameter>
+            <valueName>CouncilArea</valueName>
+            <value>Not Available</value>
+          </parameter>
+          <parameter>
+            <valueName>IsFire</valueName>
+            <value>Yes</value>
+          </parameter>
+          <parameter>
+            <valueName>Agency</valueName>
+            <value>Tasmania Fire Service</value>
+          </parameter>
+          <resource>
+            <resourceDesc>map</resourceDesc>
+            <mimeType>text/html</mimeType>
+            <uri>https://alert.tas.gov.au/?id=b3437359-3dfa-4fb7-8c41-2aa7386bb250</uri>
+          </resource>
+          <area>
+            <areaDesc>Dodges Ferry, Carlton, Seven Mile Beach and surrounds</areaDesc>
+            <circle>-42.8513,147.61883 10</circle>
+                        <geocode>
+              <valueName>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0:ISO3166-2</valueName>
+              <value>AU-TAS</value>
+            </geocode>
+          </area>
+        </info>
+      </alert>
+    </embeddedXMLContent>
+  </xmlContent>
+</contentObject>
+
+</EDXLDistribution>

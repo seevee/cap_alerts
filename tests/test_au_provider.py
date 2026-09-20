@@ -10,6 +10,7 @@ alongside real polygons, ``<incidents>`` with an agency prefix).
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ from custom_components.cap_alerts.providers import au as _au_mod
 from custom_components.cap_alerts.providers.cap import (
     cap_doc_from_element,
     parse_cap_alert,
+    select_info,
 )
 from tests.conftest import StubSession
 
@@ -164,10 +166,11 @@ def test_identity_prefers_the_incident_reference():
     elements = edxl_alert_elements(_fixture("NSW"))
     assert elements is not None
     doc = cap_doc_from_element(elements[0])
+    info = select_info(doc, "")
     # A re-minted identifier on the next update must not change the id.
     doc.identifier = "2026-09-20T10:00:00.0000000:678279"
-    assert compute_au_id("NSW", doc) == compute_au_id(
-        "NSW", cap_doc_from_element(elements[0])
+    assert compute_au_id("NSW", doc, info) == compute_au_id(
+        "NSW", cap_doc_from_element(elements[0]), info
     )
 
 
@@ -175,9 +178,40 @@ def test_identity_falls_back_to_the_identifier_and_is_state_scoped():
     elements = edxl_alert_elements(_fixture("QLD"))
     assert elements is not None
     doc = cap_doc_from_element(elements[0])
+    info = select_info(doc, "")
     assert doc.incidents == ""
-    assert compute_au_id("QLD", doc) != compute_au_id("NSW", doc)
-    assert len(compute_au_id("QLD", doc)) == 12
+    assert compute_au_id("QLD", doc, info) != compute_au_id("NSW", doc, info)
+    assert len(compute_au_id("QLD", doc, info)) == 12
+
+
+def test_identity_separates_two_products_of_one_incident():
+    """TAS: a Bushfire Advice and a Smoke Alert share ``<incidents>`` (#218)."""
+    elements = edxl_alert_elements(_fixture("TAS_TWO_PRODUCTS"))
+    assert elements is not None
+    advice, smoke = (cap_doc_from_element(el) for el in elements)
+    assert advice.incidents == smoke.incidents == "TFS:036999-20092026"
+    advice_info, smoke_info = select_info(advice, ""), select_info(smoke, "")
+    assert list(advice_info.event_codes.values()) == ["bushFire"]
+    assert list(smoke_info.event_codes.values()) == ["smoke"]
+    assert compute_au_id("TAS", advice, advice_info) != compute_au_id(
+        "TAS", smoke, smoke_info
+    )
+    # The product's re-issue under a fresh counter keeps its id.
+    smoke.identifier = "036999-20092026-83600"
+    assert compute_au_id("TAS", smoke, smoke_info) == compute_au_id(
+        "TAS", cap_doc_from_element(elements[1]), smoke_info
+    )
+
+
+def test_identity_without_an_event_code_still_keys_on_the_incident():
+    """A feed that drops the code (WA's is malformed) degrades to the old key."""
+    elements = edxl_alert_elements(_fixture("NSW"))
+    assert elements is not None
+    doc = cap_doc_from_element(elements[0])
+    info = select_info(doc, "")
+    bare = replace(info, event_codes={})
+    assert compute_au_id("NSW", doc, bare) != compute_au_id("NSW", doc, info)
+    assert len(compute_au_id("NSW", doc, bare)) == 12
 
 
 @pytest.mark.parametrize(
@@ -412,7 +446,19 @@ async def test_tas_identity_uses_the_prefixed_incident():
     assert elements is not None
     doc = cap_doc_from_element(elements[0])
     assert doc.incidents == "SES:IDT21037"
-    assert alerts[0].id == compute_au_id("TAS", doc)
+    assert alerts[0].id == compute_au_id("TAS", doc, select_info(doc, ""))
+
+
+async def test_tas_two_products_of_one_incident_are_two_alerts():
+    """Live shape of 2026-09-20: the Advice was hidden behind the Smoke Alert (#218)."""
+    alerts, _ = await _fetch("TAS", body=_fixture("TAS_TWO_PRODUCTS"))
+    assert len(alerts) == 2
+    assert len({a.id for a in alerts}) == 2
+    advice = _by_headline(alerts, "Bushfire Advice - Seven Mile Beach")
+    smoke = _by_headline(alerts, "Bushfire Smoke Alert - Dodges Ferry")
+    assert advice.parameters is not None and smoke.parameters is not None
+    assert advice.parameters["AlertLevel"] == "Advice"
+    assert smoke.parameters["AlertLevel"] == "Not Yet Known"
 
 
 # ---------------------------------------------------------------------------
