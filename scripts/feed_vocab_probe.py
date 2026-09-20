@@ -311,6 +311,11 @@ SPEC_VOCAB: dict[str, dict[str, list[str]]] = {
         ],
         # Every id prefix the API is known to mint; a new one is a new channel.
         "values.id_prefix": ["dwd", "dwdmap", "mow", "kat", "biw", "lhp"],
+        # The channel index repeats three CAP enums per row (#217: a MoWaS
+        # all-clear is a ``Cancel`` row, and stays listed for six hours).
+        "index.severity": _CAP_ENUMS["values.severity"],
+        "index.urgency": _CAP_ENUMS["values.urgency"],
+        "index.type": _CAP_ENUMS["values.msgType"],
     },
     # NWS publishes the same sets under its GeoJSON property names.
     "nws": {
@@ -334,6 +339,8 @@ SPEC_VOCAB: dict[str, dict[str, list[str]]] = {
             "Information",
             "Not Applicable",
             "Planned Burn",
+            # TAS, on a smoke alert with no warning tier of its own (#217).
+            "Not Yet Known",
         ],
     },
     "gdacs": {
@@ -803,19 +810,36 @@ def probe_gdacs(timeout: float) -> Sample:
     return sample
 
 
+def _bbk_row_expired(expires: object, now: datetime) -> bool:
+    """True when a mapData row's ``expiresDate`` parses and is in the past."""
+    if not isinstance(expires, str) or not expires.strip():
+        return False
+    try:
+        when = datetime.fromisoformat(expires.strip())
+    except ValueError:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when <= now
+
+
 def probe_bbk(timeout: float, max_bodies: int, workers: int) -> Sample:
     """Five channel indexes, then every listed warning document (issue #66).
 
     The document is CAP-over-JSON, so the vocabulary that matters is the CAP
-    enum set per ``info[]`` block plus the two code schemes the integration
-    classifies on: DWD's ``GROUP`` eventCode and BBK's
-    ``profile:DE-BBK-EVENTCODE``. Id prefixes are tracked because a new one
-    is a new channel the provider does not name. ``language`` is tracked
-    because the options form offers a closed list of them.
+    enum set per ``info[]`` block plus the one code scheme the integration
+    classifies on, DWD's ``GROUP`` eventCode. The scheme names are tracked
+    but not the ``profile:DE-BBK-EVENTCODE`` values: the integration passes
+    those through as a parameter, and the catalogue runs to some hundred
+    hazard codes that would page in one at a time (#217). Id prefixes are
+    tracked because a new one is a new channel the provider does not name.
+    ``language`` is tracked because the options form offers a closed list of
+    them.
     """
     sample = Sample()
     ids: dict[str, str] = {}
     failures: list[str] = []
+    now = datetime.now(timezone.utc)
     for channel in BBK_CHANNELS:
         url = BBK_MAPDATA_URL.format(channel=channel)
         try:
@@ -834,7 +858,14 @@ def probe_bbk(timeout: float, max_bodies: int, workers: int) -> Sample:
                     sample.add(f"index.{tag}", value, warning_id)
             if warning_id:
                 sample.add("values.id_prefix", warning_id.partition(".")[0], warning_id)
-                ids.setdefault(warning_id, channel)
+                # The index lists a row past its ``expiresDate`` for a while,
+                # and the document URL of an expired warning 302s to an
+                # archive copy of a different shape (empty ``polygon`` /
+                # ``circle`` / ``geocode`` / ``resource`` keys, a relabelled
+                # headline). The provider drops such rows before fetching
+                # (``bbk._live_entries``), so the probe does too (#217).
+                if not _bbk_row_expired(row.get("expiresDate"), now):
+                    ids.setdefault(warning_id, channel)
     if len(failures) == len(BBK_CHANNELS):
         raise RuntimeError(f"every BBK channel index failed: {'; '.join(failures)}")
 
@@ -879,7 +910,7 @@ def probe_bbk(timeout: float, max_bodies: int, workers: int) -> Sample:
             for code in info.get("eventCode", []) or []:
                 name = str(code.get("valueName", "")).strip()
                 sample.add("eventcode_names", name, warning_id)
-                if name in ("GROUP", "profile:DE-BBK-EVENTCODE"):
+                if name == "GROUP":
                     sample.add(f"values.{name}", str(code.get("value", "")), warning_id)
             for area in info.get("area", []) or []:
                 for gc in area.get("geocode", []) or []:
