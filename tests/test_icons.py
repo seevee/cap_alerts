@@ -217,6 +217,8 @@ def test_bbk_dwd_group_code_beats_the_german_event_text(alert_factory, group, ex
         ("Contaminated drinking water", "mdi:water-alert"),
         ("Fumes", "mdi:smoke"),
         ("Large fire", "mdi:fire"),
+        ("Conflagration", "mdi:fire"),
+        ("Odour nuisance", "mdi:smog"),
         ("Bomb disposal", "mdi:bomb"),
         ("Evacuation", "mdi:exit-run"),
         ("Power outage", "mdi:flash-off"),
@@ -292,6 +294,8 @@ def test_bbk_needles_do_not_leak_to_other_providers(alert_factory):
         # NSW's generic event; the incident type says what it is.
         ("Other Non-Urgent Alerts", "Hazard Reduction", "mdi:fire"),
         ("Other Non-Urgent Alerts", "Structure Fire", "mdi:fire"),
+        ("Other Non-Urgent Alerts", "Vehicle/Equipment Fire", "mdi:fire"),
+        ("Other Non-Urgent Alerts", "MVA/Transport", "mdi:car-emergency"),
         ("Storm", "Weather", "mdi:weather-lightning"),
         ("Facility Closure", "", "mdi:cancel"),
         ("Flood", "", "mdi:home-flood"),

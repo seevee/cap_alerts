@@ -35,12 +35,19 @@ epoch and uuid), so within a poll ``resolve_chain_leaves`` keeps the leaf and
 across polls the store's ``references``-aware supersession fires
 ``incident_updated`` for the hop — the same arrangement ECCC and WMO run on.
 
-MoWaS documents publish no ``expires`` (three of three live on 2026-09-19,
+MoWaS warnings publish no ``expires`` (three of three live on 2026-09-19,
 none with ``onset`` either). Under the default absence policy an alert with
 no expiry, no terminal vocabulary and no termination lookup ends the moment it
 leaves the index, which is this feed's contract: warnung.bund.de lists live
 warnings and withdraws the rest. DWD documents do carry ``expires`` and are
 retained until it when the index blinks.
+
+A MoWaS all-clear ("Entwarnung") is a ``Cancel`` revision of the warning,
+``responseType`` ``AllClear``, with ``expires`` set six hours after ``sent``;
+the index lists it for that long (five of eight MoWaS rows on 2026-09-20).
+Its ``msgType`` makes it terminal on arrival, so the ``expires`` is never
+consulted: the store fires ``incident_removed`` for the warning it references
+and holds no entity for the all-clear itself.
 """
 
 from __future__ import annotations

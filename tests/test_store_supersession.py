@@ -82,6 +82,56 @@ def test_supersession_via_references_does_not_fire_removed(hass, alert_factory):
     assert result[0].id == "bilingual-key-K2"
 
 
+def test_terminal_successor_via_references_removes_the_predecessor(hass, alert_factory):
+    """A Cancel revision under a new id retires the alert it references.
+
+    The BBK shape: a MoWaS all-clear is a ``Cancel`` document with its own
+    identifier (``…-001``) naming the warning (``…-000``) in ``references``.
+    One ``incident_removed`` fires, phase ``cancel``, and nothing stays active;
+    the predecessor's disappearance is not announced a second time.
+    """
+    from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import AlertStore
+
+    store = AlertStore(hass, "entry1", "bbk")
+    warning = alert_factory(
+        id="rev0",
+        identifier="mow.DE-SL-SB-SE035-20260920-35-000",
+        msg_type="Alert",
+        provider="bbk",
+        expires="",
+        references=(),
+    )
+    store.process(normalize_alerts([warning]))
+    hass.bus.async_fire.reset_mock()
+
+    all_clear = alert_factory(
+        id="rev1",
+        identifier="mow.DE-SL-SB-SE035-20260920-35-001",
+        msg_type="Cancel",
+        provider="bbk",
+        expires="2099-01-01T00:00:00+00:00",
+        references=("mow.DE-SL-SB-SE035-20260920-35-000",),
+    )
+    result = store.process(normalize_alerts([all_clear]))
+
+    assert result == []
+    fired = _fired(hass)
+    assert [event_type for event_type, _ in fired] == ["incident_removed"]
+    payload = fired[0][1]
+    assert payload["incident_id"] == "rev1"
+    assert payload["phase"] == "cancel"
+    assert payload["phase_changed"] is True
+    # BBK publishes no lifecycle vocabulary, so there is no removal_reason to
+    # attach: the ``Cancel`` msgType is the whole signal.
+    assert "removal_reason" not in payload
+
+    # The next poll lists neither revision: the ending is not re-announced.
+    hass.bus.async_fire.reset_mock()
+    assert store.process([]) == []
+    assert _fired(hass) == []
+
+
 def test_no_supersession_when_identifier_not_referenced(hass, alert_factory):
     """Silent disappearance without reference match fires incident_removed normally."""
     from custom_components.cap_alerts import store as store_mod
