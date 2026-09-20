@@ -59,7 +59,7 @@ print(jwt.encode({"iss": tok["id"], "iat": now, "exp": now + timedelta(minutes=3
                  tok["jwt_key"], algorithm="HS256"))
 """
 
-PROVIDERS = ("nws", "eccc", "meteoalarm", "wmo", "gdacs", "bbk")
+PROVIDERS = ("nws", "eccc", "meteoalarm", "wmo", "gdacs", "bbk", "au")
 
 # Steps that create or update an entry the moment they are selected. The walk
 # refuses to run if any row names one, which is what keeps "read-only" a
@@ -177,6 +177,10 @@ SETUP: dict[str, list[tuple[dict, Expect]]] = {
         ),
         ({"next_step_id": "bbk_region"}, form("bbk_region", "zone_id")),
     ],
+    "au": [
+        ({"next_step_id": "au"}, menu("au", "au_state", "user")),
+        ({"next_step_id": "au_state"}, form("au_state", "province")),
+    ],
 }
 
 # Reconfigure needs a loaded entry for that provider; providers without one are
@@ -282,6 +286,16 @@ RECONFIGURE: dict[str, list[tuple[dict, Expect]]] = {
             form("reconfigure_bbk_region", "zone_id"),
         ),
     ],
+    "au": [
+        (
+            {"next_step_id": "reconfigure_au"},
+            menu("reconfigure_au", "reconfigure_au_state", "reconfigure"),
+        ),
+        (
+            {"next_step_id": "reconfigure_au_state"},
+            form("reconfigure_au_state", "province"),
+        ),
+    ],
 }
 
 # Field order is asserted, not just membership: the options form renders in
@@ -301,6 +315,7 @@ OPTIONS_SCHEMA: dict[str, list[str]] = {
     "wmo": ["scan_interval", "timeout", "language", "geocode_prefixes"],
     "gdacs": ["scan_interval", "timeout", "gdacs_event_types", "alert_level"],
     "bbk": ["scan_interval", "timeout", "language"],
+    "au": ["scan_interval", "timeout", "alert_level"],
 }
 
 

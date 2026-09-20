@@ -543,3 +543,54 @@ BBK_LANGUAGES: tuple[str, ...] = (
     "ru",
     "tr",
 )
+
+# Australian state emergency services (issue #127). Each state runs its own
+# agency and publishes its own feed, but four of them publish the same profile:
+# an EDXL-DE ``EDXLDistribution`` envelope carrying one CAP-AU 1.0 ``<alert>``
+# per ``contentObject`` (all four profiled 2026-09-19). One provider, one entry
+# per state; the state picks the URL. Victoria (GeoJSON, not CAP), SA, NT and
+# ACT publish no CAP and are out of scope.
+#
+# Keyed by ISO 3166-2 subdivision suffix, which is also what every feed writes
+# in its own ``<geocode>``. Values are ``(agency, url)``.
+AU_FEEDS: dict[str, tuple[str, str]] = {
+    "NSW": (
+        "NSW Rural Fire Service",
+        "https://www.rfs.nsw.gov.au/feeds/majorIncidentsCAP.xml",
+    ),
+    "QLD": (
+        "Queensland Fire Department",
+        "https://publiccontent-gis-psba-qld-gov-au.s3.amazonaws.com"
+        "/content/Feeds/BushfireCurrentIncidents/bushfireAlert_capau.xml",
+    ),
+    "WA": (
+        "DFES Emergency WA",
+        "https://api.emergency.wa.gov.au/v1/capau",
+    ),
+    "TAS": (
+        "TasALERT",
+        "https://alert.tas.gov.au/data/cap-au.xml",
+    ),
+}
+
+# Labels for the state picker, in the order the form offers them.
+AU_STATE_LABELS: dict[str, str] = {
+    "NSW": "New South Wales (NSW RFS)",
+    "QLD": "Queensland (QFD)",
+    "WA": "Western Australia (DFES)",
+    "TAS": "Tasmania (TasALERT)",
+}
+
+# The Australian Warning System's three tiers, ascending. This is the national
+# ladder every state agency publishes under, and it is where the real severity
+# lives: CAP ``<severity>`` is uniform or near-uniform on every feed, while
+# ``AlertLevel`` (a CAP parameter on NSW, QLD and TAS; the headline prefix on
+# WA) says Advice / Watch and Act / Emergency Warning. Below the ladder sit the
+# agencies' own informational tiers (QLD ``Information``, NSW ``Not
+# Applicable`` and ``Planned Burn``), which the floor option's ``All`` keeps.
+AU_ALERT_LEVELS: tuple[str, ...] = ("Advice", "Watch and Act", "Emergency Warning")
+
+# Sentinel for "no floor" in the options form. Unlike GDACS the widest setting
+# is the default: a state feed is not a global one, and a planned burn is
+# something a user in that state may well want on the map.
+AU_ALERT_LEVEL_ALL = "All"

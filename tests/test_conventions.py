@@ -171,6 +171,12 @@ def test_bbk_never_publishes_geocodes():
     assert conventions_for("bbk").publishes_geocodes is False
 
 
+def test_au_withholds_geocode_narrowing():
+    # Each state feed publishes one constant ISO 3166-2 code (``AU-NSW``), so
+    # a prefix could only match everything or nothing (issue #127).
+    assert conventions_for("au").publishes_geocodes is False
+
+
 def test_gdacs_never_publishes_geocodes():
     # Declared absence: no GDACS CAP body carries a <geocode>, so the
     # area-code narrowing option is withheld from its options flow.
@@ -364,6 +370,7 @@ def test_every_retaining_source_has_a_way_out():
         "wmo",
         "gdacs",
         "bbk",
+        "au",
         f"meteoalarm/{METEOFRANCE_SENDER}",
         f"meteoalarm/{FMI_SENDER}",
     }

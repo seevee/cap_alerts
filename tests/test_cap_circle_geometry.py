@@ -81,6 +81,21 @@ def test_only_zero_radius_circles_become_points():
     ]
 
 
+def test_source_threshold_admits_small_marker_circles():
+    # Queensland marks every incident with a 0.5 km circle (issue #127); the
+    # source passes its own idea of "degenerate" and the 12.5 km area still
+    # stays out.
+    info = _fixture_info()
+    circles = [*info.circles, (152.2454, -26.0955, 0.5)]
+    assert points_from_circles(circles, point_radius_km=0.5) == [
+        [151.2093, -33.8688],
+        [151.25, -33.75],
+        [152.2454, -26.0955],
+    ]
+    # The default is unchanged: 0.5 is not a point by arithmetic.
+    assert [152.2454, -26.0955] not in points_from_circles(circles)
+
+
 # ---------------------------------------------------------------------------
 # Shape selection
 # ---------------------------------------------------------------------------

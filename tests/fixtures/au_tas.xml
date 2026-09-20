@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edxlde:EDXLDistribution xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2" xmlns:edxlde="urn:oasis:names:tc:emergency:EDXL:DE:1.0">
+  <edxlde:distributionID>TFSUniqueID:2026-09-20T09:51:04+10:00</edxlde:distributionID>
+  <edxlde:senderID>fire@fire.tas.gov.au</edxlde:senderID>
+  <edxlde:dateTimeSent>2026-09-20T09:51:04+10:00</edxlde:dateTimeSent>
+  <edxlde:distributionStatus>Actual</edxlde:distributionStatus>
+  <edxlde:distributionType>Report</edxlde:distributionType>
+  <edxlde:combinedConfidentiality>UNCLASSIFIED AND NOT SENSITIVE</edxlde:combinedConfidentiality>
+  <edxlde:language>en-AU</edxlde:language>
+  <edxlde:contentObject>
+    <edxlde:contentDescription>Information about Storm Advice - Western, Upper Derwent Valley, South East, East Coast, Central Plateau, Midlands and parts of North East, North West Coast and Central North Forecast Districts - Monitor conditions</edxlde:contentDescription>
+    <edxlde:xmlContent>
+      <edxlde:embeddedXMLContent>
+        <cap:alert>
+          <cap:identifier>IDT21037-83466</cap:identifier>
+          <cap:sender>ses@ses.tas.gov.au</cap:sender>
+          <cap:sent>2026-09-20T09:44:40+10:00</cap:sent>
+          <cap:status>Actual</cap:status>
+          <cap:msgType>Alert</cap:msgType>
+          <cap:scope>Public</cap:scope>
+          <cap:code>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0</cap:code>
+          <cap:incidents>SES:IDT21037</cap:incidents>
+          <cap:info>
+            <cap:category>Met</cap:category>
+            <cap:event>Storm</cap:event>
+            <cap:responseType>Monitor</cap:responseType>
+            <cap:urgency>Expected</cap:urgency>
+            <cap:severity>Moderate</cap:severity>
+            <cap:certainty>Observed</cap:certainty>
+            <cap:eventCode>
+              <cap:valueName>https://govshare.gov.au/xmlui/handle/10772/6495</cap:valueName>
+              <cap:value>storm</cap:value>
+            </cap:eventCode>
+            <cap:effective>2026-09-20T09:44:40+10:00</cap:effective>
+            <cap:expires>2026-09-21T09:51:04+10:00</cap:expires>
+            <cap:senderName>State Emergency Service</cap:senderName>
+            <cap:headline>Storm Advice - Western, Upper Derwent Valley, South East, East Coast, Central Plateau, Midlands and parts of North East, North West Coast and Central North Forecast Districts - Monitor conditions</cap:headline>
+            <cap:description>Tasmania SES has issued a Storm Advice – Monitor conditions for the Western, Upper Derwent Valley, South East, East Coast, Central Plateau, Midlands and parts of North East, North West Coast and Central North Forecast Districts.The Bureau of Meteorology has issued a Severe Weather Warning forecasting damaging winds today, clearing by Monday morning.Locations likely to be impacted: St Helens, Swansea, Strahan, New Norfolk, Hobart, Oatlands, Bicheno, Orford and BothwellThese conditions may lead to:Fallen trees, branches and powerlinesFlying objects which may cause injuryDamage to homes, buildings and vehiclesDangerous driving conditions and potential road closuresWhat to do:If you are in or near the storm area, Tasmania SES advises:If you have an emergency plan, check it now.Make sure your emergency kit is ready.Look after children and pets.Check on family, friends and neighbours.Stay indoors where possible.Never shelter under trees or powerlines.Secure loose outdoor items, including furniture and play equipment.Move vehicles under cover or away from trees.Be ready for possible power, water, phone or internet outages.For Tasmania SES Storm Warning updates, visit TasALERT.com or listen to ABC local radio.Community Information:For life-threatening emergencies, dial triple zero (000).For emergency storm assistance call the SES on 132 500.For current weather conditions and river levels, visit www.bom.gov.au/tas/For current reported road closures, visit www.police.tas.gov.auFor more information on preparing for storms, visit www.ses.tas.gov.au</cap:description>
+            <cap:web>https://alert.tas.gov.au/?id=466ff603-2442-4fd1-b5d8-0e6154248185</cap:web>
+            <cap:parameter>
+              <cap:valueName>Status</cap:valueName>
+              <cap:value>Active</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>Fireground</cap:valueName>
+              <cap:value>Not reported</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>AlertLevel</cap:valueName>
+              <cap:value>Advice</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>IncidentType</cap:valueName>
+              <cap:value>Weather</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>CouncilArea</cap:valueName>
+              <cap:value>Not Available</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>IsFire</cap:valueName>
+              <cap:value>No</cap:value>
+            </cap:parameter>
+            <cap:parameter>
+              <cap:valueName>Agency</cap:valueName>
+              <cap:value>State Emergency Service</cap:value>
+            </cap:parameter>
+            <cap:resource>
+              <cap:resourceDesc>map</cap:resourceDesc>
+              <cap:mimeType>text/html</cap:mimeType>
+              <cap:uri>https://alert.tas.gov.au/?id=466ff603-2442-4fd1-b5d8-0e6154248185</cap:uri>
+            </cap:resource>
+            <cap:area>
+              <cap:areaDesc>St Helens, Swansea, Strahan, New Norfolk, Hobart, Oatlands, Bicheno, Orford and Bothwell</cap:areaDesc>
+              <cap:polygon>-40.78937,148.10195 -42.1215,148.3455 -42.5311,147.9295 -43.1951,147.8383 -42.7943,147.5659 -42.951,147.3569 -43.4323,146.9388 -43.5584,146.04262 -43.2435,145.8043 -42.2969,145.3 -40.78937,148.10195</cap:polygon>
+              <cap:polygon>-42.66,148.1129 -42.6894,148.0881 -42.7261,148.0688 -42.71634,148.02037 -42.6789,148.0668 -42.658,148.0282 -42.6106,148.04514 -42.5693,148.0733 -42.6079,148.1386 -42.65325,148.15394 -42.66,148.1129</cap:polygon>
+              <cap:polygon>-42.316,148.3152 -42.3226,148.3327 -42.3344,148.3278 -42.3414,148.3467 -42.3449,148.3146 -42.33806,148.29881 -42.3251,148.2778 -42.3274,148.2489 -42.307,148.2371 -42.2926,148.2553 -42.29925,148.27726 -42.2931,148.2926 -42.30047,148.31163 -42.316,148.3152</cap:polygon>
+              <cap:polygon>-43.24533,148.00049 -43.2455,148 -43.2356,147.9971 -43.2309,148.0034 -43.2373,148.0095 -43.2429,148.0077 -43.24533,148.00049</cap:polygon>
+              <cap:polygon>-43.1636,147.3932 -43.31751,147.3236 -43.4406,147.3328 -43.4436,147.2494 -43.4646,147.1376 -43.4373,147.175 -43.3508,147.2237 -43.29519,147.31053 -43.17702,147.33817 -43.1304,147.3282 -43.14445,147.39436 -43.1636,147.3932</cap:polygon>
+              <cap:polygon>-43.64211,146.2803 -43.6521,146.2872 -43.65713,146.27635 -43.6585,146.2734 -43.6578,146.268 -43.64933,146.2714 -43.64491,146.27317 -43.6366,146.2765 -43.64211,146.2803</cap:polygon>
+              <cap:polygon>-43.5988,146.377 -43.60423,146.36417 -43.60701,146.35761 -43.6074,146.3567 -43.604,146.3424 -43.5901,146.339 -43.58832,146.35677 -43.5863,146.3769 -43.5988,146.377</cap:polygon>
+              <cap:circle>-42.26081,146.78089 10</cap:circle>
+              <cap:geocode>
+                <cap:valueName>urn:oasis:names:tc:emergency:cap:1.2:profile:CAP-AU:1.0:ISO3166-2</cap:valueName>
+                <cap:value>AU-TAS</cap:value>
+              </cap:geocode>
+            </cap:area>
+          </cap:info>
+        </cap:alert>
+      </edxlde:embeddedXMLContent>
+    </edxlde:xmlContent>
+  </edxlde:contentObject>
+</edxlde:EDXLDistribution>

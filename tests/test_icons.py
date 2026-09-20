@@ -283,6 +283,46 @@ def test_bbk_needles_do_not_leak_to_other_providers(alert_factory):
     assert icon_for(alert) == FALLBACK_ICON
 
 
+@pytest.mark.parametrize(
+    ("event", "incident_type", "expected"),
+    [
+        ("Bushfire", "Bush Fire", "mdi:fire"),
+        ("Grass Fire", "Grass Fire", "mdi:fire"),
+        ("Fire", "FIRE VEGETATION", "mdi:fire"),
+        # NSW's generic event; the incident type says what it is.
+        ("Other Non-Urgent Alerts", "Hazard Reduction", "mdi:fire"),
+        ("Other Non-Urgent Alerts", "Structure Fire", "mdi:fire"),
+        ("Storm", "Weather", "mdi:weather-lightning"),
+        ("Facility Closure", "", "mdi:cancel"),
+        ("Flood", "", "mdi:home-flood"),
+    ],
+)
+def test_au_events_classify_on_event_and_incident_type(
+    alert_factory, event, incident_type, expected
+):
+    alert = alert_factory(
+        event=event,
+        provider="au",
+        parameters={"IncidentType": incident_type} if incident_type else None,
+    )
+    assert icon_for(alert) == expected
+
+
+def test_au_unknown_event_falls_back(alert_factory):
+    alert = alert_factory(
+        event="Other Non-Urgent Alerts",
+        provider="au",
+        parameters={"IncidentType": "Assist Other Agency"},
+    )
+    assert icon_for(alert) == FALLBACK_ICON
+
+
+def test_au_needles_do_not_leak_to_other_providers(alert_factory):
+    assert icon_for(alert_factory(event="Facility Closure", provider="nws")) == (
+        FALLBACK_ICON
+    )
+
+
 def test_gdacs_unknown_event_falls_back(alert_factory):
     assert (
         icon_for(alert_factory(event="Geomagnetic Storm", provider="gdacs"))

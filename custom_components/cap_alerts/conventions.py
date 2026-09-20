@@ -180,6 +180,33 @@ _METEOALARM_AWARENESS_TO_SEVERITY = {
     "red": "extreme",
 }
 
+# Australian Warning System tier → CAP canonical tier (issue #127). The three
+# national tiers map onto the top three CAP tiers; the informational tiers
+# below the ladder — QLD ``Information``, NSW ``Not Applicable`` (an incident
+# with no warning attached, a grass fire under control) and ``Planned Burn``
+# (a hazard reduction) — are ``minor`` rather than ``unknown``: they are the
+# bottom of a ladder the agency publishes, not an absence of information.
+# Keys are casefolded.
+_AU_ALERT_LEVEL_SEVERITY = {
+    "emergency warning": "extreme",
+    "watch and act": "severe",
+    "advice": "moderate",
+    "information": "minor",
+    "not applicable": "minor",
+    "planned burn": "minor",
+}
+
+# The tier names as written, for headline recognition and the floor option.
+# Longest first so "Emergency Warning" cannot be read as a bare "Warning".
+AU_ALERT_LEVEL_LABELS: tuple[str, ...] = (
+    "Emergency Warning",
+    "Watch and Act",
+    "Advice",
+)
+
+# The CAP parameter three of the four state feeds carry the tier in.
+AU_ALERT_LEVEL_PARAMETER = "AlertLevel"
+
 # Region-selectable geocode schemes in priority order: EUMETNET canonical
 # region id first, then NUTS3 (department/county) preferred over NUTS2 (region)
 # when both are present. The first scheme present on an area is what the region
@@ -282,6 +309,43 @@ def meteoalarm_awareness_severity(alert: CAPAlert) -> str | None:
         return None
     color = parts[1].strip().lower()
     return _METEOALARM_AWARENESS_TO_SEVERITY.get(color)
+
+
+def au_alert_level(parameters: Mapping[str, str] | None, headline: str = "") -> str:
+    """The Australian Warning System tier an alert publishes, or ``""``.
+
+    Read from the ``AlertLevel`` CAP parameter where the feed writes one (NSW,
+    QLD, TAS), otherwise recognised in the headline: WA publishes no such
+    parameter and writes the tier as the headline prefix ("Bushfire Advice
+    MONITOR CONDITIONS - LAKE ARGYLE"). The parameter value is returned as
+    published, so the agencies' own sub-ladder tiers ("Planned Burn",
+    "Information") come through verbatim; a headline match returns the
+    canonical spelling. Public because the provider uses the same reading for
+    the minimum-level option and for filling in WA's missing parameter.
+    """
+    raw = (parameters or {}).get(AU_ALERT_LEVEL_PARAMETER, "")
+    if raw and str(raw).strip():
+        return str(raw).strip()
+    text = headline.casefold()
+    for label in AU_ALERT_LEVEL_LABELS:
+        if label.casefold() in text:
+            return label
+    return ""
+
+
+def au_alert_level_severity(alert: CAPAlert) -> str | None:
+    """Map the Australian Warning System tier to a canonical severity, or None.
+
+    CAP ``<severity>`` is uniform or near-uniform on every state feed (QLD:
+    68 ``Minor`` and 5 ``Moderate`` across two tiers of warning; NSW's
+    planned burns say ``Unknown``), so the tier is where severity lives.
+    Returns ``None`` for an alert with no recognisable tier — WA's "Facility
+    Closure", for one — so the caller falls back to CAP ``severity``.
+    """
+    level = au_alert_level(alert.parameters, alert.headline)
+    if not level:
+        return None
+    return _AU_ALERT_LEVEL_SEVERITY.get(level.casefold())
 
 
 # ---------------------------------------------------------------------------
@@ -1211,6 +1275,20 @@ CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
         # vocabulary, so they end the moment the index withdraws them — which
         # is what withdrawal means on warnung.bund.de (issue #66).
         "bbk": SourceConventions(publishes_geocodes=False),
+        # The Australian state feeds (issue #127). Severity is the Australian
+        # Warning System tier, not CAP ``<severity>``. Each feed publishes one
+        # constant ISO 3166-2 geocode (``AU-NSW``), so prefix narrowing could
+        # only match everything or nothing and the field is withheld. Default
+        # absence policy on purpose, as for GDACS: the provider carries no
+        # ``expires`` (every feed's value is a regeneration TTL, see
+        # ``providers/au.py``), the feeds publish no terminal vocabulary and
+        # nothing fetches terminations, so an alert ends the moment its feed
+        # withdraws it — which is what withdrawal from a "current incidents"
+        # feed means.
+        "au": SourceConventions(
+            severity=au_alert_level_severity,
+            publishes_geocodes=False,
+        ),
     }
 )
 

@@ -24,8 +24,12 @@ cards work too, see [Cards and automations](#cards-and-automations).*
 | **WMO** | WMO Severe Weather Information Centre | About 100 national services with no dedicated provider | Source ID from the live SWIC registry (`mx-smn-es`), with an optional GPS filter |
 | **GDACS** | Global Disaster Alert and Coordination System | Worldwide earthquakes, cyclones, floods, volcanoes, droughts, wildfires, tsunamis | Worldwide, GPS, or `device_tracker` entity |
 | **BBK** | German federal civil protection (the NINA app backend) | Germany: MoWaS, KATWARN, BIWAPP, LHP flood warnings, DWD weather warnings of level 3 and up | District (Regionalschlüssel, `09564`), GPS, or `device_tracker` entity |
+| **AU** | Australian state fire and emergency services | NSW (RFS), Queensland (QFD), Western Australia (DFES), Tasmania (TasALERT): bushfires and incidents, plus SES weather warnings on TasALERT | State |
 
 GPS and tracker modes keep only alerts whose affected area contains the point.
+The Australian feeds have no GPS mode: most of their alerts are a location
+marker with no polygon, so a point test would drop them. Filter by distance on
+the card instead, which reads the marker from `points`.
 The MeteoAlarm region picker lists `EMMA_ID` codes for most countries, `NUTS`
 codes for some, and area names where a feed publishes no geocodes.
 
@@ -80,9 +84,9 @@ Per provider:
 | Real-time streaming | ECCC | Ingest alerts the moment they are issued, over the NAAD socket. Default on. See [ECCC streaming](#eccc-streaming). |
 | Feed source | ECCC | Which NAAD GeoRSS host serves polling and backfill. `auto` (default) fetches both hosts and unions them. `alertready` or `pelmorex` pins one. |
 | Event types | GDACS | Which hazards to track. All by default. Applied before any geometry is fetched, so narrowing it also cuts fetch cost. |
-| Minimum alert level | GDACS | `Green`, `Orange` (default) or `Red`, on GDACS's own impact scale. The entity state derives from it too: Green → `minor`, Orange → `severe`, Red → `extreme`. |
+| Minimum alert level | GDACS, AU | GDACS: `Green`, `Orange` (default) or `Red`, on GDACS's own impact scale. The entity state derives from it too: Green → `minor`, Orange → `severe`, Red → `extreme`. AU: `All` (default), `Advice`, `Watch and Act` or `Emergency Warning` on the Australian Warning System; `All` also keeps the informational tiers below the ladder (planned burns, incidents with no warning). |
 | Exclude marine alerts | NWS, ECCC | Drop alerts carrying a marine zone code. Default off. |
-| Area codes (prefix match) | All but GDACS and BBK | Keep only alerts whose area codes start with one of the listed prefixes (`13,37`). See [Area-code narrowing](#area-code-narrowing). |
+| Area codes (prefix match) | All but GDACS, BBK and AU | Keep only alerts whose area codes start with one of the listed prefixes (`13,37`). See [Area-code narrowing](#area-code-narrowing). |
 
 #### ECCC streaming
 
@@ -257,6 +261,14 @@ policy.
   German user running both gets those twice. MoWaS messages carry no expiry
   and end when the feed withdraws them. Each alert names its channel in the
   `bbk_channel` parameter.
+- **AU** reads one EDXL-wrapped CAP-AU document per state. Severity is the
+  Australian Warning System tier (`AlertLevel`: Advice → `moderate`, Watch and
+  Act → `severe`, Emergency Warning → `extreme`), not the near-uniform CAP
+  severity the feeds publish; WA writes the tier in the headline and the
+  provider fills the parameter in. No alert carries an expiry: every feed's
+  `expires` is a regeneration TTL, so an incident ends when its feed withdraws
+  it. Each alert's location marker is published in `points`, alongside the
+  fire-ground polygon where there is one.
 
 Per-field mappings and the reasoning behind each provider are in
 [`docs/architecture.md`](docs/architecture.md).

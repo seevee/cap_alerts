@@ -26,23 +26,27 @@ from typing import Any
 
 # A CAP circle of this radius (km) or less is a point. Radius 0 is a point by
 # arithmetic, not by local convention — no source-specific rule is involved, so
-# this deliberately lives here rather than in the convention table. Feeds that
-# mark locations with a small *non-zero* radius would need a per-source
-# threshold; none is known to, so none is offered.
+# this default deliberately lives here rather than in the convention table. A
+# feed that marks locations with a small *non-zero* radius passes its own
+# threshold: Queensland's fire feed writes every incident marker as a 0.5 km
+# circle around a street address (issue #127), the same idiom NSW spells with
+# ``0``, so the Australian provider reads both as points.
 POINT_RADIUS_KM = 0.0
 
 
 def points_from_circles(
     circles: list[tuple[float, float, float]],
+    point_radius_km: float = POINT_RADIUS_KM,
 ) -> list[list[float]]:
     """Return ``[[lon, lat], ...]`` for every degenerate (point) circle.
 
     Circles with a real radius are left out: they describe an area this module
     has no lossless GeoJSON representation for (GeoJSON has no circle type),
     and approximating them as polygons would invent precision the feed never
-    published.
+    published. ``point_radius_km`` is the source's own idea of "degenerate";
+    the default is the arithmetic one.
     """
-    return [[lon, lat] for lon, lat, radius in circles if radius <= POINT_RADIUS_KM]
+    return [[lon, lat] for lon, lat, radius in circles if radius <= point_radius_km]
 
 
 # Coordinate precision for the distinct-vertex test, ~0.1 m at the equator.

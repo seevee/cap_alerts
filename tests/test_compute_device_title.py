@@ -205,6 +205,16 @@ def test_bbk_gps_title():
     )
 
 
+# --- AU ----------------------------------------------------------------------
+
+
+def test_au_state_title():
+    # The state rides on the province key, so the ECCC branch names it.
+    assert (
+        _compute({CONF_PROVIDER: "au", CONF_PROVINCE: "NSW"}) == "CAP Alerts AU (NSW)"
+    )
+
+
 # --- GDACS -------------------------------------------------------------------
 
 

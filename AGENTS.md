@@ -4,7 +4,7 @@ This file provides guidance to AI agents working with code in this repository.
 
 ## Project Overview
 
-A Home Assistant custom integration (`cap_alerts`) that creates **one entity per active weather alert**, solving the 16KB attribute limit in `nws_alerts`. Alert data is modeled using CAP (Common Alerting Protocol) field names via a `CAPAlert` frozen dataclass. Ships with NWS, ECCC (Environment Canada), MeteoAlarm, WMO, GDACS and BBK / NINA (Germany) providers; designed for further providers (BoM, direct DWD, etc.).
+A Home Assistant custom integration (`cap_alerts`) that creates **one entity per active weather alert**, solving the 16KB attribute limit in `nws_alerts`. Alert data is modeled using CAP (Common Alerting Protocol) field names via a `CAPAlert` frozen dataclass. Ships with NWS, ECCC (Environment Canada), MeteoAlarm, WMO, GDACS, BBK / NINA (Germany) and Australian state (NSW RFS, QFD, DFES, TasALERT) providers; designed for further providers (BoM, direct DWD, etc.).
 
 Companion frontend: [weather_alerts_card](../weather_alerts_card) — the card's `cap.ts` adapter is a thin passthrough since this integration handles all normalization.
 
@@ -52,6 +52,7 @@ custom_components/cap_alerts/
     wmo.py          # WMO steps: source picker, geocode narrowing, language option
     gdacs.py        # GDACS steps + event-type/alert-level options
     bbk.py          # BBK steps: Regionalschlüssel (district) form, GPS, tracker; language option
+    au.py           # Australian steps: state picker; minimum alert level option
   coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info + NAAD stream lifecycle; provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs
   diagnostics.py    # config-entry diagnostics download: scope, endpoints, update health, filters, convention rows in effect; redacts location + credentials
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
@@ -81,6 +82,7 @@ custom_components/cap_alerts/
     wmo.py                # WMO SWIC per-source RSS → CAP XML; per-language <info> selection
     gdacs.py              # GDACS: two global RSS indexes unioned → CAPAlert (no CAP body exists); per-episode GeoJSON geometry, RSS-stage filters, eventid-based identity
     bbk.py                # BBK / NINA (Germany): district dashboard or five channel indexes → CAP-over-JSON documents + per-warning GeoJSON; MoWaS/KATWARN/BIWAPP/LHP + DWD relay
+    au.py                 # Australian state feeds (NSW RFS, QFD, WA DFES, TasALERT): one EDXL-DE document per state → CAP-AU alerts; AlertLevel tier drives severity, marker circles → points, expires dropped (regeneration TTL)
   manifest.json
   translations/
 ```
