@@ -54,6 +54,10 @@ fi
 # otherwise lands at the top of the release body.
 pip install "$(grep '^git-cliff' requirements_test.txt)" >/dev/null 2>&1 || true
 
+# First-time contributors come from GitHub (cliff.toml [remote.github]); gh's
+# token lifts the rate limit.
+export GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}"
+
 CLIFF_FLAGS=()
 if [ "$PRERELEASE" = false ]; then
   CLIFF_FLAGS+=(--tag-pattern "^v[0-9]+\.[0-9]+\.[0-9]+$")

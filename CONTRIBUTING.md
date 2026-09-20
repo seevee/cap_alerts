@@ -135,6 +135,11 @@ and `scripts/publish.sh`) drops the heading, folds Documentation and Internal in
 collapsed block and adds a compare link; that is what a GitHub Release body looks
 like. Preview the next release's notes with `scripts/release.sh --dry-run`.
 
+The release surface ends with a **New Contributors** section whenever a PR in
+the range is someone's first. git-cliff asks GitHub for that (`[remote.github]`
+in `cliff.toml`); it works without a token, and the release scripts export
+`gh auth token` to stay clear of the unauthenticated rate limit.
+
 The release PR body is the release notes. `release.sh` seeds it with the generated
 list; write the narrative above that list before merging, and `publish.sh` ships the
 body verbatim. A body left untouched ships the freshly generated list alone.
