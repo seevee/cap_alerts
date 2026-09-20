@@ -4,7 +4,8 @@ Fixtures are trimmed captures from warnung.bund.de on 2026-09-19: a DWD
 gust warning as the ``dwd`` mapData index lists it (``dwdmap.`` id), the
 same warning class as a district dashboard lists it (``dwd.`` id, many
 areas), and a MoWaS drinking-water notice with ``de`` / ``de-LS`` / ``en``
-blocks and no ``expires``.
+blocks and no ``expires``. The MoWaS all-clear (``Cancel``, with an
+``expires``) is a capture of 2026-09-20.
 """
 
 from __future__ import annotations
@@ -61,10 +62,14 @@ _DWD_DASH_ID = (
 _MOW_ID = "mow.DE-SL-SLS-W038-20260904-000"
 _MOW_ID_2 = "mow.DE-BW-LB-W026-20260916-001"
 _MOW_ID_3 = "mow.DE-SH-FL-SE100-20260919-100-000"
+# A MoWaS all-clear and the warning it retires (capture of 2026-09-20).
+_MOW_CANCEL_ID = "mow.DE-SL-SB-SE035-20260920-35-001"
+_MOW_CANCELLED_ID = "mow.DE-SL-SB-SE035-20260920-35-000"
 
 # A point inside each fixture polygon, and one outside both.
 _IN_DWD_MAP = "51.82,10.70"
 _IN_MOWAS = "49.37,6.60"
+_IN_SIERSBURG = "49.36,6.674"
 _IN_NEITHER = "48.14,11.58"
 
 # Every fixture expiry is in September 2026; this clock keeps them all live.
@@ -284,6 +289,20 @@ def test_json_reader_on_a_mowas_document():
     assert de.parameters["sender_langname"] == "Katastrophenschutzbehörde LK Saarlouis"
     assert de.expires == "" and de.onset == ""
     assert de.sender_name == ""
+
+
+def test_json_reader_on_a_mowas_all_clear():
+    """An "Entwarnung" is a ``Cancel`` revision with an expiry, unlike the warning."""
+    doc = cap_doc_from_json(json.loads(_fixture("bbk_warning_mowas_cancel.json")))
+    assert doc is not None
+    assert doc.msg_type == "Cancel"
+    assert doc.references == [
+        ("DE-SL-SB-SE035", _MOW_CANCELLED_ID, "2026-09-20T14:02:18-00:00")
+    ]
+    de = doc.infos[0]
+    assert de.response_type == ["AllClear"]
+    assert de.expires == "2026-09-20T23:50:56+02:00"
+    assert de.headline == "Entwarnung: Stromabschaltung - Siersburg"
 
 
 def test_json_reader_accepts_scalar_and_list_spellings_and_shapes():
@@ -631,6 +650,45 @@ async def test_a_superseded_revision_in_the_same_poll_is_dropped():
     assert [a.identifier for a in alerts] == [_MOW_ID]
     # The predecessor's geometry is never fetched: leaves only.
     assert _geojson_url("mow.DE-SL-SLS-W038-20260901-000") not in session.requested
+
+
+async def test_a_mowas_all_clear_arrives_terminal():
+    """The index lists an all-clear for six hours; it is a cancel, not an alert.
+
+    The provider ships it as any other document — ``Cancel`` msgType, the
+    predecessor in ``references``, the expiry the feed writes — and shared
+    normalization makes that phase ``cancel``, which the store turns into the
+    predecessor's removal (see ``test_store_supersession``).
+    """
+    from custom_components.cap_alerts.normalize import normalize_alerts
+
+    responses = _gps_responses()
+    responses[_mapdata_url("dwd")] = "[]"
+    responses[_mapdata_url("mowas")] = json.dumps(
+        [
+            {
+                "id": _MOW_CANCEL_ID,
+                "type": "Cancel",
+                "severity": "Minor",
+                "expiresDate": "2026-09-20T23:50:56+02:00",
+            }
+        ]
+    )
+    responses[_warning_url(_MOW_CANCEL_ID)] = _fixture("bbk_warning_mowas_cancel.json")
+    responses[_geojson_url(_MOW_CANCEL_ID)] = _fixture(
+        "bbk_geojson_mowas_cancel.geojson"
+    )
+    alerts, _session = await _fetch(
+        responses, {CONF_GPS_LOC: _IN_SIERSBURG}, {CONF_LANGUAGE: "de"}
+    )
+    (alert,) = alerts
+    assert alert.msg_type == "Cancel"
+    assert alert.response_type == "AllClear"
+    assert alert.references == (_MOW_CANCELLED_ID,)
+    assert alert.expires == "2026-09-20T23:50:56+02:00"
+    assert alert.headline == "Entwarnung: Stromabschaltung - Siersburg"
+    (normalized,) = normalize_alerts([alert])
+    assert normalized.phase == "cancel"
 
 
 async def test_the_shared_cache_is_used_for_documents_and_geometry():

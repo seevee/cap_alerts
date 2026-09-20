@@ -130,6 +130,7 @@ _BBK_EVENT_SUBSTRINGS: tuple[tuple[str, str], ...] = (
     ("fumes", "mdi:smoke"),
     ("smoke", "mdi:smoke"),
     ("fire", "mdi:fire"),
+    ("conflagration", "mdi:fire"),
     ("explosive", "mdi:bomb"),
     ("ordnance", "mdi:bomb"),
     ("bomb", "mdi:bomb"),
@@ -147,6 +148,8 @@ _BBK_EVENT_SUBSTRINGS: tuple[tuple[str, str], ...] = (
     ("high water", "mdi:home-flood"),
     ("flood", "mdi:home-flood"),
     ("air pollution", "mdi:smog"),
+    ("odour", "mdi:smog"),
+    ("odor", "mdi:smog"),
     ("test warning", "mdi:bullhorn"),
     ("test alert", "mdi:bullhorn"),
     ("siren", "mdi:bullhorn"),
@@ -178,6 +181,10 @@ _AU_EVENT_SUBSTRINGS: tuple[tuple[str, str], ...] = (
     ("hazard reduction", "mdi:fire"),
     ("closure", "mdi:cancel"),
     ("rescue", "mdi:lifebuoy"),
+    # NSW's road-crash incidents ("MVA/Transport", eventCode ``roadCrash``).
+    ("crash", "mdi:car-emergency"),
+    ("mva/", "mdi:car-emergency"),
+    ("transport", "mdi:car-emergency"),
 )
 
 # ECCC event-name substrings → mdi. Matched after lowercasing ``event``.

@@ -1,0 +1,118 @@
+{
+  "identifier": "mow.DE-SL-SB-SE035-20260920-35-001",
+  "sender": "DE-SL-SB-SE035",
+  "sent": "2026-09-20T17:50:56+02:00",
+  "status": "Actual",
+  "msgType": "Cancel",
+  "scope": "Public",
+  "code": [
+    "DVN:20"
+  ],
+  "references": "DE-SL-SB-SE035,mow.DE-SL-SB-SE035-20260920-35-000,2026-09-20T14:02:18-00:00",
+  "info": [
+    {
+      "language": "de",
+      "category": [
+        "Infra"
+      ],
+      "event": "Gefahreninformation",
+      "responseType": [
+        "AllClear"
+      ],
+      "urgency": "Immediate",
+      "severity": "Minor",
+      "certainty": "Observed",
+      "eventCode": [
+        {
+          "valueName": "profile:DE-BBK-EVENTCODE",
+          "value": "BBK-EVC-063"
+        }
+      ],
+      "expires": "2026-09-20T23:50:56+02:00",
+      "headline": "Entwarnung: Stromabschaltung - Siersburg",
+      "description": "Dies ist die Entwarnung zur Warnung &quot;Stromabschaltung - Siersburg&quot; vom 20.09.2026 16:02:18 gesendet durch Integrierte Leitstelle Saarland. Die Warnung ist aufgehoben.<br/><br/>Aktuell kommt es aufgrund eines Brandereignisses zu einer Stromabschaltung. Davon betroffen sind folgende Strassen:<br/>- An der Windmühle<br/>- Mühlenpfad<br/>- Zum Itzbachtal<br/>- Goethestrasse<br/>- Graf Siegbert Strasse<br/>- Hessmühle<br/>Die Stromabschaltung ist zeitlich begrenzt, die Feuerwehr ist im Einsatz und führt entsprechende Maßnahmen durch, um das Schadensereignis einzudämmen.<br/>Beachten Sie die nachfolgenden Handlungsempfehlungen.",
+      "instruction": "Informieren Sie sich, zum Beispiel im Radio.<br/>Reduzieren Sie Ihren Stromverbrauch über Akkus und Batterien auf das Nötigste.",
+      "parameter": [
+        {
+          "valueName": "sender_signature",
+          "value": "Integrierte Leitstelle Saarland\nWinterberg 5\n66119 Saarbrücken"
+        },
+        {
+          "valueName": "sender_langname",
+          "value": "Integrierte Leitstelle Saarland"
+        },
+        {
+          "valueName": "instructionCode",
+          "value": "BBK-ISC-149 BBK-ISC-097"
+        },
+        {
+          "valueName": "warnVerwaltungsbereiche",
+          "value": "100440114114"
+        },
+        {
+          "valueName": "PHGEM",
+          "value": "5981,100001"
+        },
+        {
+          "valueName": "GRID",
+          "value": "348851+1,349464+1,500001"
+        },
+        {
+          "valueName": "cellBroadcastId",
+          "value": "VLHHPPUZlGtH"
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Siersburg"
+        }
+      ]
+    },
+    {
+      "language": "en",
+      "category": [
+        "Infra"
+      ],
+      "event": "Gefahreninformation",
+      "responseType": [
+        "AllClear"
+      ],
+      "urgency": "Immediate",
+      "severity": "Minor",
+      "certainty": "Observed",
+      "eventCode": [
+        {
+          "valueName": "profile:DE-BBK-EVENTCODE",
+          "value": "BBK-EVC-063"
+        }
+      ],
+      "expires": "2026-09-20T23:50:56+02:00",
+      "headline": "Power outage",
+      "description": "Dies ist die Entwarnung zur Warnung &quot;Stromabschaltung - Siersburg&quot; vom 20.09.2026 16:02:18 gesendet durch Integrierte Leitstelle Saarland. Die Warnung ist aufgehoben.<br/><br/>Aktuell kommt es aufgrund eines Brandereignisses zu einer Stromabschaltung. Davon betroffen sind folgende Strassen:<br/>- An der Windmühle<br/>- Mühlenpfad<br/>- Zum Itzbachtal<br/>- Goethestrasse<br/>- Graf Siegbert Strasse<br/>- Hessmühle<br/>Die Stromabschaltung ist zeitlich begrenzt, die Feuerwehr ist im Einsatz und führt entsprechende Maßnahmen durch, um das Schadensereignis einzudämmen.<br/>Beachten Sie die nachfolgenden Handlungsempfehlungen.",
+      "instruction": "Inform yourself, for example, on the radio.<br/>Reduce your power consumption using batteries to a minimum.",
+      "parameter": [
+        {
+          "valueName": "sender_signature",
+          "value": "Integrierte Leitstelle Saarland\nWinterberg 5\n66119 Saarbrücken"
+        },
+        {
+          "valueName": "sender_langname",
+          "value": "Integrierte Leitstelle Saarland"
+        },
+        {
+          "valueName": "instructionCode",
+          "value": "BBK-ISC-149 BBK-ISC-097"
+        },
+        {
+          "valueName": "warnVerwaltungsbereiche",
+          "value": "100440114114"
+        }
+      ],
+      "area": [
+        {
+          "areaDesc": "Siersburg"
+        }
+      ]
+    }
+  ]
+}
