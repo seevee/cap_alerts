@@ -100,6 +100,7 @@
    "Emergency Warning",
    "Information",
    "Not Applicable",
+   "Not Yet Known",
    "Planned Burn",
    "Watch and Act"
   ],
@@ -107,13 +108,16 @@
    "Assist Other Agency",
    "Burn off",
    "Bush Fire",
+   "Bushfire",
    "FIRE PERMITTED BURN",
    "FIRE VEGETATION",
    "Grass Fire",
    "Hazard Reduction",
+   "MVA/Transport",
    "Other",
    "Planned Event",
    "Structure Fire",
+   "Vehicle/Equipment Fire",
    "Weather"
   ],
   "values.category": [
@@ -146,10 +150,14 @@
   "values.eventCode": [
    "Bushfire",
    "Facility Closure",
+   "OtherUrgent",
+   "Smoke",
    "bushFire",
    "fire",
    "grassFire",
    "other",
+   "roadCrash",
+   "smoke",
    "storm"
   ],
   "values.language": [
@@ -259,15 +267,25 @@
    "profile:DE-BBK-EVENTCODE"
   ],
   "index.severity": [
+   "Extreme",
    "Minor",
-   "Moderate"
+   "Moderate",
+   "Severe",
+   "Unknown"
   ],
   "index.type": [
+   "Ack",
    "Alert",
+   "Cancel",
+   "Error",
    "Update"
   ],
   "index.urgency": [
-   "Immediate"
+   "Expected",
+   "Future",
+   "Immediate",
+   "Past",
+   "Unknown"
   ],
   "index_paths": [
    "mapData[].expiresDate",
@@ -387,10 +405,6 @@
    "Cancel",
    "Error",
    "Update"
-  ],
-  "values.profile:DE-BBK-EVENTCODE": [
-   "BBK-EVC-010",
-   "BBK-EVC-069"
   ],
   "values.responseType": [
    "AllClear",
