@@ -1,5 +1,8 @@
 .claude
 plans/
+
+# Hypothesis example database (tests/test_property_*.py)
+.hypothesis/
 **/__pycache__
 .venv/
 .aider*
