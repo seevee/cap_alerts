@@ -1,10 +1,10 @@
 # Test, lint, and type-check dependencies. Referenced by .github/workflows/ci.yml
 # and by local tooling (see AGENTS.md "Build & Test Commands").
 
-homeassistant==2026.9.0
+homeassistant==2026.9.3
 # Pins its own homeassistant version — keep in lockstep with the pin above
-# (0.13.363 pins homeassistant==2026.9.0).
-pytest-homeassistant-custom-component==0.13.363
+# (0.13.366 pins homeassistant==2026.9.3).
+pytest-homeassistant-custom-component==0.13.366
 
 pytest>=8.0,<10
 pytest-asyncio>=1.0,<2
@@ -20,10 +20,10 @@ aiohttp>=3.10,<4
 # what Home Assistant installs.
 defusedxml==0.7.1
 
-ruff==0.16.6
+ruff==0.16.8
 mypy==2.3.1
 types-defusedxml>=0.7
 
 # Changelog generation (ships a prebuilt `git-cliff` binary as a wheel).
 # Regenerate CHANGELOG.md with: git cliff --config cliff.toml --output CHANGELOG.md
-git-cliff==2.13.1
+git-cliff==2.14.2
