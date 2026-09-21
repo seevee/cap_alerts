@@ -16,7 +16,9 @@ pytest-cov==7.1.0
 # versions, and a failing example should reproduce the same way in CI.
 hypothesis==6.168.0
 aiohttp>=3.10,<4
-defusedxml>=0.7
+# The one runtime requirement; the same pin as manifest.json so tests run
+# what Home Assistant installs.
+defusedxml==0.7.1
 
 ruff==0.16.6
 mypy==2.3.1
