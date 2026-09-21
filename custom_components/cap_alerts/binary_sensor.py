@@ -8,8 +8,10 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import AlertsDataUpdateCoordinator
@@ -21,9 +23,9 @@ STREAM_CONNECTED_SUFFIX = "stream_connected"
 
 
 async def async_setup_entry(
-    hass,
+    hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the NAAD stream connectivity sensor, for streaming entries only."""
     coordinator: AlertsDataUpdateCoordinator = entry.runtime_data

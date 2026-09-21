@@ -54,14 +54,14 @@ import aiohttp
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from custom_components.cap_alerts.const import USER_AGENT  # noqa: E402
-from custom_components.cap_alerts.coordinator import (  # noqa: E402
+from custom_components.cap_alerts.const import USER_AGENT
+from custom_components.cap_alerts.coordinator import (
     filter_by_geocode_prefixes,
 )
-from custom_components.cap_alerts.model import CAPAlert  # noqa: E402
-from custom_components.cap_alerts.normalize import normalize_alerts  # noqa: E402
-from custom_components.cap_alerts.providers import get_provider  # noqa: E402
-from custom_components.cap_alerts.providers.cap_content_cache import (  # noqa: E402
+from custom_components.cap_alerts.model import CAPAlert
+from custom_components.cap_alerts.normalize import normalize_alerts
+from custom_components.cap_alerts.providers import get_provider
+from custom_components.cap_alerts.providers.cap_content_cache import (
     CAPContentCache,
 )
 
@@ -104,10 +104,10 @@ def _describe(alert: CAPAlert) -> str:
     geom = alert.geometry.get("type") if alert.geometry else "-"
     schemes = ",".join(sorted(alert.geocodes)) if alert.geocodes else "-"
     return (
-        f"  {str(alert.severity or '-'):9s} {str(alert.event or '-')[:34]:34s} "
-        f"phase={str(alert.phase or '-'):9s} "
-        f"lang={str(alert.language or '-'):7s} alt={str(alert.language_alt or '-'):7s} "
-        f"geom={str(geom):12s} codes={schemes[:28]:28s} {str(alert.area_desc or '')[:30]}"
+        f"  {alert.severity or '-'!s:9s} {str(alert.event or '-')[:34]:34s} "
+        f"phase={alert.phase or '-'!s:9s} "
+        f"lang={alert.language or '-'!s:7s} alt={alert.language_alt or '-'!s:7s} "
+        f"geom={geom!s:12s} codes={schemes[:28]:28s} {str(alert.area_desc or '')[:30]}"
     )
 
 

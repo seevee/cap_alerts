@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timezone
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -12,9 +13,10 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
 
@@ -56,9 +58,9 @@ def _classify_sync(
 
 
 async def async_setup_entry(
-    hass,
+    hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up CAP Alerts sensor entities."""
     coordinator: AlertsDataUpdateCoordinator = entry.runtime_data
@@ -252,7 +254,7 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
         return a.icon or None if a else None
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Sparse CAP attributes, trimmed to what the recorder will store.
 
         The trim runs here rather than in ``normalize`` so the ``CAPAlert``

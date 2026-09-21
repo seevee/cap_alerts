@@ -16,8 +16,8 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
-from custom_components.cap_alerts.providers import meteoalarm
 
+from custom_components.cap_alerts.providers import meteoalarm
 
 MF = "vigilance@meteo.fr"
 PARIS = (("FR101", "Paris"),)

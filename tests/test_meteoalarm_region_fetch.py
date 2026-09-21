@@ -15,10 +15,9 @@ import json
 from pathlib import Path
 
 import pytest
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.cap_alerts.providers import meteoalarm
-
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures"
 

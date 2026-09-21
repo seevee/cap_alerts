@@ -19,13 +19,12 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.components.diagnostics import (
     get_diagnostics_for_config_entry,
 )
-
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.cap_alerts import diagnostics
 from custom_components.cap_alerts.const import (
@@ -90,7 +89,7 @@ class _StubCoordinator:
         self.repository_recovered = repository_recovered
         self._entry = None
 
-    def bind(self, entry) -> "_StubCoordinator":
+    def bind(self, entry) -> _StubCoordinator:
         self._entry = entry
         return self
 
@@ -516,8 +515,10 @@ async def test_an_au_state_entry_reports_its_feed(hass):
 
     assert payload["entry"]["scope"] == {"mode": "province", "value": "QLD"}
     assert payload["source"]["endpoints"] == [
-        "https://publiccontent-gis-psba-qld-gov-au.s3.amazonaws.com"
-        "/content/Feeds/BushfireCurrentIncidents/bushfireAlert_capau.xml"
+        (
+            "https://publiccontent-gis-psba-qld-gov-au.s3.amazonaws.com"
+            "/content/Feeds/BushfireCurrentIncidents/bushfireAlert_capau.xml"
+        )
     ]
 
 

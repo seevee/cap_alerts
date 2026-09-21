@@ -15,20 +15,19 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from homeassistant.helpers.update_coordinator import UpdateFailed
-
-from custom_components.cap_alerts.flows.meteoalarm import (
-    _normalize_region_selection,
-    _region_label_map,
-    _region_selector,
-)
 from custom_components.cap_alerts.const import (
     CONF_COUNTRY,
     CONF_PROVIDER,
     CONF_REGION_LABELS,
     CONF_REGIONS,
+)
+from custom_components.cap_alerts.flows.meteoalarm import (
+    _normalize_region_selection,
+    _region_label_map,
+    _region_selector,
 )
 
 DOMAIN = "cap_alerts"

@@ -10,9 +10,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-
 from homeassistant.helpers.json import json_bytes
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.cap_alerts.normalize import normalize_alerts
 from custom_components.cap_alerts.payload import (

@@ -10,13 +10,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
-
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import CONF_GPS_LOC, CONF_ZONE_ID
 from ..conventions import NWS_MARINE_UGC_PREFIXES as _NWS_MARINE_UGC_PREFIXES
 from ..conventions import StageContext, conventions_for, is_marine_code
 from ..model import CAPAlert, geocodes_from
+from .cap_content_cache import CAPContentCache
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -332,8 +332,8 @@ class NWSProvider:
         config: Mapping[str, Any],
         options: Mapping[str, Any],
         *,
-        cap_content_cache=None,
-        user_agent=None,
+        cap_content_cache: CAPContentCache | None = None,
+        user_agent: str | None = None,
     ) -> list[CAPAlert]:
         """Fetch active alerts from NWS."""
         url = self._build_url(config)
@@ -447,11 +447,11 @@ class NWSProvider:
 
     def _build_scope(self, config: Mapping[str, Any]) -> str:
         """The location query fragment, shared by the active and cancel URLs."""
-        if CONF_ZONE_ID in config and config[CONF_ZONE_ID]:
+        if config.get(CONF_ZONE_ID):
             zone_id = config[CONF_ZONE_ID]
             return f"zone={zone_id}"
 
-        if CONF_GPS_LOC in config and config[CONF_GPS_LOC]:
+        if config.get(CONF_GPS_LOC):
             gps = config[CONF_GPS_LOC]
             # Round to 4 decimal places for CDN cache hits
             try:
@@ -472,7 +472,7 @@ class NWSProvider:
         async with session.get(url, headers=headers) as resp:
             if resp.status != 200:
                 raise UpdateFailed(f"NWS API returned {resp.status} for {url}")
-            data = await resp.json()
+            data: dict[str, Any] = await resp.json()
 
         # NWS sometimes returns error objects with 200 status
         if data.get("type") != "FeatureCollection":

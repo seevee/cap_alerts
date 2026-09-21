@@ -14,9 +14,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-
 from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.cap_alerts import sensor
 

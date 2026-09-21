@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from aiohttp import web
+from typing import Any
 
-from homeassistant.components.http import HomeAssistantView
+from aiohttp import web
+from homeassistant.helpers.http import HomeAssistantView
 
 from .geometry_store import GeometryStore
 
 
-def _feature_collection(ref: str, geometry: dict) -> dict:
+def _feature_collection(ref: str, geometry: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "FeatureCollection",
         "features": [

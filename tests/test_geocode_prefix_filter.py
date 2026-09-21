@@ -13,6 +13,7 @@ import logging
 from types import SimpleNamespace
 
 import pytest
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.cap_alerts.coordinator import (
     AlertsDataUpdateCoordinator,
@@ -20,7 +21,6 @@ from custom_components.cap_alerts.coordinator import (
     matches_geocode_prefixes,
 )
 from custom_components.cap_alerts.model import CAPAlert, geocodes_from
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 # CMA publishes one scheme, one value per alert, and mixes code lengths within
 # it — 481 of 488 sampled codes were 12 characters, 7 were 6 (Chongqing

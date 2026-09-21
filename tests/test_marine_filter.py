@@ -5,7 +5,6 @@ from __future__ import annotations
 from custom_components.cap_alerts.coordinator import exclude_marine_alerts
 from tests.conftest import make_alert
 
-
 # ---------------------------------------------------------------------------
 # exclude_marine_alerts
 # ---------------------------------------------------------------------------

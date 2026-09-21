@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.cap_alerts.flows.meteoalarm import _validate_country
 from custom_components.cap_alerts.const import (
     METEOALARM_COUNTRIES,
     METEOALARM_COUNTRY_NAMES,
     METEOALARM_COUNTRY_SLUGS,
 )
+from custom_components.cap_alerts.flows.meteoalarm import _validate_country
 
 
 @pytest.mark.parametrize(

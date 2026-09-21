@@ -7,7 +7,7 @@ import logging
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import pytest
 
@@ -54,7 +54,6 @@ ECCC_TERMINAL_LOCATION_STATUSES = _eccc_mod.ECCC_TERMINAL_LOCATION_STATUSES
 
 
 from tests.conftest import StubSession  # noqa: E402 — after module setup
-
 
 # ---------------------------------------------------------------------------
 # Fixture loading helpers
@@ -1212,10 +1211,10 @@ async def test_cache_serves_cached_url():
                     fetch_count += 1
                     return "body"
 
-                async def __aenter__(self) -> "Resp":
+                async def __aenter__(self) -> Self:
                     return self
 
-                async def __aexit__(self, *a: Any) -> None:
+                async def __aexit__(self, *a: object) -> None:
                     pass
 
             return Resp()
@@ -1248,10 +1247,10 @@ async def test_cache_evicts_when_over_capacity():
                 async def text(self) -> str:
                     return body
 
-                async def __aenter__(self) -> "Resp":
+                async def __aenter__(self) -> Self:
                     return self
 
-                async def __aexit__(self, *a: Any) -> None:
+                async def __aexit__(self, *a: object) -> None:
                     pass
 
             return Resp()
@@ -1317,10 +1316,10 @@ async def test_cache_coalesces_concurrent_requests_for_same_url():
                     await release.wait()
                     return "slow-body"
 
-                async def __aenter__(self) -> "SlowResp":
+                async def __aenter__(self) -> Self:
                     return self
 
-                async def __aexit__(self, *a: Any) -> None:
+                async def __aexit__(self, *a: object) -> None:
                     pass
 
             return SlowResp()
@@ -1879,8 +1878,10 @@ def _atom_feed(authority: str, entries: list[dict[str, str]]) -> str:
     """
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<feed xmlns="http://www.w3.org/2005/Atom" '
-        'xmlns:georss="http://www.georss.org/georss">',
+        (
+            '<feed xmlns="http://www.w3.org/2005/Atom" '
+            'xmlns:georss="http://www.georss.org/georss">'
+        ),
         f"<id>tag:{authority},2026:feed.atom</id>",
     ]
     for e in entries:

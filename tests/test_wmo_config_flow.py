@@ -11,11 +11,11 @@ from __future__ import annotations
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.cap_alerts.const import CONF_LANGUAGE, WMO_LANGUAGES
 from custom_components.cap_alerts.flows.wmo import (
     _validate_wmo_source,
     _wmo_language_selector,
 )
-from custom_components.cap_alerts.const import CONF_LANGUAGE, WMO_LANGUAGES
 
 DOMAIN = "cap_alerts"
 

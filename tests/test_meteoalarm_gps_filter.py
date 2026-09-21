@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+
 from custom_components.cap_alerts.providers import meteoalarm
 
 _FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"

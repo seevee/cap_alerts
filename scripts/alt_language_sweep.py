@@ -46,23 +46,23 @@ import aiohttp
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from custom_components.cap_alerts.const import (  # noqa: E402
+from custom_components.cap_alerts.const import (
     METEOALARM_COUNTRIES,
     METEOALARM_COUNTRY_SLUGS,
     USER_AGENT,
 )
-from custom_components.cap_alerts.providers.cap import (  # noqa: E402
+from custom_components.cap_alerts.providers.cap import (
     _primary_subtag,
     alternate_info_index,
     parse_cap_alert,
 )
-from custom_components.cap_alerts.providers.cap_content_cache import (  # noqa: E402
+from custom_components.cap_alerts.providers.cap_content_cache import (
     CAPContentCache,
 )
-from custom_components.cap_alerts.providers.meteoalarm import (  # noqa: E402
+from custom_components.cap_alerts.providers.meteoalarm import (
     METEOALARM_FEED_URL,
 )
-from custom_components.cap_alerts.providers.wmo import (  # noqa: E402
+from custom_components.cap_alerts.providers.wmo import (
     WMO_RSS_URL,
     _parse_rss_links,
     fetch_wmo_sources,

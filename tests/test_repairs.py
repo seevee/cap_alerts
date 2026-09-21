@@ -15,11 +15,10 @@ import json
 from pathlib import Path
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-
 from homeassistant.components.repairs import ConfirmRepairFlow
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.cap_alerts.const import (
     ISSUE_ECCC_FEED_SOURCE_PELMOREX,

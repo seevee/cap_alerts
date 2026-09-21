@@ -136,7 +136,7 @@ class CAPAlert:
     geocodes: Mapping[str, tuple[str, ...]] = field(
         default_factory=lambda: _EMPTY_GEOCODES
     )
-    geometry: dict | None = None
+    geometry: dict[str, Any] | None = None
     geometry_ref: str = ""
     bbox: tuple[float, float, float, float] | None = None
     # Point locations the feed published, as ``(lon, lat)`` pairs derived from
@@ -183,7 +183,7 @@ class CAPAlert:
     parent_id: str = ""
 
     # -- NWS Parameters (catch-all) --
-    parameters: dict | None = None
+    parameters: dict[str, Any] | None = None
 
     # -- Alternate language content (populated when available) --
     # ``event_alt`` exists for classification, not display: ``<event>`` is CAP

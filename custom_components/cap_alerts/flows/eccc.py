@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 
 from ..const import (
@@ -20,8 +19,8 @@ from ..const import (
     ECCC_PROVINCES,
 )
 from .common import (
-    ScopedEntryFlowMixin,
     OptionsSchema,
+    ScopedEntryFlowMixin,
     _gps_schema,
     _home_gps,
     _tracker_schema,

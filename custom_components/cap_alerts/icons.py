@@ -345,21 +345,20 @@ def icon_for(alert: CAPAlert) -> str:
     if not event:
         return FALLBACK_ICON
 
-    if alert.provider == "nws":
-        if (icon := _NWS_EVENT_ICONS.get(event)) is not None:
-            return icon
+    if alert.provider == "nws" and (icon := _NWS_EVENT_ICONS.get(event)) is not None:
+        return icon
 
-    if alert.provider == "gdacs":
-        if (icon := _GDACS_EVENT_ICONS.get(event)) is not None:
-            return icon
+    if (
+        alert.provider == "gdacs"
+        and (icon := _GDACS_EVENT_ICONS.get(event)) is not None
+    ):
+        return icon
 
-    if alert.provider == "bbk":
-        if (icon := _bbk_icon(alert, event)) is not None:
-            return icon
+    if alert.provider == "bbk" and (icon := _bbk_icon(alert, event)) is not None:
+        return icon
 
-    if alert.provider == "au":
-        if (icon := _au_icon(alert, event)) is not None:
-            return icon
+    if alert.provider == "au" and (icon := _au_icon(alert, event)) is not None:
+        return icon
 
     # MeteoAlarm services emit hyphenated/underscored compound terms (e.g.
     # ``high-temperature``, ``snow_ice``); fold separators to spaces so

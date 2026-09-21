@@ -19,14 +19,13 @@ from datetime import datetime, timedelta, timezone
 
 import aiohttp
 import pytest
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_capture_events,
     async_fire_time_changed,
 )
-
-from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
-from homeassistant.helpers import entity_registry as er
 
 from custom_components.cap_alerts.providers.eccc import repository_url
 

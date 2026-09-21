@@ -63,7 +63,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
-
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (

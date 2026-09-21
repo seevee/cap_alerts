@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from custom_components.cap_alerts.flows.common import (
-    _compute_device_title as _compute,
-)
 from custom_components.cap_alerts.const import (
     CONF_COUNTRY,
     CONF_COUNTRY_ENTITY,
@@ -17,7 +14,9 @@ from custom_components.cap_alerts.const import (
     CONF_TRACKER_ENTITY,
     CONF_ZONE_ID,
 )
-
+from custom_components.cap_alerts.flows.common import (
+    _compute_device_title as _compute,
+)
 
 # --- NWS ---------------------------------------------------------------------
 

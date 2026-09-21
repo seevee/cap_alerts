@@ -56,7 +56,6 @@ from typing import Any
 
 import aiohttp
 from defusedxml import ElementTree as ET
-
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (

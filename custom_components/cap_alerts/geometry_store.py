@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import OrderedDict
+from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ class GeometryStore:
 
     def __init__(self, max_bytes: int | None = None) -> None:
         self._max_bytes = MAX_BYTES if max_bytes is None else max_bytes
-        self._entries: OrderedDict[str, dict] = OrderedDict()
+        self._entries: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._sizes: dict[str, int] = {}
         self._owner_bytes: dict[str, int] = {}
         # Owners whose last put had to evict, so a sustained overflow logs
@@ -53,14 +54,14 @@ class GeometryStore:
         """The per-entry budget in serialized bytes."""
         return self._max_bytes
 
-    async def put(self, ref: str, geometry: dict) -> None:
+    async def put(self, ref: str, geometry: dict[str, Any]) -> None:
         """Insert or update a geometry, enforcing the owner's LRU byte cap."""
         if ref in self._entries:
             self._drop(ref)
         self._insert(ref, geometry)
         self._evict_owner_to_cap(_owner(ref), keep=ref)
 
-    async def get(self, ref: str) -> dict | None:
+    async def get(self, ref: str) -> dict[str, Any] | None:
         """Return the geometry for ``ref`` or None. Promotes on read."""
         geom = self._entries.get(ref)
         if geom is None:
@@ -97,7 +98,7 @@ class GeometryStore:
 
     # -- internals --
 
-    def _insert(self, ref: str, geometry: dict) -> None:
+    def _insert(self, ref: str, geometry: dict[str, Any]) -> None:
         self._entries[ref] = geometry
         size = len(json.dumps(geometry, separators=(",", ":")))
         self._sizes[ref] = size

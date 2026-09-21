@@ -149,7 +149,7 @@ def has_day_gap(days: set[str]) -> bool:
 def analyze(payload: dict[str, Any], now: datetime, size: int) -> dict[str, Any]:
     warnings = payload.get("warnings")
     if not isinstance(warnings, list):
-        raise ValueError("feed missing 'warnings' array")
+        raise TypeError("feed missing 'warnings' array")
 
     states: dict[str, int] = defaultdict(int)
     total = 0

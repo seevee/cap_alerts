@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.cap_alerts.flows.common import _validate_geocode_prefixes
 from custom_components.cap_alerts.const import CONF_GEOCODE_PREFIXES
+from custom_components.cap_alerts.flows.common import _validate_geocode_prefixes
 
 DOMAIN = "cap_alerts"
 

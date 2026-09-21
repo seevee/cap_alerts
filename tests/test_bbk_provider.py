@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.cap_alerts.const import (
@@ -252,8 +251,10 @@ def test_json_reader_yields_the_same_doc_shape_as_xml():
     assert doc.references == [
         (
             "opendata@dwd.de",
-            "dwdmap.2.49.0.0.276.0.DWD.PVW.1789750500000."
-            "41038775-570c-4a6b-8000-c33f7cad7e54.MUL",
+            (
+                "dwdmap.2.49.0.0.276.0.DWD.PVW.1789750500000."
+                "41038775-570c-4a6b-8000-c33f7cad7e54.MUL"
+            ),
             "2026-09-18T16:55:00-00:00",
         )
     ]
