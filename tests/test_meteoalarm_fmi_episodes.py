@@ -19,8 +19,8 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from custom_components.cap_alerts.providers import meteoalarm
 
+from custom_components.cap_alerts.providers import meteoalarm
 
 FMI = "cap@fmi.fi"
 MF = "vigilance@meteo.fr"

@@ -19,8 +19,6 @@ from unittest.mock import patch
 import pytest
 import voluptuous as vol
 
-from custom_components.cap_alerts.flows.common import _validate_gps
-from custom_components.cap_alerts.flows.meteoalarm import _validate_country
 from custom_components.cap_alerts.const import (
     CONF_COUNTRY,
     CONF_COUNTRY_ATTRIBUTE,
@@ -34,6 +32,8 @@ from custom_components.cap_alerts.const import (
     CONF_ZONE_ID,
     WMO_SOURCE_NAMES,
 )
+from custom_components.cap_alerts.flows.common import _validate_gps
+from custom_components.cap_alerts.flows.meteoalarm import _validate_country
 
 DOMAIN = "cap_alerts"
 

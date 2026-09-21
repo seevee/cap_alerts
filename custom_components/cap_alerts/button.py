@@ -5,7 +5,9 @@ from __future__ import annotations
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import AlertsDataUpdateCoordinator
 
@@ -15,9 +17,9 @@ PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
-    hass,
+    hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the CAP Alerts refresh button."""
     coordinator: AlertsDataUpdateCoordinator = entry.runtime_data

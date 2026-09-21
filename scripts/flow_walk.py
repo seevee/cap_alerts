@@ -462,7 +462,7 @@ def main() -> int:
     opened: list[tuple[str, str]] = []
 
     before = ha.entries()
-    if "_http_error" in getattr(before, "keys", lambda: [])():
+    if "_http_error" in getattr(before, "keys", list)():
         print(f"cannot list entries: {before}")
         return 1
     by_provider: dict[str, str] = {}

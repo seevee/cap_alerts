@@ -156,7 +156,8 @@ python3 -m venv .venv
 .venv/bin/ruff check custom_components/ tests/ scripts/
 .venv/bin/ruff format --diff custom_components/ tests/ scripts/
 
-# Type checking (the integration only — scripts/ is standalone dev tooling)
+# Type checking (the integration only — scripts/ is standalone dev tooling).
+# mypy.ini sets strict = True; ruff.toml pins the lint selection explicitly.
 .venv/bin/mypy custom_components/cap_alerts
 
 # Config flow, against a running HA instance (stdlib only, no venv needed).

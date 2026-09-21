@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol, runtime_checkable
 
 import aiohttp
@@ -104,7 +104,7 @@ def get_provider(provider_id: str) -> AlertProvider:
     from .nws import NWSProvider
     from .wmo import WMOProvider
 
-    providers: dict[str, type] = {
+    providers: dict[str, Callable[[], AlertProvider]] = {
         "nws": NWSProvider,
         "eccc": ECCCProvider,
         "meteoalarm": MeteoAlarmProvider,

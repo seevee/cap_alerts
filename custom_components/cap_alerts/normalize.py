@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import MappingProxyType
+from typing import Any
 
 from .const import BUDDHIST_ERA_OFFSET, MIN_BUDDHIST_ERA_YEAR
 from .conventions import SourceConventions, conventions_for
@@ -225,7 +226,7 @@ def _parse_iso(value: str) -> datetime | None:
 
 
 def _bbox_from_geometry(
-    geometry: dict | None,
+    geometry: dict[str, Any] | None,
 ) -> tuple[float, float, float, float] | None:
     """Return ``(min_lon, min_lat, max_lon, max_lat)`` from a GeoJSON geometry.
 

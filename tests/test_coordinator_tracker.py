@@ -145,7 +145,6 @@ def test_unresolvable_tracker_warns_once_per_failure_streak(caplog):
     coord._resolve_config()
     coord.hass = _Hass({})
     caplog.clear()
-    with caplog.at_level("WARNING"):
-        with pytest.raises(UpdateFailed):
-            coord._resolve_config()
+    with caplog.at_level("WARNING"), pytest.raises(UpdateFailed):
+        coord._resolve_config()
     assert sum("has no location" in r.message for r in caplog.records) == 1

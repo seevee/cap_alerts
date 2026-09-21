@@ -60,32 +60,32 @@ import aiohttp
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from custom_components.cap_alerts.const import (  # noqa: E402
+from custom_components.cap_alerts.const import (
     CONF_ALERT_LEVEL,
     ECCC_PROVINCES,
     METEOALARM_COUNTRIES,
     USER_AGENT,
 )
-from custom_components.cap_alerts.conventions import (  # noqa: E402
+from custom_components.cap_alerts.conventions import (
     StageContext,
     conventions_for,
 )
-from custom_components.cap_alerts.model import CAPAlert  # noqa: E402
-from custom_components.cap_alerts.normalize import normalize_alerts  # noqa: E402
-from custom_components.cap_alerts.payload import (  # noqa: E402
+from custom_components.cap_alerts.model import CAPAlert
+from custom_components.cap_alerts.normalize import normalize_alerts
+from custom_components.cap_alerts.payload import (
     PAYLOAD_BUDGET,
     fit_to_budget,
     measure,
 )
-from custom_components.cap_alerts.providers import get_provider  # noqa: E402
-from custom_components.cap_alerts.providers.cap_content_cache import (  # noqa: E402
+from custom_components.cap_alerts.providers import get_provider
+from custom_components.cap_alerts.providers.cap_content_cache import (
     CAPContentCache,
 )
-from custom_components.cap_alerts.providers.nws import (  # noqa: E402
+from custom_components.cap_alerts.providers.nws import (
     NWS_API_BASE,
     _parse_feature,
 )
-from custom_components.cap_alerts.providers.wmo import fetch_wmo_sources  # noqa: E402
+from custom_components.cap_alerts.providers.wmo import fetch_wmo_sources
 
 # The recorder's ceiling (homeassistant/components/recorder/db_schema.py).
 CEILING = 16384

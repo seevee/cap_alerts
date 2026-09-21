@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import pytest
 
@@ -92,10 +92,10 @@ class _StubResponse:
 
         return json.loads(self._body)
 
-    async def __aenter__(self) -> "_StubResponse":
+    async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, *args: Any) -> None:
+    async def __aexit__(self, *args: object) -> None:
         pass
 
 
@@ -105,10 +105,10 @@ class _ErrorContext:
     def __init__(self, exc: Exception) -> None:
         self._exc = exc
 
-    async def __aenter__(self) -> None:
+    async def __aenter__(self) -> Self:
         raise self._exc
 
-    async def __aexit__(self, *args: Any) -> None:
+    async def __aexit__(self, *args: object) -> None:
         pass
 
 

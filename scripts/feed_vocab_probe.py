@@ -80,6 +80,13 @@ Stdlib only — run with system python3, no venv needed. (It loads
 from __future__ import annotations
 
 import argparse
+
+# const.py is pure Python but sits behind a package __init__ that imports
+# homeassistant, so it is loaded by file path under a private name. That
+# pattern is banned in tests/ (import hygiene, #137) because a second copy
+# shadows the real module for the rest of a pytest session; this is a
+# standalone process that never sees the real one.
+import importlib.util
 import json
 import re
 import sys
@@ -92,13 +99,6 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from xml.etree import ElementTree as ET
-
-# const.py is pure Python but sits behind a package __init__ that imports
-# homeassistant, so it is loaded by file path under a private name. That
-# pattern is banned in tests/ (import hygiene, #137) because a second copy
-# shadows the real module for the rest of a pytest session; this is a
-# standalone process that never sees the real one.
-import importlib.util  # noqa: E402
 
 _const_spec = importlib.util.spec_from_file_location(
     "_cap_alerts_const",
@@ -554,7 +554,7 @@ def probe_eccc(timeout: float, max_bodies: int, workers: int) -> Sample:
     def fetch_body(href: str) -> str | None:
         try:
             return fetch(href, timeout=timeout, retries=2)
-        except Exception:
+        except Exception:  # noqa: BLE001 — a probe reports None on any failure
             return None
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -729,7 +729,7 @@ def probe_meteoalarm(timeout: float, workers: int) -> Sample:
             return slug, json.loads(
                 fetch(METEOALARM_FEED_URL.format(country=slug), timeout=timeout)
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — a probe reports None on any failure
             return slug, None
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -874,7 +874,7 @@ def probe_bbk(timeout: float, max_bodies: int, workers: int) -> Sample:
             return warning_id, json.loads(
                 fetch(BBK_WARNING_URL.format(warning_id=warning_id), timeout=timeout)
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — a probe reports None on any failure
             return warning_id, None
 
     sampled = sorted(ids)[:max_bodies]

@@ -560,8 +560,10 @@ AU_FEEDS: dict[str, tuple[str, str]] = {
     ),
     "QLD": (
         "Queensland Fire Department",
-        "https://publiccontent-gis-psba-qld-gov-au.s3.amazonaws.com"
-        "/content/Feeds/BushfireCurrentIncidents/bushfireAlert_capau.xml",
+        (
+            "https://publiccontent-gis-psba-qld-gov-au.s3.amazonaws.com"
+            "/content/Feeds/BushfireCurrentIncidents/bushfireAlert_capau.xml"
+        ),
     ),
     "WA": (
         "DFES Emergency WA",

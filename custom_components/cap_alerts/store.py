@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -351,7 +352,7 @@ class AlertStore:
         ``entry_id``, ``area_desc``, ``removal_reason`` and ``superseded_by``
         are project extensions not in the RFC.
         """
-        payload: dict = {
+        payload: dict[str, Any] = {
             "entry_id": self._entry_id,
             "incident_id": alert.id,
             "event": alert.event,

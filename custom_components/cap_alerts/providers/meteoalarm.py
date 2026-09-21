@@ -52,7 +52,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
-
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
@@ -73,6 +72,7 @@ from ..conventions import (
 from ..conventions import meteoalarm_region_codes as _region_codes
 from ..model import CAPAlert, geocodes_from
 from .cap import alternate_info_index, parse_cap_polygon_text
+from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_polygons
 from .gps import alert_polygons, parse_gps, point_in_polygon
 
@@ -707,8 +707,8 @@ class MeteoAlarmProvider:
         config: Mapping[str, Any],
         options: Mapping[str, Any],
         *,
-        cap_content_cache=None,
-        user_agent=None,
+        cap_content_cache: CAPContentCache | None = None,
+        user_agent: str | None = None,
         now: datetime | None = None,
     ) -> list[CAPAlert]:
         """Fetch the country feed and return a ``CAPAlert`` per warning.

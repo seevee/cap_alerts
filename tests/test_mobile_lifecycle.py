@@ -15,10 +15,9 @@ mountains (country source unavailable), recover.
 from __future__ import annotations
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 DOMAIN = "cap_alerts"
 SI_FEED = "https://feeds.meteoalarm.org/api/v1/warnings/feeds-slovenia"

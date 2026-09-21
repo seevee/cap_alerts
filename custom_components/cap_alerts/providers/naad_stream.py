@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import codecs
+import contextlib
 import logging
 import random
 import re
@@ -150,10 +151,9 @@ class NAADStreamClient:
         writer = self._writer
         self._writer = None
         if writer is not None:
-            try:
+            # Best-effort teardown: nothing to do if close itself fails.
+            with contextlib.suppress(Exception):
                 writer.close()
-            except Exception:  # noqa: BLE001 — best-effort teardown
-                pass
 
     async def _aclose_writer(self, writer: asyncio.StreamWriter) -> None:
         """Close a connection and wait for the TLS shutdown to complete.
@@ -163,13 +163,11 @@ class NAADStreamClient:
         that never completes the handshake cannot stall the run loop.
         """
         self._writer = None
-        try:
+        # Best-effort teardown. suppress(Exception) does not swallow
+        # CancelledError, which derives from BaseException.
+        with contextlib.suppress(Exception):
             writer.close()
             await asyncio.wait_for(writer.wait_closed(), timeout=_CLOSE_TIMEOUT_S)
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001 — best-effort teardown
-            pass
 
     async def run(self) -> None:
         """Connect, read, and reconnect until stopped.

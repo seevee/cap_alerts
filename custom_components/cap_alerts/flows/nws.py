@@ -6,7 +6,6 @@ import re
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.config_entries import ConfigFlowResult
 
 from ..const import CONF_GPS_LOC, CONF_PROVIDER, CONF_TRACKER_ENTITY, CONF_ZONE_ID

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+from typing import Any, ClassVar
 
 from custom_components.cap_alerts import sensor
-
 
 # --- _short_hash / _alert_object_id ------------------------------------------
 
@@ -78,7 +78,7 @@ def test_classify_grace_exempts_hydrated_ids_from_removal():
 
 def test_classify_grace_cleared_yields_normal_removal():
     # Second poll with grace cleared: all 3 removed.
-    to_add, to_remove = sensor._classify_sync(
+    _to_add, to_remove = sensor._classify_sync(
         current_ids=set(),
         tracked_ids={"a", "b", "c"},
         grace_ids=set(),
@@ -88,7 +88,7 @@ def test_classify_grace_cleared_yields_normal_removal():
 
 def test_classify_partial_grace_still_removes_non_grace_ids():
     # Grace only protects hydrated IDs; a newly-tracked ID should still be removed.
-    to_add, to_remove = sensor._classify_sync(
+    _to_add, to_remove = sensor._classify_sync(
         current_ids=set(),
         tracked_ids={"a", "b", "new"},
         grace_ids={"a", "b"},
@@ -161,7 +161,7 @@ def test_count_sensor_state_stays_the_total_with_a_breakdown_alongside(alert_fac
     earlier = (now - timedelta(hours=6)).isoformat()
 
     class FakeCoord:
-        data = {
+        data: ClassVar[dict[str, Any]] = {
             "a": alert_factory(id="a", onset=earlier),
             "b": alert_factory(id="b", onset=soon),
             "c": alert_factory(id="c", onset=soon),

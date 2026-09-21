@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.cap_alerts.const import (

@@ -14,7 +14,6 @@ from typing import Any
 
 import aiohttp
 import voluptuous as vol
-
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import AbortFlow
@@ -23,7 +22,6 @@ from homeassistant.helpers.instance_id import async_get as async_get_instance_id
 from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
 
 from ..const import (
-    CONFIG_FLOW_TIMEOUT,
     CONF_COUNTRY,
     CONF_COUNTRY_ENTITY,
     CONF_GPS_LOC,
@@ -34,6 +32,7 @@ from ..const import (
     CONF_SOURCE_ID,
     CONF_TRACKER_ENTITY,
     CONF_ZONE_ID,
+    CONFIG_FLOW_TIMEOUT,
     HA_ONBOARDING_LATITUDE,
     HA_ONBOARDING_LONGITUDE,
     METEOALARM_COUNTRY_NAMES,

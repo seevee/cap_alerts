@@ -16,7 +16,6 @@ from collections.abc import Callable
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,

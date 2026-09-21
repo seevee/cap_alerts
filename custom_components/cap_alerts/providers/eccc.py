@@ -15,7 +15,6 @@ from xml.etree.ElementTree import Element
 
 import aiohttp
 from defusedxml import ElementTree as ET
-
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
@@ -26,9 +25,12 @@ from ..const import (
     DEFAULT_FEED_SOURCE,
     NAAD_REPOSITORY_URL,
 )
-from ..conventions import ECCC_LIFECYCLE_REMOVAL_REASONS
+from ..conventions import (
+    ECCC_LIFECYCLE_REMOVAL_REASONS,
+    conventions_for,
+    is_marine_code,
+)
 from ..conventions import ECCC_MARINE_CLC_PREFIX as _ECCC_MARINE_CLC_PREFIX
-from ..conventions import conventions_for, is_marine_code
 from ..model import GEOCODE_CLC, GEOCODE_SGC, CAPAlert, geocodes_from
 from .cap import (
     CAPAreaDoc,
@@ -414,9 +416,7 @@ def _pick_cap_link(entry: Element) -> tuple[str, str]:
             if link_type in ("application/cap+xml", "text/html"):
                 continue
             href_lower = href.lower()
-            if not cap_url and (
-                href_lower.endswith(".cap") or href_lower.endswith(".xml")
-            ):
+            if not cap_url and href_lower.endswith((".cap", ".xml")):
                 cap_url = href
             elif not web_url:
                 web_url = href

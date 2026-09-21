@@ -660,7 +660,8 @@ def summarise(path: str) -> int:
 
 async def run(args: argparse.Namespace) -> int:
     recorder = StreamRecorder()
-    log_handle = open(args.log, "a", encoding="utf-8") if args.log else None
+    # One append-only handle for the run, closed in the finally below.
+    log_handle = open(args.log, "a", encoding="utf-8") if args.log else None  # noqa: ASYNC230, SIM115
 
     def emit(record: dict) -> None:
         if log_handle is not None:

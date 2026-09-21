@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 import pytest
 import voluptuous as vol
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.cap_alerts.const import (
     CONF_COUNTRY,
@@ -28,8 +29,6 @@ from custom_components.cap_alerts.const import (
     HA_ONBOARDING_LONGITUDE,
 )
 from custom_components.cap_alerts.flows.common import _gps_schema, _home_gps
-
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 DOMAIN = "cap_alerts"
 

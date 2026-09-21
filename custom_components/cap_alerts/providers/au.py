@@ -71,7 +71,6 @@ from xml.etree.ElementTree import Element
 
 import aiohttp
 from defusedxml import ElementTree as ET
-
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (

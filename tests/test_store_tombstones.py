@@ -164,8 +164,8 @@ def test_a_tombstone_ages_out_after_the_idle_ttl(hass, alert_factory):
     its return is treated as a fresh sighting rather than the same ending
     republished.
     """
-    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL, AlertStore
     from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL, AlertStore
 
     store = AlertStore(hass, "entry1", "eccc")
     ended = normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="ended")])
@@ -187,8 +187,8 @@ def test_suppressing_a_duplicate_refreshes_the_tombstone(hass, alert_factory):
     publishes an ended record for longer than the TTL would resume duplicating
     at the point it elapsed.
     """
-    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL, AlertStore
     from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL, AlertStore
 
     store = AlertStore(hass, "entry1", "eccc")
     ended = normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="ended")])
@@ -206,8 +206,8 @@ def test_suppressing_a_duplicate_refreshes_the_tombstone(hass, alert_factory):
 
 def test_tombstones_are_pruned_once_the_record_stops_arriving(hass, alert_factory):
     """Bounded by ids terminated recently, not by the life of the entry."""
-    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL, AlertStore
     from custom_components.cap_alerts.normalize import normalize_alerts
+    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL, AlertStore
 
     store = AlertStore(hass, "entry1", "eccc")
     store.process(

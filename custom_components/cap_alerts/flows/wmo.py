@@ -6,7 +6,6 @@ import re
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -28,8 +27,8 @@ from ..const import (
 )
 from ..providers.wmo import fetch_wmo_sources
 from .common import (
-    ScopedEntryFlowMixin,
     OptionsSchema,
+    ScopedEntryFlowMixin,
     _gps_schema,
     _home_gps,
     _tracker_schema,
@@ -120,7 +119,9 @@ class WMOFlowMixin(ScopedEntryFlowMixin):
         a re-rendered form doesn't re-fetch); on any failure falls back to the
         static ``WMO_SOURCE_NAMES`` catalog so setup never hard-fails.
         """
-        cached = getattr(self, "_wmo_source_options_cache", None)
+        cached: list[tuple[str, str]] | None = getattr(
+            self, "_wmo_source_options_cache", None
+        )
         if cached is not None:
             return cached
         options = await fetch_wmo_sources(async_get_clientsession(self.hass))

@@ -17,7 +17,6 @@ import pytest
 
 from custom_components.cap_alerts.providers import naad_stream as _naad_mod
 
-
 NAADStreamClient = _naad_mod.NAADStreamClient
 
 

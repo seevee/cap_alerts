@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
-
 from xml.etree.ElementTree import Element
+
+import pytest
 
 from custom_components.cap_alerts.providers.cap import (
     parse_cap_polygon_text,
@@ -14,11 +14,11 @@ from custom_components.cap_alerts.providers.eccc import (
     _parse_georss_polygon,
     _point_in_polygons,
 )
-from custom_components.cap_alerts.providers.meteoalarm import _extract_geometries
 from custom_components.cap_alerts.providers.geometry import (
     geometry_from_polygons,
     normalize_ring,
 )
+from custom_components.cap_alerts.providers.meteoalarm import _extract_geometries
 
 # A closed unit square, and the same square as feeds sometimes publish it.
 SQUARE_OPEN = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]

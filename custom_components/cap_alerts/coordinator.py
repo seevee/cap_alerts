@@ -11,10 +11,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_LATITUDE, ATTR_LONGITUDE
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
@@ -242,7 +241,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
 
     def __init__(
         self,
-        hass,
+        hass: HomeAssistant,
         entry: ConfigEntry,
         provider: AlertProvider,
         user_agent: str,

@@ -6,7 +6,6 @@ from typing import Any
 
 from custom_components.cap_alerts.providers import nws as _nws_mod
 
-
 _is_marine_nws = _nws_mod._is_marine_nws
 _parse_feature = _nws_mod._parse_feature
 NWS_MARINE_UGC_PREFIXES = _nws_mod.NWS_MARINE_UGC_PREFIXES
