@@ -652,15 +652,21 @@ async def test_a_superseded_revision_in_the_same_poll_is_dropped():
     assert _geojson_url("mow.DE-SL-SLS-W038-20260901-000") not in session.requested
 
 
-async def test_a_mowas_all_clear_arrives_terminal():
+async def test_a_mowas_all_clear_arrives_terminal(freezer):
     """The index lists an all-clear for six hours; it is a cancel, not an alert.
 
     The provider ships it as any other document — ``Cancel`` msgType, the
     predecessor in ``references``, the expiry the feed writes — and shared
     normalization makes that phase ``cancel``, which the store turns into the
     predecessor's removal (see ``test_store_supersession``).
+
+    The clock is pinned inside the capture's six-hour window: normalization
+    checks ``expires`` before ``msgType``, so on a live clock the phase turned
+    ``expired`` the evening the fixture was captured.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
+
+    freezer.move_to("2026-09-20T16:00:00+00:00")
 
     responses = _gps_responses()
     responses[_mapdata_url("dwd")] = "[]"
