@@ -205,6 +205,9 @@ regenerate with `git cliff --config cliff.toml --output CHANGELOG.md`. See
 
 ### Verification
 - Run tests before presenting results; fix any new failures introduced
+- `tests/test_property_*.py` are Hypothesis property tests over the parsers
+  (CAP XML and JSON, rings and geometry, normalization, the payload budget).
+  A failure prints a `Failing test case`; pin it with `@example` before fixing
 - Tests import the integration through `custom_components.cap_alerts.*` and
   nothing else. No loading a module a second time by path, and no fabricating
   `homeassistant.*` or `cap_alerts.*` entries in `sys.modules`: a second copy of

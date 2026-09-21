@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from xml.etree.ElementTree import Element
 
+from defusedxml import DefusedXmlException
 from defusedxml import ElementTree as ET
 
 _LOGGER = logging.getLogger(__name__)
@@ -289,10 +290,15 @@ def _parse_info(info_el: Element, ns: str) -> CAPInfoDoc:
 
 
 def parse_cap_alert(xml_text: str) -> CAPDoc | None:
-    """Parse CAP XML into a CAPDoc. Returns None on parse error."""
+    """Parse CAP XML into a CAPDoc. Returns None on parse error.
+
+    ``None`` covers both text that is not XML and XML that defusedxml refuses
+    (entity declarations, external references): a host answering with a
+    DOCTYPE-bearing error page is a skipped document, not a failed poll.
+    """
     try:
         root = ET.fromstring(xml_text)
-    except ET.ParseError as exc:
+    except (ET.ParseError, DefusedXmlException) as exc:
         _LOGGER.debug("CAP XML parse error: %s", exc)
         return None
     return cap_doc_from_element(root)
