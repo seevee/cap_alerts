@@ -1229,6 +1229,10 @@ These are documented for architecture planning; the provider protocol accommodat
 
 ### BoM — Bureau of Meteorology, Australia
 
+The shipped Australian provider (`au.py`) is the state fire and emergency
+feeds, not BoM: bushfires and incidents, plus SES weather warnings on
+TasALERT. BoM's own weather warnings are a separate feed and remain unbuilt.
+
 - **API**: `https://api.weather.bom.gov.au/v1/warnings` — flat JSON array.
 - Returns all active warnings nationally; client-side filter by state/location.
 - No CAP urgency/certainty fields — remain empty.
