@@ -1,4 +1,27 @@
-"""CAP Alerts — one entity per active weather alert."""
+"""CAP Alerts — one entity per active weather alert.
+
+Home Assistant packs every alert of a single-entity integration into one
+attribute blob and stops recording it at 16 KB. This integration gives each
+active alert its own sensor instead. The state is a normalized severity and
+the attributes are the alert's CAP 1.2 fields, whatever feed it came from.
+
+One config entry watches one scope (a zone, province, country, district or
+GPS point) on one provider. Each poll runs the same pipeline:
+
+    provider.async_fetch()   feed-specific parsing → list[CAPAlert]  (providers/)
+    normalize_alerts()       severity tiers, lifecycle phase        (normalize.py)
+    store.process()          diff against the last poll, fire events (store.py)
+    _sync_alert_entities()   create and remove the per-alert sensors (sensor.py)
+
+``model.py`` holds the ``CAPAlert`` dataclass every provider produces, and
+``conventions.py`` the per-source table (marine prefixes, terminal tokens,
+severity derivations) that keeps the provider modules free of special cases.
+
+This module does the per-instance and per-entry wiring: the shared geometry
+store and CAP body cache, the geometry REST view and websocket command, the
+coordinator that owns the poll and the optional NAAD stream, the repairs
+issues an entry's config owes, and the reload rules when options change.
+"""
 
 from __future__ import annotations
 

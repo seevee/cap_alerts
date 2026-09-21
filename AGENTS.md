@@ -4,24 +4,41 @@ This file provides guidance to AI agents working with code in this repository.
 
 ## Project Overview
 
-A Home Assistant custom integration (`cap_alerts`) that creates **one entity per active weather alert**, solving the 16KB attribute limit in `nws_alerts`. Alert data is modeled using CAP (Common Alerting Protocol) field names via a `CAPAlert` frozen dataclass. Ships with NWS, ECCC (Environment Canada), MeteoAlarm, WMO, GDACS, BBK / NINA (Germany) and Australian state (NSW RFS, QFD, DFES, TasALERT) providers; designed for further providers (BoM, direct DWD, etc.).
+A Home Assistant custom integration (`cap_alerts`) that creates **one entity
+per active weather alert**, solving the 16KB attribute limit in `nws_alerts`.
+Alert data is modeled using CAP (Common Alerting Protocol) field names via a
+`CAPAlert` frozen dataclass. Ships with NWS, ECCC (Environment Canada),
+MeteoAlarm, WMO, GDACS, BBK / NINA (Germany) and Australian state (NSW RFS,
+QFD, DFES, TasALERT) providers; designed for further providers (BoM, direct
+DWD, etc.). It lives in `custom_components/cap_alerts/` and follows
+[HA custom component conventions](https://developers.home-assistant.io/docs/creating_integration_manifest).
 
-Companion frontend: [weather_alerts_card](../weather_alerts_card) — the card's `cap.ts` adapter is a thin passthrough since this integration handles all normalization.
+Companion frontend: [weather_alerts_card](../weather_alerts_card) — the card's
+`cap.ts` adapter is a thin passthrough since this integration handles all
+normalization.
 
 ## Architecture
 
-See `docs/architecture.md` for design rationale (alert identity, field mappings, provider layer) and `docs/roadmap.md` for planned work. `plans/` is gitignored scratch for `/plan` output — not reference material.
+See `docs/architecture.md` for design rationale (alert identity, field
+mappings, provider layer) and `docs/roadmap.md` for planned work. `plans/` is
+gitignored scratch for `/plan` output — not reference material.
 
 ### Entity Model
 
 - **Device**: groups all entities for a configured location
-- **Count sensor** (`sensor.cap_alerts_<provider>_alert_count`): `state` = number of
-  active alerts, attributes `active`/`upcoming` split it on `onset`,
+- **Count sensor** (`sensor.cap_alerts_<provider>_alert_count`): `state` =
+  number of active alerts, attributes `active`/`upcoming` split it on `onset`,
   `EntityCategory.DIAGNOSTIC`
-- **Last updated sensor** (`sensor.cap_alerts_<provider>_last_updated`): `state` = ISO timestamp, `EntityCategory.DIAGNOSTIC`
-- **Alert entities** (`sensor.cap_alerts_<provider>_cap_alert_<slug>_<hash>`): one per active alert, dynamically created/removed each poll cycle. The device-name prefix is HA's, applied because these set `has_entity_name`; the integration only suggests `cap_alert_<slug>_<hash>`
-- **Refresh button** (`button.cap_alerts_<provider>_refresh`): forces an off-cycle fetch, `EntityCategory.DIAGNOSTIC`
-- **Stream connectivity** (`binary_sensor.cap_alerts_eccc_real_time_stream`): NAAD socket state, `EntityCategory.DIAGNOSTIC`, ECCC-with-streaming only
+- **Last updated sensor** (`sensor.cap_alerts_<provider>_last_updated`):
+  `state` = ISO timestamp, `EntityCategory.DIAGNOSTIC`
+- **Alert entities** (`sensor.cap_alerts_<provider>_cap_alert_<slug>_<hash>`):
+  one per active alert, dynamically created/removed each poll cycle. The
+  device-name prefix is HA's, applied because these set `has_entity_name`; the
+  integration only suggests `cap_alert_<slug>_<hash>`
+- **Refresh button** (`button.cap_alerts_<provider>_refresh`): forces an
+  off-cycle fetch, `EntityCategory.DIAGNOSTIC`
+- **Stream connectivity** (`binary_sensor.cap_alerts_eccc_real_time_stream`):
+  NAAD socket state, `EntityCategory.DIAGNOSTIC`, ECCC-with-streaming only
 
 ### Data Flow
 
@@ -89,17 +106,31 @@ custom_components/cap_alerts/
 
 ### Key Design Decisions
 
-- `CAPAlert` dataclass has all fields optional except `id` — accommodates providers with varying completeness
+- `CAPAlert` dataclass has all fields optional except `id` — accommodates
+  providers with varying completeness
 - `to_attributes()` serializes only non-empty fields (sparse attributes)
-- The bound on attributes is the serialized payload, not per-field text caps: `payload.fit_to_budget` measures the set the recorder measures and trims in priority order only when it overflows (issue #150). `CAPAlert` keeps the full text either way
-- Dynamic entity lifecycle: alert entities are created/removed per coordinator update via `_sync_alert_entities()` callback
-- Reconfigure flow for identity/location, options flow for behavior (polling interval, timeout, language, area-code narrowing)
+- The bound on attributes is the serialized payload, not per-field text caps:
+  `payload.fit_to_budget` measures the set the recorder measures and trims in
+  priority order only when it overflows (issue #150). `CAPAlert` keeps the
+  full text either way
+- Dynamic entity lifecycle: alert entities are created/removed per coordinator
+  update via `_sync_alert_entities()` callback
+- Reconfigure flow for identity/location, options flow for behavior (polling
+  interval, timeout, language, area-code narrowing)
 - No `CONF_NAME` — entry title derived programmatically from config data
-- Config-flow scope validation lives on the provider (`async_validate_config`), returns a `strings.json` error key or `None`, and is called from the step that collects the value — not from entry creation, since several create paths are menu clicks with no form to report on
-- Entry `unique_id` is a canonical scope key (`flows/common.py::compute_scope_key`), so one scope means one entry; every create/update path goes through `ScopedEntryFlowMixin` rather than `async_create_entry` directly
-- `entry.runtime_data` (typed as `CAPAlertsConfigEntry`) instead of `hass.data[DOMAIN]` dict
+- Config-flow scope validation lives on the provider (`async_validate_config`),
+  returns a `strings.json` error key or `None`, and is called from the step
+  that collects the value — not from entry creation, since several create
+  paths are menu clicks with no form to report on
+- Entry `unique_id` is a canonical scope key
+  (`flows/common.py::compute_scope_key`), so one scope means one entry; every
+  create/update path goes through `ScopedEntryFlowMixin` rather than
+  `async_create_entry` directly
+- `entry.runtime_data` (typed as `CAPAlertsConfigEntry`) instead of
+  `hass.data[DOMAIN]` dict
 - `async_config_entry_first_refresh()` for proper startup error handling
-- Normalization happens at the integration level (severity, zones, phase), not in the card
+- Normalization happens at the integration level (severity, zones, phase), not
+  in the card
 
 ## Build & Test Commands
 
@@ -156,10 +187,6 @@ The changelog is generated by `git-cliff` (pinned in `requirements_test.txt`);
 regenerate with `git cliff --config cliff.toml --output CHANGELOG.md`. See
 `CONTRIBUTING.md`.
 
-## Development Environment
-
-This is a Home Assistant custom integration. It lives in `custom_components/cap_alerts/` and follows [HA custom component conventions](https://developers.home-assistant.io/docs/creating_integration_manifest).
-
 ## Agent Rules
 
 ### Before editing
@@ -169,9 +196,11 @@ This is a Home Assistant custom integration. It lives in `custom_components/cap_
 
 ### Modifying code
 - Only modify files identified as in-scope for the task
-- Never introduce unrelated refactors or fix pre-existing issues outside changed files
+- Never introduce unrelated refactors or fix pre-existing issues outside
+  changed files
 - Do not change public interfaces without user confirmation
-- Follow dependency order: model → providers → coordinator → sensor → config_flow → __init__
+- Follow dependency order: model → providers → coordinator → sensor →
+  config_flow → __init__
 
 ### Verification
 - Run tests before presenting results; fix any new failures introduced
@@ -185,9 +214,12 @@ This is a Home Assistant custom integration. It lives in `custom_components/cap_
   replace a module.
 
 ### Git discipline
+- `main` is protected: all changes go through PRs
 - Never auto-commit, push, or open PRs — defer to the user or `/commit`
-- Commit format: `type(scope): description` (types: feat, fix, docs, refactor, test, chore)
-- Branch format: `feat/<slug>`, `fix/<slug>`, `chore/<slug>`
+- Commit format: `type(scope): description` (types: feat, fix, docs, refactor,
+  test, chore)
+- Branch format: `<type>/<slug>`, with the same type the commits will carry
+  (`feat/<slug>`, `fix/<slug>`, `docs/<slug>`, …)
 
 ### Prose line wrapping
 
@@ -210,8 +242,3 @@ Slash-command skills (`/explore`, `/plan`, `/implement`, `/fix`, `/review`,
 `/commit`, …) come from the developer's own environment, not this repo —
 `.claude/` is gitignored and intentionally empty of commands. `/plan` output
 goes to `plans/<slug>.md` (gitignored scratch).
-
-## Workflow
-
-- `main` is protected: all changes go through PRs
-- Feature branches: `feat/<name>`, `fix/<name>`, `chore/<name>`, etc.
