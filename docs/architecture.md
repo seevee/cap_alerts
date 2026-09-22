@@ -962,7 +962,7 @@ profiled 2026-09-19):
 | State | Agency | Feed | Notes |
 | :-- | :-- | :-- | :-- |
 | NSW | NSW Rural Fire Service | `rfs.nsw.gov.au/feeds/majorIncidentsCAP.xml` | 556 KB / 99 alerts; default-namespace CAP; `<incidents>`; HTML in `description` |
-| QLD | Queensland Fire Department | S3 `bushfireAlert_capau.xml` | `cap:`-prefixed; 0.5 km marker circles |
+| QLD | Queensland Fire Department | S3 `bushfireAlert_capau.xml` | `cap:`-prefixed; 0.5 km marker circles; two id families: `QF7-26-110229` incident numbers (stable, the 2026-09-19 capture's were still live on 2026-09-22) and `WARN-n` warnings (a message counter that re-mints on most updates, no `<references>`); `Location` parameter equals `areaDesc` on every alert |
 | WA | DFES Emergency WA | `api.emergency.wa.gov.au/v1/capau` | `cap:`-prefixed; 403 on HEAD and every other path; no `AlertLevel` parameter; `expires == sent`; a malformed `eventCode` (its `valueName` sits outside it) the parser drops |
 | TAS | TasALERT (TFS + SES) | `alert.tas.gov.au/data/cap-au.xml` | multi-hazard (SES storm advice); `<incidents>` with an agency prefix; a real 10 km circle alongside polygons |
 
@@ -988,7 +988,7 @@ differences:
 
 | `CAPAlert` field | Source |
 | :-- | :-- |
-| `id` | `sha256("{state}:{incidents}:{eventCode}")[:12]` where the feed publishes `<incidents>`, else `sha256("{state}:{identifier}")`. NSW and TAS re-mint `identifier` on every update (NSW writes `{sent}:{incident}`, TAS a global counter) and keep `<incidents>` constant; TAS also publishes more than one product per incident (a Bushfire Advice and a Smoke Alert for one fire, #218), which the govshare `eventCode` separates. QLD and WA publish no `<incidents>` and use the identifier |
+| `id` | `sha256("{state}:{incidents}:{eventCode}")[:12]` where the feed publishes `<incidents>`; `sha256("{state}:{areaDesc}:{eventCode}")` for a QLD `WARN-n` warning; else `sha256("{state}:{identifier}")`. NSW and TAS re-mint `identifier` on every update (NSW writes `{sent}:{incident}`, TAS a global counter) and keep `<incidents>` constant; TAS also publishes more than one product per incident (a Bushfire Advice and a Smoke Alert for one fire, #218), which the govshare `eventCode` separates. QLD publishes no `<incidents>` and re-mints `WARN-n` on most updates with nothing on the wire naming the predecessor (#116: 36 re-mints across 74 ids in 46 hours, sampled 2026-09-20 to 09-22); one fire can carry two warnings at once, each for its own street set at its own tier (Teelah, 2026-09-22), so the area description is the key: it separates concurrent warnings and survives a re-issue, and a tier change on one area updates the entity rather than replacing it. QLD `QF…` incident numbers and WA use the identifier; whether WA re-mints is unsampled |
 | `expires` | **never carried.** NSW and TAS stamp the envelope's `dateTimeSent` + 24 h on every alert (receding every poll), QLD `sent` + 24 h, WA `sent` itself, which `normalize` would read as already expired. A regeneration TTL, not an end time |
 | `parameters` | every non-empty CAP parameter; on WA, `AlertLevel` is filled in from the headline so the attribute surface is uniform |
 | `description`, `instruction` | flattened from the HTML NSW and QLD embed (`<br />` → newline, tags dropped, entities unescaped); the dropped anchor targets are the `web` URL |
@@ -1013,8 +1013,10 @@ withdraws it, the GDACS arrangement, and the contract of a "current
 incidents" feed (WA sets RSS `ttl` 1; NSW regenerates every minute or two).
 That is also why a non-200 or unparseable body raises `UpdateFailed` rather
 than returning `[]`: under this rule an empty result says every incident
-ended. Whether QLD mints a new `WARN-n` per update of one fire is
-unobservable from one capture and is a soak item.
+ended. QLD does mint a new `WARN-n` for most updates of one fire (the
+sampler behind #116 saw Teelah run through twelve ids in two days), which
+is why its warnings are keyed on the area description above; on the
+identifier every update would have ended one entity and created another.
 
 **Options.** The shared polling fields plus a minimum alert level (`All`
 default, `Advice`, `Watch and Act`, `Emergency Warning`) on `alert_level`, the

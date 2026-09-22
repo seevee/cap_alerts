@@ -202,6 +202,46 @@ def test_identity_separates_two_products_of_one_incident():
     )
 
 
+def test_qld_warning_identity_survives_a_re_minted_identifier():
+    """QLD re-mints ``WARN-n`` on most updates (#116); the area is the key."""
+    elements = edxl_alert_elements(_fixture("QLD"))
+    assert elements is not None
+    doc = cap_doc_from_element(elements[0])
+    info = select_info(doc, "")
+    assert doc.identifier == "WARN-633"
+    assert doc.incidents == ""
+    first = compute_au_id("QLD", doc, info)
+    doc.identifier = "WARN-700"
+    assert compute_au_id("QLD", doc, info) == first
+    # A second warning for the same fire covers its own street set (Teelah,
+    # 2026-09-22: Seek Shelter Now on one, Prepare to Leave on the other).
+    other = replace(info, area_desc="Old Esk Road and Wild Deer Drive")
+    assert compute_au_id("QLD", doc, other) != first
+    # The key is state-scoped, and a warning with no area text has nothing
+    # stable to read and falls back to the identifier.
+    assert compute_au_id("NSW", doc, info) != first
+    bare = replace(info, area_desc="")
+    assert compute_au_id("QLD", doc, bare) != first
+    doc.identifier = "WARN-701"
+    assert compute_au_id("QLD", doc, bare) != compute_au_id(
+        "QLD", replace(doc, identifier="WARN-700"), bare
+    )
+
+
+def test_qld_incident_numbers_keep_the_identifier():
+    """``QF7-26-110229`` is a stable incident number, not a message counter."""
+    elements = edxl_alert_elements(_fixture("QLD"))
+    assert elements is not None
+    doc = cap_doc_from_element(elements[1])
+    info = select_info(doc, "")
+    assert doc.identifier == "QF7-26-110229"
+    first = compute_au_id("QLD", doc, info)
+    # Two Information rows for one locality run concurrently (AURUKUN on
+    # 2026-09-22), so the area must not become their key.
+    doc.identifier = "QF7-26-110230"
+    assert compute_au_id("QLD", doc, info) != first
+
+
 def test_identity_without_an_event_code_still_keys_on_the_incident():
     """A feed that drops the code (WA's is malformed) degrades to the old key."""
     elements = edxl_alert_elements(_fixture("NSW"))
@@ -385,6 +425,25 @@ async def test_qld_marker_circles_become_points():
     assert iron.geometry["type"] == "Point"
     assert iron.parameters is not None
     assert iron.parameters["AlertLevel"] == "Information"
+
+
+async def test_qld_warning_identity_survives_a_re_minted_identifier_end_to_end():
+    alerts, _ = await _fetch("QLD")
+    first = _by_headline(alerts, "Wongawallan")
+    iron = _by_headline(alerts, "IRON RANGE")
+    assert first.identifier == "WARN-633"
+    body = (
+        _fixture("QLD")
+        .replace("WARN-633", "WARN-700")
+        .replace(
+            "2:29pm Saturday, 19 September 2026", "4:10pm Saturday, 19 September 2026"
+        )
+    )
+    alerts, _ = await _fetch("QLD", body=body)
+    again = _by_headline(alerts, "Wongawallan")
+    assert again.identifier == "WARN-700"
+    assert again.id == first.id
+    assert _by_headline(alerts, "IRON RANGE").id == iron.id
 
 
 async def test_qld_instruction_is_flattened():
