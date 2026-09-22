@@ -39,15 +39,23 @@ fetch raises rather than returning ``[]``: under that rule an empty result
 says every incident ended.
 
 **Identity** is ``sha256("{state}:{incidents}:{eventCode}")[:12]`` where
-the feed publishes CAP ``<incidents>`` and ``sha256("{state}:{identifier}")``
-where not. NSW and TAS re-mint ``identifier`` on every update (NSW writes
+the feed publishes CAP ``<incidents>``, ``sha256("{state}:{areaDesc}:{eventCode}")``
+for a Queensland ``WARN-n`` warning, and ``sha256("{state}:{identifier}")``
+otherwise. NSW and TAS re-mint ``identifier`` on every update (NSW writes
 ``{sent}:{incident}``; TAS a global counter, ``IDT21037-83466`` one day and
 ``-83572`` the next for the same storm) and keep ``<incidents>`` constant, so
 the incident is what holds one entity per fire there. TAS also publishes
 more than one product per incident (a Bushfire Advice and a Smoke Alert for
 the same fire, issue #218), which the govshare ``eventCode`` separates. QLD
-(``WARN-633``) and WA (the warning page's id) publish no ``<incidents>`` and
-use the identifier.
+publishes no ``<incidents>`` and two id families: ``QF7-26-110229`` is a
+stable incident number (the 2026-09-19 capture's ids were still live on
+2026-09-22), while ``WARN-n`` is a per-message counter that re-mints on most
+updates (36 re-mints across 74 ids in a 46-hour sample, issue #116) and
+names no predecessor. One fire can carry two warnings at once, each for its
+own street set at its own tier, and the area description is what tells them
+apart and what a re-issue keeps, so it is the warning's key. WA (the warning
+page's id) publishes no ``<incidents>`` and uses the identifier; whether it
+re-mints is unsampled.
 
 **Location markers.** Every alert on every feed carries exactly one
 ``<circle>`` at a street address — radius ``0`` on NSW and WA, ``0.5`` on
@@ -94,6 +102,11 @@ _LOGGER = logging.getLogger(__name__)
 AU_POINT_RADIUS_KM = 0.5
 
 _CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
+
+# Queensland's warning identifiers. ``WARN-n`` is a per-message counter that
+# re-mints on most updates (issue #116); the feed's other family
+# (``QF7-26-110229``) is a stable incident number and keeps the identifier.
+_QLD_WARNING_ID_RE = re.compile(r"^WARN-\d+$")
 
 # NSW writes its description as a ``<br />``-separated key/value block and
 # QLD's instruction is a list of HTML anchors; the parser hands both over
@@ -149,24 +162,37 @@ def edxl_alert_elements(xml_text: str) -> list[Element] | None:
 
 
 def compute_au_id(state: str, doc: CAPDoc, info: CAPInfoDoc) -> str:
-    """Hash the stable incident reference plus the product to a 12-hex id.
+    """Hash what stays put across a warning's re-issues to a 12-hex id.
 
-    ``<incidents>`` is the identity where a feed publishes it (NSW, TAS) and
-    the identifier where not (QLD, WA). TasALERT publishes more than one
-    product per incident — a Bushfire Advice and a Bushfire Smoke Alert for
-    the same fire, both carrying its ``TFS:…`` reference (issue #218) — so
-    the incident alone would fold them onto one entity and the store would
-    keep whichever the feed listed last. The govshare ``eventCode``
-    (``bushFire`` vs ``smoke``) tells the products apart and does not move
-    across a product's re-issues. The identifier path is left alone: that is
-    already one id per document.
+    ``<incidents>`` is the identity where a feed publishes it (NSW, TAS).
+    TasALERT publishes more than one product per incident — a Bushfire
+    Advice and a Bushfire Smoke Alert for the same fire, both carrying its
+    ``TFS:…`` reference (issue #218) — so the incident alone would fold them
+    onto one entity and the store would keep whichever the feed listed last.
+    The govshare ``eventCode`` (``bushFire`` vs ``smoke``) tells the products
+    apart and does not move across a product's re-issues.
+
+    Queensland publishes no ``<incidents>``. Its ``WARN-n`` warnings re-mint
+    the identifier on most updates and name no predecessor (issue #116), so
+    for those the key is the area description plus the product: a fire can
+    carry two warnings at once, each for its own street set at its own tier
+    (Teelah on 2026-09-22: "Stretton Drive and Scott Close" under Seek
+    Shelter Now beside "Old Esk Road and Wild Deer Drive" under Prepare to
+    Leave), and the area is what separates them and what a re-issue keeps.
+    A tier change on one area is an update of that entity, not a new one.
+    Everything else — QLD's ``QF7-26-110229`` incident numbers, WA, and a
+    warning with no area text — is one id per identifier.
     """
     incidents = doc.incidents.strip()
-    if not incidents:
-        key = f"{state}:{doc.identifier.strip()}"
-    else:
-        product = ",".join(sorted(v for v in info.event_codes.values() if v))
+    identifier = doc.identifier.strip()
+    area = info.area_desc.strip()
+    product = ",".join(sorted(v for v in info.event_codes.values() if v))
+    if incidents:
         key = f"{state}:{incidents}:{product}"
+    elif state == "QLD" and area and _QLD_WARNING_ID_RE.match(identifier):
+        key = f"{state}:{area}:{product}"
+    else:
+        key = f"{state}:{identifier}"
     return hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
