@@ -1,11 +1,12 @@
-# Daily, diff the live provider feeds' vocabulary against the committed
-# baseline (scripts/feed_vocab_probe.py) and surface anything new as a
-# provider-drift issue. Born from issue #172: ECCC's freeform threat-area
-# polygons were visible in the feed as new vocabulary for twelve days before
-# a user report landed. The same run checks the WMO mirror against each
-# source's own feed (#210): a mirror that stops following its source shows a
-# user an empty feed, and that too files here while the source is publishing.
-name: Feed vocabulary
+# Daily, probe the live provider feeds (scripts/feed_vocab_probe.py) and
+# surface anything that changed under us as a provider-drift issue. Two
+# checks share the run. The feeds' vocabulary is diffed against the committed
+# baseline: born from issue #172, where ECCC's freeform threat-area polygons
+# were visible in the feed as new vocabulary for twelve days before a user
+# report landed. And each WMO mirror is checked against its source's own feed
+# (#210): a mirror that stops following its source shows a user an empty
+# feed, and that too files here while the source is publishing.
+name: Provider drift
 
 on:
   workflow_dispatch:
@@ -60,7 +61,7 @@ jobs:
             --json number --jq '.[0].number // empty')
           if [ -z "$existing" ]; then
             gh issue create \
-              --title "Provider feed vocabulary drift" \
+              --title "Provider feed drift" \
               --label provider-drift \
               --body-file drift.md
             exit 0

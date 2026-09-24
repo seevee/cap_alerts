@@ -8,13 +8,13 @@ governance summary, and the integration learned about it twelve days later
 from a user report. Two watch mechanisms now exist, one automated and one
 human.
 
-## The automated half: the vocabulary probe
+## The automated half: the feed probe
 
 `scripts/feed_vocab_probe.py` fetches each provider's live feed, extracts its
 structural vocabulary (element/key paths, geocode schemes, parameter keys,
 and the small closed value sets like severity, lifecycle tokens, and the ECCC
 DLC values), and diffs it against `scripts/feed_vocab_baseline.json`.
-`.github/workflows/feed-vocab.yml` runs it daily and opens or appends to a
+`.github/workflows/provider-drift.yml` runs it daily and opens or appends to a
 `provider-drift` issue when the feed publishes a token the baseline has never
 seen. Daily because each feed shows only a window (NAAD keeps 48 hours, the
 others show what is live now), and the earlier Monday-and-Thursday cadence
@@ -75,10 +75,14 @@ reached it, and a user on `tl-dnmg-en` saw an empty feed, which looks exactly
 like no warnings in force (#210). About 120 of the registry's language feeds
 live on WMO's own `cap-sources` S3 bucket, one file per alert and publicly
 listable, so the probe compares each mirror's newest item with the newest
-`Actual` alert in its bucket and reports a mirror more than a week behind,
-provided the authority has published in the last 90 days. A stall behind a
-dormant source costs no one anything and would only be noise; it files the
-day the source publishes again, since the token was never accepted. On
+`Actual` alert its bucket received at least a week ago and reports a mirror
+that still lacks it, provided the authority has published in the last 90
+days. The week is the mirror's grace: judged against the bucket's newest file
+instead, the probe paged an hour after Senegal's `sn-anacim-fr` published its
+first alert in four months (#238), before the mirror had any chance to catch
+up. A stall behind a dormant source costs no one anything and would only be
+noise; it files a week after the source publishes again, since the token was
+never accepted. On
 2026-09-19, the day it was written, 14 of the 93 mirrored feeds were behind
 and one of them, Egypt's `eg-ema-en`, had a live authority; that one is the
 seeded baseline, the rest are listed under the WMO section of
@@ -109,7 +113,7 @@ nothing in the integration can fix it:
 | MeteoAlarm | no formal channel; [meteoalarm.org](https://meteoalarm.org/) news | probe covers it |
 | WMO SWIC | no formal channel; the [registry record](https://severeweather.wmo.int/v2/json/sources.json) names each authority's contact | probe covers mirror lag on the cap-sources feeds; vocabulary is announcement-only |
 | GDACS | no formal channel; [gdacs.org](https://www.gdacs.org/) | probe covers the indexes |
-| Australia (NSW RFS, QFD, DFES, TasALERT) | no formal channel; each agency's own site, and the [CAP-AU profile page](https://www.bom.gov.au/metadata/CAP-AU/About.shtml) for the national standard | probe covers all four feeds: envelope and alert paths, `AlertLevel` / `IncidentType` values, event codes, geocode schemes, marker-circle radii |
+| Australia (NSW RFS, QFD, DFES, TasALERT) | no formal channel; each agency's own site, and the [CAP-AU profile page](https://www.bom.gov.au/metadata/CAP-AU/About.shtml) for the national standard | probe covers all four feeds: envelope and alert paths, `AlertLevel` values, event codes, geocode schemes, marker-circle radii (`IncidentType` is tracked as a key only, its values are dispatch dictionaries) |
 | BBK / NINA | no formal channel; [BBK NINA pages](https://www.bbk.bund.de/DE/Warnung-Vorsorge/Warn-App-NINA/warn-app-nina_node.html) and the [bund.dev API listing](https://bund.dev/apis) | probe covers the channel indexes, documents, `GROUP` codes, id prefixes |
 
 The dd_info list is the one that would have given months of lead time on CAM;

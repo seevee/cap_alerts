@@ -49,13 +49,13 @@ warnings in force. Vocabulary is not sampled there (per-configured-source
 RSS, no bounded national endpoint), but the ~120 sources whose registry
 ``capAlertFeed`` lives on the cap-sources S3 bucket can be listed, so the
 probe compares each mirror's newest item with the newest ``Actual`` alert
-in its bucket and reports a mirror more than a week behind, provided the
-authority has published in the last 90 days: a stall costs nothing while
-the source is dormant, and it files the day the source publishes again.
-The token carries the date the mirror stopped (``tl-dnmg-en@2023-12-20``),
-so a mirror that recovers and stalls again is new drift. On the day it was
-written 14 of 93 mirrored feeds were behind and one (Egypt) had a live
-authority behind it.
+its bucket received at least a week ago and reports a mirror that still
+lacks it, provided the authority has published in the last 90 days: a stall
+costs nothing while the source is dormant, and it files a week after the
+source publishes again. The token carries the date the mirror stopped
+(``tl-dnmg-en@2023-12-20``), so a mirror that recovers and stalls again is
+new drift. On the day it was written 14 of 93 mirrored feeds were behind and
+one (Egypt) had a live authority behind it.
 
 Usage:
     scripts/feed_vocab_probe.py                    # probe all, diff vs baseline
@@ -68,7 +68,7 @@ Exit status:
     1  drift found (cron-friendly: non-zero means "look at the report")
     2  a provider could not be probed at all (drift, if any, still reported)
 
-Run daily by .github/workflows/feed-vocab.yml, which opens/updates a
+Run daily by .github/workflows/provider-drift.yml, which opens/updates a
 ``provider-drift`` issue from the report (skipping a comment that would only
 repeat tokens already on the open issue). To accept drift, review it, then
 run ``--update`` and PR the baseline change.
@@ -144,11 +144,15 @@ WMO_SOURCES_URL: str = _const.WMO_SOURCES_URL
 # publish through WMO's hosted CAP editor: one folder per language feed,
 # one file per alert, publicly listable. The mirror is supposed to follow it.
 CAP_SOURCES_BUCKET = "https://cap-sources.s3.amazonaws.com/"
-# A mirror whose newest item is this far behind the bucket's newest Actual
-# alert has stopped following it. Authorities here issue a few alerts a
-# month at most, so a week is well inside one alert's lifetime for none of
-# them and comfortably past any ingestion delay the mirror has shown (its
-# worst measured lag before stopping outright was 62 h).
+# The grace the mirror gets to pick up a bucket file. A mirror still missing
+# an Actual alert this long after it reached the bucket has stopped
+# following it. Ingestion normally takes minutes (4 to 7 min across four
+# sources measured on 2026-09-24) and the worst lag measured before a mirror
+# stopped outright was 62 h; a week is comfortably past both, and short
+# against the few alerts a month these authorities issue. Files younger than
+# this are not judged at all: comparing against the bucket's newest file
+# paged one hour after Senegal published its first alert in four months
+# (#238), when the mirror had been given no chance to catch up.
 WMO_MIRROR_LAG = timedelta(days=7)
 # Bodies read back from the newest end of a lagging bucket to find its
 # newest Actual alert (Test and Exercise traffic is not the mirror's job).
@@ -1028,10 +1032,17 @@ def _check_mirror(
     """Classify one feed: (prefix, verdict, token, witness URL).
 
     Verdicts: ``unmirrored`` (the mirror 404s), ``quiet`` (no Actual alert
-    in the bucket's newest files), ``fresh``, ``dormant`` (behind, but the
-    authority has not published within ``WMO_SOURCE_ACTIVE``), or ``lag``.
-    The bucket's upload times gate the comparison so bodies are only read
-    back for a feed that already looks behind and whose source is awake.
+    among the bucket's settled files), ``settling`` (every file is younger
+    than ``WMO_MIRROR_LAG``, so the mirror has not had its grace yet),
+    ``fresh``, ``dormant`` (behind, but the authority has not published
+    within ``WMO_SOURCE_ACTIVE``), or ``lag``.
+
+    Only files the mirror has had ``WMO_MIRROR_LAG`` to pick up are judged,
+    and the mirror is fresh when its newest item is no older than the newest
+    of them: the mirror stamps an item with its ingestion time, minutes
+    after the upload. The bucket's upload times gate the comparison so
+    bodies are only read back for a feed that already looks behind and
+    whose source is awake.
     """
     mirror = _mirror_newest(prefix, timeout)
     if mirror is None:
@@ -1040,16 +1051,21 @@ def _check_mirror(
     keys = _s3_alert_keys(prefix, timeout)
     if not keys:
         return prefix, "quiet", None, None
-    if mirror_newest is not None and keys[-1][0] - mirror_newest <= WMO_MIRROR_LAG:
-        return prefix, "fresh", None, None
     now = datetime.now(timezone.utc)
-    if now - keys[-1][0] > WMO_SOURCE_ACTIVE:
+    settled = [
+        (uploaded, key) for uploaded, key in keys if now - uploaded > WMO_MIRROR_LAG
+    ]
+    if not settled:
+        return prefix, "settling", None, None
+    if mirror_newest is not None and mirror_newest >= settled[-1][0]:
+        return prefix, "fresh", None, None
+    if now - settled[-1][0] > WMO_SOURCE_ACTIVE:
         return prefix, "dormant", None, None
-    actual = _newest_actual(keys, timeout)
+    actual = _newest_actual(settled, timeout)
     if actual is None:
         return prefix, "quiet", None, None
     uploaded, key = actual
-    if mirror_newest is not None and uploaded - mirror_newest <= WMO_MIRROR_LAG:
+    if mirror_newest is not None and mirror_newest >= uploaded:
         return prefix, "fresh", None, None
     if now - uploaded > WMO_SOURCE_ACTIVE:
         return prefix, "dormant", None, None
@@ -1158,7 +1174,7 @@ def build_report(
     reader can open the documents while the feed still has them.
     """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    lines = [f"Feed vocabulary probe, {today}."]
+    lines = [f"Provider feed probe, {today}."]
     for provider, buckets in sorted(drift.items()):
         seen = (witnesses or {}).get(provider, {})
         lines.append("")
@@ -1206,10 +1222,14 @@ def probe_au(timeout: float) -> Sample:
     Each feed is one EDXL-DE document, so there is nothing to sample: every
     ``<alert>`` is read. Tracked beyond the CAP enums are the parameter keys
     (three feeds carry the tier in ``AlertLevel``; a fourth starting to would
-    change how WA is read), the tier values themselves, ``IncidentType`` (the
-    icon classifier's second input), the govshare event codes, geocode
-    schemes and the marker-circle radii — the provider reads circles up to
-    0.5 km as points, so a feed moving its marker radius shows up here.
+    change how WA is read), the tier values themselves, the govshare event
+    codes, geocode schemes and the marker-circle radii — the provider reads
+    circles up to 0.5 km as points, so a feed moving its marker radius shows
+    up here. ``IncidentType`` is a parameter key only: its values are each
+    agency's dispatch dictionary, which filled in one rare member at a time
+    over four rounds in five days (#217, #235, #238), and the one reader, the
+    icon classifier, degrades to the fallback icon on a member it has no
+    needle for.
     """
     sample = Sample()
     failures: list[str] = []
@@ -1254,7 +1274,7 @@ def probe_au(timeout: float) -> Sample:
                 for param in info.findall(f"{{{NS_CAP}}}parameter"):
                     name = (param.findtext(f"{{{NS_CAP}}}valueName", "") or "").strip()
                     sample.add("parameter_keys", name, alert_id)
-                    if name in ("AlertLevel", "IncidentType"):
+                    if name == "AlertLevel":
                         sample.add(
                             f"values.{name}",
                             param.findtext(f"{{{NS_CAP}}}value"),
@@ -1280,7 +1300,10 @@ def probe_au(timeout: float) -> Sample:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Diff live provider feed vocabulary against the baseline."
+        description=(
+            "Probe the live provider feeds: diff their vocabulary against the "
+            "baseline and check each WMO mirror against its source."
+        )
     )
     parser.add_argument(
         "--providers",
