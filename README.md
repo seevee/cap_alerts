@@ -281,7 +281,7 @@ Per-field mappings and the reasoning behind each provider are in
 | [`docs/events.md`](docs/events.md) | Event payload schema and lifecycle semantics |
 | [`docs/architecture.md`](docs/architecture.md) | Alert identity, provider mappings, normalization, design rationale |
 | [`docs/roadmap.md`](docs/roadmap.md) | Planned work that has no issue yet |
-| [`docs/provider-watch.md`](docs/provider-watch.md) | Feed vocabulary drift monitoring and the response playbook |
+| [`docs/provider-watch.md`](docs/provider-watch.md) | Provider drift monitoring (feed vocabulary, WMO mirror lag) and the response playbook |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Dev setup, test gates, adding a provider, translations |
 | [`CHANGELOG.md`](CHANGELOG.md) | Generated release history |
 
