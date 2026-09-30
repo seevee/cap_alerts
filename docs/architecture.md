@@ -777,8 +777,14 @@ Mirrors known to lag on 2026-09-19, with the date of their newest item:
 `cg-anac-en` (2024-11-08), `ls-lms-st` (2025-05-21), `eg-ema-en`
 (2026-08-01), and five that have never carried an item their authority
 published: `af-andma-en`, `ao-inamet-pt`, `cf-dmn-fr`, `gw-inm-fr`,
-`sr-meteo-en`/`-nl`. The probe's baseline is the maintained list; this one is
-a snapshot.
+`sr-meteo-en`/`-nl`. Cameroon's `cm-meteo-fr` joined the list on 2026-09-29
+with a different shape: the mirror never stopped, it drops files. 37 of the
+107 alerts the bucket has held since 2022-12 are absent from the mirror,
+including the two newest, one of them a storm warning in force at the time.
+The probe only pages a lossy mirror while its newest skip is also the bucket's
+newest settled file, so the token reads as a stall (`cm-meteo-fr@2026-09-15`)
+and a later skip files again under a new date. The probe's baseline is the
+maintained list; this one is a snapshot.
 
 **Shared CAP parsing**: the CAP body parsing lives in the provider-neutral
 `providers/cap.py` module, used verbatim by both WMO and ECCC. `parse_cap_alert`

@@ -89,7 +89,10 @@ seeded baseline, the rest are listed under the WMO section of
 `docs/architecture.md`. The `mirror_lag` token carries the
 date the mirror stopped (`tl-dnmg-en@2023-12-20`), so a mirror that recovers
 and stalls again is new drift, and the witness is the newest alert the mirror
-is missing.
+is missing. A mirror can also be lossy rather than stalled: `cm-meteo-fr` has
+skipped about a third of its bucket's files since 2022 and only paged (#240)
+once a skipped file was the newest settled one, so a token's date is where the
+mirror's feed ends, not necessarily where the loss began.
 
 Responding to a mirror-lag token is different from vocabulary drift, since
 nothing in the integration can fix it:

@@ -133,6 +133,7 @@
   ],
   "values.eventCode": [
    "Bushfire",
+   "Chemical",
    "Facility Closure",
    "OtherUrgent",
    "Smoke",
@@ -1136,6 +1137,7 @@
  },
  "wmo": {
   "mirror_lag": [
+   "cm-meteo-fr@2026-09-15",
    "eg-ema-en@2026-08-01"
   ]
  }
