@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.6.0 (2026-10-01)
+
+### Added
+- Add the BBK / NINA provider for Germany (#66) (#212)
+- Add the Australian CAP-AU provider (#127) (#213)
+
+### Fixed
+- Keep a wrapped breaking description inside the callout (#209)
+- Cover the #217 follow-ups: BBK all-clears, three icon needles (#220)
+- Key incident-identified alerts on the product too (#218) (#221)
+- Pin the clock in the MoWaS all-clear phase test (#225)
+- Key Queensland warnings on the area, not the re-minted WARN-n (#233)
+
+### Documentation
+- Orient cold readers and hold AGENTS.md to its own wrap rule (#224)
+
+### Internal
+- Watch the WMO mirror against each source's own feed (#210) (#211)
+- Accept the first AU and BBK vocabulary run (#217) (#219)
+- Run mypy strict and ruff's curated default set (#226)
+- Add Hypothesis property tests, catch defusedxml refusals (#227)
+- Pin defusedxml to 0.7.1 (#228)
+- Bump the test pins before the next alpha (#229)
+- Accept WA Thunderstorm eventCode (#231) (#232)
+- Accept four NSW incident types (#235) (#236)
+- Judge a mirror only on files it has had a week (#238) (#239)
+- Accept WA hazmat eventCode and the Cameroon mirror lag (#240) (#241)
+- Require defusedxml>=0.7.1 instead of pinning it (#243)
+
 ## 0.5.1 (2026-09-18)
 
 ### Added
@@ -12,6 +41,9 @@
 
 ### Documentation
 - Restructure for HACS users, move dev material to CONTRIBUTING (#200)
+
+### Internal
+- Order groups, link closed issues, ship the PR body as notes (#208)
 
 ## 0.5.0 (2026-09-14)
 
