@@ -1454,16 +1454,19 @@ fit. Priority decides who pays, strictly — one field's expendable text is spen
 in full before the next gives up a byte, because proportional shaving damages the
 field the user needs in order to spare the one nobody reads:
 
-1. `description_alt`, 2. `instruction_alt`, 3. `description`, 4. `instruction` —
-   both alternates before either primary, since the primary is the language the
-   user asked for; the instruction outlives the description within a language,
-   being the protective-action text.
-5. `affected_zone_uris` — a fixed prefix plus the codes already in
+1. `description_alt`, 2. `instruction_alt`, 3. `area_desc`, 4. `description`,
+   5. `instruction` — both alternates before either primary, since the primary
+   is the language the user asked for; the area list before the primary text,
+   since a comma-joined run of place names reads as well cut short as whole and
+   on a wide alert dwarfs the text (#245); the instruction outlives the
+   description within a language, being the protective-action text.
+6. `affected_zone_uris` — a fixed prefix plus the codes already in
    `affected_zones`.
 
 A field trimmed below 160 bytes is dropped instead: a fragment tells a consumer
 less than an absence does. Truncation keeps the trailing `…` at a UTF-8
-character boundary.
+character boundary; `area_desc` backs off further to its last `, ` so the list
+ends on a whole name (#245).
 
 The `geocode_*` aliases were a sixth rung until measurement said otherwise. They
 duplicated the container outright — 5,510 bytes of the overflowing alert, the
@@ -1477,14 +1480,31 @@ other alert carrying the same waste.
 `AlertEntity` declares `parameters` unrecorded — the providers' verbatim
 `<parameter>` catch-all, unbounded and source-controlled — so the one term
 nothing here can bound drops out of the bound entirely while staying on the state
-for templates and the card. The budget is 15,800 rather than 16,384, reserving
-584 bytes for the `friendly_name` and `icon` HA appends after
-`extra_state_attributes` returns.
+for templates and the card. `geocodes` joined it in 0.6.1 (#245): it grows with
+the area count, and every known consumer reads it off the live state, which the
+exclusion never touches. Exporters fed by `state_changed` (InfluxDB, MQTT
+statestream) still receive it in full; only the recorder's history goes without.
+The budget is 15,800 rather than 16,384, reserving 584 bytes for the
+`friendly_name` and `icon` HA appends after `extra_state_attributes` returns.
 
 Live result, same sweep after the change: the worst alert fell from 19,084 bytes
 to 16,122 on de-duplication alone, records at 14,327 with `parameters` excluded,
 and nothing in 443 alerts needed trimming at all. The budget is the backstop it
 should be rather than something every big alert runs into.
+
+The backstop then lost once. On 2026-09-30 an ECCC frost advisory for
+Saskatchewan covered 291 areas: 14,072 bytes of `area_desc`, 12,245 of
+`geocodes` (291 CLC plus 847 SGC codes), 1,837 of text, 28,119 in all. The
+ladder deleted all four text fields and was still 10 KB over, so the recorder
+dropped the attributes and the entity showed no description — the trim had cost
+the user the text and bought nothing (#245). With `geocodes` unrecorded the same
+document is 1,201 bytes over instead of 12,319, and the ladder settles it
+without touching the text the user asked for: the two English alternates go
+(each would survive only as a stub), and the area list loses its last few
+names. An alert the ladder still cannot fit is logged at
+warning once per alert id, debug thereafter; it used to say so only at debug,
+which is why #245 was found in the recorder's log rather than this
+integration's.
 
 ### Event payload schema (§2.3)
 
