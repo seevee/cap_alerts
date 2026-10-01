@@ -1268,9 +1268,11 @@ def probe_au(timeout: float) -> Sample:
                         ec.findtext(f"{{{NS_CAP}}}valueName"),
                         alert_id,
                     )
-                    sample.add(
-                        "values.eventCode", ec.findtext(f"{{{NS_CAP}}}value"), alert_id
-                    )
+                    # DFES packs one <value> per <event> into a single
+                    # <eventCode> (a hazmat warning carries four); findtext
+                    # would read only the first.
+                    for value in ec.findall(f"{{{NS_CAP}}}value"):
+                        sample.add("values.eventCode", value.text, alert_id)
                 for param in info.findall(f"{{{NS_CAP}}}parameter"):
                     name = (param.findtext(f"{{{NS_CAP}}}valueName", "") or "").strip()
                     sample.add("parameter_keys", name, alert_id)
