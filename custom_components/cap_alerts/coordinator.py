@@ -518,6 +518,11 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._store.release(alert_id, entity_id)
 
     @property
+    def boot_pending_ids(self) -> frozenset[str]:
+        """Alert ids known before the restart that no fetch has settled yet."""
+        return self._store.boot_pending
+
+    @property
     def resolved_config(self) -> Mapping[str, Any]:
         """Entry data as the last resolution left it, or the raw data before one."""
         if self._resolved_config is None:
@@ -584,11 +589,13 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         except aiohttp.ClientError as err:
             raise UpdateFailed(f"{self._provider.name}: {err}") from err
 
-        data = await self._apply(alerts)
+        data = await self._apply(alerts, fetched=True)
         self.last_update_success_time = datetime.now(timezone.utc)
         return data
 
-    async def _apply(self, alerts: list[CAPAlert]) -> dict[str, CAPAlert]:
+    async def _apply(
+        self, alerts: list[CAPAlert], *, fetched: bool
+    ) -> dict[str, CAPAlert]:
         """Run the shared post-fetch pipeline and index the active set by ID.
 
         Normalize → marine filter → geocode filter → geometry externalization →
@@ -599,7 +606,9 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         Deliberately does *not* stamp ``last_update_success_time``: the streaming
         path runs this pipeline on every heartbeat with no network I/O, and the
         "Last updated" sensor reports when data was last *fetched*, not when the
-        active set was last recomputed. Only the fetch-backed callers stamp it.
+        active set was last recomputed. Only the fetch-backed callers stamp it,
+        and only they set ``fetched``, which is what the store's boot grace
+        counts (issue #252).
         """
         # Shared normalization. The full normalized list — including
         # cancelled/expired alerts — is handed to store.process so it can
@@ -639,6 +648,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
                 for doc in self._live_docs.values()
                 for _, ref_id, _ in doc.references
             ),
+            fetched=fetched,
         )
         self._scope_changed = False
         # Index by ID for O(1) lookup
@@ -829,7 +839,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             alerts = build_alerts_from_cap_docs(
                 list(self._live_docs.values()), **self._build_kwargs(config, options)
             )
-            data = await self._apply(alerts)
+            data = await self._apply(alerts, fetched=True)
         self.last_update_success_time = datetime.now(timezone.utc)
         return data
 
@@ -852,7 +862,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             alerts = build_alerts_from_cap_docs(
                 list(self._live_docs.values()), **build_kwargs
             )
-            data = await self._apply(alerts)
+            data = await self._apply(alerts, fetched=False)
         self._async_push_data(data)
 
     async def _on_backfill_needed(self) -> None:

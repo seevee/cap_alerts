@@ -110,6 +110,39 @@ def test_alert_ended_during_downtime_is_removed_after_grace(
     assert len(_fired(hass)) == 1
 
 
+def test_stream_rebuilds_do_not_spend_the_grace(hass, registry, alert_factory):
+    """Only a fetch can say a known alert is gone (issue #252).
+
+    On ECCC streaming the second reconciliation is a heartbeat a minute after
+    boot, and the backfill that seeded the store drops live alerts. Counting it
+    would announce an alert still in force as ended.
+    """
+    _known(registry, "gone")
+    store = AlertStore(hass, "entry1", "nws")
+
+    store.process([])
+    for _ in range(3):
+        store.process([], fetched=False)
+    assert _fired(hass) == []
+    assert store.boot_pending == {"gone"}
+
+    store.process([])
+    assert _fired(hass) == [(EVENT_INCIDENT_REMOVED, "gone")]
+    assert store.boot_pending == frozenset()
+
+
+def test_stream_sighting_settles_a_known_alert(hass, registry, alert_factory):
+    """A streamed document is still a sighting, fetch or not."""
+    _known(registry, "a", "b")
+    store = AlertStore(hass, "entry1", "nws")
+
+    store.process([])
+    store.process([alert_factory(id="a", phase="update")], fetched=False)
+
+    assert store.boot_pending == {"b"}
+    assert _fired(hass) == []
+
+
 def test_known_alert_back_within_grace_is_not_news(hass, registry, alert_factory):
     _known(registry, "a")
     store = AlertStore(hass, "entry1", "nws")
