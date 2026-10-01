@@ -226,6 +226,23 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
     def device_info(self) -> DeviceInfo:
         return self.coordinator.device_info
 
+    async def async_added_to_hass(self) -> None:
+        """Release the store's parked events once this entity is in place.
+
+        ``incident_created`` for a first sighting waits in the store until the
+        entity it names exists (issue #249). Home Assistant writes the first
+        state synchronously right after this method returns, so the release is
+        scheduled one loop turn out rather than called here: a ``@callback``
+        bus listener that reads ``states.get(entity_id)`` on the event then
+        finds the alert's attributes, which is what a kiosk pop-up wants. An
+        entity restored from the registry at boot has nothing parked, so for
+        it the call is a no-op.
+        """
+        await super().async_added_to_hass()
+        self.hass.loop.call_soon(
+            self.coordinator.async_release_events, self._alert_id, self.entity_id
+        )
+
     @property
     def _alert(self) -> CAPAlert | None:
         alerts = self.coordinator.data or {}

@@ -53,11 +53,35 @@ TOMBSTONE_IDLE_TTL = timedelta(hours=48)
 class AlertStore:
     """Tracks alert state across poll cycles for transition detection."""
 
-    def __init__(self, hass: HomeAssistant, entry_id: str, provider: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        provider: str,
+        *,
+        defer_until_registered: bool = False,
+    ) -> None:
         self._hass = hass
         self._entry_id = entry_id
         self._provider = provider
         self._previous: dict[str, CAPAlert] = {}
+        # Whether a created/updated event for an alert with no entity yet waits
+        # for ``release`` (issue #249). ``process()`` runs inside the
+        # coordinator's update, and the alert's entity is only added by the
+        # sensor platform's listener afterwards, so the registry lookup in
+        # ``_fire_event`` missed on every first sighting and ``incident_created``
+        # never carried ``entity_id``. Off by default only because the store's
+        # unit tests build it over a mock ``hass`` with no platform behind it
+        # and read events off the bus in firing order; nothing parks forever
+        # either way, ``process()`` flushes leftovers first thing. The
+        # coordinator, the one production constructor, turns it on.
+        self._defer_until_registered = defer_until_registered
+        # alert id → (event type, payload) waiting for the entity to register.
+        # At most one per id: a reconciliation fires one created/updated per
+        # alert, and the next one flushes before it fires anything. Released by
+        # ``release`` with the entity_id the platform assigned, or flushed by
+        # the next ``process()``.
+        self._deferred: dict[str, tuple[str, dict[str, Any]]] = {}
         # id → ISO timestamp of the last reconciliation that observed the alert.
         # Kept beside the alerts rather than on them so that confirming an alert
         # does not rewrite an attribute every cycle: ``last_confirmed`` is only
@@ -142,6 +166,10 @@ class AlertStore:
         Returns only the active alerts (``phase`` ∈ ``{new, update}``),
         with ``previous_phase`` and ``phase_changed`` set.
         """
+        # Anything still parked from the last reconciliation goes out before
+        # this one's events, so an alert's own events never reorder (#249).
+        self._flush_deferred()
+
         incoming = {a.id: a for a in alerts}
         active: dict[str, CAPAlert] = {}
         result: list[CAPAlert] = []
@@ -434,15 +462,59 @@ class AlertStore:
                 successor = _superseded_by(alert)
                 if successor:
                     payload["superseded_by"] = successor
-        # entity_id: look up via entity registry by unique_id.
-        # On first sighting the entity isn't registered yet; omit the key.
-        unique_id = f"{self._entry_id}_{self._provider}_{alert.id}"
-        ent_reg = er.async_get(self._hass)
-        entity_id = ent_reg.async_get_entity_id("sensor", DOMAIN, unique_id)
+        entity_id = self._lookup_entity_id(alert.id)
         if entity_id is not None:
             payload["entity_id"] = entity_id
+        elif self._defer_until_registered and event_type != EVENT_INCIDENT_REMOVED:
+            # First sighting: the entity is added by the sensor platform after
+            # this reconciliation returns. Park the event until it registers
+            # (issue #249). A removal is never parked — either the entity exists
+            # and the lookup above found it, or the first sighting was already
+            # terminal and no entity will ever be created for it.
+            self._deferred[alert.id] = (event_type, payload)
+            return
 
         self._hass.bus.async_fire(event_type, payload)
+
+    def release(self, alert_id: str, entity_id: str) -> None:
+        """Fire the events parked for ``alert_id`` now that its entity exists.
+
+        Called by the alert entity once Home Assistant has added it and written
+        its first state, so a bus listener that reads ``states.get(entity_id)``
+        in response finds the alert's attributes there (issue #249). A no-op
+        for an alert with nothing parked, which is every entity restored from
+        the registry at boot.
+        """
+        parked = self._deferred.pop(alert_id, None)
+        if parked is None:
+            return
+        event_type, payload = parked
+        payload["entity_id"] = entity_id
+        self._hass.bus.async_fire(event_type, payload)
+
+    def _flush_deferred(self) -> None:
+        """Fire whatever ``release`` never came for, a reconciliation late.
+
+        The entity's ``async_added_to_hass`` is the normal release and it does
+        not run for every registered entity: Home Assistant creates the
+        registry entry and then aborts the add when the entity is disabled or
+        its entity_id is already taken, and under streaming a heartbeat can
+        reconcile again before the add task has finished. So the lookup is
+        re-run here rather than firing bare — the entity is usually registered
+        by now, and the key is only omitted when it genuinely never was.
+        """
+        deferred, self._deferred = self._deferred, {}
+        for alert_id, (event_type, payload) in deferred.items():
+            entity_id = self._lookup_entity_id(alert_id)
+            if entity_id is not None:
+                payload["entity_id"] = entity_id
+            self._hass.bus.async_fire(event_type, payload)
+
+    def _lookup_entity_id(self, alert_id: str) -> str | None:
+        """The registered entity_id for ``alert_id``, or None if there is none yet."""
+        unique_id = f"{self._entry_id}_{self._provider}_{alert_id}"
+        ent_reg = er.async_get(self._hass)
+        return ent_reg.async_get_entity_id("sensor", DOMAIN, unique_id)
 
 
 def _removal_reason(alert: CAPAlert) -> str:

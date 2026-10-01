@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from homeassistant.core import State, callback
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -91,3 +92,53 @@ async def test_alert_entity_id_carries_the_device_prefix(
     # And the suggestion itself is still the documented shape.
     assert suggested.startswith("cap_alert_")
     assert len(suggested.rsplit("_", 1)[1]) == 8
+
+
+@pytest.mark.asyncio
+async def test_incident_created_names_a_registered_entity_with_state(
+    hass, aioclient_mock, enable_custom_integrations
+):
+    """The first sighting's event fires once its entity exists (issue #249).
+
+    The store diffs inside the first refresh, before the sensor platform has
+    run, so firing from there left ``entity_id`` off every creation. The event
+    now waits for the entity, and fires after its first state write: a listener
+    reading ``states.get(entity_id)`` as the event lands finds the attributes.
+    """
+    cap_url = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_url))
+    aioclient_mock.get(cap_url, text=_cap_xml("urn:oid:A", "Wind Warning"))
+
+    # Snapshot the state *as the event fires*, not after everything settles;
+    # a check made later would pass whatever the ordering.
+    seen: list[tuple[dict, State | None]] = []
+
+    @callback
+    def _on_created(event) -> None:
+        seen.append((event.data, hass.states.get(event.data.get("entity_id", ""))))
+
+    hass.bus.async_listen("incident_created", _on_created)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="ECCC: Ontario",
+        data={"provider": "eccc", "province": "ON"},
+        options={"streaming": False, "scan_interval": 300},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+    registered = [
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.unique_id.startswith(f"{entry.entry_id}_eccc_")
+    ]
+    assert len(registered) == 1
+
+    assert len(seen) == 1
+    data, state = seen[0]
+    assert data["entity_id"] == registered[0].entity_id
+    assert state is not None
+    assert state.attributes["headline"] == "Wind Warning in effect"
