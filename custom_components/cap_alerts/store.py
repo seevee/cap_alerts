@@ -81,6 +81,21 @@ class AlertStore:
         # lineage going live again) pops the referenced identifiers back out,
         # so a later, genuine ending of the same lineage is not swallowed too.
         self._tombstoned_identifiers: dict[str, datetime] = {}
+        # Alert ids this entry had entities for before the boot, not yet seen by
+        # a reconciliation (issue #250). The store is in-memory, so after a
+        # restart ``_previous`` is empty and every live alert would read as new;
+        # the entity registry survived, and its ids under this entry's prefix
+        # are exactly the set known before the boot. Read here rather than
+        # borrowed from the sensor platform, which hydrates only after the first
+        # refresh has already run. An id seen live is re-validated silently; one
+        # still unseen after the sensor's one-cycle grace is announced as ended.
+        alert_prefix = f"{entry_id}_{provider}_"
+        self._known_at_boot: set[str] = {
+            ent.unique_id.removeprefix(alert_prefix)
+            for ent in er.async_entries_for_config_entry(er.async_get(hass), entry_id)
+            if ent.unique_id.startswith(alert_prefix)
+        }
+        self._reconciliations = 0
 
     def process(
         self,
@@ -214,6 +229,11 @@ class AlertStore:
                         phase_changed=phase_changed,
                         changed_fields=_diff_fields(superseded_prev, alert),
                     )
+                elif alert_id in self._known_at_boot and not terminal:
+                    # Live before the restart and live now: a re-validation,
+                    # not news. The entity already exists and picks up the
+                    # fresh content on this cycle.
+                    updated = replace(alert, phase_changed=False)
                 else:
                     updated = replace(alert, phase_changed=True)
                     if terminal:
@@ -313,6 +333,8 @@ class AlertStore:
                 changed_fields=[],
             )
 
+        self._reconcile_known_at_boot(incoming, now)
+
         now_iso = now.isoformat()
         for alert_id in incoming:
             if alert_id in active:
@@ -325,6 +347,36 @@ class AlertStore:
 
         self._previous = active
         return result
+
+    def _reconcile_known_at_boot(
+        self, incoming: dict[str, CAPAlert], now: datetime
+    ) -> None:
+        """Announce the pre-restart alerts that ended while HA was down (#250).
+
+        Every id seen this cycle has been handled above, live or terminal, so
+        it leaves the set. What remains on the second reconciliation is an
+        alert the registry knew and upstream no longer publishes — the same
+        point at which the sensor platform's grace window lets the entity go.
+
+        The registry holds ids only, so the removal carries no content: phase
+        ``cancel``, no ``removal_reason``. Honest about what is known, which is
+        that it ended while we were not looking.
+        """
+        if not self._known_at_boot:
+            return
+        self._known_at_boot -= incoming.keys()
+        self._reconciliations += 1
+        if self._reconciliations < 2:
+            return
+        for alert_id in sorted(self._known_at_boot):
+            self._tombstone(alert_id, "", now)
+            self._fire_event(
+                EVENT_INCIDENT_REMOVED,
+                CAPAlert(id=alert_id, provider=self._provider, phase="cancel"),
+                phase_changed=True,
+                changed_fields=[],
+            )
+        self._known_at_boot.clear()
 
     def _tombstone(self, alert_id: str, identifier: str, now: datetime) -> None:
         """Record an announced ending under both its id and its CAP identifier.
