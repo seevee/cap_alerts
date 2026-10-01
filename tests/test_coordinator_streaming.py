@@ -542,6 +542,16 @@ async def test_streamed_revision_fires_incident_updated(
 
     assert hass.states.get(count_id).state == "1"  # superseded, not duplicated
     assert len(events) == 1
+    # The superseding alert has a new id, so its entity did not exist when the
+    # store diffed; the event waited for it and names the one entity left (#249).
+    alert_prefix = f"{entry.entry_id}_eccc_"
+    alert_entities = [
+        e.entity_id
+        for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        if e.unique_id.startswith(alert_prefix)
+    ]
+    assert events[0].data["entity_id"] in alert_entities
+    assert len(alert_entities) == 1
 
 
 def _ended_cap_xml(

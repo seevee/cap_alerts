@@ -19,7 +19,7 @@ Event names match the RFC §2.3 `incident_*` contract.
 | `phase` | `str` | §2.3 | Current phase: `new` / `update` / `cancel` / `expired`. On `incident_removed`, carries the terminal phase. |
 | `phase_changed` | `bool` | §2.3 | `True` on first sighting, or when `phase` differs from the previous poll. |
 | `changed_fields` | `list[str]` | §2.3 | Allowlisted fields that changed since the previous poll: `headline`, `description`, `instruction`, `severity_normalized`, `phase`, `expires`, `area_desc`. Empty on creation and on silent-disappearance removal. |
-| `entity_id` | `str` | §2.3 | Omitted on the very first sighting (the entity has not yet been registered). |
+| `entity_id` | `str` | §2.3 | Present whenever the alert has an entity: `incident_created` and `incident_updated` fire once it is registered. Omitted only on an `incident_removed` for an alert that never had one (first sighting already terminal). See *`entity_id` is always there* below. |
 | `entry_id` | `str` | extension | Config entry id. Useful when a Home Assistant install has multiple CAP Alerts entries (e.g. two NWS zones). Not in the RFC. |
 | `area_desc` | `str` | extension | Human-readable area description, denormalized onto the event for convenience. Not in the RFC. |
 | `removal_reason` | `str` | extension | Why the alert went away: `superseded` or `ended`. Fires on `incident_removed` only, and **omitted** whenever the provider gave no recognized reason. See below. Not in the RFC. |
@@ -28,6 +28,27 @@ Event names match the RFC §2.3 `incident_*` contract.
 `previous_phase` is **not** on the event payload. Consumers can reconstruct
 it when `phase` appears in `changed_fields`: the previous phase was whatever
 `phase` is now minus the transition.
+
+### `entity_id` is always there
+
+The store diffs a poll inside the coordinator's refresh, and the sensor
+platform adds the entities for new alerts afterwards. Firing from the diff
+meant every `incident_created` ran its registry lookup before there was
+anything to find, so the key was missing on every creation in normal operation
+(issue #249). Creations, and the `incident_updated` a cross-poll supersession
+fires for an alert with a new id, now wait in the store until the entity is
+added and fire from the entity itself.
+
+They fire *after* the entity's first state write. A bus listener can read
+`states.get(entity_id)` on the event and find the alert's attributes, which is
+what a pop-up that wants `description` or `instruction` needs.
+
+Two things follow for ordering. Within one poll, removals can now land before
+creations. An alert's own events never reorder: anything still waiting at the
+next poll fires first, ahead of that poll's events. That late fire is the
+fallback for an entity Home Assistant registered but never added (one disabled
+in the registry, say); it re-runs the lookup, so the key is there when the
+registry has an entry and omitted only when it genuinely never did.
 
 ### MeteoFrance episodes
 

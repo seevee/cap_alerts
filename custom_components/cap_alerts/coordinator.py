@@ -249,7 +249,9 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         cap_content_cache: CAPContentCache | None = None,
     ) -> None:
         self._provider = provider
-        self._store = AlertStore(hass, entry.entry_id, provider.name)
+        self._store = AlertStore(
+            hass, entry.entry_id, provider.name, defer_until_registered=True
+        )
         self._geometry_store = geometry_store
         self._user_agent = user_agent
         self._cap_content_cache = cap_content_cache
@@ -503,6 +505,17 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     def geometry_store(self) -> GeometryStore:
         """The shared polygon store, for diagnostics."""
         return self._geometry_store
+
+    @callback
+    def async_release_events(self, alert_id: str, entity_id: str) -> None:
+        """Let the store fire the events it parked for a newly added alert entity.
+
+        ``store.process`` runs inside the refresh and the sensor platform adds
+        the alert's entity afterwards, so a first sighting's events wait here
+        for the entity_id the platform assigned (issue #249). The entity calls
+        this from ``async_added_to_hass``.
+        """
+        self._store.release(alert_id, entity_id)
 
     @property
     def resolved_config(self) -> Mapping[str, Any]:
