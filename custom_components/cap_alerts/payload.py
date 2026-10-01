@@ -24,6 +24,15 @@ ceiling applies to ``state.attributes`` minus ``ALL_DOMAIN_EXCLUDE_ATTRS`` and
 minus the entity's own ``_unrecorded_attributes``, which is a smaller set than
 ``to_attributes()`` returns. Declaring ``parameters`` unrecorded therefore takes
 the one unbounded provider-controlled term out of the bound for free.
+
+Issue #245 found the other one. A Saskatchewan frost advisory covering 291 areas
+carried 14,072 bytes of ``area_desc`` and 12,245 of ``geocodes`` (291 CLC plus
+847 SGC codes) against 1,837 bytes of text: the ladder spent every text field
+and still left the payload 10 KB over. ``geocodes`` is unrecorded now, like
+``parameters``, so it stays complete on the live state (the card and automations
+read it there) and only history loses it. ``area_desc`` joined the ladder ahead
+of the primary text, so a list of 291 municipality names is what gets cut before
+the description does.
 """
 
 from __future__ import annotations
@@ -58,19 +67,28 @@ _RECORDER_EXCLUDED = frozenset(
 )
 
 # Attributes the alert entity declares unrecorded, so they neither count toward
-# the bound nor land in history. ``parameters`` is the providers' verbatim
-# ``<parameter>`` catch-all: unbounded, source-controlled, and already excluded
-# from ``store.CHANGED_FIELDS_ALLOWLIST``, so nothing downstream diffs it.
-UNRECORDED_ATTRIBUTES = frozenset({"parameters"})
+# the bound nor land in history. Both are unbounded and source-controlled.
+# ``parameters`` is the providers' verbatim ``<parameter>`` catch-all, already
+# excluded from ``store.CHANGED_FIELDS_ALLOWLIST``, so nothing downstream diffs
+# it. ``geocodes`` grows with the area count — 1,138 codes on the #245 advisory —
+# and every known consumer (the card's zone filter, templates, automations)
+# reads it off the live state, which the recorder's exclusion never touches.
+# Exporters fed by ``state_changed`` (InfluxDB, MQTT statestream) still see it
+# in full; only the recorder's own history goes without.
+UNRECORDED_ATTRIBUTES = frozenset({"parameters", "geocodes"})
 
 # Long-form text, in the order it is spent. Both alternates go before either
-# primary — the primary is the language the user asked for. Within a language
-# the instruction outlives the description: it is the protective-action text,
-# and at a median 1,835 bytes across 6,158 sampled values protecting it outright
-# is nearly free.
+# primary — the primary is the language the user asked for. The area list sits
+# between them: a comma-joined run of place names reads as well cut short as
+# whole, and on a wide alert it dwarfs the text (14,072 bytes for 291 areas on
+# the #245 advisory, against 944 of description), so it pays before the primary
+# text does. Within a language the instruction outlives the description: it is
+# the protective-action text, and at a median 1,835 bytes across 6,158 sampled
+# values protecting it outright is nearly free.
 TRIM_PRIORITY: tuple[str, ...] = (
     "description_alt",
     "instruction_alt",
+    "area_desc",
     "description",
     "instruction",
 )
@@ -90,6 +108,16 @@ DROP_PRIORITY: tuple[str, ...] = ("affected_zone_uris",)
 # dropped instead. An attribute holding two words and an ellipsis tells a
 # consumer less than its absence does.
 _MIN_TEXT_KEEP = 160
+
+# What every provider joins ``area_desc`` with (``providers/cap.py``,
+# ``providers/meteoalarm.py``), and so where a cut list is backed off to.
+_AREA_SEPARATOR = ", "
+
+# Alert ids already reported as over budget after trimming, so the warning fires
+# once per alert instead of on every state write (#245 was found in the
+# recorder's log because this path only spoke at debug). Bounded by the number
+# of distinct alerts that overflow in one process: a handful, if any.
+_reported_over_budget: set[str] = set()
 
 
 def truncate_bytes(text: str, limit_bytes: int) -> str:
@@ -111,6 +139,21 @@ def truncate_bytes(text: str, limit_bytes: int) -> str:
     truncated = encoded[: limit_bytes - 3]
     # Back off to a character boundary by decoding with 'ignore'.
     return truncated.decode("utf-8", errors="ignore") + "\u2026"
+
+
+def _cut_at_name_boundary(text: str) -> str:
+    """Back a truncated area list off to its last whole name.
+
+    ``truncate_bytes`` cuts on a character boundary, which for a comma-joined
+    list means mid-name. Ending on a name the list actually contains reads
+    right on a card and hands a consumer that splits the string no fragment.
+    A list with no separator before the cut is one long name, left as cut.
+    """
+    body = text.removesuffix("\u2026")
+    boundary = body.rfind(_AREA_SEPARATOR)
+    if boundary <= 0:
+        return text
+    return body[:boundary] + "\u2026"
 
 
 def measure(
@@ -157,6 +200,8 @@ def fit_to_budget(
         room = len(text.encode("utf-8")) - (size - budget)
         if room < _MIN_TEXT_KEEP:
             del trimmed[key]
+        elif key == "area_desc":
+            trimmed[key] = _cut_at_name_boundary(truncate_bytes(text, room))
         else:
             trimmed[key] = truncate_bytes(text, room)
         size = measure(trimmed, unrecorded)
@@ -171,10 +216,13 @@ def fit_to_budget(
         if size is None or size <= budget:
             return trimmed
 
-    _LOGGER.debug(
+    alert_id = str(trimmed.get("id", "?"))
+    log = _LOGGER.debug if alert_id in _reported_over_budget else _LOGGER.warning
+    _reported_over_budget.add(alert_id)
+    log(
         "Alert %s still exceeds the %d-byte attribute budget at %s bytes after "
-        "trimming; the recorder will drop its attributes",
-        trimmed.get("id", "?"),
+        "trimming; the recorder will not store its attributes",
+        alert_id,
         budget,
         size,
     )

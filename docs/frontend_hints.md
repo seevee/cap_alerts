@@ -136,7 +136,7 @@ text, so a localized one matches no icon keyword.
 | `bbox` | `list[float]` | `[min_lon, min_lat, max_lon, max_lat]`. Cheap enough to render before fetching the polygon. |
 | `geometry_ref` | `str` | Handle for the full polygon. See [Geometry](#geometry). |
 | `points` | `list[[lon, lat]]` | Point locations from zero-radius CAP `<circle>` elements. |
-| `geocodes` | `dict[str, list[str]]` | Every area geocode the feed published, keyed by CAP `valueName`. The complete surface. See [Geocode keys](#geocode-keys). |
+| `geocodes` | `dict[str, list[str]]` | Every area geocode the feed published, keyed by CAP `valueName`. The complete surface. See [Geocode keys](#geocode-keys). Present on the live state, but declared unrecorded, so it is absent from history (#245). |
 | ~~`geocode_ugc`, `geocode_same`, `geocode_clc`, `geocode_sgc`~~ | — | **Removed.** They republished codes `geocodes` already carried — the geocode surface twice on every alert. Read the container and take every scheme, well-known or not. |
 | `affected_zones`, `affected_zone_uris` | `list[str]` | Zone codes and their provider URIs. |
 | `is_marine` | `bool` | Present **only when true**. Absence means "not marine". |
@@ -175,15 +175,20 @@ versions of the same scheme at once, their codes are unioned under the one key.
 Home Assistant's recorder drops a state's attributes wholesale once they
 serialize past 16 KB, so an alert that would overflow is trimmed before it is
 published. Rare — nothing in a 443-alert live sweep of NWS and ECCC needed it,
-now that the geocode surface is published once instead of twice — but the
-consequences are visible to a card, so read them defensively:
+and the one alert since that did was a frost advisory covering 291 areas
+(#245) — but the consequences are visible to a card, so read them defensively:
 
-1. `description_alt`, then `instruction_alt`, then `description`, then
-   `instruction` are truncated (trailing `…`) or dropped, in that order. The
-   alternate language pays before the primary, and the instruction outlives the
-   description within a language.
+1. `description_alt`, then `instruction_alt`, then `area_desc`, then
+   `description`, then `instruction` are truncated (trailing `…`) or dropped,
+   in that order. The alternate language pays before the primary, the area
+   list pays before the primary text, and the instruction outlives the
+   description within a language. A cut `area_desc` ends on a whole name,
+   then the `…`, so splitting it on `, ` yields only names the feed sent.
 2. `affected_zone_uris` is dropped — a fixed prefix plus the codes already in
    `affected_zones`.
+
+`geocodes` and `parameters` never count: both are unrecorded, so the recorder
+neither measures nor stores them, and the trim never touches them.
 
 The trim is display-side only: the integration keeps the full text internally,
 so `changed_fields` on the event bus never reports a truncation as a reword.

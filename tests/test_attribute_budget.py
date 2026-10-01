@@ -72,7 +72,12 @@ def test_measure_matches_the_recorders_encoding():
 
 
 def test_measure_skips_unrecorded_and_recorder_excluded_keys():
-    attrs = {"id": "x", "parameters": {"blob": "P" * 5000}, "attribution": "A" * 500}
+    attrs = {
+        "id": "x",
+        "parameters": {"blob": "P" * 5000},
+        "geocodes": {"SGC": ["4700001"] * 800},
+        "attribution": "A" * 500,
+    }
     assert measure(attrs) == len(json_bytes({"id": "x"}))
 
 
@@ -94,6 +99,17 @@ def test_unrecorded_parameters_do_not_count_toward_the_budget():
     # 40 KB of provider parameters, and nothing is trimmed: the recorder never
     # measures them, so neither do we.
     attrs = {"id": "x", "description": "D" * 500, "parameters": {"p": "P" * 40000}}
+    assert fit_to_budget(attrs) is attrs
+
+
+def test_unrecorded_geocodes_do_not_count_toward_the_budget():
+    # 847 SGC codes, the #245 advisory's container: complete on the state,
+    # invisible to the recorder, so nothing is trimmed on their account.
+    attrs = {
+        "id": "x",
+        "description": "D" * 500,
+        "geocodes": {"SGC": [f"47{i:05d}" for i in range(847)]},
+    }
     assert fit_to_budget(attrs) is attrs
 
 
@@ -140,6 +156,67 @@ def test_both_alternates_are_spent_before_either_primary():
     assert measure(out) <= 4200
 
 
+def test_the_alternates_pay_before_the_area_list():
+    attrs = {
+        "id": "x",
+        "description_alt": "A" * 1000,
+        "area_desc": ", ".join(f"Area {i}" for i in range(200)),
+        "description": "D" * 1000,
+    }
+    # Room for everything but a stub of the alternate: it goes whole, and the
+    # list after it is never touched.
+    budget = measure({k: v for k, v in attrs.items() if k != "description_alt"}) + 50
+    out = fit_to_budget(attrs, budget=budget)
+
+    assert "description_alt" not in out
+    assert out["area_desc"] == attrs["area_desc"]
+    assert out["description"] == "D" * 1000
+    assert measure(out) <= budget
+
+
+def test_the_area_list_pays_before_the_primary_text():
+    # The #245 shape in miniature: the place names outweigh the text, so the
+    # list is cut short and the description the user reads is untouched.
+    attrs = {
+        "id": "x",
+        "area_desc": ", ".join(f"Area {i}" for i in range(400)),
+        "description": "D" * 1000,
+        "instruction": "I" * 200,
+    }
+    out = fit_to_budget(attrs, budget=2600)
+
+    assert out["area_desc"].endswith("…")
+    assert attrs["area_desc"].startswith(out["area_desc"][:-1])
+    assert out["description"] == "D" * 1000
+    assert out["instruction"] == "I" * 200
+    assert measure(out) <= 2600
+
+
+def test_a_cut_area_list_ends_on_a_whole_name():
+    # Byte truncation lands mid-name; the list is backed off to the last
+    # separator so every name it still carries is one the feed sent.
+    names = [f"Municipality of Somewhere Number {i:03d}" for i in range(400)]
+    attrs = {"id": "x", "area_desc": ", ".join(names), "description": "D" * 100}
+    out = fit_to_budget(attrs, budget=3000)
+
+    assert out["area_desc"].endswith("…")
+    kept = out["area_desc"][:-1].split(", ")
+    assert kept == names[: len(kept)]
+    assert len(kept) < len(names)
+    assert measure(out) <= 3000
+
+
+def test_a_single_long_area_name_is_still_cut_as_text():
+    # Nothing to back off to: one name with no separator keeps the plain
+    # character-boundary cut rather than vanishing.
+    attrs = {"id": "x", "area_desc": "A" * 3000, "description": "D" * 100}
+    out = fit_to_budget(attrs, budget=1000)
+
+    assert out["area_desc"].endswith("…")
+    assert len(out["area_desc"]) > 500
+    assert measure(out) <= 1000
+
+
 def test_the_instruction_outlives_the_description():
     attrs = {
         "id": "x",
@@ -179,20 +256,65 @@ def test_structural_redundancy_goes_once_the_text_is_spent():
     assert measure(out) <= 900
 
 
-def test_a_payload_that_cannot_be_made_to_fit_keeps_what_it_can():
-    # Nothing on the ladder can rescue an alert whose bulk is a geocode
-    # container this size, and the ladder does not carry a rung it hasn't got.
-    # The expendable text still goes; the recorder reports the rest.
+def test_a_payload_that_cannot_be_made_to_fit_keeps_what_it_can(caplog):
+    # Nothing on the ladder can rescue an alert whose bulk is a zone list this
+    # size, and the ladder does not carry a rung it hasn't got. The expendable
+    # text still goes; the rest is reported, once, where someone will see it.
     attrs = {
-        "id": "x",
+        "id": "unfixable",
         "description": "D" * 1000,
-        "geocodes": {"UGC": [f"ONZ{i:03d}" for i in range(400)]},
+        "affected_zones": [f"ONZ{i:03d}" for i in range(400)],
     }
-    out = fit_to_budget(attrs, budget=800)
+    with caplog.at_level("DEBUG", logger="custom_components.cap_alerts.payload"):
+        out = fit_to_budget(attrs, budget=800)
+        again = fit_to_budget(attrs, budget=800)
 
     assert "description" not in out
-    assert out["geocodes"] == attrs["geocodes"]
+    assert out["affected_zones"] == attrs["affected_zones"]
     assert measure(out) > 800
+    assert again == out
+
+    reports = [r for r in caplog.records if "still exceeds" in r.message]
+    assert [r.levelname for r in reports] == ["WARNING", "DEBUG"]
+    assert "unfixable" in reports[0].message
+
+
+def test_the_245_advisory_fits_without_losing_its_text():
+    # The shape measured on the archived document: 291 areas, 291 CLC and 847
+    # SGC codes, under 2 KB of text in both languages. Before the fix every
+    # text field was deleted and the payload was still 10 KB over.
+    names = [
+        f"m.r. de Municipalité {i:03d} incluant Village {i:03d}" for i in range(291)
+    ]
+    attrs = {
+        "id": "66bb7b4c0a00",
+        "event": "Avis Jaune - Gel",
+        "headline": "Avis Jaune - Gel en vigueur",
+        "description": "D" * 944,
+        "instruction": "I" * 67,
+        "description_alt": "A" * 771,
+        "instruction_alt": "B" * 55,
+        "area_desc": ", ".join(names),
+        "geocodes": {
+            "CLC": [f"46{i:05d}" for i in range(291)],
+            "SGC": [f"47{i:05d}" for i in range(847)],
+        },
+        "bbox": [-110.0, 49.0, -101.4, 60.0],
+    }
+    assert len(json_bytes(attrs["area_desc"])) > 13000
+    assert len(json_bytes(attrs["geocodes"])) > 11000
+
+    out = fit_to_budget(attrs)
+
+    assert measure(out) <= PAYLOAD_BUDGET
+    assert out["description"] == "D" * 944
+    assert out["instruction"] == "I" * 67
+    assert out["geocodes"] == attrs["geocodes"]
+    # Once the codes stop counting the bill is a few hundred bytes. The
+    # alternates pay it first, and the list keeps all but its tail at worst:
+    # on the archived document that was both English fields and the last
+    # handful of the 291 names.
+    assert out["area_desc"].startswith(", ".join(names[:280]))
 
 
 def test_the_input_dict_is_never_mutated():
@@ -307,5 +429,6 @@ async def test_an_oversized_alert_still_fits_what_the_recorder_stores(
     # declaration is what takes it out of the bound, so pin it where HA reads
     # it rather than on the class attribute.
     assert attrs["parameters"]
+    assert attrs["geocodes"] == {"SGC": ["3506008"]}
     # (The sensor platform contributes its own, so this is a superset.)
     assert UNRECORDED_ATTRIBUTES <= states[0].state_info["unrecorded_attributes"]

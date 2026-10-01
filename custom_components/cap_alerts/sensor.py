@@ -204,9 +204,10 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
     """Sensor representing a single active weather alert."""
 
     _attr_has_entity_name = True
-    # Keeps the providers' verbatim ``<parameter>`` catch-all out of history —
-    # and, because the recorder measures its ceiling against the recorded set,
-    # out of the attribute budget as well (issue #150).
+    # Keeps the providers' verbatim ``<parameter>`` catch-all (#150) and the
+    # per-area geocode container (#245) out of history — and, because the
+    # recorder measures its ceiling against the recorded set, out of the
+    # attribute budget as well. Both stay on the live state.
     _unrecorded_attributes = UNRECORDED_ATTRIBUTES
 
     def __init__(
