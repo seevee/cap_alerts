@@ -149,6 +149,42 @@ So do the reconciliation gaps the memory eventually stops defending: it ages out
 after 48 h with no sighting, sized to what the NAAD host-gap probe measures for a
 record dropping out of a feed and returning (~21 h at the worst observed).
 
+## A restart re-validates, it does not re-announce
+
+The store is in-memory, so a restart empties it. The entity registry is not, and
+the alert ids under an entry's unique_id prefix are exactly the set it knew
+before the boot. The store reads them at construction (issue #250) and treats
+the first reconciliation after a boot the way RFC §2.3 describes: as a
+re-validation of what was already known, not a cold start. The same applies to a
+reload, which a reconfigure or the ECCC streaming toggle triggers, since that
+rebuilds the store too. Cheap options such as the poll interval are applied in
+place and don't reach this path.
+
+| Id at boot | Upstream | Fires |
+| :-- | :-- | :-- |
+| Not in registry | Live | `incident_created` |
+| In registry | Live | Nothing. The entity picks up the fresh content |
+| In registry | Still absent on the second reconciliation | `incident_removed` |
+
+A core update therefore no longer re-announces every live alert, and an alert
+that ended while HA was down is announced as ended rather than dropped silently.
+
+**That removal carries almost no content.** The registry keeps the id and the
+name the entity was registered with, which is the alert's `event`, and nothing
+else. So the payload usually has `event`, always has `phase: cancel` and
+`severity: unknown`, and has `area_desc` empty and `removal_reason` omitted.
+`event` is empty when HA blanked the registered name, which it does if the
+entity was re-added while its alert was absent from the first reconciliation
+after an earlier boot and never re-registered since. `entity_id` is present,
+because the entity is still registered when the event fires; the sensor platform
+removes it on the same reconciliation, afterwards. An automation that composes a
+message from `area_desc` or `description` should expect both to be missing here.
+
+**Absent twice means ended.** One missing reconciliation is the grace the sensor
+platform already grants a restored entity, so the store waits for the same
+second sighting before it announces. An alert that turns up live on either of
+those reconciliations fires nothing at all.
+
 ## `removal_reason` on `incident_removed`
 
 `phase` says *when* an alert ended relative to its published `expires`;

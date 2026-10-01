@@ -44,9 +44,13 @@ def registry(monkeypatch, hass):
 
 
 def _known(registry, *alert_ids: str) -> None:
-    registry.append(SimpleNamespace(unique_id="entry1_count"))
+    """Registry rows as HA keeps them: unique_id plus the name at registration."""
+    registry.append(SimpleNamespace(unique_id="entry1_count", original_name="Count"))
     registry.extend(
-        SimpleNamespace(unique_id=f"entry1_nws_{alert_id}") for alert_id in alert_ids
+        SimpleNamespace(
+            unique_id=f"entry1_nws_{alert_id}", original_name=f"Event {alert_id}"
+        )
+        for alert_id in alert_ids
     )
 
 
@@ -84,6 +88,9 @@ def test_alert_ended_during_downtime_is_removed_after_grace(
 ):
     """Absent on the first reconciliation is the sensor's grace; the second ends it."""
     _known(registry, "gone")
+    # The entity is still registered at this point: the sensor drops it on the
+    # same reconciliation, after this event fires.
+    hass.entity_registry.async_get_entity_id.return_value = "sensor.cap_alert_gone"
     store = AlertStore(hass, "entry1", "nws")
 
     store.process([])
@@ -93,6 +100,10 @@ def test_alert_ended_during_downtime_is_removed_after_grace(
     assert _fired(hass) == [(EVENT_INCIDENT_REMOVED, "gone")]
     payload = hass.bus.async_fire.call_args.args[1]
     assert payload["phase"] == "cancel"
+    assert payload["severity"] == "unknown"
+    assert payload["event"] == "Event gone"
+    assert payload["area_desc"] == ""
+    assert payload["entity_id"] == "sensor.cap_alert_gone"
     assert "removal_reason" not in payload
 
     store.process([])
@@ -120,7 +131,7 @@ def test_known_alert_terminal_at_boot_is_removed_once(hass, registry, alert_fact
 
 
 def test_other_providers_ids_are_not_known(hass, registry, alert_factory):
-    registry.append(SimpleNamespace(unique_id="entry1_eccc_a"))
+    registry.append(SimpleNamespace(unique_id="entry1_eccc_a", original_name="A"))
     store = AlertStore(hass, "entry1", "nws")
 
     store.process([alert_factory(id="a", phase="new")])
