@@ -163,12 +163,12 @@ bilingual key, since `sent` is a key input — with the new document's CAP
 that lineage, not just the id, so this is a no-op too; only a genuinely new
 ending, or one that went live again first, fires its own `incident_removed`.
 
-**Consumers should still be idempotent.** A restart clears the memory, as it
-clears everything else the store holds, so a terminal record read fresh after a
-restart fires one removal for an alert an automation may already have archived.
-So do the reconciliation gaps the memory eventually stops defending: it ages out
-after 48 h with no sighting, sized to what the NAAD host-gap probe measures for a
-record dropping out of a feed and returning (~21 h at the worst observed).
+**Consumers should still be idempotent.** The memory ages out after 48 h with
+no sighting, sized to what the NAAD host-gap probe measures for a record
+dropping out of a feed and returning (~21 h at the worst observed). A record
+that returns terminal after a longer gap fires one more removal for an alert an
+automation may already have archived. A restart clears the memory too, but the
+first fetch after a boot covers that case, see below.
 
 ## A restart re-validates, it does not re-announce
 
@@ -186,6 +186,8 @@ place and don't reach this path.
 | Not in registry | Live | `incident_created` |
 | In registry | Live | Nothing. The entity picks up the fresh content |
 | In registry | Still absent on the second reconciliation | `incident_removed` |
+| In registry | Terminal | `incident_removed` |
+| Not in registry | Terminal on the first fetch | Nothing |
 
 A core update therefore no longer re-announces every live alert, and an alert
 that ended while HA was down is announced as ended rather than dropped silently.
@@ -205,6 +207,16 @@ message from `area_desc` or `description` should expect both to be missing here.
 platform already grants a restored entity, so the store waits for the same
 second sighting before it announces. An alert that turns up live on either of
 those reconciliations fires nothing at all.
+
+**Terminal and unknown on the first fetch is old news** (issue #257). An ended
+alert's entity is removed when it ends, so the registry can't say its ending was
+already announced, and ECCC keeps ended records in the feed for up to 48 h. The
+store reads such a record as either an ending announced before the restart or an
+alert that began and ended while HA was down, and never fired `incident_created`.
+Neither owes a consumer a removal, so it's remembered as ended and fires
+nothing. Stream rebuilds before that first fetch are treated the same way. From
+the first fetch on, a first sighting that is already terminal fires its one
+`incident_removed` as usual.
 
 ## `removal_reason` on `incident_removed`
 

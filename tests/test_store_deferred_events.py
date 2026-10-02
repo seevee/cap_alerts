@@ -110,6 +110,7 @@ def test_in_place_update_fires_immediately_when_the_entity_exists(hass, alert_fa
 def test_removed_is_never_parked(hass, alert_factory):
     """First sighting already terminal: no entity will ever exist for it."""
     store = _deferring_store(hass)
+    store.process([])  # past the boot fetch (#257)
     store.process([alert_factory(id="a", phase="cancel")])
     assert _fired(hass) == [(EVENT_INCIDENT_REMOVED, "a", None)]
 

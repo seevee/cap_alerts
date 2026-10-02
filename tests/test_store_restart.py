@@ -170,3 +170,62 @@ def test_other_providers_ids_are_not_known(hass, registry, alert_factory):
     store.process([alert_factory(id="a", phase="new")])
 
     assert _fired(hass) == [(EVENT_INCIDENT_CREATED, "a")]
+
+
+def test_announced_ending_is_not_re_announced_after_restart(
+    hass, registry, alert_factory
+):
+    """The tombstone died with the old store, and the entity with the ending (#257).
+
+    ECCC keeps an ended record in the feed for up to 48 h, so a restart inside
+    that window used to read it as a first sighting already terminal.
+    """
+    before = AlertStore(hass, "entry1", "nws")
+    before.process([alert_factory(id="a", phase="new")])
+    before.process([alert_factory(id="a", phase="cancel")])
+    assert _fired(hass) == [
+        (EVENT_INCIDENT_CREATED, "a"),
+        (EVENT_INCIDENT_REMOVED, "a"),
+    ]
+
+    after = AlertStore(hass, "entry1", "nws")
+    for _ in range(3):
+        after.process([alert_factory(id="a", phase="cancel")])
+
+    assert len(_fired(hass)) == 2
+
+
+def test_boot_suppression_tombstones_the_lineage(hass, registry, alert_factory):
+    """A later revision of the suppressed ending is the same ending (#185)."""
+    store = AlertStore(hass, "entry1", "eccc")
+    store.process([alert_factory(id="a", identifier="cap-a", phase="cancel")])
+    store.process(
+        [
+            alert_factory(
+                id="b", identifier="cap-b", phase="cancel", references=["cap-a"]
+            )
+        ]
+    )
+
+    assert _fired(hass) == []
+
+
+def test_stream_rebuilds_before_the_first_fetch_stay_in_boot(
+    hass, registry, alert_factory
+):
+    """Only a fetch ends the boot, as it ends the grace (#252)."""
+    store = AlertStore(hass, "entry1", "nws")
+    store.process([alert_factory(id="a", phase="cancel")], fetched=False)
+    store.process([alert_factory(id="b", phase="cancel")])
+    store.process([alert_factory(id="c", phase="cancel")])
+
+    assert _fired(hass) == [(EVENT_INCIDENT_REMOVED, "c")]
+
+
+def test_terminal_after_the_boot_fetch_is_announced(hass, registry, alert_factory):
+    """The suppression is the boot fetch's alone; later first sightings fire."""
+    store = AlertStore(hass, "entry1", "nws")
+    store.process([])
+    store.process([alert_factory(id="a", phase="cancel")])
+
+    assert _fired(hass) == [(EVENT_INCIDENT_REMOVED, "a")]
