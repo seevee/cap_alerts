@@ -86,6 +86,7 @@ def test_terminal_on_first_sight_fires_one_removal(hass, alert_factory):
     from custom_components.cap_alerts.store import AlertStore
 
     store = AlertStore(hass, "entry1", "nws")
+    store.process([])  # past the boot fetch (#257)
     stale = normalize_alerts(
         [alert_factory(id="a", expires="2020-01-01T00:00:00+00:00")]
     )
@@ -168,6 +169,7 @@ def test_a_tombstone_ages_out_after_the_idle_ttl(hass, alert_factory):
     from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL, AlertStore
 
     store = AlertStore(hass, "entry1", "eccc")
+    store.process([])  # past the boot fetch (#257)
     ended = normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="ended")])
     store.process(ended)
     assert _events(hass) == ["incident_removed"]
@@ -191,6 +193,7 @@ def test_suppressing_a_duplicate_refreshes_the_tombstone(hass, alert_factory):
     from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL, AlertStore
 
     store = AlertStore(hass, "entry1", "eccc")
+    store.process([])  # past the boot fetch (#257)
     ended = normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="ended")])
     store.process(ended)
 

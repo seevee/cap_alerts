@@ -491,6 +491,7 @@ def test_removal_reason_survives_an_expired_phase(hass, alert_factory):
     from custom_components.cap_alerts.store import AlertStore
 
     store = AlertStore(hass, "entry1", "eccc")
+    store.process([])  # past the boot fetch (#257)
     terminal = normalize_alerts(
         [
             _eccc(
@@ -598,6 +599,7 @@ def test_removed_omits_superseded_by_for_non_eccc_providers(hass, alert_factory)
     from custom_components.cap_alerts.store import AlertStore
 
     store = AlertStore(hass, "entry1", "nws")
+    store.process([])  # past the boot fetch (#257)
     store.process(
         normalize_alerts(
             [alert_factory(id="a", msg_type="Cancel", lifecycle_status="ended")]
@@ -615,6 +617,7 @@ def test_plain_cancel_has_no_removal_reason(hass, alert_factory):
     from custom_components.cap_alerts.store import AlertStore
 
     store = AlertStore(hass, "entry1", "nws")
+    store.process([])  # past the boot fetch (#257)
     store.process(normalize_alerts([alert_factory(id="a", msg_type="Cancel")]))
 
     _, payload = _fired(hass)[0]
@@ -665,6 +668,7 @@ def test_removal_reason_is_scoped_to_its_source(hass, alert_factory):
     from custom_components.cap_alerts.store import AlertStore
 
     store = AlertStore(hass, "entry1", "nws")
+    store.process([])  # past the boot fetch (#257)
     store.process(
         normalize_alerts(
             [alert_factory(id="a", msg_type="Cancel", lifecycle_status="ended")]
@@ -708,6 +712,7 @@ def test_first_sight_terminal_alert_fires_removed_only(hass, alert_factory):
     from custom_components.cap_alerts.store import AlertStore
 
     store = AlertStore(hass, "entry1", "nws")
+    store.process([])  # past the boot fetch (#257)
     cancelled = normalize_alerts([alert_factory(id="a", msg_type="Cancel")])
     result = store.process(cancelled)
 

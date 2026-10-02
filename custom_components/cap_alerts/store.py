@@ -125,6 +125,10 @@ class AlertStore:
             if ent.unique_id.startswith(alert_prefix)
         }
         self._reconciliations = 0
+        # True until the first fetch-backed reconciliation has run. The
+        # tombstones above don't survive a restart, so until then a terminal
+        # first sighting may be an ending already announced (issue #257).
+        self._booting = True
 
     def process(
         self,
@@ -220,6 +224,15 @@ class AlertStore:
                     # Same ending, re-issued under a new bilingual key (issue
                     # #185) — the id is unseen but the lineage isn't. Extend
                     # the tombstone to this revision without re-announcing.
+                    self._tombstone(alert_id, alert.identifier, now)
+                    continue
+                if self._booting and alert_id not in self._known_at_boot:
+                    # Terminal on the first fetch after a boot, and no entity
+                    # from before it: either its ending was announced before
+                    # the restart, or it began and ended while HA was down and
+                    # was never announced as created. Neither owes a consumer a
+                    # removal (issue #257). A known id still falls through, it
+                    # was live before the restart and this is its ending.
                     self._tombstone(alert_id, alert.identifier, now)
                     continue
             else:
@@ -372,6 +385,8 @@ class AlertStore:
             )
 
         self._reconcile_known_at_boot(incoming, now, fetched=fetched)
+        if fetched:
+            self._booting = False
 
         now_iso = now.isoformat()
         for alert_id in incoming:
