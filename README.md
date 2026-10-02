@@ -40,7 +40,7 @@ plug in behind the same provider protocol; see
 
 ## Installation
 
-Requires Home Assistant 2026.4.3 or newer.
+Requires Home Assistant 2026.9.3 or newer.
 
 **HACS.** CAP Alerts is not in the HACS default store yet, so it is installed
 as a custom repository. This badge adds the repository and opens it in HACS:
