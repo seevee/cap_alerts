@@ -783,8 +783,10 @@ with a different shape: the mirror never stopped, it drops files. 37 of the
 including the two newest, one of them a storm warning in force at the time.
 The probe only pages a lossy mirror while its newest skip is also the bucket's
 newest settled file, so the token reads as a stall (`cm-meteo-fr@2026-09-15`)
-and a later skip files again under a new date. The probe's baseline is the
-maintained list; this one is a snapshot.
+and a later skip files again under a new date. Senegal's `sn-anacim-fr`
+(2026-05-16) followed on 2026-10-01: its first alert in four months, an
+Extreme rain warning in force 09-24 to 09-27, never reached the mirror. The
+probe's baseline is the maintained list; this one is a snapshot.
 
 **Shared CAP parsing**: the CAP body parsing lives in the provider-neutral
 `providers/cap.py` module, used verbatim by both WMO and ECCC. `parse_cap_alert`
