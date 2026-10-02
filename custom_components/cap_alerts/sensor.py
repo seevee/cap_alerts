@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Set as AbstractSet
 from datetime import datetime, timezone
 from typing import Any
 
@@ -44,13 +45,12 @@ def _alert_object_id(unique_id: str, event: str) -> str:
 def _classify_sync(
     current_ids: set[str],
     tracked_ids: set[str],
-    grace_ids: set[str],
+    grace_ids: AbstractSet[str],
 ) -> tuple[set[str], set[str]]:
     """Compute (to_add, to_remove) sets for one coordinator cycle.
 
-    `grace_ids` are tracked IDs hydrated from the registry that have not yet
-    appeared in coordinator data; they are exempted from removal on this cycle.
-    Caller is responsible for clearing `grace_ids` after this cycle.
+    `grace_ids` are tracked IDs hydrated from the registry that no fetch has
+    settled yet; they are exempted from removal on this cycle.
     """
     to_add = current_ids - tracked_ids
     to_remove = (tracked_ids - current_ids) - grace_ids
@@ -72,7 +72,6 @@ async def async_setup_entry(
 
     # Dynamic alert entities
     tracked: dict[str, AlertEntity] = {}
-    grace_ids: set[str] = set()
     ent_reg = er.async_get(hass)
 
     # Hydrate tracked set from entity registry on startup and re-add them
@@ -86,21 +85,21 @@ async def async_setup_entry(
             continue
         alert_id = ent.unique_id.removeprefix(alert_prefix)
         tracked[alert_id] = AlertEntity(coordinator, entry, alert_id)
-        grace_ids.add(alert_id)
     if tracked:
         async_add_entities(list(tracked.values()))
 
-    first_sync = True
-
     @callback
     def _sync_alert_entities() -> None:
-        nonlocal first_sync
         alerts_by_id = coordinator.data or {}
         current_ids = set(alerts_by_id)
         tracked_ids = set(tracked)
 
-        active_grace = grace_ids if first_sync else set()
-        to_add, to_remove = _classify_sync(current_ids, tracked_ids, active_grace)
+        # Hydrated entities stay until the store settles them, which takes a
+        # second fetch rather than a second update: a stream rebuild a minute
+        # after boot can't recover what the seed backfill missed (#252).
+        to_add, to_remove = _classify_sync(
+            current_ids, tracked_ids, coordinator.boot_pending_ids
+        )
 
         # Additions: batched single call
         if to_add:
@@ -118,10 +117,6 @@ async def async_setup_entry(
                 continue
             if ent_reg.async_get(removed.entity_id):
                 ent_reg.async_remove(removed.entity_id)
-
-        if first_sync:
-            grace_ids.clear()
-            first_sync = False
 
     unsub = coordinator.async_add_listener(_sync_alert_entities)
     entry.async_on_unload(unsub)

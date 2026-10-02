@@ -121,29 +121,6 @@ def test_idempotent_remove_skips_missing_registry_entries():
     assert ent_reg.removed == ["sensor.cap_alert_a"]
 
 
-# --- restart-grace scenario (integration of _classify_sync + state flip) ----
-
-
-def test_restart_grace_two_cycle_sequence():
-    """Hydrate 3; first poll empty → no removals; second poll empty → all removed."""
-    tracked = {"a", "b", "c"}
-    grace = {"a", "b", "c"}
-    first_sync = True
-
-    # First cycle
-    active = grace if first_sync else set()
-    _, to_remove = sensor._classify_sync(set(), tracked, active)
-    assert to_remove == set()
-    if first_sync:
-        grace.clear()
-        first_sync = False
-
-    # Second cycle (grace cleared)
-    active = grace if first_sync else set()
-    _, to_remove = sensor._classify_sync(set(), tracked, active)
-    assert to_remove == {"a", "b", "c"}
-
-
 # --- count sensor breakdown --------------------------------------------------
 
 

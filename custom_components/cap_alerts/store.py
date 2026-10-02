@@ -113,7 +113,8 @@ class AlertStore:
         # exactly the set known before the boot. Read here rather than borrowed
         # from the sensor platform, which hydrates only after the first refresh
         # has already run. An id seen live is re-validated silently; one still
-        # unseen after the sensor's one-cycle grace is announced as ended. The
+        # unseen by the second fetch-backed reconciliation is announced as
+        # ended, and the sensor platform holds its entity until then. The
         # event name is the entity's ``original_name``: ``AlertEntity.name`` is
         # the alert's ``event``, and that is all the registry keeps of the
         # content, so it is all the removal can carry.
@@ -131,8 +132,13 @@ class AlertStore:
         *,
         scope_changed: bool = False,
         superseded_identifiers: frozenset[str] = frozenset(),
+        fetched: bool = True,
     ) -> list[CAPAlert]:
         """Diff incoming alerts against previous poll.
+
+        ``fetched`` says this reconciliation follows a fetch from the source, a
+        poll or a backfill, rather than a stream rebuild with no network I/O.
+        Only fetched reconciliations count toward the boot grace (issue #252).
 
         ``scope_changed`` says this reconciliation asked a *different question*
         than the last one — the tracker crossed a border, a zone was
@@ -365,7 +371,7 @@ class AlertStore:
                 changed_fields=[],
             )
 
-        self._reconcile_known_at_boot(incoming, now)
+        self._reconcile_known_at_boot(incoming, now, fetched=fetched)
 
         now_iso = now.isoformat()
         for alert_id in incoming:
@@ -380,15 +386,26 @@ class AlertStore:
         self._previous = active
         return result
 
+    @property
+    def boot_pending(self) -> frozenset[str]:
+        """Pre-restart alert ids not yet seen or announced as ended.
+
+        The sensor platform exempts these from removal, so the entity and the
+        ``incident_removed`` event go on the same reconciliation.
+        """
+        return frozenset(self._known_at_boot)
+
     def _reconcile_known_at_boot(
-        self, incoming: dict[str, CAPAlert], now: datetime
+        self, incoming: dict[str, CAPAlert], now: datetime, *, fetched: bool
     ) -> None:
         """Announce the pre-restart alerts that ended while HA was down (#250).
 
         Every id seen this cycle has been handled above, live or terminal, so
-        it leaves the set. What remains on the second reconciliation is an
-        alert the registry knew and upstream no longer publishes — the same
-        point at which the sensor platform's grace window lets the entity go.
+        it leaves the set. What remains on the second fetched reconciliation is
+        an alert the registry knew and upstream no longer publishes. Stream
+        rebuilds don't count (issue #252): on ECCC the first one lands within a
+        minute of boot, and the backfill that seeded the set is known to drop
+        live alerts, so only another fetch can say one is really gone.
 
         The registry holds the id and the entity's name, so the removal carries
         ``event`` and nothing else of the content: phase ``cancel``, severity
@@ -399,6 +416,8 @@ class AlertStore:
             return
         for alert_id in incoming:
             self._known_at_boot.pop(alert_id, None)
+        if not fetched:
+            return
         self._reconciliations += 1
         if self._reconciliations < 2:
             return

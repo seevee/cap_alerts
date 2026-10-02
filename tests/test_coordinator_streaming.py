@@ -409,6 +409,51 @@ async def test_resync_backfill_fires_despite_heartbeats(
 
 
 @pytest.mark.asyncio
+async def test_heartbeats_do_not_end_a_restored_alert_the_seed_missed(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch, freezer
+):
+    """A boot-known alert outlives heartbeats; only the next backfill settles it.
+
+    Issue #252: the boot grace was one reconciliation, and on streaming the
+    second one is the first heartbeat. A restart during a GeoRSS index gap
+    dropped the entity a minute later and fired ``incident_removed`` for an
+    alert still in force.
+    """
+    holder = _install_fake_stream(monkeypatch)
+    aioclient_mock.get(FEED, text=_atom())
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="ECCC: Ontario",
+        data={"provider": "eccc", "province": "ON"},
+    )
+    entry.add_to_hass(hass)
+    ent_reg = er.async_get(hass)
+    restored = ent_reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{entry.entry_id}_eccc_missed",
+        config_entry=entry,
+        original_name="Wind Warning",
+    )
+    removed = async_capture_events(hass, "incident_removed")
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    for _ in range(3):
+        freezer.tick(timedelta(seconds=60))
+        await holder["on_heartbeat"](_heartbeat_xml())
+        await hass.async_block_till_done()
+    assert ent_reg.async_get(restored.entity_id) is not None
+    assert removed == []
+
+    freezer.tick(timedelta(seconds=RESYNC_S))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert ent_reg.async_get(restored.entity_id) is None
+    assert [e.data["incident_id"] for e in removed] == ["missed"]
+
+
+@pytest.mark.asyncio
 async def test_periodic_backfill_failure_flips_unavailable_and_heartbeat_does_not_restore(
     hass, aioclient_mock, enable_custom_integrations, monkeypatch, freezer
 ):
