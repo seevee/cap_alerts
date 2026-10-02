@@ -10,7 +10,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements_test.txt
 
 .venv/bin/python -m pytest tests -q --cov --cov-fail-under=96   # what CI runs
-.venv/bin/python -m pytest tests/test_coordinator.py            # single file
+.venv/bin/python -m pytest tests/test_store_payload.py          # single file
 .venv/bin/python -m pytest -k normalize                          # pattern
 
 .venv/bin/ruff check custom_components/ tests/ scripts/

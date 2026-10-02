@@ -612,7 +612,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         """
         # Shared normalization. The full normalized list — including
         # cancelled/expired alerts — is handed to store.process so it can
-        # fire cap_alert_removed with the true terminal phase before
+        # fire incident_removed with the true terminal phase before
         # dropping them from the active set (RFC §2.3).
         entry_id = self.config_entry.entry_id
         alerts = normalize_alerts(alerts, entry_id)

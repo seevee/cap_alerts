@@ -247,7 +247,7 @@ The ECCC feed guard (`eccc.py::_fetch_one_feed`) is all-or-nothing: a body that
 doesn't arrive complete (non-empty, ending in `</feed>`) is discarded and the
 poll fails. This is deliberately **fail-closed**, because `AlertStore.process`
 treats any tracked alert *absent* from a poll as ended — so salvaging a
-truncated feed would fire false `cap_alert_removed` events, i.e. a false
+truncated feed would fire false `incident_removed` events, i.e. a false
 "all-clear," the worst failure mode for a weather-alert system. Discarding
 instead keeps the last-known-good snapshot (the coordinator retains `data` on
 `UpdateFailed`; `_sync_alert_entities` computes an empty removal set, so no
