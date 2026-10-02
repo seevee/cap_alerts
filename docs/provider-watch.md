@@ -82,7 +82,7 @@ instead, the probe paged an hour after Senegal's `sn-anacim-fr` published its
 first alert in four months (#238), before the mirror had any chance to catch
 up. A stall behind a dormant source costs no one anything and would only be
 noise; it files a week after the source publishes again, since the token was
-never accepted. On
+never accepted. Senegal's did exactly that (#248). On
 2026-09-19, the day it was written, 14 of the 93 mirrored feeds were behind
 and one of them, Egypt's `eg-ema-en`, had a live authority; that one is the
 seeded baseline, the rest are listed under the WMO section of
