@@ -1,7 +1,7 @@
 # RFC: The `incident` Integration Domain for Home Assistant Core
 
-**Status:** Internal Draft / DO NOT CIRCULATE
-This document is a working draft for a future Home Assistant architecture proposal. It does not represent an accepted standard. Please do not submit this to the Home Assistant Architecture repository; the maintainer will do so when the reference implementation has gathered sufficient field testing.
+**Status:** Public working draft, not yet submitted
+This is a working draft of a future Home Assistant architecture proposal, published alongside its reference implementation so it can be read and discussed. It is not an accepted standard. Please don't submit it to the Home Assistant Architecture repository. The maintainer will do that once the reference implementation has gathered enough field testing.
 
 **Author:** @seevee (`cap_alerts` maintainer)
 
