@@ -43,9 +43,6 @@ batched registry churn (§2.5). A static entity pool (§6.1) and a dedicated
 registry (§3.6) are the alternatives, and the contract ports unchanged to
 either.
 
-Accepting the first claim and rejecting the second is not rejecting the
-proposal.
-
 ## What runs today, and the gap
 
 The [`cap_alerts`](../README.md) custom integration implements everything in §2
