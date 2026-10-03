@@ -84,5 +84,6 @@ declared on the entity until sensor's validation learns the class.
 - A custom class is tolerated, not sanctioned. `SensorEntity.device_class` is
   annotated `SensorDeviceClass | None`, and the comment above names
   customization and legacy translations as the reason for the tolerance.
-- One core version. The test fails if a later release changes any of the four
-  harness results.
+- Two core versions: 2026.9.3 locally and on the dev box, and the 2026.4.3
+  floor in CI, where the trigger config needs `options` passed explicitly. The
+  test fails if a later release changes any of the four harness results.
