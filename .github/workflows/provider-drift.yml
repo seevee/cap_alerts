@@ -22,6 +22,15 @@ permissions:
   contents: read
   issues: write
 
+# One run at a time. The job finds the open provider-drift issue and then
+# creates or comments, so a manual dispatch overlapping the schedule could
+# have both runs miss the issue and file two. A queued run waits instead, and
+# a run still pending when another queues is dropped, which loses nothing:
+# every run probes the same live feeds.
+concurrency:
+  group: provider-drift
+  cancel-in-progress: false
+
 jobs:
   probe:
     runs-on: ubuntu-latest
