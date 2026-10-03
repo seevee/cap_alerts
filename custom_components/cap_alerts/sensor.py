@@ -33,7 +33,7 @@ PARALLEL_UPDATES = 0
 
 
 def _short_hash(unique_id: str) -> str:
-    """Return the 8-char SHA-1 prefix used to disambiguate entity IDs (RFC §2.2.1)."""
+    """Return the 8-char SHA-1 prefix used to disambiguate entity IDs (RFC §2.2)."""
     return hashlib.sha1(unique_id.encode()).hexdigest()[:8]
 
 

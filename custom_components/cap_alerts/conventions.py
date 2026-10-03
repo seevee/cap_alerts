@@ -1263,9 +1263,11 @@ CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
         # policy: GDACS alerts have no <expires> and no terminal vocabulary, so
         # ``_retain_on_absence`` already ends them the moment they leave the
         # feed, which is the only end-of-life signal this source has.
-        # ``iscurrent`` is not that signal: it goes false for droughts and
-        # nothing else, while every earthquake, cyclone, flood, volcano and
-        # wildfire observed stayed true right up to the poll it vanished on.
+        # ``iscurrent`` is not that signal: items go false while the feed
+        # still lists them. Droughts did in the 2026-08-08 sample, and on
+        # 2026-10-03 so did 27 wildfires and 8 floods, each about 100 h past
+        # its ``todate``. Every earthquake, cyclone and volcano observed
+        # stayed true right up to the poll it vanished on.
         "gdacs": SourceConventions(publishes_geocodes=False),
         # BBK's ``area[]`` carries ``areaDesc`` only (both channels verified
         # 2026-09-19; the occasional ``AreaId: 0`` is noise), so the area-code
