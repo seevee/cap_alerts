@@ -79,9 +79,9 @@ the guaranteed set defensively.
 | Attribute | Type | Notes |
 | :-- | :-- | :-- |
 | `id` | `str` | Stable lifecycle-aware hash. Survives Update/Cancel — this is the key to correlate across polls. Called `incident_id` on bus events. |
-| `url` | `str` | Canonical alert page at the provider. |
+| `url` | `str` | The source document the alert was parsed from (CAP XML, NWS API JSON, Atom entry id, state feed). Machine-facing, and empty for MeteoAlarm. The human-facing page is `web`. |
 | `identifier` | `str` | Raw CAP `<identifier>`. |
-| `provider` | `str` | `nws` / `eccc` / `meteoalarm` / `wmo`. |
+| `provider` | `str` | `nws` / `eccc` / `meteoalarm` / `wmo` / `gdacs` / `bbk` / `au`. |
 | `phase` | `str` | Always present. `new` / `update` / `cancel` / `expired`. |
 | `previous_phase` | `str` | Phase at the previous poll. |
 | `phase_changed` | `bool` | Always present. `true` on first sighting or on a phase transition. |
@@ -107,7 +107,7 @@ the guaranteed set defensively.
 
 | Attribute | Type | Notes |
 | :-- | :-- | :-- |
-| `sent`, `effective`, `onset`, `expires` | `str` | ISO 8601, as received. |
+| `sent`, `effective`, `onset`, `expires` | `str` | ISO 8601, as received. Only `sent` is always present. |
 | `ends` | `str` | Present only when the provider distinguishes it from `expires`. |
 
 An alert with `onset` in the future is **upcoming**, not active — this is the
@@ -116,11 +116,17 @@ split the count sensor exposes. Cards showing a "now" view should honour it.
 Beware the no-warning marker: some senders signal "no alert" with
 `expires <= onset`. Test both `<` and `==`.
 
+For a display time, fall back in order: `onset`, then `effective`, then
+`sent`. The Australian feeds publish neither of the first two, and some WMO
+authorities omit `expires` as well, so a card that reads only `onset` shows
+nothing for them.
+
 ### Content
 
 | Attribute | Type | Notes |
 | :-- | :-- | :-- |
-| `headline`, `description`, `instruction`, `note`, `web` | `str` | Primary-language content. |
+| `headline`, `description`, `instruction`, `note` | `str` | Primary-language content. |
+| `web` | `str` | CAP `<web>`: the provider's human-facing page for this alert, when one is published. This is the link to show a user, not `url`. |
 | `language` | `str` | BCP-47 of the primary content (e.g. `en-CA`). |
 | `event_alt`, `headline_alt`, `description_alt`, `instruction_alt` | `str` | Alternate-language siblings, present for multilingual feeds. Past two languages the alternate is the English block when the primary isn't English, else the first other language in document order. |
 | `language_alt` | `str` | BCP-47 of the alternate content. |
