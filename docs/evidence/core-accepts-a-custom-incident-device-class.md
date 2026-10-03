@@ -4,9 +4,9 @@
 | :-- | :-- |
 | Supports | RFC §1.5 |
 | Source | Home Assistant 2026.9.3: the `sensor` component, `helpers/automation.py`, `helpers/trigger.py`, the `battery` system integration |
-| Sample | four checks in a test harness. One dev-box run on v0.6.1-rc.1 with 23 config entries, 113 alert entities loaded when queried |
+| Sample | four checks in a test harness. One dev-box run on v0.6.1-rc.1 with 23 config entries, 113 alert entities loaded when queried. One throwaway instance from a copy of that config, driven through a browser, 192 alert entities |
 | Observed | 2026-10-03 |
-| Reproduce | `tests/test_device_class_binding.py`. The dev-box run is a one-time capture |
+| Reproduce | `tests/test_device_class_binding.py`. The dev-box and browser runs are one-time captures |
 
 | Check | Where | Result | Pinned by |
 | :-- | :-- | :-- | :-- |
@@ -16,6 +16,13 @@
 | Entity selector with `domain: sensor, device_class: incident` | harness | schema accepts it | `test_the_entity_selector_takes_the_device_class_filter` |
 | The class set on the integration's real alert entities | dev box | 113 of 113 loaded alert entities carried it, no `cap_alerts` warning or error in the log | one-time capture |
 | A trigger shipped from the integration's own `trigger.py` | dev box | validated and subscribed against live alert entities | one-time capture |
+| The class as the frontend sees it | browser | 192 sensors carried `device_class: incident` in the browser's state | one-time capture |
+| The trigger in the automation editor | browser | listed in the Add trigger dialog by name and description, adds, renders its form | one-time capture |
+| The trigger's target picker | browser | offered alert sensors only. "count", "last updated" and "temperature" each returned "No target found" | one-time capture |
+| An entity selector on a script field, `domain: sensor, device_class: incident` | browser, by hand | offered alert sensors from four providers. "alert cou" returned "No entities found" | one-time capture |
+| A saved automation on that trigger, its target forced from `minor` to `severe` | throwaway instance | `last_triggered` went from none to 21:16:40Z | one-time capture |
+| More-info on a marked sensor | browser | renders, state shown as the raw token `minor` | one-time capture |
+| `weather_alerts_card` with the class present | browser | 34 cards on the same dashboard, rendered text identical in length to the dev box without the class | one-time capture |
 
 The sensor component sets custom classes aside before it validates
 (`components/sensor/__init__.py`):
@@ -63,6 +70,13 @@ subscribe {'success': True, 'result': None}
 registry sensor.cap_alerts_au_cap_alert_bushfire_77067869 original_device_class= incident
 ```
 
+The browser rows ran against a second container on Home Assistant 2026.9.3,
+started from a copy of the dev-box config without the recorder database. It
+carried the same one-line class, the `trigger.py`, a `triggers.yaml` and
+`triggers` strings so the editor would list the trigger, a script with one
+entity-selector field, and one saved automation. Headless Chromium drove it,
+except the script-field row.
+
 ## Reading
 
 The per-incident entities of §2 can stay under `sensor` and still be told
@@ -74,11 +88,12 @@ declared on the entity until sensor's validation learns the class.
 
 ## Caveats
 
-- The frontend was not looked at. The selector check is the backend schema
-  only, and filtering happens in the browser. The more-info dialog and card
-  discovery with the class present are unchecked.
-- The trigger fired in the harness only. On the dev box it was validated and
-  subscribed, and no severity change was forced on live alerts.
+- The browser rows are one run on one frontend build, the one 2026.9.3 ships.
+  No test pins them.
+- Outside the harness the trigger fired once, on a state forced through the
+  REST API. No feed-driven severity change was observed firing it.
+- The frontend shows the state as the raw token. Sensor ships no state
+  translations for a class it doesn't know.
 - The dev box was queried while entries were still loading. It held 260 alert
   entities once every entry was up.
 - A custom class is tolerated, not sanctioned. `SensorEntity.device_class` is
