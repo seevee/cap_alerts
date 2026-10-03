@@ -31,17 +31,20 @@ states what that takes without assuming a binding:
 | 10 | Readable by a dashboard | A subscribed read path that cards can use |
 
 The pattern core review currently prefers, a count entity plus an action that
-returns the alert bodies, fails requirement 10 (§1.6).
+returns the alert bodies, gives a dashboard no such path (§1.6).
 
-**The binding.** One `incident.*` entity per active incident, created and
-removed with it (§2). State is the normalized severity, three lifecycle events
+**The binding.** One entity per active incident, created and removed with it
+(§2). It starts as a `sensor` with an `incident` device class, served by an
+`incident` system integration, and moves to its own domain only if that proves
+too little (§5). State is the normalized severity, three lifecycle events
 share one payload (§2.3), and geometry is fetched on demand through a handle
 (§2.4). Absence is not termination: an incident missing from the feed but
 still inside its published expiry is kept and marked stale (§2.5). Entities
-inherit the recorder, the trigger editor and the card ecosystem, at the cost of
-batched registry churn (§2.5). The alternatives are the same entities under
-`sensor` with a device class (§1.5), a static entity pool (§6.1) and a
-dedicated registry (§3.6), and the contract ports unchanged to each.
+inherit the recorder, the trigger editor and the card ecosystem. The cost is
+batched registry churn, plus a deleted-entity record core keeps for every
+removal (§2.5). The alternatives are an `incident` domain from the start, a
+static entity pool and a dedicated registry (§1.5), and the contract ports
+unchanged to each.
 
 ## What runs today, and the gap
 

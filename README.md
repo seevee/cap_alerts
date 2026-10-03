@@ -12,10 +12,10 @@ The providers are the visible part. The point of the project is the model
 underneath them: one identity per incident across re-issues, a lifecycle that
 does not trust feed presence, bounded attributes, and lifecycle events.
 [`docs/rfc-summary.md`](docs/rfc-summary.md) is the one-page version of the
-proposal: that model as an `incident` domain for Home Assistant Core, with this
-integration as its reference implementation. [`rfc.md`](rfc.md) argues it in
-full, and [`docs/evidence/`](docs/evidence/README.md) holds the field evidence
-behind it, one page per finding.
+proposal: that model as an `incident` integration for Home Assistant Core, with
+this integration as its reference implementation. [`rfc.md`](rfc.md) argues it
+in full, and [`docs/evidence/`](docs/evidence/README.md) holds the field
+evidence behind it, one page per finding.
 
 [![Alerts rendered by the companion Weather Alerts Card](https://raw.githubusercontent.com/seevee/weather_alerts_card/main/img/hero-adaptive.svg)](https://github.com/seevee/weather_alerts_card)
 
@@ -289,7 +289,7 @@ Per-field mappings and the reasoning behind each provider are in
 | [`docs/frontend_hints.md`](docs/frontend_hints.md) | Consumer contract: attributes, discovering entities, fetching geometry |
 | [`docs/events.md`](docs/events.md) | Event payload schema and lifecycle semantics |
 | [`docs/architecture.md`](docs/architecture.md) | Alert identity, provider mappings, normalization, design rationale |
-| [`rfc.md`](rfc.md) | The incident model as a proposed Home Assistant Core domain; this integration is its reference implementation |
+| [`rfc.md`](rfc.md) | The incident model as a proposed Home Assistant Core integration; this integration is its reference implementation |
 | [`docs/rfc-summary.md`](docs/rfc-summary.md) | The RFC on one page: the two claims, the ten requirements, what runs today |
 | [`docs/evidence/`](docs/evidence/README.md) | Evidence behind the RFC, one page per finding: the measurement, the excerpt, how to reproduce it |
 | [`docs/roadmap.md`](docs/roadmap.md) | Planned work that has no issue yet |

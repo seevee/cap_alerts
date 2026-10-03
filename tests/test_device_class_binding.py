@@ -13,15 +13,21 @@ from types import SimpleNamespace
 
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.config_entries import ConfigFlow
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 from homeassistant.helpers.automation import DomainSpec
+from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_component import EntityComponent
 from homeassistant.helpers.trigger import Trigger, make_entity_target_state_trigger
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
     MockModule,
+    MockPlatform,
     async_capture_events,
+    mock_config_flow,
     mock_integration,
     mock_platform,
 )
@@ -135,3 +141,60 @@ def test_the_entity_selector_takes_the_device_class_filter():
     assert serialized["selector"]["entity"]["filter"] == [
         {"domain": [SENSOR_DOMAIN], "device_class": [DEVICE_CLASS]}
     ]
+
+
+async def test_an_integration_outside_core_can_host_an_entity_domain(hass, caplog):
+    """A hub can own ``incident.*`` and let other integrations forward to it."""
+    domain = "incident"
+
+    class _Incident(Entity):
+        _attr_should_poll = False
+        _attr_has_entity_name = True
+        _attr_name = "Tornado warning"
+        _attr_unique_id = "t1"
+
+        @property
+        def state(self) -> str:
+            return "severe"
+
+    async def hub_setup(hass: HomeAssistant, config: dict) -> bool:
+        hass.data[domain] = EntityComponent(logging.getLogger(domain), domain, hass)
+        return True
+
+    async def hub_setup_entry(hass: HomeAssistant, entry: MockConfigEntry) -> bool:
+        return await hass.data[domain].async_setup_entry(entry)
+
+    async def provider_setup_entry(hass: HomeAssistant, entry: MockConfigEntry) -> bool:
+        await hass.config_entries.async_forward_entry_setups(entry, [domain])
+        return True
+
+    async def platform_setup_entry(hass, entry, async_add_entities) -> None:
+        async_add_entities([_Incident()])
+
+    mock_integration(
+        hass,
+        MockModule(domain, async_setup=hub_setup, async_setup_entry=hub_setup_entry),
+    )
+    mock_integration(
+        hass, MockModule("incident_provider", async_setup_entry=provider_setup_entry)
+    )
+    mock_platform(
+        hass,
+        f"incident_provider.{domain}",
+        MockPlatform(async_setup_entry=platform_setup_entry),
+    )
+    mock_platform(hass, "incident_provider.config_flow", None)
+
+    class _Flow(ConfigFlow):
+        pass
+
+    with mock_config_flow("incident_provider", _Flow):
+        entry = MockConfigEntry(domain="incident_provider")
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert hass.states.get("incident.tornado_warning").state == "severe"
+    assert [
+        r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
+    ] == []
