@@ -1,4 +1,4 @@
-# RFC: The `incident` Integration Domain for Home Assistant Core
+# RFC: The `incident` Integration for Home Assistant Core
 
 **Status:** Public working draft, not yet submitted. Please don't submit it to the Home Assistant Architecture repository; the maintainer will, once the reference implementation has gathered enough field testing.
 
@@ -10,7 +10,7 @@
 
 **Reading this document.** This file is the proposal: requirements, the recommended binding, the contract, the path. [`docs/rfc-summary.md`](docs/rfc-summary.md) is the one-page version. The evidence lives in [`docs/evidence/`](docs/evidence/README.md), one page per finding, each naming the section it supports and how it reproduces, and the *reference implementation* is the [`cap_alerts`](README.md) custom integration. A claim is marked *shipped* only where running code backs it. Dates are UTC.
 
-**What is being proposed.** Two things, and they are separable. The first is an **abstraction**: a first-class incident, a normalized and lifecycle-aware representation of an externally sourced structured event, with stable identity across provider revisions, one severity vocabulary, an event contract and a bounded payload. The second is a **binding**: how that abstraction attaches to Home Assistant's runtime. This RFC recommends dynamic `incident.*` entities. §1.4 states the abstraction's requirements without assuming a binding, §1.5 lists four candidates, §2 argues for the entity domain. A reviewer who accepts the first and rejects the second has not rejected the proposal. The schema, identity model, events and geometry API in §2 port unchanged to the alternatives in §1.5.
+**What is being proposed.** Two things, and they are separable. The first is an **abstraction**: a first-class incident, a normalized and lifecycle-aware representation of an externally sourced structured event, with stable identity across provider revisions, one severity vocabulary, an event contract and a bounded payload. The second is a **binding**: how that abstraction attaches to Home Assistant's runtime. This RFC recommends one entity per active incident: first a `sensor` marked by an `incident` device class and served by an `incident` system integration, later an `incident` entity domain if that proves too little. §1.4 states the abstraction's requirements without assuming a binding, §1.5 lists four candidates, §2 specifies the entity binding and §5 stages it. A reviewer who accepts the first and rejects the second has not rejected the proposal. The schema, identity model, events and geometry API in §2 port unchanged to the alternatives in §1.5.
 
 ---
 
@@ -59,7 +59,7 @@ The failures in §1.1 to §1.3 imply requirements that hold whatever the binding
 7. **Automation surface.** Automations trigger on arrival, update and termination without hand-wiring against entities that don't exist yet.
 8. **Tolerance of imperfect sources.** Termination is not driven by one observation of absence. Real feeds omit live alerts intermittently (§2.5) and real authorities signal end-of-life outside `msgType` (§2.2).
 9. **Ingest-mode neutrality.** The model holds for polling and for a pushed stream, and does not assume a poll interval exists.
-10. **Readable by a dashboard.** Core presentation data, and changes to it, are available through a subscribed, contract-stable read path that both declarative and custom dashboard consumers can use. For an entity binding that is the state machine. Externalized payloads stay reachable through a frontend-native path, with subscribed state carrying the handle and the change signal (§2.4). A mechanism that serves the incident body only through an action with response data fails this requirement (§1.6). So does a frontend that fetches CAP itself and reaches neither the recorder nor an automation (§3.8).
+10. **Readable by a dashboard.** Core presentation data, and changes to it, are available through a subscribed, contract-stable read path that both declarative and custom dashboard consumers can use. For an entity binding that is the state machine. Externalized payloads stay reachable through a frontend-native path, with subscribed state carrying the handle and the change signal (§2.4). A mechanism that serves the incident body only through an action with response data does not provide that path (§1.6). So does a frontend that fetches CAP itself and reaches neither the recorder nor an automation (§3.8).
 
 Requirements 8 and 9 came out of field-testing the reference implementation. Requirement 10 was added after core review steered two integrations, across four PRs, to the action-response pattern (§8.1). It is neutral about storage and deliberate about the consumer surface.
 
@@ -67,16 +67,25 @@ Requirements 8 and 9 came out of field-testing the reference implementation. Req
 
 Four mechanisms can satisfy §1.4. They differ only in how the incident binds to HA's runtime; the data model, events and geometry API are the same in each.
 
-- **Entity-based `incident` domain (recommended, §2).** One entity per active incident, created and removed with it. Reuses the recorder, the visual trigger editor, `RestoreEntity` and every entity-aware card. Cost: registry mutation at incident boundaries (§2.5).
-- **Sensor device class plus a system integration.** The same per-incident entities, kept under `sensor` and marked by a new device class. A system integration owns the triggers, events and geometry endpoints. Core's `motion` and `door` integrations already target entities by device class with no domain of their own, and the reference implementation is this binding without the device class. Same registry cost as the domain, no entity-id migration, a smaller core surface. Cost: conformance is opted into, not enforced by the platform type, and the sensor component accepts `options` only on its `enum` device class, so a fixed severity vocabulary needs a change to sensor's own validation ([evidence](docs/evidence/core-accepts-a-custom-incident-device-class.md)).
-- **Static entity pool (§6.1).** A fixed pool of slots, filled and drained. No registry churn. Cost: permanent entity cardinality, and an empty-slot filter pushed onto every card and automation.
-- **Dedicated `incident_registry` (§3.6).** A new registry beside `issue_registry`, ingesting CAP directly. No entities at all. Cost: rebuilding history, triggers, Lovelace and restart survival from scratch.
+| | `sensor` device class and an `incident` system integration (recommended first, §2) | `incident` entity domain (the later step, §5) | Static entity pool (§6.1) | `incident_registry` (§3.6) |
+| :-- | :-- | :-- | :-- | :-- |
+| An incident is | a `sensor` entity, created and removed with it | the same entity in its own domain | a slot that fills and drains | a registry record, no entity |
+| Recorder, state triggers, entity cards | inherited | inherited | inherited | rebuilt |
+| Consumers find incidents by | device class | domain | domain, then an empty-slot filter | a new API |
+| Severity vocabulary | needs a change to sensor's validation | enforced by the platform | enforced by the platform | enforced by the registry |
+| State translations | none until sensor adds them | the domain's | the domain's | new UI |
+| Registry writes at incident boundaries | yes | yes | none | none |
+| Deleted-entity record per removal | yes | yes | none | none |
+| Entity ids for today's users | stay | change | change | go away |
+| What core adds | a device class and the integration | a domain and its frontend | a domain, its frontend and slot allocation | a registry with its own UI, triggers and history |
+
+The first column is the pattern core's `motion` and `door` integrations already use. It is recommended first because it is the smallest change that proves the contract, it moves nobody's entity ids, and a custom integration can field-test it today ([evidence](docs/evidence/core-accepts-a-custom-incident-device-class.md)). The registry rows are measured in §2.5.
 
 A reviewer can accept §1.4 in full and prefer a different binding. Only rejecting §1.4 defeats the proposal.
 
 ### 1.6 The Excluded Mechanism: Action With Response Data
 
-Core review currently prefers a different model: a thin entity, usually a count, plus an action with `SupportsResponse` that returns the alert bodies on demand. It is not listed above because it fails requirement 10, and the failure needs stating precisely because the imprecise version is refutable.
+Core review currently prefers a different model: a thin entity, usually a count, plus an action with `SupportsResponse` that returns the alert bodies on demand. It is not listed above because it gives a dashboard no subscribed read path, which requirement 10 asks for. That needs stating precisely, because the imprecise version is refutable.
 
 The case for it is real. Long attributes are written to the recorder on every state change, shipped to every client and included in every state dump. An action response is computed on request, delivered once and never recorded. For automations it is the better design, and requirement 3 agrees with its premise.
 
@@ -84,17 +93,17 @@ What it withholds is everything requirement 10 asks for around the call. Declara
 
 Three things about where this stands. The convention is unwritten: no ADR, no quality-scale rule and no developer-docs statement recommends actions over attributes, so there is no place a requirement like 10 can be raised against it. Core has already answered the frontend half once: when forecasts left `weather.*` attributes for `weather.get_forecasts`, the same migration shipped `weather/subscribe_forecast` so cards never lived on action calls. And the tension is live in [architecture#1357](https://github.com/home-assistant/architecture/discussions/1357) and [#1360](https://github.com/home-assistant/architecture/discussions/1360), which propose a forecast contract for sensors on the same reasoning and name the same frontend gap. The threads, quoted: [core review moved alert bodies into actions](docs/evidence/core-review-moved-alert-bodies-into-actions.md) and [the frontend has no way to read an action result](docs/evidence/the-frontend-has-no-way-to-read-an-action-result.md).
 
-This RFC does not conclude that attributes are the right home for incident bodies in perpetuity. It concludes that requirement 10 is a requirement, that the action model does not meet it, and that a domain shaped for incidents is where it gets a first-class answer, as `weather` already has.
+This RFC does not conclude that attributes are the right home for incident bodies in perpetuity. It concludes that requirement 10 is a requirement, that the action model does not meet it, and that an integration shaped for incidents is where it gets a first-class answer, as `weather` already has.
 
 ---
 
-## 2. Recommended Implementation: the `incident` Domain
+## 2. Recommended Implementation: One Entity per Incident
 
-This section binds the §1.4 requirements onto HA's entity model. Where it says "the entity", a reviewer preferring another binding can read "the slot" or "the registry record". The schema (§2.1), event contract (§2.3) and geometry API (§2.4) are common to all four.
+This section binds the §1.4 requirements onto HA's entity model. Where it says "the entity", a reviewer preferring another binding can read "the slot" or "the registry record". The schema (§2.1), event contract (§2.3) and geometry API (§2.4) are common to all four. An incident entity is a `sensor` with the `incident` device class in the first stage and an `incident.*` entity if the domain follows (§5). The contract is the same in both, and the ids below are the first stage's.
 
 ### 2.1 Entity Model
 
-The `incident` platform defines a new domain with `IncidentEntity` as its base class. One entity is one incident, created on first sighting and removed on cancel or expiry. Providers normalize CAP 1.2 once, identity is stable across updates (§2.2), attributes are sparse, and heavy payloads are referenced rather than inlined (§2.4).
+The `incident` integration provides `IncidentEntity` as the base class, on top of `SensorEntity` in the first stage. One entity is one incident, created on first sighting and removed on cancel or expiry. Providers normalize CAP 1.2 once, identity is stable across updates (§2.2), attributes are sparse, and heavy payloads are referenced rather than inlined (§2.4).
 
 **State** is the normalized severity: `extreme`, `severe`, `moderate`, `minor` or `unknown`.
 
@@ -132,7 +141,7 @@ The `incident` platform defines a new domain with `IncidentEntity` as its base c
 
 ### 2.2 Identity and Lifecycle
 
-`unique_id` is the provider's stable lifecycle hash (§1.2). `entity_id` is `incident.<slug(event)>_<short_hash>`, where the suffix is the first eight hex characters of SHA-1 over `unique_id`. Deriving the suffix from the hash avoids HA's `_2` numeric fallback, which otherwise disconnects history from the stable identity each time a collision resolves differently.
+`unique_id` is the provider's stable lifecycle hash (§1.2). `entity_id` is `sensor.<slug(event)>_<short_hash>`, where the suffix is the first eight hex characters of SHA-1 over `unique_id`. Deriving the suffix from the hash avoids HA's `_2` numeric fallback, which otherwise disconnects history from the stable identity each time a collision resolves differently.
 
 | Phase       | Behavior                                                                            |
 | :---------- | :---------------------------------------------------------------------------------- |
@@ -157,7 +166,7 @@ All three events carry one payload, so automations need not branch on event type
 ```yaml
 event_type: incident_created | incident_updated | incident_removed
 data:
-  entity_id: incident.<slug>_<hash>   # omitted only when no entity ever existed; see below
+  entity_id: sensor.<slug>_<hash>     # omitted only when no entity ever existed; see below
   incident_id: <unique_id>            # stable lifecycle hash
   event: <short event name>
   severity: extreme|severe|moderate|minor|unknown
@@ -216,7 +225,7 @@ A severe-weather multipolygon can exceed 16 KB alone. Putting it in the state ma
 
 ### 2.5 Entity Registry Cleanup
 
-Incidents are transient. Leaving registry entries behind would accumulate dozens of dead `incident.*` entries per storm season.
+Incidents are transient. Leaving registry entries behind would accumulate dozens of dead entries per storm season.
 
 - On `cancel` or `expired` the integration removes the registry entry in the same cycle that fires `incident_removed`.
 - Registry mutations are batched per cycle: one `async_add_entities()` call, all removals together. This holds for a pushed stream too, by coalescing arrivals into one update pass.
@@ -243,25 +252,25 @@ There is no count of consecutive misses: a count assumes rounds, which requireme
 
 **The reference implementation re-validates from the registry alone.** Its entities do not yet inherit `RestoreEntity` (§5), so the store seeds its known set from the registry at construction. A known id still live fires nothing. An unknown live id fires `incident_created`. A known id is announced removed only when a second fetch-backed reconciliation still lacks it, since a stream rebuild a minute after boot cannot recover what the seed missed. A record already terminal on the first fetch is old news and fires nothing. That removal carries only what the registry kept, the id and the event name.
 
-**Why the churn is deliberate.** Holding incidents only in memory fails the power-blip case. Persisting CAP to `.storage/` every poll wears the SD card §2.4 protects. The entity registry plus `RestoreEntity` plus the recorder survives a restart on HA-native machinery with only sparse attributes touching disk. The cost is registry traffic at incident boundaries, batched. It is not the whole cost: core keeps a deleted-entity record for every removal and never purges it while the config entry lives ([evidence](docs/evidence/registry-churn-follows-scope-and-every-removal-leaves-a-tombstone.md)). The usual objection, lost customizations, presupposes the entity is a customization target; a warning gone in fifteen minutes is not.
+**Why the churn is deliberate.** Holding incidents only in memory fails the power-blip case. Persisting CAP to `.storage/` every poll wears the SD card §2.4 protects. The entity registry plus `RestoreEntity` plus the recorder survives a restart on HA-native machinery. The cost is registry traffic at incident boundaries, batched, and it follows the entry's scope: a point or zone entry wrote the registry at most twice a day over a quiet ten days, a busy state feed about a hundred times. The cost that does not scale down is core's. The registry keeps a deleted-entity record for every removal and purges it only after the config entry is gone, so every save rewrites a file that only grows. This proposal asks core for a purge rule for removed entities whose platform declares them transient ([evidence](docs/evidence/registry-churn-follows-scope-and-every-removal-leaves-a-tombstone.md)). The usual objection, lost customizations, presupposes the entity is a customization target; a warning gone in fifteen minutes is not.
 
-At any moment, `incident.*` entries correspond one to one with active incidents.
+At any moment, registered incident entities correspond one to one with active incidents.
 
 ### 2.6 Presentation Hints
 
 - `icon` conveys event type (Tornado Warning → `mdi:weather-tornado`) and stays stable across severity changes.
 - Severity is the entity `state`, styled by CSS as `weather` and `binary_sensor` already are. No per-severity icons.
-- `phase` is an attribute and on the events. Cards surface transitions how they like; the domain exposes the signal.
+- `phase` is an attribute and on the events. Cards surface transitions how they like; the entity exposes the signal.
 
 **No acknowledgment or dismissal service.** Entities mirror upstream reality, and a user dismissing a warning on their phone changes nothing for anyone else in the household. "Seen" state is a card or automation concern.
 
-**Capability detection is by domain, not a version string.** The reference implementation stamps `incident_platform_version` on every entity because a custom component cannot mint a domain and `state.domain == "sensor"` answers nothing. Adopting `incident` retires it.
+**Capability detection is by device class, not a version string.** The reference implementation stamps `incident_platform_version` on every entity because its entities live under `sensor`, where `state.domain` answers nothing. The device class retires it.
 
-**Dynamic entities are consumed two ways.** Automations subscribe to the §2.3 events, which fire regardless of entity timing. Display goes through a domain-aware card that renders whatever `incident.*` entities exist and shows all-clear when none do, the pattern `auto-entities` already uses.
+**Dynamic entities are consumed two ways.** Automations subscribe to the §2.3 events, which fire regardless of entity timing. Display goes through a card that renders whatever incident entities exist and shows all-clear when none do, the pattern `auto-entities` already uses.
 
 ### 2.7 Internationalization
 
-State values are stable English tokens and are never localized at the entity. Display translation uses HA's standard `translations/<lang>.json` mechanism, as `weather` and `cover` do.
+State values are stable English tokens and are never localized at the entity. Display translation uses HA's standard `translations/<lang>.json` mechanism, as `weather` and `cover` do. In the first stage that means state translations for the `incident` device class in `sensor`. Without them the frontend shows the raw token ([evidence](docs/evidence/core-accepts-a-custom-incident-device-class.md)).
 
 Provider text is handled in the provider layer. Each integration exposes a `language` option. One-language providers fill the primary fields and set `language`. Multi-language providers (ECCC, MeteoAlarm, WMO) select the user's language for the primary fields and expose the alternate as `*_alt` with `language_alt`. Which block is the alternate is a rule, not document order: English when the primary is not English, else the first other language. The alternate text sits inside the §2.4 bound and is the first spent when an incident does not fit; in a live sweep the localized copy ran longer than the primary 69% of the time (§7.2). Identity is computed from language-independent fields so the two languages share one entity ([evidence](docs/evidence/the-alternate-language-is-a-rule-not-document-order.md)).
 
@@ -283,7 +292,7 @@ One sensor with alerts packed into attributes, or one `binary_sensor` holding on
 
 ### 3.4 Domain Naming: `alert` vs `incident`
 
-`alert.*` is internal, user-configured monitoring. `incident.*` is external, structured, ingested. The two are complementary and no change to `alert` is proposed.
+`alert.*` is internal, user-configured monitoring. An incident is external, structured, ingested. The two are complementary and no change to `alert` is proposed.
 
 ### 3.5 Core `issue_registry` / Repairs Dashboard
 
@@ -329,7 +338,7 @@ Internal device state. A failing disk, a smoke detector, a low battery, a failed
 
 ### 4.3 Gray Area: User-Constructed Incidents
 
-A power user may promote a sustained `binary_sensor.ups_on_battery` to an `incident.power_outage` with onset and expiry. Opt-in, never automatic.
+A power user may promote a sustained `binary_sensor.ups_on_battery` to a power-outage incident with onset and expiry. Opt-in, never automatic.
 
 ### 4.4 Why the Boundary Matters
 
@@ -339,24 +348,26 @@ Without it `incident` absorbs `binary_sensor` responsibilities and every "is thi
 
 ## 5. Implementation Path
 
-1. Introduce the `incident` domain and `IncidentEntity` in core, with the geometry view (§2.4) and the registry contract (§2.5).
-2. Port the **provider-independent** half and its conformance tests: the schema, severity vocabulary, lifecycle and phase semantics, event contract and geometry contract. CAP parsing, profile interpretation and per-source conventions stay in the integrations. Core owning a CAP parser would make it the maintainer of every national profile's quirks.
-3. Ship two reference integrations at launch: NWS (VTEC identity, US coverage) and ECCC (composite identity, bilingual, streaming), which also carries the non-weather NAAD traffic. The launch set stays small because the platform already asks core for a domain, a lifecycle, an event contract, a geometry API and registry semantics in one change.
-4. GDACS as the first post-adoption provider, carrying the event-report shape. It ships in the reference implementation, so this is a port, not a build.
-5. Phase migration of alert handling in `weather` and affected custom integrations. Opt-in, non-breaking (§5.1).
-6. Native Lovelace support, building on `weather_alerts_card`, including on-demand geometry.
+Each stage is reviewable alone, and the first is the smallest change that proves the contract.
 
-**How step 2 is expected to be reached.** Two moves, neither shipped yet. First an in-repo neutrality pass (reference implementation issue #216), until no provider name appears in the modules that would move. Then that half is extracted into a hub the per-service integrations depend on through manifest `dependencies`, with the reference implementation as first consumer and two prospective outside maintainers (an ECCC integration and a Brazilian INMET one) as the next. A core proposal with three consumers behind it is a different proposal from one with a single reference implementation.
+1. **The contract, under `sensor`.** An `incident` system integration provides `IncidentEntity`, the triggers and conditions, and the three events. `sensor` gains an `incident` device class with the severity vocabulary and its state translations, and the entity registry gains the purge rule (§2.5). The provider-independent half ports with its conformance tests: schema, severity vocabulary, lifecycle and phase semantics, event contract. CAP parsing, profile interpretation and per-source conventions stay in the integrations. Core owning a CAP parser would make it the maintainer of every national profile's quirks.
+2. **Geometry.** The view and websocket command of §2.4, owned by the same integration.
+3. **Two providers.** NWS (VTEC identity, US coverage) and ECCC (composite identity, bilingual, streaming), which also carries the non-weather NAAD traffic. GDACS follows, carrying the event-report shape. It ships in the reference implementation, so it is a port, not a build.
+4. **Migration** of alert handling in `weather` and affected custom integrations. Opt-in, non-breaking (§5.1).
+5. **Lovelace support**, building on `weather_alerts_card`, including on-demand geometry.
+6. **An `incident` entity domain, if the first stage shows the need.** Three observations would show it: an integration ships the device class without the base class and consumers break on it, the frontend needs a more-info dialog or card that the sensor one can't carry, or incidents gain actions. Without one of them the domain stays unbuilt. If it is built, the entities move and their ids change once.
+
+**How stage 1 is expected to be reached.** Two moves, neither shipped yet. First an in-repo neutrality pass (reference implementation issue #216), until no provider name appears in the modules that would move. Then that half is extracted into a hub the per-service integrations depend on through manifest `dependencies`, with the reference implementation as first consumer and two prospective outside maintainers (an ECCC integration and a Brazilian INMET one) as the next. A core proposal with three consumers behind it is a different proposal from one with a single reference implementation.
 
 **What the reference implementation proves today.** Everything in §2 except restart content restore, below. Two cards consume the contract: the companion `weather_alerts_card`, and since October 2026 `ha-alert-card`, maintained independently, which added a `device:` source at this project's request. Its first contact read raw `severity` rather than `severity_normalized` and followed `url` before `web`, the distinction §2.1 draws, met by a second implementer ([evidence](docs/evidence/a-second-card-read-the-raw-severity.md)).
 
 **Restart survival is the principal remaining gap.** The entities do not inherit `RestoreEntity`, so no content is restored, and a failed first reconciliation after a power cut leaves the dashboard blank, the case §2.5's stale flag exists for. Offline expiry has the same status. The re-validation half did land in October 2026 (§2.5). Both restore mechanisms are specified for core and neither is exercised in the field; a reviewer should weigh them accordingly.
 
-Provider quirks stay the integration's job, and the division is measured: a British Columbia ECCC configuration dedups 211 envelope entries to 100 documents, pre-filters ~1,800 candidate bodies to ~7 by bounding box, selects area groups and applies filters, and hands the platform **9 entities**. The 16 KB ceiling and the churn arguments are sized against that number ([evidence](docs/evidence/the-provider-layer-hands-core-single-digits.md)).
+Provider quirks stay the integration's job, and the division is measured: a British Columbia ECCC configuration dedups 211 envelope entries to 100 documents, pre-filters ~1,800 candidate bodies to ~7 by bounding box, selects area groups and applies filters, and hands the platform **9 entities**. The 16 KB ceiling is sized against that number ([evidence](docs/evidence/the-provider-layer-hands-core-single-digits.md)). Churn is sized against the wider scopes too: a state-wide Australian feed registers about 90 at once (§2.5).
 
 ### 5.1 Migration Strategy for Legacy Consumers
 
-Packed-attribute sensors such as `sensor.nws_alerts` run in parallel with `incident.*` for six months, HA's standard deprecation window, marked deprecated in logs and docs. A core-provided template or blueprint reconstructs the old flat list from the new entities for unmigrated automations. Legacy sensors are then removed in the affected integrations; the platform itself has nothing to deprecate. `climate` and `water_heater` took the same path.
+Packed-attribute sensors such as `sensor.nws_alerts` run in parallel with the per-incident entities for six months, HA's standard deprecation window, marked deprecated in logs and docs. A core-provided template or blueprint reconstructs the old flat list from the new entities for unmigrated automations. Legacy sensors are then removed in the affected integrations; the platform itself has nothing to deprecate. `climate` and `water_heater` took the same path.
 
 ### 5.2 Test Coverage Requirements
 
@@ -383,7 +394,7 @@ Core test suites for this platform must cover:
 
 ### 6.1 Fallback: Static Entity Pool
 
-If the AWG rejects dynamic creation, each config entry pre-allocates N slots (`incident.<slug>_slot_1` … `_N`). Slots fill and drain, assignment is sticky for the incident's life, `unique_id` is the slot and the lifecycle hash moves to an `incident_id` attribute. It buys a static registry and stable History names. It costs 30 to 50 permanent entities per entry showing `unknown` on quiet days, an empty-slot filter in every card and automation, history keyed by attribute rather than entity, and a deterministic assignment algorithm so concurrent churn cannot swap slots. It satisfies every §1.4 requirement and the schema, events and geometry API are unchanged. @pyspilf's fixed-slot MeteoAlarm implementation is the prior art ([forum thread](https://community.home-assistant.io/t/getting-all-active-meteoalarm-alerts-weather-alerts-card-integration/1006597)).
+If the AWG rejects dynamic creation, each config entry pre-allocates N slots (`incident.<slug>_slot_1` … `_N`). Slots fill and drain, assignment is sticky for the incident's life, `unique_id` is the slot and the lifecycle hash moves to an `incident_id` attribute. It buys a static registry and stable History names. It costs 30 to 50 permanent entities per entry showing `unknown` on quiet days, an empty-slot filter in every card and automation, history keyed by attribute rather than entity, and a deterministic assignment algorithm so concurrent churn cannot swap slots. @pyspilf's fixed-slot MeteoAlarm implementation is the prior art ([forum thread](https://community.home-assistant.io/t/getting-all-active-meteoalarm-alerts-weather-alerts-card-integration/1006597)).
 
 ### 6.2 Cross-integration Geometry Store
 
@@ -414,9 +425,10 @@ Precompute the simplification, not the distribution. The best bundled artifact o
 A live NWS Severe Thunderstorm Warning:
 
 ```yaml
-entity_id: incident.severe_thunderstorm_warning_7c4e1f9a
+entity_id: sensor.severe_thunderstorm_warning_7c4e1f9a
 state: severe
 attributes:
+  device_class: incident
   id: OKX.SV.W.0042.2026
   event: Severe Thunderstorm Warning
   headline: Severe Thunderstorm Warning issued April 14 at 3:47PM EDT until April 14 at 4:45PM EDT by NWS New York NY
@@ -456,9 +468,10 @@ The `_7c4e1f9a` suffix is the §2.2 short hash, not an office code. `friendly_na
 A non-weather incident from a live NAAD message, same shape, different `category`:
 
 ```yaml
-entity_id: incident.911_service_inoperative_b8d0e274
+entity_id: sensor.911_service_inoperative_b8d0e274
 state: extreme
 attributes:
+  device_class: incident
   id: 3f2a9c14b7d2
   event: 911 Service Inoperative
   headline: 911 Service Disruption
@@ -585,6 +598,6 @@ Structured external notifications are central to Home Assistant's role in emerge
 
 The proposal has two parts. The first is that Home Assistant needs a first-class incident abstraction: normalized severity, identity stable across revisions, a lifecycle that trusts neither `msgType` nor a single missed observation, an event contract, and a payload bounded in both dimensions. §1.4 states that case without reference to a binding, and each requirement is backed by observed provider behavior rather than specification reading. That is the claim this RFC most wants tested.
 
-The second is that dynamic `incident.*` entities are the right binding, because they inherit the recorder, the trigger editor, `RestoreEntity` and the card ecosystem at the cost of batched registry churn. The case is good and not conclusive; §1.5 lists the alternatives, and the contract ports to each. A reviewer who accepts the abstraction and rejects the binding has moved the discussion to where it should be.
+The second is that one entity per incident is the right binding, starting under `sensor` with a device class, because entities inherit the recorder, the trigger editor, `RestoreEntity` and the card ecosystem. The cost is batched registry churn and a deleted-entity record core would need to purge. The case is good and not conclusive; §1.5 lists the alternatives, and the contract ports to each. A reviewer who accepts the abstraction and rejects the binding has moved the discussion to where it should be.
 
 I invite collaboration on any part of this, and disagreement on the second part most of all.
