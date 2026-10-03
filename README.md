@@ -11,10 +11,11 @@ fields, and an event fires when an alert is created, updated or removed.
 The providers are the visible part. The point of the project is the model
 underneath them: one identity per incident across re-issues, a lifecycle that
 does not trust feed presence, bounded attributes, and lifecycle events.
-[`rfc.md`](rfc.md) argues that model as a proposed `incident` domain for Home
-Assistant Core, with this integration as its reference implementation, and
-[`docs/evidence/`](docs/evidence/README.md) holds the field evidence behind it,
-one page per finding.
+[`docs/rfc-summary.md`](docs/rfc-summary.md) is the one-page version of the
+proposal: that model as an `incident` domain for Home Assistant Core, with this
+integration as its reference implementation. [`rfc.md`](rfc.md) argues it in
+full, and [`docs/evidence/`](docs/evidence/README.md) holds the field evidence
+behind it, one page per finding.
 
 [![Alerts rendered by the companion Weather Alerts Card](https://raw.githubusercontent.com/seevee/weather_alerts_card/main/img/hero-adaptive.svg)](https://github.com/seevee/weather_alerts_card)
 
