@@ -65,9 +65,7 @@ about, and §6.3 reads it as identity, not hierarchy.
   fixture's alerts when the provider shipped, not re-counted here
   ([#127](https://github.com/seevee/cap_alerts/issues/127)).
 - Regeneration cadence (NSW every minute or two) comes from the provider
-  docstring and is not re-measured. The live WA body fetched 2026-10-03 is
-  EDXL-DE with no RSS `ttl` element, so the docstring's `ttl` figure is not
-  reproduced here.
+  docstring and is not re-measured.
 - WA's `expires − envelope` is the gap at capture time. It grows with every
   poll.
 - The second TAS product in the fixture carries `status=Test`. The #218 table

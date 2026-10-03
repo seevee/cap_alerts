@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "cap_alerts"
 PLATFORMS = ["binary_sensor", "button", "sensor"]
 
-# RFC §2.7 — bumped on breaking attribute/event payload changes
+# RFC §2.6 — bumped on breaking attribute/event payload changes
 PLATFORM_VERSION = "1.0"
 
 # RFC §2.3 event names — forward-compatible with an upstream `incident.*` domain.

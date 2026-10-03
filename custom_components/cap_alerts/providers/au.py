@@ -33,8 +33,8 @@ stamps ``sent`` itself — already past on arrival, which ``normalize`` would
 read as expired and the store would drop as terminal on first sight. With no
 expiry, no terminal vocabulary and no termination lookup, the store's
 existing rule ends an alert the moment its feed withdraws it; that is the
-contract of a "current incidents" feed (WA sets RSS ``ttl`` 1, NSW
-regenerates every minute or two). It is also why a failed or unparseable
+contract of a "current incidents" feed (NSW regenerates every minute or
+two). It is also why a failed or unparseable
 fetch raises rather than returning ``[]``: under that rule an empty result
 says every incident ended.
 

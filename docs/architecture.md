@@ -38,7 +38,7 @@ The `/alerts/active` endpoint only returns current alerts. The failure mode is: 
 
 ## Entity Identity & Registry Discipline
 
-Implements RFC §2.2.1 (stable entity_id derivation) and §2.5 (registry cleanup).
+Implements RFC §2.2 (stable entity_id derivation) and §2.5 (registry cleanup).
 
 ### entity_id shape
 
@@ -1062,7 +1062,7 @@ Holds the previous poll's alerts in memory and diffs incoming alerts to detect n
 
 ### Design notes
 
-- **In-memory only, seeded from the registry at boot** (issue #250). No disk persistence, so after a restart `_previous` is empty. The entity registry survives, though, and the alert ids under the entry's unique_id prefix are exactly the set known before the boot. The store reads them at construction (the sensor platform hydrates the same set, but only after the first refresh has run) and treats the first reconciliation as the re-validation RFC §2.3 describes: a known id still live fires nothing, an id not in the registry fires `incident_created`, and a known id still absent on the second reconciliation, when the sensor's grace window drops the entity, fires `incident_removed`. That removal carries only what the registry kept, the id and the entity's name, which is the alert's `event`: `phase: cancel`, `severity: unknown`, no `area_desc`, no `removal_reason`.
+- **In-memory only, seeded from the registry at boot** (issue #250). No disk persistence, so after a restart `_previous` is empty. The entity registry survives, though, and the alert ids under the entry's unique_id prefix are exactly the set known before the boot. The store reads them at construction (the sensor platform hydrates the same set, but only after the first refresh has run) and treats the first reconciliation as the re-validation RFC §2.5 describes: a known id still live fires nothing, an id not in the registry fires `incident_created`, and a known id still absent on the second reconciliation, when the sensor's grace window drops the entity, fires `incident_removed`. That removal carries only what the registry kept, the id and the entity's name, which is the alert's `event`: `phase: cancel`, `severity: unknown`, no `area_desc`, no `removal_reason`.
 - **Events are lightweight.** Payload contains only the RFC §2.3 schema plus two project extensions (`entry_id`, `area_desc`). Automations that need full details read the entity attributes — avoids duplicating the CAP payload on the bus. See [`events.md`](events.md) for the full schema.
 - **Runs after normalization.** `phase` must be set before diffing.
 - **Filter is internal to `store.process`.** The coordinator hands in the full normalized list (including `cancel`/`expired`). The store fires `incident_removed` with the true terminal phase and then drops those alerts from the returned active set — so the event payload's `phase` distinguishes cancel from expired directly. Alerts that vanish silently between polls are inferred as `expired` when past their `expires` timestamp, otherwise `cancel`.
@@ -1332,7 +1332,7 @@ Consequences for provider design:
 
 ## RFC Schema Alignment (platform v1.0)
 
-The integration implements the `IncidentEntity` contract from `rfc.md` §2.2, §2.2.2, §2.4, §2.6, §2.7.
+The integration implements the `IncidentEntity` contract from `rfc.md` §2.1 to §2.6.
 
 ### Phase vocabulary
 

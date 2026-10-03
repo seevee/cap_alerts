@@ -175,7 +175,7 @@ first fetch after a boot covers that case, see below.
 The store is in-memory, so a restart empties it. The entity registry is not, and
 the alert ids under an entry's unique_id prefix are exactly the set it knew
 before the boot. The store reads them at construction (issue #250) and treats
-the first reconciliation after a boot the way RFC §2.3 describes: as a
+the first reconciliation after a boot the way RFC §2.5 describes: as a
 re-validation of what was already known, not a cold start. The same applies to a
 reload, which a reconfigure or the ECCC streaming toggle triggers, since that
 rebuilds the store too. Cheap options such as the poll interval are applied in
