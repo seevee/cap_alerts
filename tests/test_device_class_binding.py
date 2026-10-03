@@ -108,6 +108,8 @@ async def test_a_device_class_trigger_fires_for_the_marked_sensor_only(hass):
                 "trigger": {
                     "trigger": "incident_probe.became_severe",
                     "target": {"entity_id": [marked.entity_id, plain.entity_id]},
+                    # Required on the 2026.4 floor, defaulted on later releases.
+                    "options": {},
                 },
                 "action": {
                     "event": "probe_fired",
