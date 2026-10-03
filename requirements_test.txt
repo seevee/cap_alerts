@@ -1,9 +1,9 @@
 # Test, lint, and type-check dependencies. Referenced by .github/workflows/ci.yml
 # and by local tooling (see AGENTS.md "Build & Test Commands").
 
-homeassistant==2026.9.3
+homeassistant==2026.7.0
 # Pins its own homeassistant version — keep in lockstep with the pin above
-# (0.13.366 pins homeassistant==2026.9.3).
+# (0.13.366 pins homeassistant==2026.7.0).
 pytest-homeassistant-custom-component==0.13.366
 
 pytest>=8.0,<10

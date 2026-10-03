@@ -2,8 +2,8 @@
 # "Test (HA floor)" job in .github/workflows/ci.yml, which also checks that the
 # homeassistant pin here matches hacs.json. Raise both together.
 
-homeassistant==2026.4.3
-# 0.13.324 pins homeassistant==2026.4.3, and pins its own pytest-cov, so this
+homeassistant==2026.7.0
+# 0.13.324 pins homeassistant==2026.7.0, and pins its own pytest-cov, so this
 # file leaves coverage out. The floor job runs the tests, not the gates.
 pytest-homeassistant-custom-component==0.13.324
 
