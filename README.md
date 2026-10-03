@@ -289,6 +289,7 @@ Per-field mappings and the reasoning behind each provider are in
 | [`docs/events.md`](docs/events.md) | Event payload schema and lifecycle semantics |
 | [`docs/architecture.md`](docs/architecture.md) | Alert identity, provider mappings, normalization, design rationale |
 | [`rfc.md`](rfc.md) | The incident model as a proposed Home Assistant Core domain; this integration is its reference implementation |
+| [`docs/rfc-summary.md`](docs/rfc-summary.md) | The RFC on one page: the two claims, the ten requirements, what runs today |
 | [`docs/evidence/`](docs/evidence/README.md) | Evidence behind the RFC, one page per finding: the measurement, the excerpt, how to reproduce it |
 | [`docs/roadmap.md`](docs/roadmap.md) | Planned work that has no issue yet |
 | [`docs/provider-watch.md`](docs/provider-watch.md) | Provider drift monitoring (feed vocabulary, WMO mirror lag) and the response playbook |
