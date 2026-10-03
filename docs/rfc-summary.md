@@ -12,7 +12,7 @@ the recorder keeps the state and silently drops the attributes (§1.1).
 Providers also re-issue one alert under new ids, which splits its history
 (§1.2), and no two integrations share a severity or identity vocabulary (§1.3).
 
-## Two claims, and they are separable
+## Two separable claims
 
 **The abstraction.** Home Assistant needs a first-class incident, and §1.4
 states what that takes without assuming a binding:
@@ -55,6 +55,5 @@ feeds (§4.1). The entities don't inherit `RestoreEntity` yet, so that half of
 
 ## What I'm asking for
 
-Test the requirements in §1.4 first, that's the claim the RFC most wants
-tested. Then argue with the binding. An issue on this repository is the place
-for either.
+Test the requirements in §1.4 first, then argue with the binding. An issue on
+this repository is the place for either.
