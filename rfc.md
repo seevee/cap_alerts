@@ -149,7 +149,7 @@ The `incident` integration provides `IncidentEntity` as the base class, on top o
 | Update      | State and attributes refreshed in place. `incident_updated` fires on phase or field delta. |
 | Termination | `incident_removed` fires. Entity and registry record are purged (see §2.5).         |
 
-**Three incident shapes.** A *warning* has a bounded active window and traverses the phases above (NWS, ECCC, MeteoAlarm, WMO, the DWD half of BBK). An *event report* is a past, point-in-time event with `urgency=Past` and no meaningful `expires`; it appears, is occasionally revised and leaves when the feed's retention window closes (GDACS). An *open-ended incident* is live now with no published end, revised in place and ended only when the authority withdraws it (the Australian bushfire feeds, whose `expires` is a regeneration TTL the provider drops). MoWaS civil-protection warnings sit between the first and third: no expiry, but an explicit all-clear when one is issued. The domain serves all three. Requirement 6 covers reports and open-ended incidents through feed presence where it covers warnings through expiry. Each shape is backed by a shipped provider; the one path still unobserved is a report being revised in place, which GDACS signals through an episode counter ([evidence](docs/evidence/gdacs-ends-by-withdrawal.md)).
+**Three incident shapes.** A *warning* has a bounded active window and traverses the phases above (NWS, ECCC, MeteoAlarm, WMO, the DWD half of BBK). An *event report* is a past, point-in-time event with `urgency=Past` and no meaningful `expires`; it appears, is occasionally revised and leaves when the feed's retention window closes (GDACS). An *open-ended incident* is live now with no published end, revised in place and ended only when the authority withdraws it (the Australian bushfire feeds, whose `expires` is a regeneration TTL the provider drops). MoWaS civil-protection warnings sit between the first and third: no expiry, but an explicit all-clear when one is issued. The contract serves all three. Requirement 6 covers reports and open-ended incidents through feed presence where it covers warnings through expiry. Each shape is backed by a shipped provider; the one path still unobserved is a report being revised in place, which GDACS signals through an episode counter ([evidence](docs/evidence/gdacs-ends-by-withdrawal.md)).
 
 **Phase is best-effort; the event stream is authoritative.** `phase` derives from CAP `msgType`. That is a convenience, because `msgType` is not how authorities signal termination. In a 211-entry NAAD snapshot ECCC emitted `Cancel` once, from a non-ECCC sender; every real ending travelled in a vendor parameter, `Alert_Location_Status`, while `msgType` stayed `Update`. Providers therefore supply a normalized termination hint (`lifecycle_status` in the reference implementation) and the platform retires the incident on a recognized terminal value. Recognition fails open: absent or unknown means active.
 
@@ -290,7 +290,7 @@ Rich notification UX over existing entities, templates and events. No schema for
 
 One sensor with alerts packed into attributes, or one `binary_sensor` holding one alert. Failures: 16 KB truncation under load, concurrent-alert dropout (filed against MeteoAlarm in core three times since 2024, §8.2), fragmented history on re-issue, and Jinja for basic automation. A reviewer on #37415 called the packed sensor "an ugly hack or workaround" in 2020, and the per-alert alternative stalled for want of a platform ([the 2020 thread](docs/evidence/one-sensor-per-alert-was-proposed-in-2020.md), [the MeteoAlarm reports](docs/evidence/meteoalarm-shows-one-alert-when-there-are-several.md)).
 
-### 3.4 Domain Naming: `alert` vs `incident`
+### 3.4 Naming: `alert` vs `incident`
 
 `alert.*` is internal, user-configured monitoring. An incident is external, structured, ingested. The two are complementary and no change to `alert` is proposed.
 
@@ -300,7 +300,7 @@ Repairs surfaces problems the administrator can fix. Incidents are events the ho
 
 ### 3.6 A Dedicated `incident_registry`
 
-A new registry beside `issue_registry`, ingesting CAP with no entities, is coherent and sidesteps registry churn. It forfeits what entities get for free and would rebuild each: history, the visual state-trigger editor, declarative Lovelace and restart survival. Core does build UI for non-entity primitives (Repairs, Backups, Areas), but each is one bounded admin destination. Incidents need composition: beside a thermostat on a dashboard, filtered by `auto-entities`, used as a state trigger. If the AWG prefers a registry anyway, the schema, events and geometry API port unchanged.
+A new registry beside `issue_registry`, ingesting CAP with no entities, is coherent and sidesteps registry churn and the deleted-entity records. It forfeits what entities get for free and would rebuild each: history, the visual state-trigger editor, declarative Lovelace and restart survival. Core does build UI for non-entity primitives (Repairs, Backups, Areas), but each is one bounded admin destination. Incidents need composition: beside a thermostat on a dashboard, filtered by `auto-entities`, used as a state trigger. If the AWG prefers a registry anyway, the schema, events and geometry API port unchanged.
 
 ### 3.7 The `geo_location` Platform
 
@@ -310,7 +310,7 @@ The closest existing analogue, and the wrong shape: state is a distance, attribu
 
 A card can fetch CAP in the browser; [`weather-radar-card`](https://github.com/jpettitt/weather-radar-card) does, for NWS. It is structurally the only kind of feed it can support. Of fourteen CAP endpoints the reference implementation ingests, probed with an `Origin` header, two send `Access-Control-Allow-Origin` (NWS and NSW RFS). The rest, MeteoAlarm, WMO, both NAAD hosts, GDACS, BBK and three Australian agencies, do not, so a page cannot read them without a server-side intermediary, and in an HA deployment that intermediary is an integration ([evidence](docs/evidence/cors-two-of-fourteen-endpoints.md)).
 
-The stronger objection survives even where the fetch works. A card-local fetch reaches no recorder, no state machine and no automation, and exists only while that dashboard is open. That is requirement 10 failing from the opposite side to §1.6.
+The stronger objection survives even where the fetch works. A card-local fetch reaches no recorder, no state machine and no automation, and exists only while that dashboard is open. That misses requirement 10 from the opposite side to §1.6.
 
 ---
 
@@ -330,11 +330,11 @@ External, structured incidents the home receives as a recipient:
 
 **The non-weather claim is load-bearing, and three shipped providers back it.** NAAD is an all-hazards aggregator, and one live sample ingested through the ECCC provider carried a `911 Service Inoperative` at `Extreme` from a provincial emergency office and two AMBER alerts from police, normalized by the same code path as a thunderstorm warning. GDACS adds the geophysical class from a source with no CAP body at all. BBK / NINA is a feed whose primary content is civil protection, arriving as CAP serialized as JSON, and it runs the shared parser after a one-function conversion. Evidence: [NAAD and BBK carry non-weather hazards through the weather code path](docs/evidence/naad-carries-non-weather-hazards-through-one-code-path.md).
 
-The domain spans the three shapes in §2.2. Events from an external authority that concern the household, a gas-leak notice, a fire ban, also belong here. The trait is a structured CAP-like message with HA as the consumer.
+The contract spans the three shapes in §2.2. Events from an external authority that concern the household, a gas-leak notice, a fire ban, also belong here. The trait is a structured CAP-like message with HA as the consumer.
 
 ### 4.2 What Does Not
 
-Internal device state. A failing disk, a smoke detector, a low battery, a failed backup are `binary_sensor` (`problem` or `safety`) or a purpose-built sensor. Reported to the home from an outside issuer: `incident`. Occurs inside the home's own hardware or software: `binary_sensor`.
+Internal device state. A failing disk, a smoke detector, a low battery, a failed backup are `binary_sensor` (`problem` or `safety`) or a purpose-built sensor. Reported to the home from an outside issuer: an incident. Occurs inside the home's own hardware or software: a `binary_sensor`.
 
 ### 4.3 Gray Area: User-Constructed Incidents
 
@@ -559,7 +559,7 @@ A signalled termination arrives on a *present* record and resolves on the `updat
 
 ### 8.1 Related Home Assistant Core Work
 
-- [home-assistant/core#164481](https://github.com/home-assistant/core/pull/164481) (@michaeldavie), combining ECCC alerts into one packed-attribute sensor. Closed unmerged 2026-06-08 after review asked for "actions with return values" instead; its successor [#172393](https://github.com/home-assistant/core/pull/172393) took that route and merged. ECCC's richest alert data is now reachable by automations and not by cards, which is requirement 10 failing in production ([evidence](docs/evidence/core-review-moved-alert-bodies-into-actions.md)).
+- [home-assistant/core#164481](https://github.com/home-assistant/core/pull/164481) (@michaeldavie), combining ECCC alerts into one packed-attribute sensor. Closed unmerged 2026-06-08 after review asked for "actions with return values" instead; its successor [#172393](https://github.com/home-assistant/core/pull/172393) took that route and merged. ECCC's richest alert data is now reachable by automations and not by cards, which is the gap requirement 10 names, in production ([evidence](docs/evidence/core-review-moved-alert-bodies-into-actions.md)).
 - [home-assistant/core#161882](https://github.com/home-assistant/core/pull/161882) and [#166125](https://github.com/home-assistant/core/pull/166125) (@DeerMaximum): NINA's attributes replaced by per-field sensors plus a `nina.get_details` action, with `description` and `recommended_actions` existing only in the response after HA 2026.11. The same resolution, incomplete by construction.
 - [architecture#1357](https://github.com/home-assistant/architecture/discussions/1357) and [#1360](https://github.com/home-assistant/architecture/discussions/1360) (@jpbede): a forecast contract for sensor entities, on the same reasoning and naming the same frontend gap. Forecasts and incidents are one shape of problem.
 - [home-assistant/core#37415](https://github.com/home-assistant/core/pull/37415) (@MatthewFlamm) and [#100009](https://github.com/home-assistant/core/pull/100009) (@IceBotYT): both closed. The first thread reached this RFC's conclusions years earlier, one sensor per alert and `references` for lifecycle, and stalled for lack of a platform.
