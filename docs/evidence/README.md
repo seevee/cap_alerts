@@ -17,6 +17,7 @@ table at its top says which figure is which.
 | :-- | :-- | :-- | :-- |
 | §1.1 | [The recorder keeps the state and drops every attribute on overflow](the-recorder-keeps-the-state-and-drops-the-attributes.md) | 2026-10-03 (first checked against 2026.7.3 on 2026-08-07) | script |
 | §1.2 | [Identity is a per-sender property, not a per-provider one](identity-is-a-per-sender-property.md) | 2026-08-06 (NWS, FMI), 2026-08-08 (GDACS), 2026-09-19 to 09-24 (BBK, AU) | fixture, one-time capture |
+| §1.5 | [Core accepts a custom incident device class on a sensor and triggers on it](core-accepts-a-custom-incident-device-class.md) | 2026-10-03 | test, one-time capture |
 | §1.6, §8.1 | [Core review moved alert bodies out of attributes and into actions](core-review-moved-alert-bodies-into-actions.md) | 2026-10-02 (threads fetched with `gh api`, thread dates as GitHub records them) | script |
 | §1.6 | [The frontend has no way to read an action result](the-frontend-has-no-way-to-read-an-action-result.md) | 2026-10-02 (discussions fetched with `gh api graphql`, file read from `.venv`) | script |
 | §2.2, §6.3 | [The Australian feeds stamp expires as a regeneration TTL, not an end time](australian-feeds-publish-no-end-time.md) | 2026-09-19 (NSW, QLD, WA), 2026-09-20 (TAS), 2026-09-21 (TAS two products) | fixture |
