@@ -1,0 +1,14 @@
+# The test suite against the oldest core hacs.json declares. Referenced by the
+# "Test (HA floor)" job in .github/workflows/ci.yml, which also checks that the
+# homeassistant pin here matches hacs.json. Raise both together.
+
+homeassistant==2026.4.3
+# 0.13.324 pins homeassistant==2026.4.3, and pins its own pytest-cov, so this
+# file leaves coverage out. The floor job runs the tests, not the gates.
+pytest-homeassistant-custom-component==0.13.324
+
+pytest>=8.0,<10
+pytest-asyncio>=1.0,<2
+hypothesis==6.168.0
+aiohttp>=3.10,<4
+defusedxml==0.7.1

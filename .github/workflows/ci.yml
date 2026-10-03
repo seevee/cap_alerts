@@ -66,3 +66,24 @@ jobs:
           coverage report
           --include='custom_components/cap_alerts/config_flow.py,custom_components/cap_alerts/flows/*'
           --fail-under=100
+
+  test-floor:
+    runs-on: ubuntu-latest
+    name: Test (HA floor)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements_floor.txt
+      # hacs.json is what HACS enforces, so the declared floor and the tested
+      # one must be the same version.
+      - name: Floor matches hacs.json
+        run: |
+          declared=$(python -c 'import json; print(json.load(open("hacs.json"))["homeassistant"])')
+          tested=$(sed -n 's/^homeassistant==//p' requirements_floor.txt)
+          echo "hacs.json $declared, requirements_floor.txt $tested"
+          test "$declared" = "$tested"
+      - run: pip install -r requirements_floor.txt
+      - run: pytest tests -q
