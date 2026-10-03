@@ -546,6 +546,65 @@ async def test_floor_applies_to_a_headline_derived_tier():
     ]
 
 
+def _hazmat(severity: str = "Extreme") -> CAPAlert:
+    """DFES's first hazmat product (#240): WA, so no AlertLevel parameter, and a
+    headline prefix that isn't on the ladder."""
+    return CAPAlert(
+        id="hazmat",
+        headline="Hazmat General Warning - GREGORY",
+        severity=severity,
+        provider="au",
+    )
+
+
+@pytest.mark.parametrize("floor", ["Advice", "Watch and Act", "Emergency Warning"])
+def test_floor_keeps_an_extreme_tierless_warning(floor):
+    """Ranked by CAP severity, the way its entity's severity is (#242)."""
+    alerts = [_hazmat()]
+    assert apply_alert_level_floor(alerts, floor) == alerts
+
+
+@pytest.mark.parametrize(
+    ("severity", "kept_at"),
+    [
+        ("Severe", ["Advice", "Watch and Act"]),
+        ("Moderate", ["Advice"]),
+        ("Minor", []),
+        ("Minor ", []),  # WA pads it, as published
+        ("Unknown", []),
+        ("", []),
+    ],
+)
+def test_floor_ranks_a_tierless_alert_by_its_severity(severity, kept_at):
+    alerts = [_hazmat(severity)]
+    for floor in ("Advice", "Watch and Act", "Emergency Warning"):
+        assert bool(apply_alert_level_floor(alerts, floor)) == (floor in kept_at)
+
+
+def test_floor_ignores_severity_on_an_informational_tier():
+    """A tier says what it is; Planned Burn stays below Advice however it's flagged."""
+    burn = CAPAlert(
+        id="burn",
+        headline="Atlantic Hazard Reduction",
+        parameters={"AlertLevel": "Planned Burn"},
+        severity="Extreme",
+        provider="au",
+    )
+    assert apply_alert_level_floor([burn], "Advice") == []
+
+
+def test_floor_ranks_a_tier_over_its_severity():
+    """QLD writes Minor on Advice; the tier decides, not the CAP field."""
+    advice = CAPAlert(
+        id="advice",
+        headline="Advice - BUARABA",
+        parameters={"AlertLevel": "Advice"},
+        severity="Minor",
+        provider="au",
+    )
+    assert apply_alert_level_floor([advice], "Advice") == [advice]
+
+
 def test_unknown_floor_applies_nothing():
     alerts = [CAPAlert(id="x", headline="Bushfire Advice - y", provider="au")]
     assert apply_alert_level_floor(alerts, "Purple") == alerts

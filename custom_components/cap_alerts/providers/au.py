@@ -210,11 +210,33 @@ def alert_level_rank(level: str) -> int:
     return 0
 
 
+# CAP ``<severity>`` read back onto the ladder, for an alert with no tier at all.
+# The inverse of the tier-to-severity mapping in ``conventions``, so a tierless
+# alert ranks where its entity's severity says it sits (issue #242).
+_SEVERITY_RANK = {"moderate": 1, "severe": 2, "extreme": 3}
+
+
+def _floor_rank(alert: CAPAlert) -> int:
+    """Where ``alert`` sits for the minimum-level option.
+
+    Its tier where it has one, informational tiers included, which rank ``0``
+    however the agency set ``<severity>``. An alert with no tier is ranked by
+    its CAP severity instead: DFES publishes hazmat warnings off the ladder
+    with ``Extreme``, and a shelter-indoors warning must not sit below a floor
+    that keeps a bushfire Advice.
+    """
+    level = au_alert_level(alert.parameters, alert.headline)
+    if level:
+        return alert_level_rank(level)
+    return _SEVERITY_RANK.get(alert.severity.strip().casefold(), 0)
+
+
 def apply_alert_level_floor(alerts: list[CAPAlert], floor: str) -> list[CAPAlert]:
     """Keep alerts at or above ``floor`` on the ladder; ``All`` keeps every one.
 
     Read off the same derivation the severity convention uses, so the floor
-    and the entity state cannot disagree about what tier an alert is.
+    and the entity state cannot disagree about what tier an alert is, nor
+    about how severe a tierless one is (see ``_floor_rank``).
     """
     if not floor or floor.strip().casefold() == AU_ALERT_LEVEL_ALL.casefold():
         return alerts
@@ -222,11 +244,7 @@ def apply_alert_level_floor(alerts: list[CAPAlert], floor: str) -> list[CAPAlert
     if minimum == 0:
         _LOGGER.warning("AU: unknown minimum alert level %r; applying no floor", floor)
         return alerts
-    return [
-        alert
-        for alert in alerts
-        if alert_level_rank(au_alert_level(alert.parameters, alert.headline)) >= minimum
-    ]
+    return [alert for alert in alerts if _floor_rank(alert) >= minimum]
 
 
 # ---------------------------------------------------------------------------

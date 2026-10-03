@@ -1030,7 +1030,14 @@ identifier every update would have ended one entity and created another.
 default, `Advice`, `Watch and Act`, `Emergency Warning`) on `alert_level`, the
 key GDACS uses. Applied in the provider after parsing on the same tier
 derivation the severity hook uses, so the floor and the entity state cannot
-disagree. `All` is the default because a state feed is not a global one and a
+disagree. That holds for an alert with no tier at all, too: it ranks by its CAP
+severity read back onto the ladder (`extreme` with Emergency Warning, `severe`
+with Watch and Act, `moderate` with Advice), the same fallback its entity's
+severity takes. The case is DFES's hazmat warnings (#242), published off the
+ladder as `Extreme` and shelter-indoors in content; every other tierless
+record on the live feeds was `Minor` when checked (2026-10-03). An
+informational tier ranks below Advice whatever its CAP severity. `All` is the
+default because a state feed is not a global one and a
 planned burn is something a user in that state may want on the map; NSW is 99
 entities under `All` and 40 under `Advice`. No language option (single
 language), no marine toggle, no geocode prefix field.
