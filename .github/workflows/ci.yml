@@ -8,6 +8,13 @@ on:
   schedule:
     - cron: "0 7 1-28/7 * *"
 
+# A new push to a PR cancels that PR's run in progress, since only the head
+# commit's checks gate the merge. Everything else, main included, groups by
+# commit and never cancels, so each commit on main keeps its own result.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   validate:
     runs-on: ubuntu-latest
