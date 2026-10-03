@@ -10,7 +10,7 @@
 
 **Reading this document.** This file is the proposal: requirements, the recommended binding, the contract, the path. [`docs/rfc-summary.md`](docs/rfc-summary.md) is the one-page version. The evidence lives in [`docs/evidence/`](docs/evidence/README.md), one page per finding, each naming the section it supports and how it reproduces, and the *reference implementation* is the [`cap_alerts`](README.md) custom integration. A claim is marked *shipped* only where running code backs it. Dates are UTC.
 
-**What is being proposed.** Two things, and they are separable. The first is an **abstraction**: a first-class incident, a normalized and lifecycle-aware representation of an externally sourced structured event, with stable identity across provider revisions, one severity vocabulary, an event contract and a bounded payload. The second is a **binding**: how that abstraction attaches to Home Assistant's runtime. This RFC recommends dynamic `incident.*` entities. §1.4 states the abstraction's requirements without assuming a binding, §1.5 lists three candidates, §2 argues for the entity one. A reviewer who accepts the first and rejects the second has not rejected the proposal. The schema, identity model, events and geometry API in §2 port unchanged to the alternatives in §3.6 and §6.1.
+**What is being proposed.** Two things, and they are separable. The first is an **abstraction**: a first-class incident, a normalized and lifecycle-aware representation of an externally sourced structured event, with stable identity across provider revisions, one severity vocabulary, an event contract and a bounded payload. The second is a **binding**: how that abstraction attaches to Home Assistant's runtime. This RFC recommends dynamic `incident.*` entities. §1.4 states the abstraction's requirements without assuming a binding, §1.5 lists four candidates, §2 argues for the entity domain. A reviewer who accepts the first and rejects the second has not rejected the proposal. The schema, identity model, events and geometry API in §2 port unchanged to the alternatives in §1.5.
 
 ---
 
@@ -65,17 +65,18 @@ Requirements 8 and 9 came out of field-testing the reference implementation. Req
 
 ### 1.5 Candidate Bindings
 
-Three mechanisms can satisfy §1.4. They differ only in how the incident binds to HA's runtime; the data model, events and geometry API are the same in each.
+Four mechanisms can satisfy §1.4. They differ only in how the incident binds to HA's runtime; the data model, events and geometry API are the same in each.
 
 - **Entity-based `incident` domain (recommended, §2).** One entity per active incident, created and removed with it. Reuses the recorder, the visual trigger editor, `RestoreEntity` and every entity-aware card. Cost: registry mutation at incident boundaries (§2.5).
+- **Sensor device class plus a system integration.** The same per-incident entities, kept under `sensor` and marked by a new device class. A system integration owns the triggers, events and geometry endpoints. Core's `motion` and `door` integrations already target entities by device class with no domain of their own, and the reference implementation is this binding without the device class. Same registry cost as the domain, no entity-id migration, a smaller core surface. Cost: conformance is opted into, not enforced by the platform type, and the sensor component accepts `options` only on its `enum` device class, so a fixed severity vocabulary needs a change to sensor's own validation ([evidence](docs/evidence/core-accepts-a-custom-incident-device-class.md)).
 - **Static entity pool (§6.1).** A fixed pool of slots, filled and drained. No registry churn. Cost: permanent entity cardinality, and an empty-slot filter pushed onto every card and automation.
 - **Dedicated `incident_registry` (§3.6).** A new registry beside `issue_registry`, ingesting CAP directly. No entities at all. Cost: rebuilding history, triggers, Lovelace and restart survival from scratch.
 
 A reviewer can accept §1.4 in full and prefer a different binding. Only rejecting §1.4 defeats the proposal.
 
-### 1.6 The Fourth Mechanism: Action With Response Data
+### 1.6 The Excluded Mechanism: Action With Response Data
 
-Core review currently prefers a fourth model: a thin entity, usually a count, plus an action with `SupportsResponse` that returns the alert bodies on demand. It is not listed above because it fails requirement 10, and the failure needs stating precisely because the imprecise version is refutable.
+Core review currently prefers a different model: a thin entity, usually a count, plus an action with `SupportsResponse` that returns the alert bodies on demand. It is not listed above because it fails requirement 10, and the failure needs stating precisely because the imprecise version is refutable.
 
 The case for it is real. Long attributes are written to the recorder on every state change, shipped to every client and included in every state dump. An action response is computed on request, delivered once and never recorded. For automations it is the better design, and requirement 3 agrees with its premise.
 
@@ -89,7 +90,7 @@ This RFC does not conclude that attributes are the right home for incident bodie
 
 ## 2. Recommended Implementation: the `incident` Domain
 
-This section binds the §1.4 requirements onto HA's entity model. Where it says "the entity", a reviewer preferring another binding can read "the slot" or "the registry record". The schema (§2.1), event contract (§2.3) and geometry API (§2.4) are common to all three.
+This section binds the §1.4 requirements onto HA's entity model. Where it says "the entity", a reviewer preferring another binding can read "the slot" or "the registry record". The schema (§2.1), event contract (§2.3) and geometry API (§2.4) are common to all four.
 
 ### 2.1 Entity Model
 
@@ -584,6 +585,6 @@ Structured external notifications are central to Home Assistant's role in emerge
 
 The proposal has two parts. The first is that Home Assistant needs a first-class incident abstraction: normalized severity, identity stable across revisions, a lifecycle that trusts neither `msgType` nor a single missed observation, an event contract, and a payload bounded in both dimensions. §1.4 states that case without reference to a binding, and each requirement is backed by observed provider behavior rather than specification reading. That is the claim this RFC most wants tested.
 
-The second is that dynamic `incident.*` entities are the right binding, because they inherit the recorder, the trigger editor, `RestoreEntity` and the card ecosystem at the cost of batched registry churn. The case is good and not conclusive; §3.6 and §6.1 set out the alternatives, and the contract ports to either. A reviewer who accepts the abstraction and rejects the binding has moved the discussion to where it should be.
+The second is that dynamic `incident.*` entities are the right binding, because they inherit the recorder, the trigger editor, `RestoreEntity` and the card ecosystem at the cost of batched registry churn. The case is good and not conclusive; §1.5 lists the alternatives, and the contract ports to each. A reviewer who accepts the abstraction and rejects the binding has moved the discussion to where it should be.
 
 I invite collaboration on any part of this, and disagreement on the second part most of all.

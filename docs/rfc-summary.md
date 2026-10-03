@@ -39,9 +39,9 @@ share one payload (§2.3), and geometry is fetched on demand through a handle
 (§2.4). Absence is not termination: an incident missing from the feed but
 still inside its published expiry is kept and marked stale (§2.5). Entities
 inherit the recorder, the trigger editor and the card ecosystem, at the cost of
-batched registry churn (§2.5). A static entity pool (§6.1) and a dedicated
-registry (§3.6) are the alternatives, and the contract ports unchanged to
-either.
+batched registry churn (§2.5). The alternatives are the same entities under
+`sensor` with a device class (§1.5), a static entity pool (§6.1) and a
+dedicated registry (§3.6), and the contract ports unchanged to each.
 
 ## What runs today, and the gap
 
