@@ -35,10 +35,10 @@ returns the alert bodies, gives a dashboard no such path (§1.6).
 
 **The binding.** One entity per active incident, created and removed with it
 (§2). It starts as a `sensor` with an `incident` device class, served by an
-`incident` system integration, and moves to its own domain only if that proves
-too little (§5). State is the normalized severity, three lifecycle events
-share one payload (§2.3), and geometry is fetched on demand through a handle
-(§2.4). Absence is not termination: an incident missing from the feed but
+`incident` system integration, and moves to its own domain only on one of
+three named triggers (§5). State is the normalized severity, three lifecycle
+events share one payload (§2.3), and geometry is fetched on demand through a
+handle (§2.4). Absence is not termination: an incident missing from the feed but
 still inside its published expiry is kept and marked stale (§2.5). Entities
 inherit the recorder, the trigger editor and the card ecosystem. The cost is
 batched registry churn, plus a deleted-entity record core keeps for every
