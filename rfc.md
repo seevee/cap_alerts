@@ -4,11 +4,11 @@
 
 **Author:** @seevee (`cap_alerts` maintainer)
 
-**Date:** May 2026. Revised July, August and October 2026; split into this document and [`docs/rfc-notes.md`](docs/rfc-notes.md) in October 2026.
+**Date:** May 2026. Revised July, August and October 2026; split into this document and [`docs/evidence/`](docs/evidence/README.md) in October 2026.
 
 **Audience:** Home Assistant Core developers and the Architecture Working Group, plus weather-alert integration maintainers.
 
-**Reading this document.** This file is the proposal: requirements, the recommended binding, the contract, the path. The evidence lives in [`docs/rfc-notes.md`](docs/rfc-notes.md), organized by the section it supports, and the *reference implementation* is the [`cap_alerts`](README.md) custom integration. A claim is marked *shipped* only where running code backs it. Dates are UTC.
+**Reading this document.** This file is the proposal: requirements, the recommended binding, the contract, the path. The evidence lives in [`docs/evidence/`](docs/evidence/README.md), one page per finding, each naming the section it supports and how it reproduces, and the *reference implementation* is the [`cap_alerts`](README.md) custom integration. A claim is marked *shipped* only where running code backs it. Dates are UTC.
 
 **What is being proposed.** Two things, and they are separable. The first is an **abstraction**: a first-class incident, a normalized and lifecycle-aware representation of an externally sourced structured event, with stable identity across provider revisions, one severity vocabulary, an event contract and a bounded payload. The second is a **binding**: how that abstraction attaches to Home Assistant's runtime. This RFC recommends dynamic `incident.*` entities. §1.4 states the abstraction's requirements without assuming a binding, §1.5 lists three candidates, §2 argues for the entity one. A reviewer who accepts the first and rejects the second has not rejected the proposal. The schema, identity model, events and geometry API in §2 port unchanged to the alternatives in §3.6 and §6.1.
 
@@ -18,7 +18,7 @@
 
 ### 1.1 The 16 KB Recorder Ceiling
 
-Home Assistant stores an entity's attributes in one database column capped at 16,384 bytes (`MAX_STATE_ATTRS_BYTES`). On overflow the recorder does not fail the write. It logs a warning, stores `{}` in place of the attributes, and commits the state row. For a packed-attribute alert sensor, whose state is a count and whose content is all in attributes, history keeps the number and loses the alerts, and nothing in the UI marks the row as damaged (notes §1.1).
+Home Assistant stores an entity's attributes in one database column capped at 16,384 bytes (`MAX_STATE_ATTRS_BYTES`). On overflow the recorder does not fail the write. It logs a warning, stores `{}` in place of the attributes, and commits the state row. For a packed-attribute alert sensor, whose state is a count and whose content is all in attributes, history keeps the number and loses the alerts, and nothing in the UI marks the row as damaged ([evidence](docs/evidence/the-recorder-keeps-the-state-and-drops-the-attributes.md)).
 
 The problem is not that 16 KB is small. It is that **the number of simultaneously active incidents is unbounded and the storage unit is fixed.** Packing N incidents into one unit scales the payload with N against a constant ceiling, so loss gets more likely as the situation gets worse.
 
@@ -40,7 +40,7 @@ The reference implementation holds identity steady with provider-specific keys, 
 | BBK / NINA | `sha256(<identifier>)`, one per revision | Each revision names its predecessor in `<references>`, so the chain collapses to its leaf |
 | Australia | `<incidents>` + event code; area description for Queensland warnings; identifier for WA | Two agencies re-mint the identifier per update; Queensland re-mints the warning id too and names no predecessor |
 
-No single CAP field is reliably the identity. It is a per-sender property, not even a per-provider one. The core model therefore requires only that an integration supply *some* stable hash, and leaves the derivation to the provider layer (§5). The per-provider record, with sample sizes, is in the notes (§1.2).
+No single CAP field is reliably the identity. It is a per-sender property, not even a per-provider one. The core model therefore requires only that an integration supply *some* stable hash, and leaves the derivation to the provider layer (§5). The per-provider record, with sample sizes and copied identifiers: [identity is a per-sender property](docs/evidence/identity-is-a-per-sender-property.md).
 
 ### 1.3 Inconsistent Data Models
 
@@ -61,7 +61,7 @@ The failures in §1.1 to §1.3 imply requirements that hold whatever the binding
 9. **Ingest-mode neutrality.** The model holds for polling and for a pushed stream, and does not assume a poll interval exists.
 10. **Readable by a dashboard.** Core presentation data, and changes to it, are available through a subscribed, contract-stable read path that both declarative and custom dashboard consumers can use. For an entity binding that is the state machine. Externalized payloads stay reachable through a frontend-native path, with subscribed state carrying the handle and the change signal (§2.4). A mechanism that serves the incident body only through an action with response data fails this requirement (§1.6). So does a frontend that fetches CAP itself and reaches neither the recorder nor an automation (§3.8).
 
-Requirements 8 and 9 came out of field-testing the reference implementation. Requirement 10 was added after core review steered two integrations, across four PRs, to the action-response pattern (§8.1). It is neutral about storage and deliberate about the consumer surface; the notes (§1.4) argue why that is not circular.
+Requirements 8 and 9 came out of field-testing the reference implementation. Requirement 10 was added after core review steered two integrations, across four PRs, to the action-response pattern (§8.1). It is neutral about storage and deliberate about the consumer surface.
 
 ### 1.5 Candidate Bindings
 
@@ -81,7 +81,7 @@ The case for it is real. Long attributes are written to the recorder on every st
 
 What it withholds is everything requirement 10 asks for around the call. Declarative surfaces, stock cards, `auto-entities`, templates and the visual editors, cannot invoke an action to obtain data. There is no change signal: a card holding a response has a snapshot, and "the count is still 3" cannot distinguish an unchanged set from a same-sized set with different members. And a payload that lives only in a response never reaches the state machine, so there is no history, no recorder row and nothing a state trigger can reference.
 
-Three things about where this stands. The convention is unwritten: no ADR, no quality-scale rule and no developer-docs statement recommends actions over attributes, so there is no place a requirement like 10 can be raised against it. Core has already answered the frontend half once: when forecasts left `weather.*` attributes for `weather.get_forecasts`, the same migration shipped `weather/subscribe_forecast` so cards never lived on action calls. And the tension is live in [architecture#1357](https://github.com/home-assistant/architecture/discussions/1357) and [#1360](https://github.com/home-assistant/architecture/discussions/1360), which propose a forecast contract for sensors on the same reasoning and name the same frontend gap. The full argument is in the notes (§1.6).
+Three things about where this stands. The convention is unwritten: no ADR, no quality-scale rule and no developer-docs statement recommends actions over attributes, so there is no place a requirement like 10 can be raised against it. Core has already answered the frontend half once: when forecasts left `weather.*` attributes for `weather.get_forecasts`, the same migration shipped `weather/subscribe_forecast` so cards never lived on action calls. And the tension is live in [architecture#1357](https://github.com/home-assistant/architecture/discussions/1357) and [#1360](https://github.com/home-assistant/architecture/discussions/1360), which propose a forecast contract for sensors on the same reasoning and name the same frontend gap. The threads, quoted: [core review moved alert bodies into actions](docs/evidence/core-review-moved-alert-bodies-into-actions.md) and [the frontend has no way to read an action result](docs/evidence/the-frontend-has-no-way-to-read-an-action-result.md).
 
 This RFC does not conclude that attributes are the right home for incident bodies in perpetuity. It concludes that requirement 10 is a requirement, that the action model does not meet it, and that a domain shaped for incidents is where it gets a first-class answer, as `weather` already has.
 
@@ -127,7 +127,7 @@ The `incident` platform defines a new domain with `IncidentEntity` as its base c
 | `Minor`        | `minor`        |
 | `Unknown` / missing / non-CAP | `unknown` |
 
-**Device grouping.** All incidents from one config entry sit under one device in v1. Per-issuer grouping (one device per upstream office) is the most likely v1.1 change, held out to keep the batching contract in §2.5 simple while the platform stabilizes. The notes (§2.1) have the trade-off, including what a regional event does to device-registry churn.
+**Device grouping.** All incidents from one config entry sit under one device in v1. Per-issuer grouping (one device per upstream office) is the most likely v1.1 change, held out to keep the batching contract in §2.5 simple while the platform stabilizes. A regional event can touch ten upstream offices in one reconciliation, so per-issuer grouping would move the churn from the entity registry to the device registry.
 
 ### 2.2 Identity and Lifecycle
 
@@ -139,7 +139,7 @@ The `incident` platform defines a new domain with `IncidentEntity` as its base c
 | Update      | State and attributes refreshed in place. `incident_updated` fires on phase or field delta. |
 | Termination | `incident_removed` fires. Entity and registry record are purged (see §2.5).         |
 
-**Three incident shapes.** A *warning* has a bounded active window and traverses the phases above (NWS, ECCC, MeteoAlarm, WMO, the DWD half of BBK). An *event report* is a past, point-in-time event with `urgency=Past` and no meaningful `expires`; it appears, is occasionally revised and leaves when the feed's retention window closes (GDACS). An *open-ended incident* is live now with no published end, revised in place and ended only when the authority withdraws it (the Australian bushfire feeds, whose `expires` is a regeneration TTL the provider drops). MoWaS civil-protection warnings sit between the first and third: no expiry, but an explicit all-clear when one is issued. The domain serves all three. Requirement 6 covers reports and open-ended incidents through feed presence where it covers warnings through expiry. Each shape is backed by a shipped provider; the one path still unobserved is a report being revised in place, which GDACS signals through an episode counter (notes §2.2).
+**Three incident shapes.** A *warning* has a bounded active window and traverses the phases above (NWS, ECCC, MeteoAlarm, WMO, the DWD half of BBK). An *event report* is a past, point-in-time event with `urgency=Past` and no meaningful `expires`; it appears, is occasionally revised and leaves when the feed's retention window closes (GDACS). An *open-ended incident* is live now with no published end, revised in place and ended only when the authority withdraws it (the Australian bushfire feeds, whose `expires` is a regeneration TTL the provider drops). MoWaS civil-protection warnings sit between the first and third: no expiry, but an explicit all-clear when one is issued. The domain serves all three. Requirement 6 covers reports and open-ended incidents through feed presence where it covers warnings through expiry. Each shape is backed by a shipped provider; the one path still unobserved is a report being revised in place, which GDACS signals through an episode counter ([evidence](docs/evidence/gdacs-ends-by-withdrawal.md)).
 
 **Phase is best-effort; the event stream is authoritative.** `phase` derives from CAP `msgType`. That is a convenience, because `msgType` is not how authorities signal termination. In a 211-entry NAAD snapshot ECCC emitted `Cancel` once, from a non-ECCC sender; every real ending travelled in a vendor parameter, `Alert_Location_Status`, while `msgType` stayed `Update`. Providers therefore supply a normalized termination hint (`lifecycle_status` in the reference implementation) and the platform retires the incident on a recognized terminal value. Recognition fails open: absent or unknown means active.
 
@@ -147,7 +147,7 @@ The `incident` platform defines a new domain with `IncidentEntity` as its base c
 
 The weaker failure runs the other way. GDACS publishes `Alert` on every re-issue, so `phase` can read `new` across a real revision. `incident_updated` still fires off the field delta, so consumers wanting exact transitions should trust the events and `changed_fields` over `phase`.
 
-**One CAP document is not necessarily one incident.** ECCC segments a document into one `<info>` block per language and area group, each with its own polygons, severity, expiry and status. One document can be `active` over one region and `ended` over another; 19 of 92 `Actual` documents in the snapshot were. Two consequences. Selection is region-scoped: an integration chooses the block matching the user's configured region, never `infos[0]`, and treats the incident as terminal only when every matching block is. And identity is per incident per region, so two consumers of one document in different regions legitimately see different lifecycles. The provider resolves area groups before a `CAPAlert` exists; the contract must not forbid that by defining identity at document granularity (notes §2.2).
+**One CAP document is not necessarily one incident.** ECCC segments a document into one `<info>` block per language and area group, each with its own polygons, severity, expiry and status. One document can be `active` over one region and `ended` over another; 19 of 92 `Actual` documents in the snapshot were. Two consequences. Selection is region-scoped: an integration chooses the block matching the user's configured region, never `infos[0]`, and treats the incident as terminal only when every matching block is. And identity is per incident per region, so two consumers of one document in different regions legitimately see different lifecycles. The provider resolves area groups before a `CAPAlert` exists; the contract must not forbid that by defining identity at document granularity ([evidence](docs/evidence/eccc-ends-alerts-outside-msgtype.md)).
 
 ### 2.3 Event Schema
 
@@ -169,11 +169,11 @@ data:
 
 **`changed_fields` is a notify list, not a diff.** The reference implementation reports `headline`, `description`, `instruction`, `severity_normalized`, `phase`, `expires` and `area_desc`, the fields a consumer would re-notify on. Timestamps that move on every re-issue are excluded on purpose. A field's absence from the list does not mean it is unchanged, and a core contract should either rename it or define it in exactly these terms.
 
-**`entity_id` is present on every event for an incident that has an entity.** An earlier draft said it was absent on creation, and described a defect as a design property. Creations now wait in the store until the entity has been added and fire after its first state write, so a listener can read the attributes on the event. The key is omitted only where no entity ever existed: a first sighting that is already terminal, or an entity the registry holds but never added (notes §2.3).
+**`entity_id` is present on every event for an incident that has an entity.** An earlier draft said it was absent on creation, and described a defect as a design property. Creations now wait in the store until the entity has been added and fire after its first state write, so a listener can read the attributes on the event. The key is omitted only where no entity ever existed: a first sighting that is already terminal, or an entity the registry holds but never added ([evidence](docs/evidence/restart-revalidates-instead-of-reannouncing.md)).
 
 **Removal carries the terminal phase.** `phase` on `incident_removed` is always `cancel` or `expired`, never the phase the incident held while live. An incident that vanishes before its `expires` is `cancel`; for an automation, "the authority dropped it" and "the authority cancelled it" are the same fact.
 
-**An ending is announced once.** Feeds keep publishing ended records, ECCC for 48 hours, and a store that forgets a terminal incident fires its removal again on every reconciliation, about sixty times an hour under streaming. The contract is one ending, one removal. The implementation remembers announced ids and the CAP identifiers behind them, so a re-issue of the same ending under a new revision is also silent, while a live sighting clears the memory and fires `incident_created` again. The memory ages out after 48 idle hours, so consumers stay idempotent (notes §2.3).
+**An ending is announced once.** Feeds keep publishing ended records, ECCC for 48 hours, and a store that forgets a terminal incident fires its removal again on every reconciliation, about sixty times an hour under streaming. The contract is one ending, one removal. The implementation remembers announced ids and the CAP identifiers behind them, so a re-issue of the same ending under a new revision is also silent, while a live sighting clears the memory and fires `incident_created` again. The memory ages out after 48 idle hours, so consumers stay idempotent ([evidence](docs/evidence/one-ending-one-removal.md)).
 
 **`removal_reason` says why; `phase` says when.** An all-clear and a supersession look identical under `phase`, yet one means the hazard is over and the other means it got worse. The two values are `superseded` (the area moved to another incident, which fires its own creation) and `ended`. They pair independently with either phase:
 
@@ -186,7 +186,7 @@ data:
 
 Today ECCC is the only shipped source that supplies a reason. The field is scoped to the area group, not the document.
 
-**`superseded_by` names the successor by CAP identifier, when the source does.** CAP `<references>` never carries this at ECCC, where watches and warnings are separate chains; a CAP-CP parameter does, and the reference implementation publishes it. It is a hint, since 18 of 27 measured targets never appeared on the feed, present only with `removal_reason: superseded`. It is an identifier and not an `incident_id` because sources name documents, not incidents (notes §2.3).
+**`superseded_by` names the successor by CAP identifier, when the source does.** CAP `<references>` never carries this at ECCC, where watches and warnings are separate chains; a CAP-CP parameter does, and the reference implementation publishes it. It is a hint, since 18 of 27 measured targets never appeared on the feed, present only with `removal_reason: superseded`. It is an identifier and not an `incident_id` because sources name documents, not incidents ([evidence](docs/evidence/superseded-by-dangles-two-times-in-three.md)).
 
 **Extension fields.** The reference implementation also carries `entry_id` and `area_desc` on every event. Neither is proposed for core.
 
@@ -201,13 +201,13 @@ A severe-weather multipolygon can exceed 16 KB alone. Putting it in the state ma
 
 **The handle is namespaced by the scope that owns the store.** `{provider}:{alert_id}` collides as soon as two config entries see the same alert, and whichever writes second wins the slot. The reference implementation keys on `{entry_id}:{provider}:{alert_id}` and treats the composite as opaque. A core store namespaces at least as widely as it is shared.
 
-**Geometry is more than polygons.** CAP gives an `<area>` `<polygon>` and `<circle>`; a point arrives as a zero-radius circle. The richer areal shape takes the `geometry` slot, points publish alongside it in `points`, and a point becomes the geometry only when no polygon exists. A circle with a real radius is left unmaterialized rather than approximated. Separately fetched geometry is also the less reliable half of the record, and a core implementation should degrade it independently: a slow polygon ships its alert without a shape for a cycle, a failed fetch keeps the last good one (notes §2.4).
+**Geometry is more than polygons.** CAP gives an `<area>` `<polygon>` and `<circle>`; a point arrives as a zero-radius circle. The richer areal shape takes the `geometry` slot, points publish alongside it in `points`, and a point becomes the geometry only when no polygon exists. A circle with a real radius is left unmaterialized rather than approximated. Separately fetched geometry is also the less reliable half of the record, and a core implementation should degrade it independently: a slow polygon ships its alert without a shape for a cycle, a failed fetch keeps the last good one ([evidence](docs/evidence/geometry-budget-must-be-per-entry.md)).
 
 **Both an HTTP view and a websocket command.** An earlier draft rejected the websocket command as surface for a one-shot fetch. Building the card showed the cost of HTTP is not subscription but authentication: a card already holds an authenticated websocket and would need a bearer token out of band. `weather/subscribe_forecast` is the precedent; neither surface here subscribes.
 
 **In memory, not `.storage/`.** Much of the install base runs on SD cards, polygons update every few minutes during an outbreak, and geometry is re-fetchable. There is no correctness requirement that it survive a restart.
 
-**The bound is in bytes, never entries.** Real geometry is heavy-tailed: across all 11,888 NWS forecast zones the median is about 190 points and the largest 93,667, so an entry cap sized to the median under-provisions by three orders of magnitude against the coastal zones a user there cares most about. The reference store budgets 5 MB per config entry and accounts each entry by serialized length. The number and the per-entry accounting are implementation parameters; the byte unit is the contract (notes §2.4).
+**The bound is in bytes, never entries.** Real geometry is heavy-tailed: across all 11,888 NWS forecast zones the median is about 190 points and the largest 93,667, so an entry cap sized to the median under-provisions by three orders of magnitude against the coastal zones a user there cares most about. The reference store budgets 5 MB per config entry and accounts each entry by serialized length. The number and the per-entry accounting are implementation parameters; the byte unit is the contract ([evidence](docs/evidence/zone-geometry-is-heavy-tailed.md)).
 
 **A `geometry_ref` miss is normal.** The store is empty after a restart until the next reconciliation refills it, and a retained incident (§2.5) was by definition not observed, so its polygon is dropped while the entity stays live. The handle is a cache key, not a promise. Consumers keep `bbox` as the fallback and treat `404` as "draw the box".
 
@@ -222,7 +222,7 @@ Incidents are transient. Leaving registry entries behind would accumulate dozens
 - Device entries are retained; one device per config entry.
 - Recorder history is untouched. State rows survive, but the History dashboard renders a removed entity by slug only. Rich audits subscribe to `incident_removed` (§6.4).
 - Removal is idempotent.
-- `IncidentEntity` inherits `RestoreEntity`, so a restart shows the last recorded state immediately, flagged stale, and the first successful *reconciliation* after boot is authoritative. "Reconciliation" is deliberate: a streaming provider reaches the same state through its reconnect backfill, not a timer (requirement 9).
+- `IncidentEntity` inherits `RestoreEntity`, so a restart shows the last recorded state immediately, flagged stale, and the first successful *reconciliation* after boot is authoritative. "Reconciliation" is deliberate: a streaming provider reaches the same state through its reconnect backfill, not a timer (requirement 9, [the socket does not share the index gap](docs/evidence/the-streaming-socket-does-not-share-the-gap.md)).
 - Startup reconciliation scrubs orphans. Registry entries whose termination was never observed are terminated on the first reconciliation that lacks them, subject to the absence rule below.
 
 **Absence is not termination.** Two sanctioned ECCC endpoints for the same national system, sampled at once, disagreed on live `Extreme` alerts, the set churning minute to minute. NWS publishes cancellations where `/alerts/active` never shows them (0 of 174 terminal products in six hours). An integration's view of the active set is one source's current answer, not reality. The rule, as an algorithm, on an incident absent from the incoming set:
@@ -236,13 +236,13 @@ elif the source can still end it:         retain, mark stale, record last_confir
 else:                                     terminate (cancel)
 ```
 
-There is no count of consecutive misses: a count assumes rounds, which requirement 9 forbids, and couples safety to the poll interval. Retention is bounded by the authority's own `expires`. **Retention requires an exit.** An expiry-less incident can only be kept if a terminal vocabulary or a termination lookup can still end it; a source with neither has absence as its only exit, and three shipped sources (GDACS, the Australian feeds, MoWaS) end that way through the last branch. The third branch, a declared absence-ends policy, has no user among shipped sources. A change of scope suspends retention for that cycle, and a supersession the platform can see is not absence. The field history is in the notes (§2.5).
+There is no count of consecutive misses: a count assumes rounds, which requirement 9 forbids, and couples safety to the poll interval. Retention is bounded by the authority's own `expires`. **Retention requires an exit.** An expiry-less incident can only be kept if a terminal vocabulary or a termination lookup can still end it; a source with neither has absence as its only exit, and three shipped sources (GDACS, the Australian feeds, MoWaS) end that way through the last branch. The third branch, a declared absence-ends policy, has no user among shipped sources. A change of scope suspends retention for that cycle, and a supersession the platform can see is not absence. Evidence: [two NAAD hosts disagree](docs/evidence/two-naad-hosts-disagree-on-live-alerts.md), [NWS cancellations never reach the active endpoint](docs/evidence/nws-cancellations-never-reach-the-active-endpoint.md), [retention needs an exit](docs/evidence/retention-needs-an-exit.md).
 
 **Restored data is bounded, not trusted.** A restored incident past its `expires` is terminated at boot before any reconciliation. One still within `expires` keeps its state and content and carries `stale: true` and `last_confirmed` until re-validated. It is **not** set `unavailable`, which would make stock cards drop it during the window it might still matter. The residual exposure is an incident cancelled early while HA was also offline, shown unbadged on a card that ignores `stale`. A blank dashboard mid-storm is worse.
 
 **The reference implementation re-validates from the registry alone.** Its entities do not yet inherit `RestoreEntity` (§5), so the store seeds its known set from the registry at construction. A known id still live fires nothing. An unknown live id fires `incident_created`. A known id is announced removed only when a second fetch-backed reconciliation still lacks it, since a stream rebuild a minute after boot cannot recover what the seed missed. A record already terminal on the first fetch is old news and fires nothing. That removal carries only what the registry kept, the id and the event name.
 
-**Why the churn is deliberate.** Holding incidents only in memory fails the power-blip case. Persisting CAP to `.storage/` every poll wears the SD card §2.4 protects. The entity registry plus `RestoreEntity` plus the recorder survives a restart on HA-native machinery with only sparse attributes touching disk. The cost is registry traffic at incident boundaries, batched. The usual objection, lost customizations, presupposes the entity is a customization target; a warning gone in fifteen minutes is not (notes §2.5).
+**Why the churn is deliberate.** Holding incidents only in memory fails the power-blip case. Persisting CAP to `.storage/` every poll wears the SD card §2.4 protects. The entity registry plus `RestoreEntity` plus the recorder survives a restart on HA-native machinery with only sparse attributes touching disk. The cost is registry traffic at incident boundaries, batched. The usual objection, lost customizations, presupposes the entity is a customization target; a warning gone in fifteen minutes is not.
 
 At any moment, `incident.*` entries correspond one to one with active incidents.
 
@@ -254,7 +254,7 @@ At any moment, `incident.*` entries correspond one to one with active incidents.
 
 **No acknowledgment or dismissal service.** Entities mirror upstream reality, and a user dismissing a warning on their phone changes nothing for anyone else in the household. "Seen" state is a card or automation concern.
 
-**Capability detection is by domain, not a version string.** The reference implementation stamps `incident_platform_version` on every entity because a custom component cannot mint a domain and `state.domain == "sensor"` answers nothing. Adopting `incident` retires it (notes §2.6).
+**Capability detection is by domain, not a version string.** The reference implementation stamps `incident_platform_version` on every entity because a custom component cannot mint a domain and `state.domain == "sensor"` answers nothing. Adopting `incident` retires it.
 
 **Dynamic entities are consumed two ways.** Automations subscribe to the §2.3 events, which fire regardless of entity timing. Display goes through a domain-aware card that renders whatever `incident.*` entities exist and shows all-clear when none do, the pattern `auto-entities` already uses.
 
@@ -262,7 +262,7 @@ At any moment, `incident.*` entries correspond one to one with active incidents.
 
 State values are stable English tokens and are never localized at the entity. Display translation uses HA's standard `translations/<lang>.json` mechanism, as `weather` and `cover` do.
 
-Provider text is handled in the provider layer. Each integration exposes a `language` option. One-language providers fill the primary fields and set `language`. Multi-language providers (ECCC, MeteoAlarm, WMO) select the user's language for the primary fields and expose the alternate as `*_alt` with `language_alt`. Which block is the alternate is a rule, not document order: English when the primary is not English, else the first other language. The alternate text sits inside the §2.4 bound and is the first spent when an incident does not fit; in a live sweep the localized copy ran longer than the primary 69% of the time (§7.2). Identity is computed from language-independent fields so the two languages share one entity (notes §2.7).
+Provider text is handled in the provider layer. Each integration exposes a `language` option. One-language providers fill the primary fields and set `language`. Multi-language providers (ECCC, MeteoAlarm, WMO) select the user's language for the primary fields and expose the alternate as `*_alt` with `language_alt`. Which block is the alternate is a rule, not document order: English when the primary is not English, else the first other language. The alternate text sits inside the §2.4 bound and is the first spent when an incident does not fit; in a live sweep the localized copy ran longer than the primary 69% of the time (§7.2). Identity is computed from language-independent fields so the two languages share one entity ([evidence](docs/evidence/the-alternate-language-is-a-rule-not-document-order.md)).
 
 ---
 
@@ -278,7 +278,7 @@ Rich notification UX over existing entities, templates and events. No schema for
 
 ### 3.3 Legacy Weather Alert Sensors
 
-One sensor with alerts packed into attributes, or one `binary_sensor` holding one alert. Failures: 16 KB truncation under load, concurrent-alert dropout (filed against MeteoAlarm in core three times since 2024, §8.2), fragmented history on re-issue, and Jinja for basic automation. A reviewer on #37415 called the packed sensor "an ugly hack or workaround" in 2020, and the per-alert alternative stalled for want of a platform.
+One sensor with alerts packed into attributes, or one `binary_sensor` holding one alert. Failures: 16 KB truncation under load, concurrent-alert dropout (filed against MeteoAlarm in core three times since 2024, §8.2), fragmented history on re-issue, and Jinja for basic automation. A reviewer on #37415 called the packed sensor "an ugly hack or workaround" in 2020, and the per-alert alternative stalled for want of a platform ([the 2020 thread](docs/evidence/one-sensor-per-alert-was-proposed-in-2020.md), [the MeteoAlarm reports](docs/evidence/meteoalarm-shows-one-alert-when-there-are-several.md)).
 
 ### 3.4 Domain Naming: `alert` vs `incident`
 
@@ -286,11 +286,11 @@ One sensor with alerts packed into attributes, or one `binary_sensor` holding on
 
 ### 3.5 Core `issue_registry` / Repairs Dashboard
 
-Repairs surfaces problems the administrator can fix. Incidents are events the household receives and cannot. Forcing CAP onto the Repairs dashboard would either bury actionable items or need an "informational" filter that recreates this proposal (notes §3.5).
+Repairs surfaces problems the administrator can fix. Incidents are events the household receives and cannot. Forcing CAP onto the Repairs dashboard would either bury actionable items or need an "informational" filter that recreates this proposal.
 
 ### 3.6 A Dedicated `incident_registry`
 
-A new registry beside `issue_registry`, ingesting CAP with no entities, is coherent and sidesteps registry churn. It forfeits what entities get for free and would rebuild each: history, the visual state-trigger editor, declarative Lovelace and restart survival. Core does build UI for non-entity primitives (Repairs, Backups, Areas), but each is one bounded admin destination. Incidents need composition: beside a thermostat on a dashboard, filtered by `auto-entities`, used as a state trigger. If the AWG prefers a registry anyway, the schema, events and geometry API port unchanged (notes §3.6).
+A new registry beside `issue_registry`, ingesting CAP with no entities, is coherent and sidesteps registry churn. It forfeits what entities get for free and would rebuild each: history, the visual state-trigger editor, declarative Lovelace and restart survival. Core does build UI for non-entity primitives (Repairs, Backups, Areas), but each is one bounded admin destination. Incidents need composition: beside a thermostat on a dashboard, filtered by `auto-entities`, used as a state trigger. If the AWG prefers a registry anyway, the schema, events and geometry API port unchanged.
 
 ### 3.7 The `geo_location` Platform
 
@@ -298,7 +298,7 @@ The closest existing analogue, and the wrong shape: state is a distance, attribu
 
 ### 3.8 A Frontend-Only Implementation
 
-A card can fetch CAP in the browser; [`weather-radar-card`](https://github.com/jpettitt/weather-radar-card) does, for NWS. It is structurally the only kind of feed it can support. Of fourteen CAP endpoints the reference implementation ingests, probed with an `Origin` header, two send `Access-Control-Allow-Origin` (NWS and NSW RFS). The rest, MeteoAlarm, WMO, both NAAD hosts, GDACS, BBK and three Australian agencies, do not, so a page cannot read them without a server-side intermediary, and in an HA deployment that intermediary is an integration (notes §3.8).
+A card can fetch CAP in the browser; [`weather-radar-card`](https://github.com/jpettitt/weather-radar-card) does, for NWS. It is structurally the only kind of feed it can support. Of fourteen CAP endpoints the reference implementation ingests, probed with an `Origin` header, two send `Access-Control-Allow-Origin` (NWS and NSW RFS). The rest, MeteoAlarm, WMO, both NAAD hosts, GDACS, BBK and three Australian agencies, do not, so a page cannot read them without a server-side intermediary, and in an HA deployment that intermediary is an integration ([evidence](docs/evidence/cors-two-of-fourteen-endpoints.md)).
 
 The stronger objection survives even where the fetch works. A card-local fetch reaches no recorder, no state machine and no automation, and exists only while that dashboard is open. That is requirement 10 failing from the opposite side to §1.6.
 
@@ -318,7 +318,7 @@ External, structured incidents the home receives as a recipient:
 - Utility-issued notifications: grid load, rolling blackouts, water quality. Water contamination is *shipped* where a civil-protection authority relays it (BBK / NINA); the rest is intended reach.
 - ISP or upstream service outages via public status feeds: intended reach
 
-**The non-weather claim is load-bearing, and three shipped providers back it.** NAAD is an all-hazards aggregator, and one live sample ingested through the ECCC provider carried a `911 Service Inoperative` at `Extreme` from a provincial emergency office and two AMBER alerts from police, normalized by the same code path as a thunderstorm warning. GDACS adds the geophysical class from a source with no CAP body at all. BBK / NINA is a feed whose primary content is civil protection, arriving as CAP serialized as JSON, and it runs the shared parser after a one-function conversion. The samples are in the notes (§4.1).
+**The non-weather claim is load-bearing, and three shipped providers back it.** NAAD is an all-hazards aggregator, and one live sample ingested through the ECCC provider carried a `911 Service Inoperative` at `Extreme` from a provincial emergency office and two AMBER alerts from police, normalized by the same code path as a thunderstorm warning. GDACS adds the geophysical class from a source with no CAP body at all. BBK / NINA is a feed whose primary content is civil protection, arriving as CAP serialized as JSON, and it runs the shared parser after a one-function conversion. Evidence: [NAAD and BBK carry non-weather hazards through the weather code path](docs/evidence/naad-carries-non-weather-hazards-through-one-code-path.md).
 
 The domain spans the three shapes in §2.2. Events from an external authority that concern the household, a gas-leak notice, a fire ban, also belong here. The trait is a structured CAP-like message with HA as the consumer.
 
@@ -347,11 +347,11 @@ Without it `incident` absorbs `binary_sensor` responsibilities and every "is thi
 
 **How step 2 is expected to be reached.** Two moves, neither shipped yet. First an in-repo neutrality pass (reference implementation issue #216), until no provider name appears in the modules that would move. Then that half is extracted into a hub the per-service integrations depend on through manifest `dependencies`, with the reference implementation as first consumer and two prospective outside maintainers (an ECCC integration and a Brazilian INMET one) as the next. A core proposal with three consumers behind it is a different proposal from one with a single reference implementation.
 
-**What the reference implementation proves today.** Everything in §2 except restart content restore, below. Two cards consume the contract: the companion `weather_alerts_card`, and since October 2026 `ha-alert-card`, maintained independently, which added a `device:` source at this project's request. Its first contact read raw `severity` rather than `severity_normalized` and followed `url` before `web`, the distinction §2.1 draws, met by a second implementer (notes §5).
+**What the reference implementation proves today.** Everything in §2 except restart content restore, below. Two cards consume the contract: the companion `weather_alerts_card`, and since October 2026 `ha-alert-card`, maintained independently, which added a `device:` source at this project's request. Its first contact read raw `severity` rather than `severity_normalized` and followed `url` before `web`, the distinction §2.1 draws, met by a second implementer ([evidence](docs/evidence/a-second-card-read-the-raw-severity.md)).
 
 **Restart survival is the principal remaining gap.** The entities do not inherit `RestoreEntity`, so no content is restored, and a failed first reconciliation after a power cut leaves the dashboard blank, the case §2.5's stale flag exists for. Offline expiry has the same status. The re-validation half did land in October 2026 (§2.5). Both restore mechanisms are specified for core and neither is exercised in the field; a reviewer should weigh them accordingly.
 
-Provider quirks stay the integration's job, and the division is measured: a British Columbia ECCC configuration dedups 211 envelope entries to 100 documents, pre-filters ~1,800 candidate bodies to ~7 by bounding box, selects area groups and applies filters, and hands the platform **9 entities**. The 16 KB ceiling and the churn arguments are sized against that number (notes §5).
+Provider quirks stay the integration's job, and the division is measured: a British Columbia ECCC configuration dedups 211 envelope entries to 100 documents, pre-filters ~1,800 candidate bodies to ~7 by bounding box, selects area groups and applies filters, and hands the platform **9 entities**. The 16 KB ceiling and the churn arguments are sized against that number ([evidence](docs/evidence/the-provider-layer-hands-core-single-digits.md)).
 
 ### 5.1 Migration Strategy for Legacy Consumers
 
@@ -382,19 +382,19 @@ Core test suites for this platform must cover:
 
 ### 6.1 Fallback: Static Entity Pool
 
-If the AWG rejects dynamic creation, each config entry pre-allocates N slots (`incident.<slug>_slot_1` … `_N`). Slots fill and drain, assignment is sticky for the incident's life, `unique_id` is the slot and the lifecycle hash moves to an `incident_id` attribute. It buys a static registry and stable History names. It costs 30 to 50 permanent entities per entry showing `unknown` on quiet days, an empty-slot filter in every card and automation, history keyed by attribute rather than entity, and a deterministic assignment algorithm so concurrent churn cannot swap slots. It satisfies every §1.4 requirement and the schema, events and geometry API are unchanged. @pyspilf's fixed-slot MeteoAlarm implementation is the prior art (notes §6.1).
+If the AWG rejects dynamic creation, each config entry pre-allocates N slots (`incident.<slug>_slot_1` … `_N`). Slots fill and drain, assignment is sticky for the incident's life, `unique_id` is the slot and the lifecycle hash moves to an `incident_id` attribute. It buys a static registry and stable History names. It costs 30 to 50 permanent entities per entry showing `unknown` on quiet days, an empty-slot filter in every card and automation, history keyed by attribute rather than entity, and a deterministic assignment algorithm so concurrent churn cannot swap slots. It satisfies every §1.4 requirement and the schema, events and geometry API are unchanged. @pyspilf's fixed-slot MeteoAlarm implementation is the prior art ([forum thread](https://community.home-assistant.io/t/getting-all-active-meteoalarm-alerts-weather-alerts-card-integration/1006597)).
 
 ### 6.2 Cross-integration Geometry Store
 
-A core-managed store, like `image` or `media_source`, would share county polygons across integrations, survive restarts without re-polling, and clean up by reference count. The prize is the tail, not bulk: a cold render of every zone a nationwide alert set references is about 1.78 MB across 265 requests, a rounding error on broadband and real for a rate-limited provider. Out of scope for v1; the §2.4 view is backend-agnostic so a store can land behind it (notes §6.2).
+A core-managed store, like `image` or `media_source`, would share county polygons across integrations, survive restarts without re-polling, and clean up by reference count. The prize is the tail, not bulk: a cold render of every zone a nationwide alert set references is about 1.78 MB across 265 requests, a rounding error on broadband and real for a rate-limited provider. Out of scope for v1; the §2.4 view is backend-agnostic so a store can land behind it ([evidence](docs/evidence/zone-geometry-is-heavy-tailed.md)).
 
 ### 6.3 Sub-incident Relationships
 
-`parent_id` (§2.1) is the hook. No v1 provider produces hierarchy. CAP's `<incidents>` element is the wire mechanism; the Australian provider reads it, but as identity (the fire's incident number), not as a parent link. When it lands, children carry `parent_id` and parents do not enumerate children (notes §6.3).
+`parent_id` (§2.1) is the hook. No v1 provider produces hierarchy. CAP's `<incidents>` element is the wire mechanism; the Australian provider reads it, but as identity (the fire's incident number), not as a parent link. When it lands, children carry `parent_id` and parents do not enumerate children ([evidence](docs/evidence/australian-feeds-publish-no-end-time.md)).
 
 ### 6.4 Long-term Archival Hook
 
-Durable records subscribe to the events and forward payloads to an external sink. **The removal event must be self-sufficient, and a consumer must not dereference the entity.** §7.3 removes the entity and purges its geometry in the same cycle the event fires, so a fetch after the event races and loses silently. `created` establishes the record, `updated` mutates it, `removed` closes it with identity, terminal phase and reason. One exception: an incident superseded by a revision the platform can see is dropped without a removal, because the successor's event carries the news; close those on the successor's arrival. A reference blueprint ships at [`blueprints/cap_alerts_archive_incident_removed.yaml`](blueprints/cap_alerts_archive_incident_removed.yaml) (notes §6.4).
+Durable records subscribe to the events and forward payloads to an external sink. **The removal event must be self-sufficient, and a consumer must not dereference the entity.** §7.3 removes the entity and purges its geometry in the same cycle the event fires, so a fetch after the event races and loses silently. `created` establishes the record, `updated` mutates it, `removed` closes it with identity, terminal phase and reason. One exception: an incident superseded by a revision the platform can see is dropped without a removal, because the successor's event carries the news; close those on the successor's arrival. A reference blueprint ships at [`blueprints/cap_alerts_archive_incident_removed.yaml`](blueprints/cap_alerts_archive_incident_removed.yaml).
 
 ### 6.5 Per-zone Sub-device Grouping
 
@@ -402,7 +402,7 @@ One sub-device per `affected_zones` entry multiplies registry churn under fan-ou
 
 ### 6.6 Bundled Zone-Geometry Artifact: Considered and Rejected
 
-Precompute the simplification, not the distribution. The best bundled artifact of all NWS land zones is 4.91 MB gzipped; resolving on demand costs about 1.78 MB for a nationwide render and about 20 KB for a realistic viewport, and the artifact pins every install to its release date. Two methodological notes generalise: sampling cannot estimate a heavy-tailed geometry population (a 115-zone sample was off by 6x to 49x per type), and gzip on coordinate JSON is about 4:1, not the 10:1 the pretty-printed NWS API suggests (notes §6.6).
+Precompute the simplification, not the distribution. The best bundled artifact of all NWS land zones is 4.91 MB gzipped; resolving on demand costs about 1.78 MB for a nationwide render and about 20 KB for a realistic viewport, and the artifact pins every install to its release date. Two methodological points generalize: sampling cannot estimate a heavy-tailed geometry population (a 115-zone sample was off by 6x to 49x per type), and gzip on coordinate JSON is about 4:1, not the 10:1 the pretty-printed NWS API suggests ([evidence](docs/evidence/zone-geometry-is-heavy-tailed.md)).
 
 ---
 
@@ -511,7 +511,7 @@ Modeled size of a CAP-rich incident after externalization, and the bound the ref
 | JSON overhead | 300 | 600 |
 | **Total, as the recorder measures it** | **~6.9 KB** | **~6.0 KB structural, plus the trimmable text and area list** |
 
-The implementation serializes what it is about to publish, measures it as the recorder does (`state.attributes` minus the domain exclusions and the entity's unrecorded attributes), and trims only past 15,800 bytes: `description_alt`, `instruction_alt`, `area_desc`, `description`, `instruction`, each spent in full before the next, a field under 160 bytes dropped rather than stubbed. `parameters` and `geocodes` are unrecorded, the two source-controlled lists no cap can bound; the second joined after a 291-area frost advisory carried 14,072 bytes of area names and 12,245 of codes against 1,837 of text. The model keeps the full text, so the lifecycle diff runs on what the source sent (notes §7.2).
+The implementation serializes what it is about to publish, measures it as the recorder does (`state.attributes` minus the domain exclusions and the entity's unrecorded attributes), and trims only past 15,800 bytes: `description_alt`, `instruction_alt`, `area_desc`, `description`, `instruction`, each spent in full before the next, a field under 160 bytes dropped rather than stubbed. `parameters` and `geocodes` are unrecorded, the two source-controlled lists no cap can bound; the second joined after a 291-area frost advisory carried 14,072 bytes of area names and 12,245 of codes against 1,837 of text. The model keeps the full text, so the lifecycle diff runs on what the source sent ([sweep](docs/evidence/per-field-text-caps-fail-both-ways.md), [overflow](docs/evidence/area-lists-overflow-after-text-is-spent.md)).
 
 ### 7.3 Registry Cleanup Sequence
 
@@ -537,7 +537,7 @@ Reconciliation → provider returns list[CAPAlert]
                      active incidents)
 ```
 
-A signalled termination arrives on a *present* record and resolves on the `updated IDs` path, or on `new IDs` when a first sighting is already terminal, firing `incident_removed` in place of `incident_created`. Supersession the platform can see drops the predecessor without an event; the successor already carried the news. Step 1 is skipped for an ending already announced (§2.3), and the first reconciliation after a boot re-validates rather than re-announces (§2.5). A retained incident takes none of the four steps (notes §7.3).
+A signalled termination arrives on a *present* record and resolves on the `updated IDs` path, or on `new IDs` when a first sighting is already terminal, firing `incident_removed` in place of `incident_created`. Supersession the platform can see drops the predecessor without an event; the successor already carried the news. Step 1 is skipped for an ending already announced (§2.3), and the first reconciliation after a boot re-validates rather than re-announces (§2.5). A retained incident takes none of the four steps ([evidence](docs/evidence/one-ending-one-removal.md)).
 
 ---
 
@@ -545,11 +545,11 @@ A signalled termination arrives on a *present* record and resolves on the `updat
 
 ### 8.1 Related Home Assistant Core Work
 
-- [home-assistant/core#164481](https://github.com/home-assistant/core/pull/164481) (@michaeldavie), combining ECCC alerts into one packed-attribute sensor. Closed unmerged 2026-06-08 after review asked for "actions with return values" instead; its successor [#172393](https://github.com/home-assistant/core/pull/172393) took that route and merged. ECCC's richest alert data is now reachable by automations and not by cards, which is requirement 10 failing in production (notes §8.1).
+- [home-assistant/core#164481](https://github.com/home-assistant/core/pull/164481) (@michaeldavie), combining ECCC alerts into one packed-attribute sensor. Closed unmerged 2026-06-08 after review asked for "actions with return values" instead; its successor [#172393](https://github.com/home-assistant/core/pull/172393) took that route and merged. ECCC's richest alert data is now reachable by automations and not by cards, which is requirement 10 failing in production ([evidence](docs/evidence/core-review-moved-alert-bodies-into-actions.md)).
 - [home-assistant/core#161882](https://github.com/home-assistant/core/pull/161882) and [#166125](https://github.com/home-assistant/core/pull/166125) (@DeerMaximum): NINA's attributes replaced by per-field sensors plus a `nina.get_details` action, with `description` and `recommended_actions` existing only in the response after HA 2026.11. The same resolution, incomplete by construction.
 - [architecture#1357](https://github.com/home-assistant/architecture/discussions/1357) and [#1360](https://github.com/home-assistant/architecture/discussions/1360) (@jpbede): a forecast contract for sensor entities, on the same reasoning and naming the same frontend gap. Forecasts and incidents are one shape of problem.
 - [home-assistant/core#37415](https://github.com/home-assistant/core/pull/37415) (@MatthewFlamm) and [#100009](https://github.com/home-assistant/core/pull/100009) (@IceBotYT): both closed. The first thread reached this RFC's conclusions years earlier, one sensor per alert and `references` for lifecycle, and stalled for lack of a platform.
-- [home-assistant/core#103352](https://github.com/home-assistant/core/issues/103352) and [#150737](https://github.com/home-assistant/core/issues/150737): the DWD warning that does not reset after the event ends, filed twice two years apart, with the upstream `EXPIRES` unused.
+- [home-assistant/core#103352](https://github.com/home-assistant/core/issues/103352) and [#150737](https://github.com/home-assistant/core/issues/150737): the DWD warning that did not reset after the event ended, filed twice two years apart. The upstream `EXPIRES` was exposed as an attribute and not used to end the warning until [#163096](https://github.com/home-assistant/core/pull/163096) merged on 2026-02-25.
 
 ### 8.2 Reference Integrations
 
@@ -582,7 +582,7 @@ Thanks to the maintainers of `nws_alerts`, Environment Canada, Alert2, MeteoAlar
 
 Structured external notifications are central to Home Assistant's role in emergency awareness, and today's approaches degrade exactly as the number of relevant incidents rises.
 
-The proposal has two parts. The first is that Home Assistant needs a first-class incident abstraction: normalized severity, identity stable across revisions, a lifecycle that trusts neither `msgType` nor a single missed observation, an event contract, and a payload bounded in both dimensions. §1.4 states that case without reference to a binding, and each requirement is backed by observed provider behaviour rather than specification reading. That is the claim this RFC most wants tested.
+The proposal has two parts. The first is that Home Assistant needs a first-class incident abstraction: normalized severity, identity stable across revisions, a lifecycle that trusts neither `msgType` nor a single missed observation, an event contract, and a payload bounded in both dimensions. §1.4 states that case without reference to a binding, and each requirement is backed by observed provider behavior rather than specification reading. That is the claim this RFC most wants tested.
 
 The second is that dynamic `incident.*` entities are the right binding, because they inherit the recorder, the trigger editor, `RestoreEntity` and the card ecosystem at the cost of batched registry churn. The case is good and not conclusive; §3.6 and §6.1 set out the alternatives, and the contract ports to either. A reviewer who accepts the abstraction and rejects the binding has moved the discussion to where it should be.
 

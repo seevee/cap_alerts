@@ -13,7 +13,8 @@ underneath them: one identity per incident across re-issues, a lifecycle that
 does not trust feed presence, bounded attributes, and lifecycle events.
 [`rfc.md`](rfc.md) argues that model as a proposed `incident` domain for Home
 Assistant Core, with this integration as its reference implementation, and
-[`docs/rfc-notes.md`](docs/rfc-notes.md) holds the field evidence behind it.
+[`docs/evidence/`](docs/evidence/README.md) holds the field evidence behind it,
+one page per finding.
 
 [![Alerts rendered by the companion Weather Alerts Card](https://raw.githubusercontent.com/seevee/weather_alerts_card/main/img/hero-adaptive.svg)](https://github.com/seevee/weather_alerts_card)
 
@@ -288,7 +289,7 @@ Per-field mappings and the reasoning behind each provider are in
 | [`docs/events.md`](docs/events.md) | Event payload schema and lifecycle semantics |
 | [`docs/architecture.md`](docs/architecture.md) | Alert identity, provider mappings, normalization, design rationale |
 | [`rfc.md`](rfc.md) | The incident model as a proposed Home Assistant Core domain; this integration is its reference implementation |
-| [`docs/rfc-notes.md`](docs/rfc-notes.md) | Evidence and long-form argument behind the RFC, by section: feed samples, probes, measurements, revision history |
+| [`docs/evidence/`](docs/evidence/README.md) | Evidence behind the RFC, one page per finding: the measurement, the excerpt, how to reproduce it |
 | [`docs/roadmap.md`](docs/roadmap.md) | Planned work that has no issue yet |
 | [`docs/provider-watch.md`](docs/provider-watch.md) | Provider drift monitoring (feed vocabulary, WMO mirror lag) and the response playbook |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Dev setup, test gates, adding a provider, translations |
