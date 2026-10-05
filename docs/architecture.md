@@ -785,8 +785,12 @@ The probe only pages a lossy mirror while its newest skip is also the bucket's
 newest settled file, so the token reads as a stall (`cm-meteo-fr@2026-09-15`)
 and a later skip files again under a new date. Senegal's `sn-anacim-fr`
 (2026-05-16) followed on 2026-10-01: its first alert in four months, an
-Extreme rain warning in force 09-24 to 09-27, never reached the mirror. The
-probe's baseline is the maintained list; this one is a snapshot.
+Extreme rain warning in force 09-24 to 09-27, never reached the mirror.
+India's `in-imd-en` (2026-09-23) filed on 2026-10-04 and is lossy like
+Cameroon's: 13 of the 59 Actual alerts IMD has uploaded since 2025-09 are
+absent from the mirror, two of September's nine among them, each a Severe
+heavy-rainfall warning that was in force for a day. The probe's baseline is
+the maintained list; this one is a snapshot.
 
 **Shared CAP parsing**: the CAP body parsing lives in the provider-neutral
 `providers/cap.py` module, used verbatim by both WMO and ECCC. `parse_cap_alert`
