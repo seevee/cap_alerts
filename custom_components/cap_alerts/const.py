@@ -8,6 +8,10 @@ PLATFORMS = ["binary_sensor", "button", "sensor"]
 # RFC §2.6 — bumped on breaking attribute/event payload changes
 PLATFORM_VERSION = "1.0"
 
+# RFC §1.5: the sensor device class that marks a per-alert entity, so selectors
+# and triggers can target ``domain: sensor, device_class: incident``.
+INCIDENT_DEVICE_CLASS = "incident"
+
 # RFC §2.3 event names — forward-compatible with an upstream `incident.*` domain.
 EVENT_INCIDENT_CREATED = "incident_created"
 EVENT_INCIDENT_UPDATED = "incident_updated"

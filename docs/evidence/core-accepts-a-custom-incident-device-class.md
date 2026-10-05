@@ -15,7 +15,7 @@
 | A target-state trigger on `sensor` + `incident`, targeting a marked and an unmarked sensor, both set to `severe` | harness | fired once, for the marked sensor | `test_a_device_class_trigger_fires_for_the_marked_sensor_only` |
 | Entity selector with `domain: sensor, device_class: incident` | harness | schema accepts it | `test_the_entity_selector_takes_the_device_class_filter` |
 | An integration outside core hosts an `incident` entity domain, and a second one forwards a platform to it | harness | `incident.tornado_warning` in state `severe`, nothing logged at warning or above | `test_an_integration_outside_core_can_host_an_entity_domain` |
-| The class set on the integration's real alert entities | dev box | 113 of 113 loaded alert entities carried it, no `cap_alerts` warning or error in the log | one-time capture |
+| The class set on the integration's real alert entities | dev box | 113 of 113 loaded alert entities carried it, no `cap_alerts` warning or error in the log | one-time capture, then `tests/test_alert_device_class.py` since the integration adopted it |
 | A trigger shipped from the integration's own `trigger.py` | dev box | validated and subscribed against live alert entities | one-time capture |
 | The class as the frontend sees it | browser | 192 sensors carried `device_class: incident` in the browser's state | one-time capture |
 | The trigger in the automation editor | browser | listed in the Add trigger dialog by name and description, adds, renders its form | one-time capture |

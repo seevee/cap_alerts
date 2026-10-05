@@ -414,12 +414,14 @@ async def test_an_oversized_alert_still_fits_what_the_recorder_stores(
     attrs = dict(states[0].attributes)
 
     # Measured the way the recorder measures it: the state as HA finished it,
-    # ``friendly_name`` and ``icon`` included, minus the unrecorded set. Those
-    # trailing names are exactly what the reserve inside PAYLOAD_BUDGET covers,
-    # so the ceiling — not the budget — is the assertion that matters here.
+    # ``friendly_name``, ``icon`` and ``device_class`` included, minus the
+    # unrecorded set. Those trailing names are exactly what the reserve inside
+    # PAYLOAD_BUDGET covers, so the ceiling — not the budget — is the assertion
+    # that matters here.
     recorded = {k: v for k, v in attrs.items() if k not in UNRECORDED_ATTRIBUTES}
     assert len(json_bytes(recorded)) < RECORDER_CEILING
-    assert measure(attrs) <= PAYLOAD_BUDGET + len(json_bytes(attrs["friendly_name"]))
+    appended = {k: attrs[k] for k in ("friendly_name", "device_class")}
+    assert measure(attrs) <= PAYLOAD_BUDGET + len(json_bytes(appended))
 
     # The alternate paid the whole bill, so the language the user asked for
     # came through untouched.

@@ -49,11 +49,9 @@ unchanged to each.
 ## What runs today, and the gap
 
 The [`cap_alerts`](../README.md) custom integration implements everything in §2
-except the device class and restart content restore, across weather,
-civil-protection and disaster feeds (§4.1). Its entities are plain sensors
-until [#277](https://github.com/seevee/cap_alerts/issues/277) lands. They don't
-inherit `RestoreEntity` yet either, so that half of §2.5 is specified and not
-field-tested (§5).
+except restart content restore, across weather, civil-protection and disaster
+feeds (§4.1). Its entities don't inherit `RestoreEntity` yet, so that half of
+§2.5 is specified and not field-tested (§5).
 
 ## What I'm asking for
 
