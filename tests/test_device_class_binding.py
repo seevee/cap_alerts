@@ -133,6 +133,73 @@ async def test_a_device_class_trigger_fires_for_the_marked_sensor_only(hass):
     assert [event.data["entity_id"] for event in fired] == ["sensor.wind_warning"]
 
 
+async def test_a_device_class_trigger_does_not_fire_for_a_sensor_added_severe(hass):
+    """The trigger needs a previous state, and a new entity has none.
+
+    So the device class alone gives escalation and not arrival: an incident
+    that is created severe fires nothing.
+    """
+    triggers: dict[str, type[Trigger]] = {
+        "became_severe": make_entity_target_state_trigger(
+            {SENSOR_DOMAIN: DomainSpec(device_class=DEVICE_CLASS)},
+            {"severe", "extreme"},
+        )
+    }
+
+    async def async_get_triggers(hass: HomeAssistant) -> dict[str, type[Trigger]]:
+        return triggers
+
+    mock_integration(hass, MockModule("incident_probe"))
+    mock_platform(
+        hass,
+        "incident_probe.trigger",
+        SimpleNamespace(async_get_triggers=async_get_triggers),
+    )
+    registry = er.async_get(hass)
+    label = "incidents"
+    # A label, so the target can name an entity before it has a state.
+    existing = _Sensor("wind_warning", "minor", unique_id="w1")
+    arriving = _Sensor("tornado_warning", "severe", unique_id="t1")
+    for entity in (existing, arriving):
+        entry = registry.async_get_or_create(
+            SENSOR_DOMAIN,
+            SENSOR_DOMAIN,
+            entity.unique_id,
+            suggested_object_id=entity.name,
+        )
+        registry.async_update_entity(entry.entity_id, labels={label})
+    await _add(hass, existing)
+    fired = async_capture_events(hass, "probe_fired")
+    assert await async_setup_component(
+        hass,
+        "automation",
+        {
+            "automation": {
+                "trigger": {
+                    "trigger": "incident_probe.became_severe",
+                    "target": {"label_id": label},
+                    "options": {},
+                },
+                "action": {
+                    "event": "probe_fired",
+                    "event_data": {"entity_id": "{{ trigger.entity_id }}"},
+                },
+            }
+        },
+    )
+
+    await hass.data[SENSOR_DOMAIN].async_add_entities([arriving])
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.tornado_warning").state == "severe"
+    assert fired == []
+
+    # The same automation does fire for the labeled sensor that escalates.
+    existing._attr_native_value = "severe"
+    existing.async_write_ha_state()
+    await hass.async_block_till_done()
+    assert [event.data["entity_id"] for event in fired] == ["sensor.wind_warning"]
+
+
 def test_the_entity_selector_takes_the_device_class_filter():
     config = {"filter": {"domain": SENSOR_DOMAIN, "device_class": DEVICE_CLASS}}
 
