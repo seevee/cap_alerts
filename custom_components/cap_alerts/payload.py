@@ -55,7 +55,7 @@ RECORDER_CEILING = 16384
 
 # Headroom for what Home Assistant appends after ``extra_state_attributes``
 # returns — ``friendly_name`` (device name plus the event, which normalization
-# has already clipped to 255 characters) and ``icon``.
+# has already clipped to 255 characters), ``icon`` and ``device_class``.
 PAYLOAD_RESERVE = 584
 
 PAYLOAD_BUDGET = RECORDER_CEILING - PAYLOAD_RESERVE

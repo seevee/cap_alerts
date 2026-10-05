@@ -21,7 +21,7 @@ A configured location produces one device carrying:
 | :-- | :-- | :-- |
 | `sensor.cap_alerts_<provider>_alert_count` | number of active alerts | Attributes `active` / `upcoming` split it on `onset`. Diagnostic. |
 | `sensor.cap_alerts_<provider>_last_updated` | ISO timestamp | `device_class: timestamp`. Diagnostic. |
-| `sensor.cap_alerts_<provider>_cap_alert_<event>_<hash>` | **normalized severity** | One per active alert, created and removed each poll cycle. |
+| `sensor.cap_alerts_<provider>_cap_alert_<event>_<hash>` | **normalized severity** | `device_class: incident`. One per active alert, created and removed each poll cycle. |
 | `button.cap_alerts_<provider>_refresh` | — | Forces an off-cycle fetch. Diagnostic. |
 | `binary_sensor.cap_alerts_eccc_real_time_stream` | NAAD socket state | ECCC-with-streaming only. Diagnostic. |
 
@@ -34,6 +34,7 @@ severity, not the headline.**
 state: severe            # extreme | severe | moderate | minor | unknown
 name: Severe Thunderstorm Warning     # the CAP <event> string
 icon: mdi:weather-lightning           # dispatched from event type
+device_class: incident                # alert entities only
 ```
 
 Entity ids follow `{device name}_cap_alert_{slugified event}_{8-char hash}` — for
@@ -282,6 +283,27 @@ sort:
 
 Selecting on `incident_platform_version` is the cheapest reliable test for
 "this is a cap_alerts alert entity" — the diagnostic sensors do not carry it.
+
+### Device class
+
+Alert entities also carry `device_class: incident`, which is the route for
+anything that filters before it reads attributes: an entity selector, a
+target picker, a trigger.
+
+```yaml
+selector:
+  entity:
+    filter:
+      domain: sensor
+      device_class: incident
+```
+
+In a template, `selectattr('attributes.device_class', 'eq', 'incident')` does
+the same. The class is not specific to this integration, so another
+integration's incident sensors would match too. `incident_platform_version`
+stays the test for "this entity follows the attribute contract on this page".
+Home Assistant tolerates a device class it doesn't know and does not
+translate its states, so the state shows as the raw severity token.
 
 ### Count sensor
 

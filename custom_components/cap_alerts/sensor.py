@@ -21,7 +21,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
 
-from .const import CONF_PROVIDER, PLATFORM_VERSION
+from .const import CONF_PROVIDER, INCIDENT_DEVICE_CLASS, PLATFORM_VERSION
 from .coordinator import AlertsDataUpdateCoordinator
 from .model import CAPAlert
 from .normalize import count_by_onset
@@ -199,6 +199,9 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
     """Sensor representing a single active weather alert."""
 
     _attr_has_entity_name = True
+    # Not a ``SensorDeviceClass`` member: core sets custom classes aside before
+    # it validates, which ``tests/test_device_class_binding.py`` pins (#277).
+    _attr_device_class = INCIDENT_DEVICE_CLASS  # type: ignore[assignment]
     # Keeps the providers' verbatim ``<parameter>`` catch-all (#150) and the
     # per-area geocode container (#245) out of history — and, because the
     # recorder measures its ceiling against the recorded set, out of the
