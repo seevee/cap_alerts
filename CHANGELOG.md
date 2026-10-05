@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.6.1 (2026-10-05)
+
+### Fixed
+- Stop recording geocodes, cut the area list before the text (#246) (closes #245.)
+- Read every value of a multi-value eventCode (#247)
+- Re-validate known alerts after a restart instead of re-firing (#251) (closes #250)
+- Fire incident_created once the alert's entity is registered (#253) (closes #249)
+- Count only fetch-backed reconciliations toward boot grace (#254) (closes #252)
+- Don't re-announce an ending on the first fetch after boot (#258) (closes #257)
+- Load on the declared HACS floor, and test that floor (#261)
+- Keep the floor pins out of Dependabot's reach (#264)
+- Rank a tierless alert by its CAP severity under the floor (#265) (closes #242)
+
+### Documentation
+- Fix stale test path and event names (#256)
+- Drop the do-not-circulate banner (#259)
+- Link the RFC from the README, correct the url/web and timing hints (#266)
+- Fourth claim-by-claim pass against the October tree (#268)
+- Split the proposal from its evidence (#269)
+- Replace the notes file with an evidence set, one page per finding (#270)
+- Add a one-page summary of the proposal (#271)
+- Fix stale RFC section pointers and two feed comments (#272)
+- Add the sensor device-class binding to §1.5, with evidence (#273)
+- Add the browser checks to the device-class page (#274)
+- Measure registry churn per entry, and the tombstones it leaves (#275)
+- Recommend the sensor device class first, the domain later (#276)
+- Clear the last domain-first wording after the binding change (#278)
+- Say the device class is not adopted yet, and test doc links (#279)
+
+### Internal
+- Accept the Senegal mirror lag (#248) (#255)
+- Serialize provider-drift runs, cancel superseded PR runs (#263)
+- Accept the India mirror loss (#282) (#283)
+
 ## 0.6.0 (2026-10-01)
 
 ### Added
