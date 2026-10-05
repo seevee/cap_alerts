@@ -4,7 +4,7 @@
 | :-- | :-- |
 | Supports | RFC §1.5 |
 | Source | Home Assistant 2026.9.3: the `sensor` component, `helpers/automation.py`, `helpers/trigger.py`, the `battery` system integration |
-| Sample | five checks in a test harness. One dev-box run on v0.6.1-rc.1 with 23 config entries, 113 alert entities loaded when queried. One throwaway instance from a copy of that config, driven through a browser, 192 alert entities |
+| Sample | six checks in a test harness. One dev-box run on v0.6.1-rc.1 with 23 config entries, 113 alert entities loaded when queried. One throwaway instance from a copy of that config, driven through a browser, 192 alert entities |
 | Observed | 2026-10-03 |
 | Reproduce | `tests/test_device_class_binding.py`. The dev-box and browser runs are one-time captures |
 
@@ -17,6 +17,7 @@
 | An integration outside core hosts an `incident` entity domain, and a second one forwards a platform to it | harness | `incident.tornado_warning` in state `severe`, nothing logged at warning or above | `test_an_integration_outside_core_can_host_an_entity_domain` |
 | The class set on the integration's real alert entities | dev box | 113 of 113 loaded alert entities carried it, no `cap_alerts` warning or error in the log | one-time capture, then `tests/test_alert_device_class.py` since the integration adopted it |
 | A trigger shipped from the integration's own `trigger.py` | dev box | validated and subscribed against live alert entities | one-time capture |
+| The same trigger, targeting a label, when a marked sensor is added already `severe` | harness | did not fire | `test_a_device_class_trigger_does_not_fire_for_a_sensor_added_severe` |
 | The class as the frontend sees it | browser | 192 sensors carried `device_class: incident` in the browser's state | one-time capture |
 | The trigger in the automation editor | browser | listed in the Add trigger dialog by name and description, adds, renders its form | one-time capture |
 | The trigger's target picker | browser | offered alert sensors only. "count", "last updated" and "temperature" each returned "No target found" | one-time capture |
@@ -94,6 +95,10 @@ declared on the entity until sensor's validation learns the class.
   No test pins them.
 - Outside the harness the trigger fired once, on a state forced through the
   REST API. No feed-driven severity change was observed firing it.
+- A target-state trigger fires on a change from a previous state, and a new
+  entity has none. An incident that arrives severe fires nothing, so the
+  device class alone gives requirement 7 escalation and not arrival. Arrival
+  still needs the `incident_created` event.
 - The frontend shows the state as the raw token. Sensor ships no state
   translations for a class it doesn't know.
 - The dev box was queried while entries were still loading. It held 260 alert
@@ -103,4 +108,4 @@ declared on the entity until sensor's validation learns the class.
   customization and legacy translations as the reason for the tolerance.
 - Two core versions: 2026.9.3 locally and on the dev box, and the 2026.4.3
   floor in CI, where the trigger config needs `options` passed explicitly. The
-  test fails if a later release changes any of the five harness results.
+  test fails if a later release changes any of the six harness results.
