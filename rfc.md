@@ -54,7 +54,7 @@ The failures in §1.1 to §1.3 imply requirements that hold whatever the binding
 2. **Stable lifecycle identity.** One logical incident keeps one identity across updates, URI changes and `<references>` chains.
 3. **Bounded footprint.** No single item approaches the recorder ceiling. Heavy payloads are externalized, not inlined.
 4. **Concurrent multiplicity.** Many incidents coexist without truncation or dropout (the MeteoAlarm single-slot failure, §3.3).
-5. **Restart survival without disk-wear cost.** Active incidents survive a restart on HA-native persistence, with no per-poll writes of large payloads to `.storage/`.
+5. **Restart survival without disk-wear cost.** Active incidents survive a restart on HA-native persistence, with no periodic writes of large payloads to `.storage/`.
 6. **Dynamic active set.** Items appear on issue and disappear on cancel or expiry, with expiry honored from feed metadata (the DWD reset bug, §8.1).
 7. **Automation surface.** Automations trigger on arrival, update and termination without hand-wiring against entities that don't exist yet.
 8. **Tolerance of imperfect sources.** Termination is not driven by one observation of absence. Real feeds omit live alerts intermittently (§2.5) and real authorities signal end-of-life outside `msgType` (§2.2).
