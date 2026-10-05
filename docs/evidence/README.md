@@ -28,6 +28,7 @@ table at its top says which figure is which.
 | §2.4 | [One GDACS entry held 87% of a global geometry budget and evicted a sibling entry's polygons](geometry-budget-must-be-per-entry.md) | 2026-09-06 | script, test |
 | §2.4, §6.2, §6.6 | [NWS zone geometry is heavy-tailed, with a 1,700x span inside one population](zone-geometry-is-heavy-tailed.md) | 2026-08 (one-time census, day not recorded) | script, one-time capture |
 | §2.5, §1.5, §5 | [Registry churn follows the entry's scope, and every removal leaves a tombstone](registry-churn-follows-scope-and-every-removal-leaves-a-tombstone.md) | 2026-10-03 | script, one-time capture |
+| §2.5, §1.4 requirement 5, §5 | [RestoreEntity keeps a removed alert for seven days and rewrites the file every fifteen minutes](restoreentity-keeps-a-removed-alert-for-seven-days.md) | 2026-10-05 | test, script, one-time capture |
 | §2.5 | [NWS publishes cancellations where the active endpoint cannot see them](nws-cancellations-never-reach-the-active-endpoint.md) | 2026-08-08 or shortly before (reported in [#121](https://github.com/seevee/cap_alerts/pull/121)), live check 2026-10-03 | script |
 | §2.5, §2.3 | [A restart re-validates known alerts instead of re-announcing them](restart-revalidates-instead-of-reannouncing.md) | 2026-10-01 (#249, #250, #252), 2026-10-02 (#257) | test |
 | §2.5 | [Retaining an absent alert is only safe when something else can end it](retention-needs-an-exit.md) | 2026-08-08 or shortly before (#122), live check 2026-10-03 | script |
