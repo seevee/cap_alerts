@@ -220,6 +220,17 @@ The companion
 [Weather Alerts Card](https://github.com/seevee/weather_alerts_card) renders
 severity, progress bars, expandable details and an affected-area map.
 
+[HA Alert Card](https://github.com/DTekNO/ha-alert-card) is a compact list
+alternative. Its `device:` source follows the alert entities as they come and
+go, and from 2026.10.3 it reads `web`, `severity_normalized` and `sent` with no
+mapping:
+
+```yaml
+type: custom:ha-alert-card
+sources:
+  - device: <device id>
+```
+
 ## Diagnostics
 
 Settings → Devices & Services → CAP Alerts → ⋮ on the entry → **Download
