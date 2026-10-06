@@ -2,14 +2,51 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
-from typing import Any, Protocol, runtime_checkable
+from collections.abc import Callable, Mapping
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import aiohttp
 
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
 from ..model import CAPAlert
-from .cap import CAPDoc
+
+# Importing this package registers every shipped source's convention rows: each
+# module below calls ``conventions.register`` at import, and nothing in the
+# shared modules names a provider. A new source adds one line here.
+from . import (  # noqa: F401
+    au_conventions,
+    bbk_conventions,
+    eccc_conventions,
+    gdacs_conventions,
+    meteoalarm_conventions,
+    nws_conventions,
+    wmo_conventions,
+)
 from .cap_content_cache import CAPContentCache
+
+
+class ProviderError(Exception):
+    """A fetch that could not produce alerts this cycle.
+
+    Raised by every provider for transient failures — network errors, a non-200
+    status, a body that does not parse — and translated into Home Assistant's
+    ``UpdateFailed`` by the coordinator in one place. Providers never import
+    that class: the exception is the one seam between the provider layer and
+    the entity lifecycle, and keeping it ours is what lets the provider side be
+    hosted by something other than this integration's coordinator.
+    """
+
+
+class ScopeUnresolvedError(ProviderError):
+    """The host could not resolve the entry's scope this cycle.
+
+    Raised by ``IngestHost.resolve_scope`` when a tracker has no location, say.
+    A push ingest drops the push on it; the next backfill re-seeds from the
+    authoritative feed.
+    """
 
 
 class AlertProvider(Protocol):
@@ -29,7 +66,7 @@ class AlertProvider(Protocol):
         cap_content_cache: CAPContentCache | None = None,
         user_agent: str | None = None,
     ) -> list[CAPAlert]:
-        """Fetch current alerts. Raises UpdateFailed on transient errors."""
+        """Fetch current alerts. Raises ProviderError on transient errors."""
         ...
 
     async def async_validate_config(
@@ -55,42 +92,93 @@ class AlertProvider(Protocol):
         ...
 
 
-@runtime_checkable
-class BackfillProvider(Protocol):
-    """Provider that can also return raw CAP documents, for streaming backfill.
+class IngestHost(Protocol):
+    """What a push ingest may ask of the coordinator that hosts it.
 
-    Deliberately separate from ``AlertProvider``: only a push-ingesting provider
-    needs it (today just ECCC), and the coordinator holds a live doc set it
-    rebuilds alerts from, so it needs the documents rather than finished alerts.
-    ``runtime_checkable`` so the coordinator can narrow its provider once at
-    construction instead of asserting the capability at every backfill.
+    The ingest owns the documents; the host owns the entry, the shared
+    pipeline, and the entities. Everything the ingest needs from that side is
+    named here so the ingest never reaches into the coordinator.
     """
 
-    async def async_fetch_docs(
-        self,
-        session: aiohttp.ClientSession,
-        config: Mapping[str, Any],
-        options: Mapping[str, Any],
-        *,
-        cap_content_cache: CAPContentCache | None = None,
-        user_agent: str | None = None,
-    ) -> list[CAPDoc]:
-        """Fetch region-relevant CAP documents. Raises UpdateFailed on transient errors."""
+    @property
+    def hass(self) -> HomeAssistant: ...
+
+    @property
+    def entry_id(self) -> str: ...
+
+    @property
+    def timeout(self) -> int: ...
+
+    @property
+    def user_agent(self) -> str: ...
+
+    @property
+    def cap_content_cache(self) -> CAPContentCache | None: ...
+
+    def resolve_scope(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """The entry's resolved ``(config, options)``, or ``ScopeUnresolvedError``."""
         ...
 
-    async def async_fetch_docs_by_reference(
-        self,
-        session: aiohttp.ClientSession,
-        references: Sequence[tuple[str, str, str]],
-        *,
-        cap_content_cache: CAPContentCache | None = None,
-        user_agent: str | None = None,
-    ) -> dict[str, CAPDoc | None]:
-        """Fetch CAP documents by ``(sender, identifier, sent)`` reference (issue #164).
+    async def async_apply(
+        self, alerts: list[CAPAlert], *, fetched: bool
+    ) -> dict[str, CAPAlert]:
+        """Run the shared pipeline over a rebuilt alert list; returns the active set."""
+        ...
 
-        Maps each requested identifier to its document, or ``None`` when the
-        source could not serve it. Does not raise on a per-document miss.
+    def push(self, data: dict[str, CAPAlert]) -> None:
+        """Publish a stream-sourced active set to entities without a fetch."""
+        ...
+
+    def notify_connection(self, connected: bool) -> None:
+        """Tell entity listeners the socket connected or dropped."""
+        ...
+
+
+class PushIngest(Protocol):
+    """A provider's real-time ingestion for one entry, as the coordinator holds it.
+
+    The coordinator never sees the transport: it starts and stops the ingest,
+    runs its backfill on the resync cadence, and reads a few facts off it.
+    """
+
+    @property
+    def connected(self) -> bool: ...
+
+    @property
+    def resync_interval(self) -> timedelta: ...
+
+    @property
+    def superseded_identifiers(self) -> frozenset[str]: ...
+
+    async def async_start(self) -> None: ...
+
+    async def async_stop(self) -> None: ...
+
+    async def async_backfill(
+        self, config: Mapping[str, Any], options: Mapping[str, Any]
+    ) -> dict[str, CAPAlert]:
+        """The fetch-backed resync: seed the live set and return the active set.
+
+        Raises ``ProviderError`` on fetch failure, which is what drives
+        availability under streaming.
         """
+        ...
+
+    def diagnostics(self) -> dict[str, Any]:
+        """JSON-ready facts for the ``stream`` block of the diagnostics dump."""
+        ...
+
+
+@runtime_checkable
+class StreamingProvider(Protocol):
+    """A provider that can ingest in real time instead of polling."""
+
+    def streaming_enabled(self, options: Mapping[str, Any]) -> bool:
+        """Whether the entry's options ask for real-time ingestion."""
+        ...
+
+    def build_ingest(self, host: IngestHost) -> PushIngest:
+        """The ingest for one entry; the host hands it the shared pipeline."""
         ...
 
 

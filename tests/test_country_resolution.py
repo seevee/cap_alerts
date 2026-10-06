@@ -1,6 +1,6 @@
 """Tests for MeteoAlarm country-source resolution (Part B).
 
-Covers the pure ``_resolve_country_code`` normalizer and the coordinator's
+Covers the pure ``resolve_country_code`` normalizer and the coordinator's
 ``_resolve_config`` country-source path. No Home Assistant runtime
 is needed: the coordinator instance is built via ``object.__new__`` to skip the heavy
 ``__init__`` (provider/store wiring) the resolution path doesn't touch.
@@ -17,8 +17,10 @@ from custom_components.cap_alerts.const import (
     CONF_COUNTRY_ENTITY,
     CONF_PROVIDER,
 )
+from custom_components.cap_alerts.providers.meteoalarm_conventions import (
+    resolve_country_code as _resolve_country_code,
+)
 
-_resolve_country_code = coordinator._resolve_country_code
 AlertsDataUpdateCoordinator = coordinator.AlertsDataUpdateCoordinator
 
 

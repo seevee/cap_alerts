@@ -79,7 +79,6 @@ from xml.etree.ElementTree import Element
 
 import aiohttp
 from defusedxml import ElementTree as ET
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
     AU_ALERT_LEVEL_ALL,
@@ -88,8 +87,9 @@ from ..const import (
     CONF_ALERT_LEVEL,
     CONF_PROVINCE,
 )
-from ..conventions import AU_ALERT_LEVEL_PARAMETER, au_alert_level
 from ..model import CAPAlert, geocodes_from
+from . import ProviderError
+from .au_conventions import AU_ALERT_LEVEL_PARAMETER, au_alert_level
 from .cap import CAPDoc, CAPInfoDoc, cap_doc_from_element, select_info
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_shapes, points_from_circles
@@ -337,18 +337,18 @@ class AUProvider:
         state = str(config.get(CONF_PROVINCE, "") or "").strip().upper()
         feed = AU_FEEDS.get(state)
         if feed is None:
-            raise UpdateFailed(f"AU: unknown state {state!r}")
+            raise ProviderError(f"AU: unknown state {state!r}")
         _agency, url = feed
         headers = {"User-Agent": user_agent} if user_agent else None
 
         async with session.get(url, headers=headers) as resp:
             if resp.status != 200:
-                raise UpdateFailed(f"AU {state}: feed HTTP {resp.status}")
+                raise ProviderError(f"AU {state}: feed HTTP {resp.status}")
             text = await resp.text()
 
         elements = edxl_alert_elements(text)
         if elements is None:
-            raise UpdateFailed(f"AU {state}: feed is not well-formed XML")
+            raise ProviderError(f"AU {state}: feed is not well-formed XML")
 
         alerts: list[CAPAlert] = []
         for element in elements:

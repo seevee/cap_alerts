@@ -38,9 +38,12 @@ from custom_components.cap_alerts.const import (
     CONF_ZONE_ID,
     NAAD_STREAM_HOST,
 )
-from custom_components.cap_alerts.conventions import FMI_SENDER, METEOFRANCE_SENDER
 from custom_components.cap_alerts.coordinator import AlertsDataUpdateCoordinator
 from custom_components.cap_alerts.geometry_store import GeometryStore
+from custom_components.cap_alerts.providers.meteoalarm_conventions import (
+    FMI_SENDER,
+    METEOFRANCE_SENDER,
+)
 from tests.conftest import make_alert
 
 DOMAIN = "cap_alerts"
@@ -84,9 +87,21 @@ class _StubCoordinator:
         self.update_interval = timedelta(seconds=interval_seconds)
         self.streaming = streaming
         self.stream_connected = connected
-        self.live_doc_count = live_documents
-        self.last_backfill_time = last_backfill
-        self.repository_recovered = repository_recovered
+        # What ``NAADIngest.diagnostics`` reports, as the coordinator relays it.
+        self.ingest_diagnostics = (
+            {
+                "connected": connected,
+                "endpoint": f"{NAAD_STREAM_HOST}:8443",
+                "live_documents": live_documents,
+                "last_backfill": (
+                    last_backfill.isoformat() if last_backfill is not None else None
+                ),
+                "repository": "https://cap.alertready.ca",
+                "repository_recovered": repository_recovered,
+            }
+            if streaming
+            else None
+        )
         self._entry = None
 
     def bind(self, entry) -> _StubCoordinator:

@@ -209,7 +209,9 @@ class CAPAlert:
     episode_days: tuple[dict[str, str], ...] = ()
 
     # -- Provider --
-    provider: str = "nws"
+    # Always set by the provider that built the alert; empty only on a record
+    # constructed without one, which no shipped path does.
+    provider: str = ""
 
     # -- Normalization metadata (set by integration, not providers) --
     severity_normalized: str = ""

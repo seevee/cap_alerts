@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -14,13 +13,13 @@ import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_LATITUDE, ATTR_LONGITUDE
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
-from homeassistant.util.ssl import client_context
 
 from .const import (
     CONF_COUNTRY,
@@ -31,37 +30,25 @@ from .const import (
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
-    CONF_PROVINCE,
     CONF_SCAN_INTERVAL,
-    CONF_STREAMING,
     CONF_TIMEOUT,
     CONF_TRACKER_ENTITY,
     DEFAULT_SCAN_INTERVAL,
-    DEFAULT_STREAM_RESYNC_INTERVAL,
     DEFAULT_TIMEOUT,
     DOMAIN,
-    METEOALARM_COUNTRIES,
-    METEOALARM_COUNTRY_CODE_ALIASES,
-    METEOALARM_COUNTRY_NAME_ALIASES,
-    METEOALARM_COUNTRY_NAMES,
-    NAAD_REPOSITORY_FETCH_ATTEMPTS,
-    NAAD_STREAM_BACKFILL_MIN_INTERVAL_S,
-    NAAD_STREAM_HOST,
-    NAAD_STREAM_PORT,
 )
+from .conventions import conventions_for
 from .geometry_store import GeometryStore
 from .model import CAPAlert
 from .normalize import normalize_alerts
-from .providers import AlertProvider, BackfillProvider
-from .providers.cap import CAPDoc, parse_cap_alert
-from .providers.cap_content_cache import CAPContentCache
-from .providers.eccc import (
-    ECCCProvider,
-    build_alerts_from_cap_docs,
-    doc_matches_region,
-    is_actual,
+from .providers import (
+    AlertProvider,
+    ProviderError,
+    PushIngest,
+    ScopeUnresolvedError,
+    StreamingProvider,
 )
-from .providers.naad_stream import NAADStreamClient
+from .providers.cap_content_cache import CAPContentCache
 from .store import AlertStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -137,29 +124,6 @@ def filter_by_geocode_prefixes(
     return [a for a in alerts if matches_geocode_prefixes(a, wanted)]
 
 
-def _sent_before(sent_text: str, cutoff: datetime) -> bool:
-    """Whether a CAP ``sent`` timestamp string is before ``cutoff``.
-
-    Fails open — an unparseable or missing ``sent`` returns ``False`` so the
-    record is retained rather than pruned on a formatting quirk. A tz-naive
-    timestamp is assumed UTC.
-    """
-    if not sent_text:
-        return False
-    try:
-        sent = datetime.fromisoformat(sent_text)
-    except ValueError:
-        return False
-    if sent.tzinfo is None:
-        sent = sent.replace(tzinfo=timezone.utc)
-    return sent < cutoff
-
-
-def _doc_sent_before(doc: CAPDoc, cutoff: datetime) -> bool:
-    """Whether a CAP doc's ``sent`` timestamp is before ``cutoff`` (see ``_sent_before``)."""
-    return _sent_before(doc.sent, cutoff)
-
-
 def _scope_key(config: Mapping[str, Any], options: Mapping[str, Any]) -> str:
     """A stable identity for the query a reconciliation runs.
 
@@ -169,6 +133,43 @@ def _scope_key(config: Mapping[str, Any], options: Mapping[str, Any]) -> str:
     suspended retention cycle.
     """
     return json.dumps([config, options], sort_keys=True, default=str)
+
+
+def _alert_unique_id(entry_id: str, provider: str, alert_id: str) -> str:
+    """The unique_id ``sensor.AlertEntity`` registers an alert under."""
+    return f"{entry_id}_{provider}_{alert_id}"
+
+
+def known_alert_entities(
+    hass: HomeAssistant, entry_id: str, provider: str
+) -> dict[str, str]:
+    """Alert id → registered name for every alert entity this entry already has.
+
+    What the store treats as known before the boot (issue #250): the registry
+    survives a restart where the store's memory does not, and the ids under the
+    entry's alert prefix are exactly the set that had entities. The name is the
+    entity's ``original_name``, which is the alert's ``event`` — all the
+    registry keeps of the content.
+    """
+    alert_prefix = _alert_unique_id(entry_id, provider, "")
+    return {
+        ent.unique_id.removeprefix(alert_prefix): ent.original_name or ""
+        for ent in er.async_entries_for_config_entry(er.async_get(hass), entry_id)
+        if ent.unique_id.startswith(alert_prefix)
+    }
+
+
+def alert_entity_lookup(
+    hass: HomeAssistant, entry_id: str, provider: str
+) -> Callable[[str], str | None]:
+    """A lookup from alert id to its registered ``entity_id``, or None."""
+
+    def lookup(alert_id: str) -> str | None:
+        return er.async_get(hass).async_get_entity_id(
+            "sensor", DOMAIN, _alert_unique_id(entry_id, provider, alert_id)
+        )
+
+    return lookup
 
 
 def _resolve_tracker_gps(state: Any) -> str | None:
@@ -186,37 +187,6 @@ def _resolve_tracker_gps(state: Any) -> str | None:
     if lat is None or lon is None:
         return None
     return f"{lat},{lon}"
-
-
-def _resolve_country_code(value: Any) -> str | None:
-    """Map a country-source value to a MeteoAlarm ISO-2 code, or ``None``.
-
-    Accepts a two-letter code — MeteoAlarm's own (``"UK"``), ISO 3166-1
-    (``"GB"``), or the EU institutional variant (``"EL"``) — or a country
-    name, case-insensitively. Names match ``METEOALARM_COUNTRY_NAMES``
-    display names and ``METEOALARM_COUNTRY_NAME_ALIASES``, after stripping
-    parenthetical suffixes so reverse-geocoder output like
-    ``"Moldova (the Republic of)"`` resolves. Non-string or unrecognized
-    values return ``None``.
-    """
-    if not isinstance(value, str):
-        return None
-    cleaned = value.strip()
-    if not cleaned:
-        return None
-    upper = cleaned.upper()
-    if upper in METEOALARM_COUNTRIES:
-        return upper
-    if upper in METEOALARM_COUNTRY_CODE_ALIASES:
-        return METEOALARM_COUNTRY_CODE_ALIASES[upper]
-    folded = re.sub(r"\s*\([^)]*\)", "", cleaned).strip().casefold()
-    alias = METEOALARM_COUNTRY_NAME_ALIASES.get(folded)
-    if alias is not None:
-        return alias
-    for iso, name in METEOALARM_COUNTRY_NAMES.items():
-        if name.casefold() == folded:
-            return iso
-    return None
 
 
 class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
@@ -250,12 +220,19 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     ) -> None:
         self._provider = provider
         self._store = AlertStore(
-            hass, entry.entry_id, provider.name, defer_until_registered=True
+            entry.entry_id,
+            provider.name,
+            fire=hass.bus.async_fire,
+            lookup_entity_id=alert_entity_lookup(hass, entry.entry_id, provider.name),
+            # Read here rather than borrowed from the sensor platform, which
+            # hydrates only after the first refresh has already run.
+            known_at_boot=known_alert_entities(hass, entry.entry_id, provider.name),
+            defer_until_registered=True,
         )
         self._geometry_store = geometry_store
         self._user_agent = user_agent
         self._cap_content_cache = cap_content_cache
-        self._timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+        self._timeout: int = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
         # Snapshot of the entry data this coordinator was built from. The
         # reconfigure flow no longer reloads the entry itself (see
         # __init__._async_entry_updated), so this is what tells the update
@@ -269,47 +246,23 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self.last_update_failure_time: datetime | None = None
         self.last_update_failure: str | None = None
         # Guard a single warning per failure streak when a tracker or
-        # MeteoAlarm country-source entity can't be resolved, so the
-        # per-poll resolution doesn't spam the log.
+        # country-source entity can't be resolved, so the per-poll resolution
+        # doesn't spam the log.
         self._tracker_resolve_warned = False
         self._country_resolve_warned = False
-        self._stream_backfill_warned = False
         # Same guard for a geocode-prefix filter that matches nothing — the
         # only signal distinguishing a typo'd prefix from a quiet period.
         self._geocode_no_match_warned = False
 
-        # Real-time streaming (ECCC only, default on). When enabled, a background
-        # NAAD stream client pushes CAP docs into _live_docs and the GeoRSS feed
-        # is used only as (re)connect + periodic-resync backfill; the poll
-        # interval becomes the safety-resync cadence rather than the hot loop.
-        self._streaming = provider.name == "eccc" and entry.options.get(
-            CONF_STREAMING, True
-        )
-        # The backfill needs the doc-level fetch, which the AlertProvider protocol
-        # deliberately doesn't carry. Narrow once here so the backfill is typed
-        # rather than reaching through an ignore on every call.
-        self._backfill_provider: BackfillProvider | None = (
-            provider if isinstance(provider, BackfillProvider) else None
-        )
-        self._live_docs: dict[str, CAPDoc] = {}
-        # Every CAP identifier this entry has laid eyes on, admitted or not,
-        # mapped to its ``sent`` so it ages out on the same 48 h clock as the
-        # live set. This is what a heartbeat's <references> are diffed against
-        # (issue #164): the live set alone would make every out-of-region alert
-        # in the country look unseen, and get it refetched once a minute until
-        # it left the heartbeat's window.
-        self._seen: dict[str, str] = {}
-        # Failed repository fetches per identifier, for the give-up bound. Only
-        # ever holds identifiers in the current heartbeat's window.
-        self._repository_attempts: dict[str, int] = {}
-        self._repository_recovered = 0
-        self._ingest_lock = asyncio.Lock()
-        self._stream_client: NAADStreamClient | None = None
-        self._stream_task: asyncio.Task[None] | None = None
-        self._stream_connected = False
-        # When the last GeoRSS backfill was attempted, from either source, so a
-        # reconnect-triggered one can be throttled against it.
-        self._last_backfill_at: datetime | None = None
+        # Real-time ingestion, for a provider that offers it and an entry that
+        # asks for it. The ingest owns its transport and its document set; this
+        # coordinator starts it, stops it, runs its backfill on the resync
+        # cadence, and hands it the shared pipeline through ``IngestHost``.
+        self._ingest: PushIngest | None = None
+        if isinstance(provider, StreamingProvider) and provider.streaming_enabled(
+            entry.options
+        ):
+            self._ingest = provider.build_ingest(self)
 
         super().__init__(
             hass,
@@ -319,16 +272,16 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             update_interval=self.resolve_update_interval(entry),
         )
 
-    @staticmethod
-    def streaming_enabled(entry: ConfigEntry) -> bool:
-        """Whether a config entry is configured for ECCC streaming (default on).
+    def streaming_enabled(self, entry: ConfigEntry) -> bool:
+        """Whether ``entry`` asks the provider for real-time ingestion.
 
-        Derived from the entry alone, so the setup path can compare a *pending*
-        options change against a live coordinator's ``streaming``.
+        Derived from the entry rather than this coordinator's state, so the
+        update listener can compare a *pending* options change against a live
+        coordinator's ``streaming``.
         """
-        return entry.data.get(CONF_PROVIDER) == "eccc" and entry.options.get(
-            CONF_STREAMING, True
-        )
+        return isinstance(
+            self._provider, StreamingProvider
+        ) and self._provider.streaming_enabled(entry.options)
 
     def entry_data_changed(self, entry: ConfigEntry) -> bool:
         """Whether ``entry`` data differs from what this coordinator was built from.
@@ -342,39 +295,38 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
 
     @property
     def streaming(self) -> bool:
-        """Whether this coordinator ingests from the NAAD stream."""
-        return self._streaming
+        """Whether this coordinator ingests in real time rather than polling."""
+        return self._ingest is not None
+
+    @property
+    def ingest(self) -> PushIngest | None:
+        """The provider's push ingest, or None for a polling entry."""
+        return self._ingest
 
     @property
     def stream_connected(self) -> bool:
-        """Whether the NAAD socket is currently established.
+        """Whether the ingest's socket is currently established.
 
-        Always ``False`` for a non-streaming entry. Distinct from availability:
-        the socket can be down while the entry is perfectly healthy on backfills,
+        Always ``False`` for a polling entry. Distinct from availability: the
+        socket can be down while the entry is perfectly healthy on backfills,
         which is precisely the state the connectivity entity exists to surface.
         """
-        return self._stream_connected
+        return self._ingest is not None and self._ingest.connected
 
-    @callback
-    def _on_stream_connection_change(self, connected: bool) -> None:
-        """Publish a socket connect/disconnect to entity listeners.
-
-        Only notifies listeners — it must not touch ``last_update_success``: a
-        dropped socket is not a failed data refresh (issue #16), and the entry
-        stays available on backfills while the client reconnects.
-        """
-        self._stream_connected = connected
-        self.async_update_listeners()
+    @property
+    def ingest_diagnostics(self) -> dict[str, Any] | None:
+        """The ingest's own facts for the diagnostics dump, or None when polling."""
+        return self._ingest.diagnostics() if self._ingest is not None else None
 
     def resolve_update_interval(self, entry: ConfigEntry) -> timedelta:
-        """Poll interval: the GeoRSS scan interval, or the resync cadence when streaming.
+        """Poll interval: the scan interval, or the ingest's resync cadence.
 
         Public because the options-update listener re-derives the interval from a
         changed entry, and the streaming-vs-polling branch must not be duplicated
         there.
         """
-        if self._streaming:
-            return timedelta(seconds=DEFAULT_STREAM_RESYNC_INTERVAL)
+        if self._ingest is not None:
+            return self._ingest.resync_interval
         return timedelta(
             seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         )
@@ -408,11 +360,16 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         """Resolve config and options before passing to provider.
 
         - Tracker mode: resolves tracker entity -> lat/lon coordinates.
-        - Country-source mode: resolves a country entity -> ISO-2 country.
-        - Language "auto": resolves to a concrete tag, per provider.
+        - Country-source mode: resolves a country entity -> the source's
+          country code, through the row's ``country_code`` hook.
+        - Language "auto": resolves to a concrete tag, through the row's
+          ``resolve_language`` hook; a source without one takes no language
+          and ``auto`` is left in place.
         """
         config = dict(self.config_entry.data)
         options = dict(self.config_entry.options)
+        # The provider row: resolution runs before any sender is known.
+        conventions = conventions_for(config.get(CONF_PROVIDER, ""))
 
         # Resolve tracker entity -> GPS coordinates. An unresolvable tracker
         # (missing state or no lat/lon) raises UpdateFailed so the entry goes
@@ -432,10 +389,10 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             self._tracker_resolve_warned = False
             config[CONF_GPS_LOC] = gps
 
-        # Resolve country-source entity -> ISO-2 country (MeteoAlarm mobile
-        # mode). Leaving CONF_COUNTRY unset lets the provider's existing
-        # "country not configured" path surface UpdateFailed.
-        if CONF_COUNTRY_ENTITY in config:
+        # Resolve country-source entity -> country code (fully-mobile mode).
+        # Leaving CONF_COUNTRY unset lets the provider's existing "country not
+        # configured" path surface UpdateFailed.
+        if CONF_COUNTRY_ENTITY in config and conventions.country_code is not None:
             entity_id = config[CONF_COUNTRY_ENTITY]
             state = self.hass.states.get(entity_id)
             value: str | None = None
@@ -446,11 +403,12 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             ):
                 attr = config.get(CONF_COUNTRY_ATTRIBUTE)
                 value = state.attributes.get(attr) if attr else state.state
-            code = _resolve_country_code(value)
+            code = conventions.country_code(value)
             if code is None:
                 if not self._country_resolve_warned:
                     _LOGGER.warning(
-                        "MeteoAlarm: could not resolve country from %s (value=%r)",
+                        "%s: could not resolve country from %s (value=%r)",
+                        config.get(CONF_PROVIDER, ""),
                         entity_id,
                         value,
                     )
@@ -459,31 +417,14 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
                 self._country_resolve_warned = False
                 config[CONF_COUNTRY] = code
 
-        # Resolve language "auto" -> concrete code, three ways:
-        # - MeteoAlarm spans ~35 locales but one region set per country, so the
-        #   2-letter prefix of hass.config.language is enough for its
-        #   language-prefix matcher to find the closest <cap:info> block;
-        # - WMO bodies carry full tags (en-GB vs en-US, pt-PT vs pt-BR,
-        #   zh-CN vs zh-HK), so the tag is passed verbatim — truncating first
-        #   would discard the distinction and pick arbitrarily. Its matcher
-        #   casefolds and degrades to the primary subtag on its own;
-        # - BBK blocks are tagged ``de-DE`` / ``de`` / ``de-LS`` / ``en`` …, so
-        #   the tag is passed verbatim like WMO's; the shared matcher degrades
-        #   to the primary subtag and then to English on its own;
-        # - ECCC is bilingual EN/FR, so it resolves to one of two full tags.
+        # Resolve language "auto" -> a concrete tag, the way the source's row
+        # says: MeteoAlarm wants a 2-letter prefix, WMO and BBK the full tag,
+        # ECCC one of its two. A source with no hook takes no language.
         lang = options.get(CONF_LANGUAGE, "auto")
-        if lang == "auto":
-            provider = config.get(CONF_PROVIDER, "")
-            if provider == "meteoalarm":
-                options[CONF_LANGUAGE] = (
-                    self.hass.config.language.split("-", 1)[0].lower() or "en"
-                )
-            elif provider in ("wmo", "bbk"):
-                options[CONF_LANGUAGE] = self.hass.config.language.strip() or "en"
-            else:
-                options[CONF_LANGUAGE] = (
-                    "fr-CA" if self.hass.config.language.startswith("fr") else "en-CA"
-                )
+        if lang == "auto" and conventions.resolve_language is not None:
+            options[CONF_LANGUAGE] = conventions.resolve_language(
+                self.hass.config.language
+            )
 
         # Compared against the previous cycle's, this decides whether the store
         # may retain alerts missing from the incoming set. Taken after
@@ -536,24 +477,57 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             return self.config_entry.options
         return self._resolved_options
 
-    @property
-    def live_doc_count(self) -> int:
-        """How many CAP documents the streaming live set currently holds."""
-        return len(self._live_docs)
+    # ------------------------------------------------------------------
+    # IngestHost: what a push ingest may ask of this coordinator
+    # ------------------------------------------------------------------
 
     @property
-    def last_backfill_time(self) -> datetime | None:
-        """When a GeoRSS backfill was last attempted (streaming entries only)."""
-        return self._last_backfill_at
+    def entry_id(self) -> str:
+        return self.config_entry.entry_id
 
     @property
-    def repository_recovered(self) -> int:
-        """How many CAP bodies heartbeat references have pulled from the repository.
+    def timeout(self) -> int:
+        return self._timeout
 
-        Counts fetches, not admissions: a recovered document can still be
-        screened out by region. Since setup — it is not persisted.
+    @property
+    def user_agent(self) -> str:
+        return self._user_agent
+
+    @property
+    def cap_content_cache(self) -> CAPContentCache | None:
+        return self._cap_content_cache
+
+    def resolve_scope(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """``_resolve_config`` for the ingest, in the provider layer's exception."""
+        try:
+            return self._resolve_config()
+        except UpdateFailed as err:
+            raise ScopeUnresolvedError(str(err)) from err
+
+    @callback
+    def push(self, data: dict[str, CAPAlert]) -> None:
+        """Publish stream-sourced data to entities.
+
+        Deliberately *not* ``async_set_updated_data``: that resets the
+        ``update_interval`` timer, so heartbeats arriving every ~60 s would defer
+        the safety-resync backfill indefinitely and it would never run. It also
+        asserts ``last_update_success``, which would let a heartbeat mark
+        entities available again while the authoritative backfill is failing.
+        Only a backfill drives availability (issue #16); the stream publishes
+        data and notifies listeners, nothing more.
         """
-        return self._repository_recovered
+        self.data = data
+        self.async_update_listeners()
+
+    @callback
+    def notify_connection(self, connected: bool) -> None:
+        """A socket connect/disconnect: notify listeners, touch nothing else.
+
+        It must not touch ``last_update_success``: a dropped socket is not a
+        failed data refresh (issue #16), and the entry stays available on
+        backfills while the client reconnects.
+        """
+        self.async_update_listeners()
 
     async def _async_update_data(self) -> dict[str, CAPAlert]:
         try:
@@ -568,14 +542,31 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     async def _async_fetch_data(self) -> dict[str, CAPAlert]:
         config, options = self._resolve_config()
 
-        # Streaming mode: the periodic tick is a GeoRSS safety-resync backfill,
-        # not the primary ingestion path (the stream client pushes in real time).
-        if self._streaming:
-            return await self._backfill(config, options)
+        # Under real-time ingestion the periodic tick is the safety-resync
+        # backfill, not the primary ingestion path (the ingest pushes as
+        # documents arrive). It is still the fetch that drives availability.
+        try:
+            if self._ingest is not None:
+                data = await self._ingest.async_backfill(config, options)
+            else:
+                alerts = await self._fetch(config, options)
+                data = await self.async_apply(alerts, fetched=True)
+        except ProviderError as err:
+            # The one place the provider layer's exception becomes Home
+            # Assistant's. The message is passed through untouched, so
+            # ``last_update_failure`` and the log read as the provider wrote
+            # them.
+            raise UpdateFailed(str(err)) from err
+        self.last_update_success_time = datetime.now(timezone.utc)
+        return data
 
+    async def _fetch(
+        self, config: Mapping[str, Any], options: Mapping[str, Any]
+    ) -> list[CAPAlert]:
+        """One provider poll under the entry timeout, in the provider's exception."""
         try:
             async with asyncio.timeout(self._timeout):
-                alerts = await self._provider.async_fetch(
+                return await self._provider.async_fetch(
                     async_get_clientsession(self.hass),
                     config,
                     options,
@@ -583,28 +574,24 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
                     user_agent=self._user_agent,
                 )
         except TimeoutError as err:
-            raise UpdateFailed(
+            raise ProviderError(
                 f"{self._provider.name}: timeout after {self._timeout}s"
             ) from err
         except aiohttp.ClientError as err:
-            raise UpdateFailed(f"{self._provider.name}: {err}") from err
+            raise ProviderError(f"{self._provider.name}: {err}") from err
 
-        data = await self._apply(alerts, fetched=True)
-        self.last_update_success_time = datetime.now(timezone.utc)
-        return data
-
-    async def _apply(
+    async def async_apply(
         self, alerts: list[CAPAlert], *, fetched: bool
     ) -> dict[str, CAPAlert]:
         """Run the shared post-fetch pipeline and index the active set by ID.
 
         Normalize → marine filter → geocode filter → geometry externalization →
-        store diff. Used by both the polling path and the streaming
-        ingest/backfill paths so their transition detection, event firing, and
-        geometry handling are identical.
+        store diff. Used by the polling path and by a push ingest's rebuild
+        and backfill paths alike, so their transition detection, event firing,
+        and geometry handling are identical.
 
-        Deliberately does *not* stamp ``last_update_success_time``: the streaming
-        path runs this pipeline on every heartbeat with no network I/O, and the
+        Deliberately does *not* stamp ``last_update_success_time``: a push
+        ingest runs this pipeline on every heartbeat with no network I/O, and the
         "Last updated" sensor reports when data was last *fetched*, not when the
         active set was last recomputed. Only the fetch-backed callers stamp it,
         and only they set ``fetched``, which is what the store's boot grace
@@ -643,10 +630,10 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         alerts = self._store.process(
             alerts,
             scope_changed=self._scope_changed,
-            superseded_identifiers=frozenset(
-                ref_id
-                for doc in self._live_docs.values()
-                for _, ref_id, _ in doc.references
+            superseded_identifiers=(
+                self._ingest.superseded_identifiers
+                if self._ingest is not None
+                else frozenset()
             ),
             fetched=fetched,
         )
@@ -697,388 +684,15 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         return sample
 
     # ------------------------------------------------------------------
-    # Streaming ingestion (ECCC)
+    # Ingest lifecycle
     # ------------------------------------------------------------------
 
-    def _build_kwargs(
-        self, config: Mapping[str, Any], options: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        """Region/language kwargs for build_alerts_from_cap_docs from resolved config."""
-        gps_lat, gps_lon = ECCCProvider._parse_gps(config)
-        return {
-            "province": config.get(CONF_PROVINCE, ""),
-            "gps_lat": gps_lat,
-            "gps_lon": gps_lon,
-            "preferred_lang": options.get(CONF_LANGUAGE, "en-CA"),
-        }
-
-    @callback
-    def _async_push_data(self, data: dict[str, CAPAlert]) -> None:
-        """Publish stream-sourced data to entities.
-
-        Deliberately *not* ``async_set_updated_data``: that resets the
-        ``update_interval`` timer, so heartbeats arriving every ~60 s would defer
-        the 30-minute safety-resync backfill indefinitely and it would never run.
-        It also asserts ``last_update_success``, which would let a heartbeat mark
-        entities available again while the authoritative backfill is failing.
-        Only a backfill drives availability (issue #16); the stream publishes
-        data and notifies listeners, nothing more.
-        """
-        self.data = data
-        self.async_update_listeners()
-
-    def _admit(
-        self, docs: list[CAPDoc], build_kwargs: Mapping[str, Any]
-    ) -> list[CAPDoc]:
-        """Screen streamed docs down to the ones worth holding in the live set.
-
-        The socket carries every alert in Canada, so admitting everything would
-        size the live set — and the rebuild it feeds on every stream event — by
-        national volume rather than by the configured region. A doc is kept when
-        it matches the region, or when it references something already tracked:
-        the latter so an update or cancellation still supersedes an alert we hold
-        even if its revised geometry no longer covers the user.
-
-        Admission is deliberately wider than the rebuild that follows:
-        ``doc_matches_region`` matches on *any* ``<info>`` block, including one
-        whose area group has already ended. That is the point — an ECCC document
-        segments into a block per area group, and the block that ends a tracked
-        alert is often the only one still covering the user. Screening it out
-        here would leave the entity live until its stale ``expires`` (issue #45).
-        Which block actually speaks for this region, and whether it is terminal,
-        is decided later by ``build_alerts_from_cap_docs``.
-
-        Test/exercise traffic is rejected up front rather than left to
-        ``doc_matches_region``, since the references escape bypasses that check —
-        and a heartbeat's ``<references>`` lists recent alert OIDs, so a heartbeat
-        that ever escaped classification would otherwise be admitted once a minute.
-        """
-        kept: list[CAPDoc] = []
-        for doc in docs:
-            if not is_actual(doc):
-                continue
-            if doc_matches_region(doc, **build_kwargs) or any(
-                ref_id in self._live_docs for _, ref_id, _ in doc.references
-            ):
-                kept.append(doc)
-        return kept
-
-    def _note_seen(self, docs: list[CAPDoc]) -> None:
-        """Record that these documents have been received, whatever admission says.
-
-        A document with no ``sent`` is stamped with the current time so it still
-        ages out; an identifier that never aged out would stay "seen" for the
-        life of the entry.
-        """
-        now_text = datetime.now(timezone.utc).isoformat()
-        for doc in docs:
-            if doc.identifier:
-                self._seen[doc.identifier] = doc.sent or now_text
-
-    def _merge_docs(self, docs: list[CAPDoc]) -> None:
-        """Upsert docs into the live set by CAP identifier and prune stale ones."""
-        self._note_seen(docs)
-        for doc in docs:
-            if doc.identifier:
-                self._live_docs[doc.identifier] = doc
-        # The NAAD feeds carry a rolling 48 h window; drop anything older so the
-        # live set stays bounded and superseded/expired docs age out. The seen
-        # set follows the same clock, since the repository it guards fetches
-        # from holds the same window.
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
-        stale = [
-            identifier
-            for identifier, doc in self._live_docs.items()
-            if _doc_sent_before(doc, cutoff)
-        ]
-        for identifier in stale:
-            del self._live_docs[identifier]
-        forgotten = [
-            identifier
-            for identifier, sent in self._seen.items()
-            if _sent_before(sent, cutoff)
-        ]
-        for identifier in forgotten:
-            del self._seen[identifier]
-
-    async def _backfill(
-        self, config: Mapping[str, Any], options: Mapping[str, Any]
-    ) -> dict[str, CAPAlert]:
-        """Seed/re-sync the live set from the GeoRSS feed and rebuild the active set.
-
-        Runs under the ingest lock so it cannot interleave with a stream push.
-        Raises UpdateFailed on fetch failure (drives availability, issue #16).
-        """
-        provider = self._backfill_provider
-        if provider is None:  # pragma: no cover — guarded by the _streaming gate
-            raise UpdateFailed(
-                f"{self._provider.name}: provider cannot supply backfill documents"
-            )
-        async with self._ingest_lock:
-            # Stamped before the fetch, and whether or not it succeeds: what the
-            # reconnect throttle has to bound is the ~7 MB transfer, which a
-            # failing feed costs just the same.
-            self._last_backfill_at = datetime.now(timezone.utc)
-            try:
-                async with asyncio.timeout(self._timeout):
-                    docs = await provider.async_fetch_docs(
-                        async_get_clientsession(self.hass),
-                        config,
-                        options,
-                        cap_content_cache=self._cap_content_cache,
-                        user_agent=self._user_agent,
-                    )
-            except TimeoutError as err:
-                raise UpdateFailed(
-                    f"{self._provider.name}: timeout after {self._timeout}s"
-                ) from err
-            except aiohttp.ClientError as err:
-                raise UpdateFailed(f"{self._provider.name}: {err}") from err
-
-            self._merge_docs(docs)
-            alerts = build_alerts_from_cap_docs(
-                list(self._live_docs.values()), **self._build_kwargs(config, options)
-            )
-            data = await self._apply(alerts, fetched=True)
-        self.last_update_success_time = datetime.now(timezone.utc)
-        return data
-
-    async def async_ingest_docs(self, docs: list[CAPDoc]) -> None:
-        """Merge streamed docs into the live set, rebuild, and push to entities.
-
-        Called by the stream client for each alert doc (``docs=[doc]``) and for
-        each heartbeat (``docs=[]``) — the heartbeat rebuild ages out alerts that
-        have since expired, with no network I/O.
-        """
-        try:
-            config, options = self._resolve_config()
-        except UpdateFailed:
-            # Region unresolvable right now (e.g. tracker has no location) — drop
-            # this push; the next backfill re-seeds from the authoritative feed.
-            return
-        build_kwargs = self._build_kwargs(config, options)
-        async with self._ingest_lock:
-            self._merge_docs(self._admit(docs, build_kwargs))
-            alerts = build_alerts_from_cap_docs(
-                list(self._live_docs.values()), **build_kwargs
-            )
-            data = await self._apply(alerts, fetched=False)
-        self._async_push_data(data)
-
-    async def _on_backfill_needed(self) -> None:
-        """GeoRSS backfill requested by the stream client on reconnect.
-
-        Throttled against the last backfill from either source. The client's
-        backoff only grows for connections that delivered nothing, so an endpoint
-        that sends a heartbeat and then drops reconnects at the heartbeat (or
-        watchdog) cadence with the backoff pinned at its floor — and each
-        reconnect would otherwise pay a full ~7 MB feed fetch, making a flapping
-        socket more expensive than the polling it replaced. Skipping is safe: the
-        periodic resync still runs, and a backfill within the last few minutes has
-        already recovered essentially everything this one would.
-
-        A transient backfill failure here does not flip availability (issue #16) —
-        the periodic ``_async_update_data`` backfill is the authoritative signal.
-        It is still worth a warning, once per failure streak, since a persistently
-        failing reconnect backfill means alerts missed while disconnected are not
-        being recovered.
-        """
-        last = self._last_backfill_at
-        if last is not None and datetime.now(timezone.utc) - last < timedelta(
-            seconds=NAAD_STREAM_BACKFILL_MIN_INTERVAL_S
-        ):
-            _LOGGER.debug(
-                "ECCC: skipping reconnect backfill; one ran %.0fs ago (floor %ds)",
-                (datetime.now(timezone.utc) - last).total_seconds(),
-                NAAD_STREAM_BACKFILL_MIN_INTERVAL_S,
-            )
-            return
-        try:
-            config, options = self._resolve_config()
-            data = await self._backfill(config, options)
-        except UpdateFailed as err:
-            if not self._stream_backfill_warned:
-                _LOGGER.warning(
-                    "ECCC: stream-triggered backfill failed: %s; alerts issued "
-                    "while disconnected may be missing until the next resync",
-                    err,
-                )
-                self._stream_backfill_warned = True
-            return
-        self._stream_backfill_warned = False
-        self._async_push_data(data)
-
-    async def _on_stream_alert_doc(self, doc_str: str) -> None:
-        loop = asyncio.get_running_loop()
-        doc = await loop.run_in_executor(None, parse_cap_alert, doc_str)
-        if doc is None or not doc.identifier:
-            return
-        # Seen is recorded before admission on purpose: a national alert outside
-        # the region is still one the heartbeat will list, and the only way to
-        # know not to fetch it is to remember it arrived.
-        self._note_seen([doc])
-        await self.async_ingest_docs([doc])
-
-    async def _on_stream_heartbeat(self, doc_str: str) -> None:
-        """Rebuild on a heartbeat, first recovering anything the stream missed.
-
-        A heartbeat's ``<references>`` lists the last ten alerts NAAD published,
-        and the short-term repository serves each by a URL built from that
-        reference (issue #164). Any identifier not already seen — on the
-        socket, in a backfill, or from an earlier recovery — is fetched and fed
-        through the normal ingest, where ``_admit`` screens it by region exactly
-        as if it had streamed. That closes the one gap streaming has: an alert
-        issued in a reconnect window. The reconnect backfill is throttled to
-        the old poll cadence and the GeoRSS index omits live alerts daily, so
-        neither was guaranteed to catch it; this path is bounded to ten small
-        fetches per heartbeat and gated by nothing.
-
-        Steady state costs nothing: every streamed alert is noted before the
-        heartbeat that lists it. The first heartbeat after a (re)connect fetches
-        what the window holds that this entry has not seen — up to ten bodies,
-        most of them out of region and discarded on admission — which is also
-        how an alert the GeoRSS seed omitted gets recovered at startup.
-
-        The fetch runs inline, so the read loop waits on it: at most
-        ``timeout`` once per (re)connect, with the kernel buffering the socket.
-        """
-        loop = asyncio.get_running_loop()
-        heartbeat = await loop.run_in_executor(None, parse_cap_alert, doc_str)
-        references = self._unseen_references(
-            heartbeat.references if heartbeat is not None else []
-        )
-        recovered = await self._recover_from_repository(references)
-        await self.async_ingest_docs(recovered)
-
-    def _unseen_references(
-        self, references: Sequence[tuple[str, str, str]]
-    ) -> list[tuple[str, str, str]]:
-        """The heartbeat references still worth fetching.
-
-        Skips anything seen, anything whose ``sent`` is past the 48 h window the
-        repository holds (the live set would prune it on arrival anyway), and
-        anything already given up on. Attempt counts for identifiers no longer
-        in the window are dropped here, which keeps that dict bounded by the
-        window's size.
-        """
-        in_window = {identifier for _, identifier, _ in references}
-        self._repository_attempts = {
-            identifier: count
-            for identifier, count in self._repository_attempts.items()
-            if identifier in in_window
-        }
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
-        return [
-            (sender, identifier, sent)
-            for sender, identifier, sent in references
-            if identifier
-            and identifier not in self._seen
-            and not _sent_before(sent, cutoff)
-        ]
-
-    async def _recover_from_repository(
-        self, references: Sequence[tuple[str, str, str]]
-    ) -> list[CAPDoc]:
-        """Fetch ``references`` from the NAAD repository, bookkeeping the misses.
-
-        A fetched document is marked seen and counted. A miss is counted against
-        ``NAAD_REPOSITORY_FETCH_ATTEMPTS``; at the bound the identifier is
-        marked seen and warned about once, so a body the repository will never
-        serve stops costing a fetch and a log line per heartbeat. A transport
-        failure of the whole batch (timeout, client error) is debug-logged and
-        retried on the next heartbeat without touching the counts.
-        """
-        provider = self._backfill_provider
-        if not references or provider is None:
-            return []
-        _LOGGER.info(
-            "ECCC: fetching %d alert(s) the NAAD heartbeat lists but the stream "
-            "did not deliver: %s",
-            len(references),
-            ", ".join(identifier for _, identifier, _ in references),
-        )
-        try:
-            async with asyncio.timeout(self._timeout):
-                results = await provider.async_fetch_docs_by_reference(
-                    async_get_clientsession(self.hass),
-                    references,
-                    cap_content_cache=self._cap_content_cache,
-                    user_agent=self._user_agent,
-                )
-        except (TimeoutError, aiohttp.ClientError) as err:
-            _LOGGER.debug(
-                "ECCC: repository fetch failed (%s); retrying on the next heartbeat",
-                err,
-            )
-            return []
-
-        recovered: list[CAPDoc] = []
-        for _sender, identifier, sent in references:
-            doc = results.get(identifier)
-            if doc is not None:
-                self._seen[identifier] = doc.sent or sent
-                self._repository_attempts.pop(identifier, None)
-                self._repository_recovered += 1
-                recovered.append(doc)
-                continue
-            attempts = self._repository_attempts.get(identifier, 0) + 1
-            if attempts < NAAD_REPOSITORY_FETCH_ATTEMPTS:
-                self._repository_attempts[identifier] = attempts
-                continue
-            self._repository_attempts.pop(identifier, None)
-            self._seen[identifier] = sent
-            _LOGGER.warning(
-                "ECCC: giving up on %s after %d failed NAAD repository fetches; "
-                "if it concerned this region it will arrive on the next resync",
-                identifier,
-                attempts,
-            )
-        return recovered
-
     async def async_start_stream(self) -> None:
-        """Start the NAAD stream background task (no-op unless streaming). Idempotent."""
-        if not self._streaming or self._stream_task is not None:
-            return
-        # Build the TLS context off the event loop: it reads the CA bundle from
-        # disk, and HA flags that as a blocking call. ``client_context`` is HA's
-        # certifi-backed client context and is itself cached, so entries after
-        # the first pay nothing. Note it advertises no ALPN protocol — the NAAD
-        # socket carries raw CAP, not HTTP, so ``get_default_context`` (which
-        # pins ALPN to http/1.1) would be wrong here.
-        ssl_context = await self.hass.async_add_executor_job(client_context)
-        self._stream_client = NAADStreamClient(
-            NAAD_STREAM_HOST,
-            NAAD_STREAM_PORT,
-            on_alert_doc=self._on_stream_alert_doc,
-            on_heartbeat=self._on_stream_heartbeat,
-            on_backfill_needed=self._on_backfill_needed,
-            on_connection_change=self._on_stream_connection_change,
-            ssl_context=ssl_context,
-            logger=_LOGGER,
-        )
-        self._stream_task = self.hass.async_create_background_task(
-            self._stream_client.run(),
-            name=f"{DOMAIN}_naad_stream_{self.config_entry.entry_id}",
-        )
+        """Start the provider's push ingest, if this entry has one. Idempotent."""
+        if self._ingest is not None:
+            await self._ingest.async_start()
 
     async def async_stop_stream(self) -> None:
-        """Stop the NAAD stream task and client. Idempotent; no task leak."""
-        client = self._stream_client
-        task = self._stream_task
-        self._stream_client = None
-        self._stream_task = None
-        if client is not None:
-            client.stop()
-        if task is not None:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            except Exception as err:  # noqa: BLE001 — teardown best-effort
-                _LOGGER.debug("ECCC: stream task raised on teardown: %s", err)
-        # run()'s finally normally publishes the disconnect, but a client that
-        # never started (or a task cancelled before it ran) leaves the flag set
-        # from a previous connection. Clear it directly; entities are being torn
-        # down anyway, so no notification is needed.
-        self._stream_connected = False
+        """Stop the push ingest, if any. Idempotent; no task leak."""
+        if self._ingest is not None:
+            await self._ingest.async_stop()

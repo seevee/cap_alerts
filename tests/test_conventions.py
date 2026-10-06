@@ -6,18 +6,20 @@ import pytest
 
 from custom_components.cap_alerts.conventions import (
     CONVENTIONS,
+    SourceConventions,
+    StageContext,
+    conventions_for,
+    is_marine_code,
+)
+from custom_components.cap_alerts.providers.eccc_conventions import eccc_superseded_by
+from custom_components.cap_alerts.providers.meteoalarm_conventions import (
     FMI_EPISODES,
     FMI_SENDER,
     METEOFRANCE_EPISODES,
     METEOFRANCE_SENDER,
-    SourceConventions,
-    StageContext,
-    conventions_for,
-    eccc_superseded_by,
-    is_marine_code,
     meteoalarm_awareness_severity,
-    nws_vtec_severity,
 )
+from custom_components.cap_alerts.providers.nws_conventions import nws_vtec_severity
 
 # ---------------------------------------------------------------------------
 # Resolution

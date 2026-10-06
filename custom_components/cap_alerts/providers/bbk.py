@@ -63,7 +63,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
     BBK_ARS_KREIS_DIGITS,
@@ -79,6 +78,7 @@ from ..const import (
     CONF_ZONE_ID,
 )
 from ..model import CAPAlert, geocodes_from
+from . import ProviderError
 from .cap import (
     CAPDoc,
     CAPInfoDoc,
@@ -406,7 +406,7 @@ class BBKProvider:
         # a quiet day, and the coordinator must not read that as every alert
         # ending.
         if len(failures) == len(urls):
-            raise UpdateFailed(f"BBK: no index available ({'; '.join(failures)})")
+            raise ProviderError(f"BBK: no index available ({'; '.join(failures)})")
         for failure in failures:
             _LOGGER.warning(
                 "BBK: index unavailable, continuing without it: %s", failure
@@ -482,14 +482,14 @@ class BBKProvider:
         url: str,
         headers: dict[str, str] | None,
     ) -> Any:
-        """Fetch one index as decoded JSON, raising ``UpdateFailed`` on a non-200."""
+        """Fetch one index as decoded JSON, raising ``ProviderError`` on a non-200."""
         async with session.get(url, headers=headers) as resp:
             if resp.status != 200:
-                raise UpdateFailed(f"HTTP {resp.status}")
+                raise ProviderError(f"HTTP {resp.status}")
             try:
                 return await resp.json(content_type=None)
             except (aiohttp.ContentTypeError, ValueError) as err:
-                raise UpdateFailed(f"malformed JSON: {err}") from err
+                raise ProviderError(f"malformed JSON: {err}") from err
 
     @staticmethod
     def _filter_by_polygon(alerts: list[CAPAlert], gps_loc: str) -> list[CAPAlert]:
@@ -503,13 +503,13 @@ class BBKProvider:
         if not alerts:
             return []
         if not any(a.geometry for a in alerts):
-            raise UpdateFailed(
+            raise ProviderError(
                 f"BBK: GPS filter requested but {len(alerts)} alerts carry no "
                 "polygons; the geometry endpoint returned no usable shapes"
             )
         gps = parse_gps(gps_loc)
         if gps is None:
-            raise UpdateFailed(f"BBK: invalid GPS coordinates {gps_loc!r}")
+            raise ProviderError(f"BBK: invalid GPS coordinates {gps_loc!r}")
         lat, lon = gps
         kept: list[CAPAlert] = []
         for alert in alerts:

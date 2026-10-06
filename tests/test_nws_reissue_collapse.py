@@ -16,12 +16,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from custom_components.cap_alerts.conventions import (
-    collapse_nws_reissues,
-    conventions_for,
-)
+from custom_components.cap_alerts.conventions import conventions_for
 from custom_components.cap_alerts.model import CAPAlert, geocodes_from
 from custom_components.cap_alerts.providers.nws import _parse_feature
+from custom_components.cap_alerts.providers.nws_conventions import (
+    collapse_nws_reissues,
+)
 
 NOW = datetime(2026, 8, 7, 5, 0, tzinfo=timezone.utc)
 

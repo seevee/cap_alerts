@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.cap_alerts.const import (
     BBK_CHANNELS,
@@ -29,6 +28,7 @@ from custom_components.cap_alerts.const import (
     CONF_ZONE_ID,
 )
 from custom_components.cap_alerts.normalize import _bbox_from_geometry
+from custom_components.cap_alerts.providers import ProviderError
 from custom_components.cap_alerts.providers import bbk as _bbk_mod
 from custom_components.cap_alerts.providers import cap as _cap_mod
 from custom_components.cap_alerts.providers.cap_content_cache import CAPContentCache
@@ -453,13 +453,13 @@ async def test_region_scope_with_nothing_live_is_a_quiet_day():
 
 async def test_region_scope_index_failure_raises():
     responses = {BBK_DASHBOARD_URL.format(ars=_ARS): (500, "")}
-    with pytest.raises(UpdateFailed, match="no index available"):
+    with pytest.raises(ProviderError, match="no index available"):
         await _fetch(responses, {CONF_ZONE_ID: _ARS})
 
 
 async def test_region_scope_malformed_index_raises():
     responses = {BBK_DASHBOARD_URL.format(ars=_ARS): "{not json"}
-    with pytest.raises(UpdateFailed, match="malformed JSON"):
+    with pytest.raises(ProviderError, match="malformed JSON"):
         await _fetch(responses, {CONF_ZONE_ID: _ARS})
 
 
@@ -593,7 +593,7 @@ async def test_one_failing_channel_index_is_survivable():
 
 async def test_every_channel_index_failing_raises():
     responses = {_mapdata_url(c): (503, "") for c in BBK_CHANNELS}
-    with pytest.raises(UpdateFailed, match="no index available"):
+    with pytest.raises(ProviderError, match="no index available"):
         await _fetch(responses, {CONF_GPS_LOC: _IN_MOWAS})
 
 
@@ -601,7 +601,7 @@ async def test_gps_scope_fails_loud_when_no_alert_carries_a_polygon():
     responses = _gps_responses()
     responses[_geojson_url(_MOW_ID)] = (500, "")
     responses[_geojson_url(_DWD_MAP_ID)] = "not json"
-    with pytest.raises(UpdateFailed, match="carry no polygons"):
+    with pytest.raises(ProviderError, match="carry no polygons"):
         await _fetch(responses, {CONF_GPS_LOC: _IN_MOWAS})
 
 
@@ -610,7 +610,7 @@ def test_gps_filter_on_an_empty_list_is_empty():
 
 
 async def test_gps_scope_rejects_unparseable_coordinates():
-    with pytest.raises(UpdateFailed, match="invalid GPS"):
+    with pytest.raises(ProviderError, match="invalid GPS"):
         await _fetch(_gps_responses(), {CONF_GPS_LOC: "nowhere"})
 
 

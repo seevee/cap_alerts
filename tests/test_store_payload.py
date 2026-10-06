@@ -7,19 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def _entity_registry_from_mock(monkeypatch):
-    """Point ``er.async_get`` at the mock ``hass``'s registry attribute.
-
-    The store looks the registry up through ``er.async_get(hass)``, which reads
-    ``hass.data``; the fixture below is a MagicMock, so without this the store
-    gets a bare mock and the entity id in the payload is a mock too.
-    """
-    monkeypatch.setattr(
-        "custom_components.cap_alerts.store.er.async_get",
-        lambda hass: hass.entity_registry,
-    )
+from custom_components.cap_alerts.store import AlertStore
 
 
 @pytest.fixture
@@ -30,14 +18,26 @@ def hass():
     return h
 
 
+def _store(hass, provider: str, **kwargs) -> AlertStore:
+    """A store over the mock's bus and registry, wired the way the coordinator does it."""
+    return AlertStore(
+        "entry1",
+        provider,
+        fire=hass.bus.async_fire,
+        lookup_entity_id=lambda alert_id: hass.entity_registry.async_get_entity_id(
+            "sensor", "cap_alerts", f"entry1_{provider}_{alert_id}"
+        ),
+        **kwargs,
+    )
+
+
 def _fired(hass):
     return [call.args for call in hass.bus.async_fire.call_args_list]
 
 
 def test_created_fires_with_empty_changed_fields(hass, alert_factory):
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process([alert_factory(id="a", msg_type="Alert")])
 
     fired = _fired(hass)
@@ -54,9 +54,8 @@ def test_created_fires_with_empty_changed_fields(hass, alert_factory):
 
 def test_phase_flip_marks_phase_in_changed_fields(hass, alert_factory):
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     first = normalize_alerts([alert_factory(id="a", msg_type="Alert")])
     store.process(first)
     hass.bus.async_fire.reset_mock()
@@ -74,9 +73,8 @@ def test_phase_flip_marks_phase_in_changed_fields(hass, alert_factory):
 
 def test_headline_change_shows_headline_in_changed_fields(hass, alert_factory):
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     first = normalize_alerts([alert_factory(id="a", headline="first")])
     store.process(first)
     hass.bus.async_fire.reset_mock()
@@ -99,9 +97,8 @@ def test_removed_alert_fires_removed_event(hass, alert_factory):
         SourceConventions,
     )
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process(normalize_alerts([alert_factory(id="a", msg_type="Alert")]))
     hass.bus.async_fire.reset_mock()
 
@@ -127,9 +124,8 @@ def test_removed_alert_fires_removed_event(hass, alert_factory):
 def test_store_fires_removed_with_terminal_phase_cancel(hass, alert_factory):
     """Provider issues an explicit Cancel: removed event carries phase=cancel."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     first = normalize_alerts([alert_factory(id="a", msg_type="Alert")])
     store.process(first)
     hass.bus.async_fire.reset_mock()
@@ -153,9 +149,8 @@ def test_store_fires_removed_with_terminal_phase_cancel(hass, alert_factory):
 def test_store_fires_removed_with_terminal_phase_expired(hass, alert_factory):
     """Alert past its expires timestamp drops out as phase=expired."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     first = normalize_alerts([alert_factory(id="a", msg_type="Alert")])
     store.process(first)
     hass.bus.async_fire.reset_mock()
@@ -178,9 +173,8 @@ def test_store_fires_removed_with_terminal_phase_expired(hass, alert_factory):
 def test_silent_disappearance_past_expires_inferred_as_expired(hass, alert_factory):
     """Alert drops from the feed without a Cancel and its expires is past."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     # Seed with an alert whose expires is already in the past.
     seeded = normalize_alerts(
         [alert_factory(id="a", msg_type="Alert", expires="2000-01-01T00:00:00Z")]
@@ -204,9 +198,8 @@ def test_absence_within_expires_retains_the_alert(hass, alert_factory):
     it as a new incident when the feed recovers.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     seeded = normalize_alerts(
         [alert_factory(id="a", msg_type="Alert", expires="2099-01-01T00:00:00Z")]
     )
@@ -225,9 +218,8 @@ def test_absence_within_expires_retains_the_alert(hass, alert_factory):
 def test_retained_alert_recovers_without_an_event(hass, alert_factory):
     """The feed comes back: the alert is confirmed again, silently."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     seeded = normalize_alerts(
         [alert_factory(id="a", msg_type="Alert", expires="2099-01-01T00:00:00Z")]
     )
@@ -247,9 +239,8 @@ def test_retained_alert_recovers_without_an_event(hass, alert_factory):
 def test_absence_terminates_once_expires_has_passed(hass, alert_factory):
     """Retention is bounded by the authority's own expiry."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     # Seeded while live, so it enters the tracked set as an active alert.
     store.process(
         normalize_alerts(
@@ -290,9 +281,8 @@ def test_absence_without_expiry_is_retained_not_terminated(hass, alert_factory):
     can ever end the alert and retention is therefore unsafe.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process(
         normalize_alerts([alert_factory(id="a", msg_type="Alert", expires="")])
     )
@@ -322,9 +312,8 @@ def test_absence_without_expiry_or_exit_terminates(hass, alert_factory):
     Absence stays authoritative for exactly that case.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "wmo")
+    store = _store(hass, "wmo")
     store.process(
         normalize_alerts(
             [alert_factory(id="a", provider="wmo", msg_type="Alert", expires="")]
@@ -341,9 +330,8 @@ def test_absence_without_expiry_or_exit_terminates(hass, alert_factory):
 def test_absence_without_expiry_retained_on_a_terminal_vocabulary(hass, alert_factory):
     """ECCC has no lookup, but it does announce endings, so retention is safe."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process(
         normalize_alerts(
             [alert_factory(id="a", provider="eccc", msg_type="Update", expires="")]
@@ -366,9 +354,8 @@ def test_absence_ends_policy_terminates_immediately(hass, alert_factory):
         SourceConventions,
     )
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process(
         normalize_alerts(
             [alert_factory(id="a", msg_type="Alert", expires="2099-01-01T00:00:00Z")]
@@ -395,9 +382,8 @@ def test_absence_ends_policy_terminates_without_expiry(hass, alert_factory):
         SourceConventions,
     )
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process(
         normalize_alerts([alert_factory(id="a", msg_type="Alert", expires="")])
     )
@@ -419,9 +405,8 @@ def test_absence_ends_policy_terminates_without_expiry(hass, alert_factory):
 def test_scope_change_suspends_retention(hass, alert_factory):
     """Out of scope is not unobserved: the user moved, the alert did not."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process(
         normalize_alerts(
             [alert_factory(id="a", msg_type="Alert", expires="2099-01-01T00:00:00Z")]
@@ -443,9 +428,8 @@ def _eccc(alert_factory, **overrides):
 def test_removed_carries_removal_reason_ended(hass, alert_factory):
     """ECCC stood the alert down early: the removal says so (issue #108)."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process(normalize_alerts([_eccc(alert_factory, id="a")]))
     hass.bus.async_fire.reset_mock()
 
@@ -464,9 +448,8 @@ def test_removed_carries_removal_reason_ended(hass, alert_factory):
 def test_removed_carries_removal_reason_superseded(hass, alert_factory):
     """A watch upgraded to a warning: the successor's creation carries the news."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process(normalize_alerts([_eccc(alert_factory, id="a")]))
     hass.bus.async_fire.reset_mock()
 
@@ -488,9 +471,8 @@ def test_removal_reason_survives_an_expired_phase(hass, alert_factory):
     "cancel" would drop it in exactly the upgrade case it exists for.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process([])  # past the boot fetch (#257)
     terminal = normalize_alerts(
         [
@@ -512,9 +494,8 @@ def test_removal_reason_survives_an_expired_phase(hass, alert_factory):
 def test_removed_carries_superseded_by_when_the_reference_parses(hass, alert_factory):
     """The successor's CAP identifier rides alongside removal_reason (#190)."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process(normalize_alerts([_eccc(alert_factory, id="a")]))
     hass.bus.async_fire.reset_mock()
 
@@ -544,9 +525,8 @@ def test_removed_carries_superseded_by_when_the_reference_parses(hass, alert_fac
 def test_removed_omits_superseded_by_when_the_reference_is_absent(hass, alert_factory):
     """The dangling ~2/3 case from measurement: no key, not an error."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process(normalize_alerts([_eccc(alert_factory, id="a")]))
     hass.bus.async_fire.reset_mock()
 
@@ -564,9 +544,8 @@ def test_removed_omits_superseded_by_when_the_reference_is_absent(hass, alert_fa
 def test_removed_omits_superseded_by_for_a_plain_ended_reason(hass, alert_factory):
     """Not fired alongside every removal_reason — only superseded."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process(normalize_alerts([_eccc(alert_factory, id="a")]))
     hass.bus.async_fire.reset_mock()
 
@@ -596,9 +575,8 @@ def test_removed_omits_superseded_by_for_a_plain_ended_reason(hass, alert_factor
 def test_removed_omits_superseded_by_for_non_eccc_providers(hass, alert_factory):
     """No hook declared, so the key never appears off ECCC."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process([])  # past the boot fetch (#257)
     store.process(
         normalize_alerts(
@@ -614,9 +592,8 @@ def test_removed_omits_superseded_by_for_non_eccc_providers(hass, alert_factory)
 def test_plain_cancel_has_no_removal_reason(hass, alert_factory):
     """No signal means no key — phase=cancel alone is all we know."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process([])  # past the boot fetch (#257)
     store.process(normalize_alerts([alert_factory(id="a", msg_type="Cancel")]))
 
@@ -635,13 +612,14 @@ def test_silent_disappearance_has_no_removal_reason(hass, alert_factory):
     from custom_components.cap_alerts import store as store_mod
     from custom_components.cap_alerts.conventions import (
         ABSENCE_ENDS,
-        ECCC_LIFECYCLE_REMOVAL_REASONS,
         SourceConventions,
     )
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
+    from custom_components.cap_alerts.providers.eccc_conventions import (
+        ECCC_LIFECYCLE_REMOVAL_REASONS,
+    )
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process(
         normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="active")])
     )
@@ -665,9 +643,8 @@ def test_silent_disappearance_has_no_removal_reason(hass, alert_factory):
 def test_removal_reason_is_scoped_to_its_source(hass, alert_factory):
     """ECCC's vocabulary cannot label another source's removal (issue #82)."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process([])  # past the boot fetch (#257)
     store.process(
         normalize_alerts(
@@ -682,9 +659,8 @@ def test_removal_reason_is_scoped_to_its_source(hass, alert_factory):
 def test_created_and_updated_have_no_removal_reason(hass, alert_factory):
     """The key rides on incident_removed only."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process(
         normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="active")])
     )
@@ -709,9 +685,8 @@ def test_created_and_updated_have_no_removal_reason(hass, alert_factory):
 def test_first_sight_terminal_alert_fires_removed_only(hass, alert_factory):
     """An alert we've never seen but which is already terminal on arrival."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process([])  # past the boot fetch (#257)
     cancelled = normalize_alerts([alert_factory(id="a", msg_type="Cancel")])
     result = store.process(cancelled)

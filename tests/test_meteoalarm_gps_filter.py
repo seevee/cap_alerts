@@ -202,9 +202,9 @@ async def test_gps_polygon_fail_loud_when_zero_polygons():
     session = _FakeSession(payload)
     provider = meteoalarm.MeteoAlarmProvider()
 
-    from homeassistant.helpers.update_coordinator import UpdateFailed
+    from custom_components.cap_alerts.providers import ProviderError
 
-    with pytest.raises(UpdateFailed) as excinfo:
+    with pytest.raises(ProviderError) as excinfo:
         await provider.async_fetch(
             session,
             config={"country": "DE", "gps_loc": "50.0,10.0"},
@@ -221,7 +221,7 @@ async def test_gps_polygon_fail_loud_when_zero_polygons():
 async def test_gps_polygon_mobile_falls_back_to_country_wide():
     # Fully-mobile mode (country_entity present) roaming into a country that
     # publishes no per-warning geometry degrades to country-wide instead of
-    # raising UpdateFailed.
+    # raising ProviderError.
     payload = json.loads(
         (_FIXTURE_DIR / "meteoalarm_de.json").read_text(encoding="utf-8")
     )
@@ -719,9 +719,9 @@ async def test_fetch_regions_raises_when_both_paths_fail():
             "/api/v1/warnings/": ({}, 500),
         }
     )
-    from homeassistant.helpers.update_coordinator import UpdateFailed
+    from custom_components.cap_alerts.providers import ProviderError
 
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(ProviderError):
         await meteoalarm.fetch_regions_for_country(session, "DE")
 
 

@@ -15,7 +15,6 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.cap_alerts.const import (
@@ -29,6 +28,7 @@ from custom_components.cap_alerts.flows.meteoalarm import (
     _region_label_map,
     _region_selector,
 )
+from custom_components.cap_alerts.providers import ProviderError
 
 DOMAIN = "cap_alerts"
 
@@ -156,7 +156,7 @@ async def test_setup_still_errors_when_the_fetch_fails(
     hass, enable_custom_integrations
 ):
     # A genuine outage keeps the retryable error — distinct from the abort.
-    with patch(_PATCH_TARGET, side_effect=UpdateFailed("boom")):
+    with patch(_PATCH_TARGET, side_effect=ProviderError("boom")):
         result = await _start_region_picker(hass)
 
     assert result["type"] == "form"
@@ -269,7 +269,7 @@ async def test_reconfigure_errors_when_the_fetch_fails(
     hass, enable_custom_integrations
 ):
     entry = _fi_entry(hass)
-    with patch(_PATCH_TARGET, side_effect=UpdateFailed("boom")):
+    with patch(_PATCH_TARGET, side_effect=ProviderError("boom")):
         result = await _start_reconfigure(hass, entry)
 
     assert result["type"] == "form"

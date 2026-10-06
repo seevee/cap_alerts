@@ -25,6 +25,10 @@ _repo_cc = str(_REPO_ROOT / "custom_components")
 if _repo_cc not in custom_components.__path__:
     custom_components.__path__.append(_repo_cc)
 
+# Registers every shipped source's convention rows, which the providers package
+# does at import. Tests that normalize an alert without ever touching a
+# provider would otherwise see the empty row for its source.
+import custom_components.cap_alerts.providers  # noqa: E402
 from custom_components.cap_alerts.model import CAPAlert  # noqa: E402
 
 

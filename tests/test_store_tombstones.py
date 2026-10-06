@@ -15,19 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def _entity_registry_from_mock(monkeypatch):
-    """Point ``er.async_get`` at the mock ``hass``'s registry attribute.
-
-    The store looks the registry up through ``er.async_get(hass)``, which reads
-    ``hass.data``; the fixture below is a MagicMock, so without this the store
-    gets a bare mock and the entity id in the payload is a mock too.
-    """
-    monkeypatch.setattr(
-        "custom_components.cap_alerts.store.er.async_get",
-        lambda hass: hass.entity_registry,
-    )
+from custom_components.cap_alerts.store import AlertStore
 
 
 @pytest.fixture
@@ -36,6 +24,19 @@ def hass():
     h.bus.async_fire = MagicMock()
     h.entity_registry.async_get_entity_id.return_value = None
     return h
+
+
+def _store(hass, provider: str, **kwargs) -> AlertStore:
+    """A store over the mock's bus and registry, wired the way the coordinator does it."""
+    return AlertStore(
+        "entry1",
+        provider,
+        fire=hass.bus.async_fire,
+        lookup_entity_id=lambda alert_id: hass.entity_registry.async_get_entity_id(
+            "sensor", "cap_alerts", f"entry1_{provider}_{alert_id}"
+        ),
+        **kwargs,
+    )
 
 
 def _events(hass) -> list[str]:
@@ -62,9 +63,8 @@ def test_republished_ended_document_fires_one_removal(hass, alert_factory):
     ``phase=cancel`` and ``removal_reason=ended``.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process(normalize_alerts([_eccc(alert_factory, id="a")]))
 
     ended = normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="ended")])
@@ -83,9 +83,8 @@ def test_terminal_on_first_sight_fires_one_removal(hass, alert_factory):
     polls, four removals, no ``incident_created`` at all.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process([])  # past the boot fetch (#257)
     stale = normalize_alerts(
         [alert_factory(id="a", expires="2020-01-01T00:00:00+00:00")]
@@ -111,9 +110,8 @@ def test_absence_termination_is_not_re_announced_when_the_record_returns(
         SourceConventions,
     )
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process(normalize_alerts([alert_factory(id="a")]))
 
     # Withdrawn from the feed. ABSENCE_ENDS is the one convention under which
@@ -137,9 +135,8 @@ def test_absence_termination_is_not_re_announced_when_the_record_returns(
 def test_an_id_that_comes_back_live_is_created_again(hass, alert_factory):
     """A reissue is news. Swallowing it would be worse than the duplicate."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     live = normalize_alerts([_eccc(alert_factory, id="a")])
     ended = normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="ended")])
 
@@ -166,9 +163,9 @@ def test_a_tombstone_ages_out_after_the_idle_ttl(hass, alert_factory):
     republished.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL, AlertStore
+    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process([])  # past the boot fetch (#257)
     ended = normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="ended")])
     store.process(ended)
@@ -190,9 +187,9 @@ def test_suppressing_a_duplicate_refreshes_the_tombstone(hass, alert_factory):
     at the point it elapsed.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL, AlertStore
+    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process([])  # past the boot fetch (#257)
     ended = normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="ended")])
     store.process(ended)
@@ -210,9 +207,9 @@ def test_suppressing_a_duplicate_refreshes_the_tombstone(hass, alert_factory):
 def test_tombstones_are_pruned_once_the_record_stops_arriving(hass, alert_factory):
     """Bounded by ids terminated recently, not by the life of the entry."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL, AlertStore
+    from custom_components.cap_alerts.store import TOMBSTONE_IDLE_TTL
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process(
         normalize_alerts([_eccc(alert_factory, id="a", lifecycle_status="ended")])
     )

@@ -6,19 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def _entity_registry_from_mock(monkeypatch):
-    """Point ``er.async_get`` at the mock ``hass``'s registry attribute.
-
-    The store looks the registry up through ``er.async_get(hass)``, which reads
-    ``hass.data``; the fixture below is a MagicMock, so without this the store
-    gets a bare mock and the entity id in the payload is a mock too.
-    """
-    monkeypatch.setattr(
-        "custom_components.cap_alerts.store.er.async_get",
-        lambda hass: hass.entity_registry,
-    )
+from custom_components.cap_alerts.store import AlertStore
 
 
 @pytest.fixture
@@ -29,6 +17,19 @@ def hass():
     return h
 
 
+def _store(hass, provider: str, **kwargs) -> AlertStore:
+    """A store over the mock's bus and registry, wired the way the coordinator does it."""
+    return AlertStore(
+        "entry1",
+        provider,
+        fire=hass.bus.async_fire,
+        lookup_entity_id=lambda alert_id: hass.entity_registry.async_get_entity_id(
+            "sensor", "cap_alerts", f"entry1_{provider}_{alert_id}"
+        ),
+        **kwargs,
+    )
+
+
 def _fired(hass):
     return [call.args for call in hass.bus.async_fire.call_args_list]
 
@@ -36,9 +37,8 @@ def _fired(hass):
 def test_supersession_via_references_does_not_fire_removed(hass, alert_factory):
     """NEW in poll N referenced by UPDATE (different id) in poll N+1 → incident_updated only."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
 
     # Poll N: alert A — NEW, bilingual key K1, CAP identifier id-A
     alert_a = alert_factory(
@@ -91,9 +91,8 @@ def test_terminal_successor_via_references_removes_the_predecessor(hass, alert_f
     the predecessor's disappearance is not announced a second time.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "bbk")
+    store = _store(hass, "bbk")
     warning = alert_factory(
         id="rev0",
         identifier="mow.DE-SL-SB-SE035-20260920-35-000",
@@ -140,9 +139,8 @@ def test_no_supersession_when_identifier_not_referenced(hass, alert_factory):
         SourceConventions,
     )
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
 
     # Poll N: alert A. The source declares ABSENCE_ENDS below so this test
     # stays about supersession rather than retention — see the absence-policy
@@ -183,9 +181,8 @@ def test_no_supersession_when_identifier_not_referenced(hass, alert_factory):
 def test_supersession_previous_phase_carried(hass, alert_factory):
     """The incident_updated event for B carries previous_phase from A."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
 
     alert_a = alert_factory(
         id="K1",

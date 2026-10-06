@@ -49,20 +49,16 @@ The original `ProviderCapabilities` dataclass proposal is superseded:
 than by provider, and `classifies_marine` is literally a derived capability
 flag (the options flow asks it instead of re-listing supporting providers).
 
-What the table hasn't absorbed is the residue of `provider == "…"` branches:
+The `provider == "…"` residue that used to sit beside it is gone (issue #216):
+icons are a declared classifier per row, `language: auto` and the country
+source resolve through row hooks, and the rows themselves live beside their
+providers. What remains provider-shaped by design:
 
-- `icons.py` — MeteoAlarm classifies on `awareness_type`, NWS on a full-event
-  table, everyone else on substrings. This is a *deliberate* branch documented
-  in architecture.md → *Icon policy*, so the question is whether it reads better
-  as a declared classifier per source.
-- `coordinator.py::_resolve_config` — the three-way `language: auto`
-  resolution (2-letter prefix for MeteoAlarm, full tag for WMO, EN/FR for
-  ECCC). A `language_granularity` field would carry this.
 - `flows/<provider>.py` — per-provider option schemas. Genuinely
-  provider-shaped UI, probably not table material.
-
-Worth doing only when a new provider makes one of these branches a three-way,
-not as a standalone refactor.
+  provider-shaped UI, not table material.
+- `diagnostics._endpoints` — the upstream URLs per provider. A declared
+  `endpoints` hook would absorb it; worth doing when the hub extraction makes
+  diagnostics a per-integration concern.
 
 ---
 

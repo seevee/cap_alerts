@@ -17,7 +17,6 @@ from homeassistant.helpers.selector import (
     SelectSelectorConfig,
     SelectSelectorMode,
 )
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
     CONF_COUNTRY,
@@ -32,6 +31,7 @@ from ..const import (
     METEOALARM_COUNTRIES,
     METEOALARM_COUNTRY_NAMES,
 )
+from ..providers import ProviderError
 from ..providers.meteoalarm import fetch_regions_for_country
 from .common import (
     OptionsSchema,
@@ -356,7 +356,7 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
                 country,
                 language=_picker_language(self.hass),
             )
-        except UpdateFailed:
+        except ProviderError:
             return self.async_show_form(
                 step_id="meteoalarm_region_picker",
                 data_schema=vol.Schema({}),
@@ -547,7 +547,7 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
                 country,
                 language=_picker_language(self.hass, entry),
             )
-        except UpdateFailed:
+        except ProviderError:
             return self.async_show_form(
                 step_id="reconfigure_meteoalarm_region_picker",
                 data_schema=vol.Schema({}),

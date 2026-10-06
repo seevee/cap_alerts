@@ -72,18 +72,50 @@ Registry entries hydrated at startup are seeded into a `_grace_ids` set. On the 
 
 ---
 
+## The two halves (issue #216)
+
+The package is two halves with one seam between them, and the seam is what
+would move into a hub, then into core (`rfc.md` §5).
+
+**The neutral half** knows no provider by name: `model.py`, `normalize.py`,
+the mechanism in `conventions.py`, `icons.py`, `store.py`, `payload.py`,
+`geometry_store.py`, `sensor.py`, `views.py`, `websocket.py`, and
+`coordinator.py`. `tests/test_neutral_layer.py` pins it: no provider id as a
+string literal, no provider-prefixed identifier, no import from a provider
+module. Prose is free to say where a number was measured, and `CAPAlert` keeps
+the field names it publishes.
+
+**The provider half** is everything under `providers/`, the flows, `const.py`
+and `diagnostics.py`. A shipped source is one fetch module plus one
+convention module, `providers/<name>_conventions.py`, which holds its
+`SourceConventions` row, the helpers that row references and its icon
+classifier, and calls `conventions.register` at import. Importing the
+`providers` package registers every shipped source; `tests/conftest.py`
+imports it for the same reason. Nothing in the neutral half is edited to add a
+provider.
+
+Three seams carry the rest. Providers raise `ProviderError` (`providers/`) and
+the coordinator turns it into Home Assistant's `UpdateFailed` once, in
+`_async_fetch_data`. The store takes an event sink and a registry lookup as
+callables, not a `hass`. A provider that ingests in real time implements
+`StreamingProvider` and hands the coordinator a `PushIngest`; the coordinator
+gives it the shared pipeline through `IngestHost` and never sees the transport
+(see *ECCC — NAAD streaming*).
+
+---
+
 ## Shared Normalization (`normalize.py`)
 
 Providers map API fields to `CAPAlert` as directly as possible — they do not normalize. All cross-provider normalization lives in `normalize.py`, called by the coordinator after fetching. Single source of truth for how raw provider values map to the integration's semantic fields.
 
 ### Severity
 
-CAP canonical values: `extreme`, `severe`, `moderate`, `minor`, `unknown`. Provider-aware dispatch because the right signal differs:
+CAP canonical values: `extreme`, `severe`, `moderate`, `minor`, `unknown`. Dispatched through the source's convention row (`SourceConventions.severity`), because the right signal differs:
 
 - **NWS** — CAP `<severity>` is unreliable. VTEC significance is authoritative: `W` (Warning) → severe, `A` (Watch) → moderate, `Y` (Advisory) → minor, `S` (Statement) → unknown. Specific phenomena override the significance-tier default (e.g. Tornado Warning, Extreme Wind Warning → extreme).
 - **ECCC and other CAP-native providers** — CAP `<severity>` is trustworthy; lowercase it. Values outside the canonical set clamp to `unknown`.
 - **MeteoAlarm** — when the `awareness_level` parameter (`"N; color; Label"`) is present, the color token drives the canonical severity (`yellow` → moderate, `orange` → severe, `red` → extreme, `green` → unknown). EUMETNET members publish color consistently while CAP `<severity>` is sometimes blank or off-axis, so color is the authoritative signal. Falls back to lower-cased CAP `<severity>` when the parameter is missing or malformed.
-- **Future non-CAP providers** (DWD level codes, BoM title inference) — register a new branch in `_normalize_severity` keyed on `provider`.
+- **A new source** with its own signal (a level code, a title tier) declares a `severity` hook on its row in `providers/<name>_conventions.py`; `normalize.py` is not edited.
 
 ### Lifecycle filtering is centralized
 
@@ -98,10 +130,6 @@ Different providers express cancellation differently (NWS: VTEC `CAN` + `msgType
 ### State truncation
 
 The `event` field becomes the entity's `native_value` (state), which HA caps at 255 characters. `normalize.py` truncates with an ellipsis. Relevant for international CAP providers that sometimes put full descriptions in `<event>`.
-
-### Calendar correction (Buddhist-Era years)
-
-Some feeds — notably Thailand's TMD, surfaced via WMO SWIC — emit Buddhist-Era years (Gregorian + 543) in CAP dateTime fields, e.g. `2568-08-05T22:50:00+07:00`. Left uncorrected, `_compute_phase` never expires the alert and the card renders nonsense ("STARTS IN 198034d"). `normalize._gregorian` rewrites **only the year** when it is at or above `MIN_BUDDHIST_ERA_YEAR` (2400) — the Thai solar calendar is Gregorian apart from the era number, so month, day, time, and UTC offset are preserved verbatim. Detection is value-based and provider-agnostic: no Gregorian weather alert carries a year near 2400, while every BE year is 2543+, so the threshold cannot mangle a valid timestamp. The threshold/offset constants live in `const.py` and are reused by the WMO provider to correct the RFC-2822 `cap:expires` in the RSS envelope (the pre-filter runs before normalization, so the body-level fix can't reach it).
 
 ---
 
@@ -126,9 +154,10 @@ class AlertProvider(Protocol):
 Providers are decoupled from HA internals. The coordinator resolves these **before** calling the provider:
 
 - **Tracker mode** → resolves `device_tracker` entity to lat/lon; provider sees `CONF_GPS_LOC` only.
-- **Language `"auto"`** → per provider: ECCC resolves to `en-CA` or `fr-CA`, MeteoAlarm to the two-letter prefix, WMO and BBK pass `hass.config.language` through verbatim. NWS, GDACS and AU take no language.
+- **Country-source mode** → resolves a country entity's value to the source's country code through the row's `country_code` hook (MeteoAlarm's reads codes, ISO aliases and geocoder names).
+- **Language `"auto"`** → through the row's `resolve_language` hook: ECCC resolves to `en-CA` or `fr-CA`, MeteoAlarm to the two-letter prefix, WMO and BBK pass `hass.config.language` through verbatim. NWS, GDACS and AU declare no hook, take no language, and leave `auto` in place.
 
-Keeps providers testable without a running HA instance.
+Keeps providers testable without a running HA instance, and keeps the coordinator free of any provider's name: what a resolution means is declared on the row in `providers/<name>_conventions.py`.
 
 ### Why a separate layer
 
@@ -201,7 +230,7 @@ the marine filter does not depend on promotion.
 An opt-in, **provider-neutral** narrowing keyed on the container above:
 `geocode_prefixes` (options flow, `list[str]`, absent by default) keeps only alerts
 carrying an area code that starts with one of the configured prefixes. It runs in
-`coordinator._apply` beside the marine filter — normalize → marine → geocode → geometry →
+`coordinator.async_apply` beside the marine filter — normalize → marine → geocode → geometry →
 store — so it applies to every provider and to every ingestion path (poll, stream, backfill)
 identically. It is a *layer*, not a mode: it narrows whatever the entry's location filter
 already returned rather than replacing it.
@@ -244,7 +273,7 @@ Design points:
 
 ### Error contract
 
-- `UpdateFailed` for transient errors (network, 5xx, parse issues). HA handles retry.
+- `ProviderError` (`providers/__init__.py`) for transient errors (network, 5xx, parse issues). The coordinator translates it to `UpdateFailed` in one place, message untouched; HA handles retry. No provider imports `UpdateFailed` (pinned by `tests/test_neutral_layer.py`).
 - `ConfigEntryError` for permanent misconfig (invalid zone, unknown province).
 
 ---
@@ -292,7 +321,7 @@ Design points:
 
 **API**: two NAAD GeoRSS hosts (national, client-side filtered) — `https://rss.alertready.ca/` (sanctioned) and `https://rss.naad-adna.pelmorex.com/` (legacy). NAAD migrated April 2026 from pelmorex to alertready per the System Governance Council — an intentional domain rebrand off the Pelmorex name, both feeds maintained concurrently for ~6 months (legacy host sunsets ~late Sept 2026). Since 0.2.0 the GeoRSS feed is the **backfill** source: ECCC ingests in real time from the NAAD streaming feed by default (see *NAAD streaming* below), and the GeoRSS poll seeds the set on startup/reconnect + a periodic safety resync. The streaming path is **unaffected** by the host union below — it reads the TCP socket, not GeoRSS.
 
-**Host union (issue #38)**: neither host alone is complete. Simultaneous samples (2026-07-23) showed `rss.alertready.ca` retains ~48 h of history but persistently omits ~10 live `status=Actual` alerts at any moment that pelmorex carries (one OID absent across 110 of 179 probe samples, ~11.5 h); `rss.naad-adna.pelmorex.com` retains only ~13.5 h and drops older alerts alertready still serves. The `CONF_FEED_SOURCE` option (`feed_source`, ECCC options flow, default `auto`) selects the source: `auto` fetches both hosts and unions their entries; `alertready` / `pelmorex` pin a single host as an escape hatch. An absent option means `auto`, so existing entries get the fix with no reconfigure. Hosts are fetched sequentially in `NAAD_FEED_UNION_ORDER = ("alertready", "pelmorex")` and their entries concatenated in that order; per-host failure is tolerated (one warning per streak per host), and only an all-hosts failure raises `UpdateFailed`. When pelmorex retires (~Sept 2026) it simply fails every poll and is skipped — removing it is a cleanup, not an outage. (Note: the alertready Atom `<id>` authority is `rsstrainingdqs.alertready.ca`; that is the feed-generator instance's tag-URI authority, not a per-alert test marker — all its entries carry it and resolve to the same alerts pelmorex serves — so it is *not* filtered on.)
+**Host union (issue #38)**: neither host alone is complete. Simultaneous samples (2026-07-23) showed `rss.alertready.ca` retains ~48 h of history but persistently omits ~10 live `status=Actual` alerts at any moment that pelmorex carries (one OID absent across 110 of 179 probe samples, ~11.5 h); `rss.naad-adna.pelmorex.com` retains only ~13.5 h and drops older alerts alertready still serves. The `CONF_FEED_SOURCE` option (`feed_source`, ECCC options flow, default `auto`) selects the source: `auto` fetches both hosts and unions their entries; `alertready` / `pelmorex` pin a single host as an escape hatch. An absent option means `auto`, so existing entries get the fix with no reconfigure. Hosts are fetched sequentially in `NAAD_FEED_UNION_ORDER = ("alertready", "pelmorex")` and their entries concatenated in that order; per-host failure is tolerated (one warning per streak per host), and only an all-hosts failure raises `ProviderError`. When pelmorex retires (~Sept 2026) it simply fails every poll and is skipped — removing it is a cleanup, not an outage. (Note: the alertready Atom `<id>` authority is `rsstrainingdqs.alertready.ca`; that is the feed-generator instance's tag-URI authority, not a per-alert test marker — all its entries carry it and resolve to the same alerts pelmorex serves — so it is *not* filtered on.)
 
 **Sunset repairs (issue #163)**: the legacy host's retirement (~late Sept 2026) takes the union with it, and the entries that depend on the union are the ones with streaming turned off — a loss that would otherwise be one log line. Two repairs issues (`issues.py`) are raised per entry from its configuration alone: `eccc_streaming_off` (the GeoRSS index degrades to alertready alone, whose omission set never cleared; `AlertStore.process` reads absence as ended, so a dropped live alert fires a false all-clear) and `eccc_feed_source_pelmorex` (every fetch fails: polling entries go unavailable, streaming entries lose backfill and resync). They are raised whenever the config matches, with no sunset detection: the union is already the only thing making the index complete, so both recommendations are correct today, and a detector would buy a few weeks of silence for a state machine. Sync is idempotent and runs at entry setup (before the first refresh, so a dead pin still gets its card), in the update listener (a `feed_source` change reloads nothing), and on entry removal. The issues are fixable: `repairs.py` — the platform file the repairs component loads lazily, and the only module that imports it — carries a confirm flow per issue that writes the recommended option (`streaming: true` / `feed_source: auto`); the options write fires the update listener, which re-syncs and reloads or refreshes as usual. A user who chose polling deliberately has Home Assistant's *Ignore* on the card.
 
@@ -374,19 +403,19 @@ The mapped `<info>` is the region-matching block, preferring a non-terminal one 
 
 **Endpoint**: `streaming.alertready.ca:8443` (TLS 1.3, no client cert, no subscribe handshake). The deprecated pelmorex `streaming1/2:8080` plain-TCP hosts are gated to registered LMDs and sunset ~Sept 2026 — not targeted.
 
-**Client** (`providers/naad_stream.py`, `NAADStreamClient`): a standalone TLS client owning only the transport. The wire is a continuous byte stream of concatenated CAP-CP documents (XML declaration + `<alert>…</alert>`); the client reassembles complete `<alert>…</alert>` frames (bounded buffer guards a missing close tag), classifies heartbeats (`<sender>` starts `NAADS-Heartbeat`, `<status>System</status>`, emitted ≥ every 60 s), and hands raw alert-doc strings to the coordinator — it parses no alert semantics. A read that returns no bytes within the heartbeat timeout doubles as the liveness watchdog and forces a reconnect; reconnects use bounded exponential backoff with jitter. The TLS connection is created through an injectable `connect` callable so it is unit-testable with a scripted reader. On each *reconnect* (not the first connect) it requests a GeoRSS backfill to recover alerts issued while disconnected.
+**Client** (`providers/naad_stream.py`, `NAADStreamClient`): a standalone TLS client owning only the transport. The wire is a continuous byte stream of concatenated CAP-CP documents (XML declaration + `<alert>…</alert>`); the client reassembles complete `<alert>…</alert>` frames (bounded buffer guards a missing close tag), classifies heartbeats (`<sender>` starts `NAADS-Heartbeat`, `<status>System</status>`, emitted ≥ every 60 s), and hands raw alert-doc strings to the ingest (`providers/eccc_ingest.py`) — it parses no alert semantics. A read that returns no bytes within the heartbeat timeout doubles as the liveness watchdog and forces a reconnect; reconnects use bounded exponential backoff with jitter. The TLS connection is created through an injectable `connect` callable so it is unit-testable with a scripted reader. On each *reconnect* (not the first connect) it requests a GeoRSS backfill to recover alerts issued while disconnected.
 
-**Coordinator integration**: the coordinator stays the single source of truth for `data`, entity sync, store diffing, and availability. It holds a live `dict[identifier → CAPDoc]` (`_live_docs`) guarded by an `_ingest_lock`, and every ingest rebuilds the `CAPAlert` list from that set through the shared `build_alerts_from_cap_docs` (extracted from `eccc.py`) → `_apply` (normalize → marine filter → geometry → `AlertStore.process`), so stream and poll converge on one pipeline (identical revision-chain resolution, bilingual merge, transition events). Three mutators — a streamed alert doc, a heartbeat (docs `[]`; the rebuild ages out expired alerts with no network I/O), and a backfill — are serialized by the lock. Docs older than 48 h are pruned from the live set (the NAAD feeds carry a rolling 48 h window). The GeoRSS `async_fetch_docs` is the backfill source, so the `_fetch_one_feed` truncation guard still protects it. Unlike `async_fetch` it has no metadata-only fallback: an entry whose CAP body cannot be fetched is simply omitted and picked up on a later backfill, since the live set is cumulative. That is a behaviour difference for GPS/tracker entries, which under polling surface a metadata-only alert from the Atom envelope in that case (province mode fails closed either way, having no SGC code to verify).
+**Ingest module** (`providers/eccc_ingest.py`, `NAADIngest`): the provider owns ingestion; the coordinator sees documents arriving. `ECCCProvider` implements `StreamingProvider` and builds the ingest for an entry whose options ask for it; the coordinator holds it as a `PushIngest`, starts and stops it, runs its backfill on the resync cadence, and stays the single source of truth for `data`, entity sync, store diffing, and availability. The ingest holds a live `dict[identifier → CAPDoc]` (`_live_docs`) guarded by an `_ingest_lock`, and every ingest rebuilds the `CAPAlert` list from that set through the shared `build_alerts_from_cap_docs` → `IngestHost.async_apply` (normalize → marine filter → geometry → `AlertStore.process`), so stream and poll converge on one pipeline (identical revision-chain resolution, bilingual merge, transition events). Three mutators — a streamed alert doc, a heartbeat (docs `[]`; the rebuild ages out expired alerts with no network I/O), and a backfill — are serialized by the lock. Docs older than 48 h are pruned from the live set (the NAAD feeds carry a rolling 48 h window). The GeoRSS `async_fetch_docs` is the backfill source, so the `_fetch_one_feed` truncation guard still protects it. Unlike `async_fetch` it has no metadata-only fallback: an entry whose CAP body cannot be fetched is simply omitted and picked up on a later backfill, since the live set is cumulative. That is a behaviour difference for GPS/tracker entries, which under polling surface a metadata-only alert from the Atom envelope in that case (province mode fails closed either way, having no SGC code to verify).
 
 `last_update_success_time` — the "Last updated" sensor — is stamped only by the fetch-backed paths (the poll and either backfill), not inside `_apply`, so heartbeat rebuilds do not advance it. It reports when data was last fetched, not when the active set was last recomputed.
 
 **What enters the live set**: the socket carries every alert in Canada, so streamed docs are screened by `doc_matches_region` (`_admit`) *before* insertion — otherwise the set, and the rebuild it feeds on every stream event, would be sized by national volume rather than by the configured region. A doc that fails the region test is still kept when it references an identifier already tracked, so an update or cancellation can supersede an alert we hold even if its revised geometry no longer covers the user. Non-`Actual` documents (`Test`, `Exercise`, `Draft`) are dropped in `build_alerts_from_cap_docs` — the GeoRSS path filters them on the Atom envelope before fetching a body, so the rule lives on the shared path where both sources hit it — and `_admit` applies `is_actual` up front as well, because the references escape bypasses `doc_matches_region` entirely and a heartbeat's `<references>` lists recent alert OIDs.
 
-**Availability (issue #16)**: only a *backfill* drives `last_update_success`. The periodic `_async_update_data` backfill raising `UpdateFailed` flips entities `unavailable`; a transient socket disconnect, or a stream-triggered reconnect backfill that fails, does **not** — the last-known active set is retained while the client reconnects, avoiding availability flapping. Stream pushes therefore go through `_async_push_data` (assign `data`, notify listeners) rather than `async_set_updated_data`: the latter asserts `last_update_success`, letting a heartbeat mark entities available while the authoritative backfill is failing, *and* resets the refresh timer, which would let ~60 s heartbeats defer the 30-minute resync indefinitely so it never ran.
+**Availability (issue #16)**: only a *backfill* drives `last_update_success`. The periodic `_async_update_data` backfill raising `UpdateFailed` flips entities `unavailable`; a transient socket disconnect, or a stream-triggered reconnect backfill that fails, does **not** — the last-known active set is retained while the client reconnects, avoiding availability flapping. Stream pushes therefore go through `IngestHost.push` (assign `data`, notify listeners) rather than `async_set_updated_data`: the latter asserts `last_update_success`, letting a heartbeat mark entities available while the authoritative backfill is failing, *and* resets the refresh timer, which would let ~60 s heartbeats defer the 30-minute resync indefinitely so it never ran.
 
 **Reconnect backfill throttle**: a reconnect-triggered backfill is skipped when one ran within `NAAD_STREAM_BACKFILL_MIN_INTERVAL_S` (the old GeoRSS poll cadence, 300 s). The client's backoff only grows for connections that delivered *nothing*, so an endpoint that sends a heartbeat and then drops — or goes half-open, which the watchdog also scores as productive — reconnects every 60–130 s with the backoff pinned at its floor, and each reconnect would otherwise pay a full ~7 MB fetch. The floor bounds a flapping socket to no worse than the polling it replaced. The periodic resync is never throttled: that fetch is the availability signal.
 
-**Repository recovery (issue #164)**: the one gap streaming has is socket downtime — measured over 7.5 days, 6 reconnects totalling 32.7 s offline and exactly one missed alert, an `ended` bulletin sent into a ~6 s reconnect window. The reconnect backfill is throttled as above and the alertready GeoRSS index omits live alerts daily, so neither was guaranteed to recover it, and after the pelmorex sunset the index is the weaker of the two. NAAD's own design closes it: every heartbeat carries `<references>` listing the last ten alerts published as `(sender, identifier, sent)` triples, and the NAADS 48-hour short-term repository on `cap.alertready.ca` — the LMD guide's sanctioned path for "automatic retrieval if an LMD missed an alert" — serves each at `{NAAD_REPOSITORY_URL}/{YYYY-MM-DD}/{sent}I{identifier}.xml` with `:`, `-` and `+` folded to `_` (`providers/eccc.py::repository_url`; 372/372 index links and 10/10 heartbeat references verified 2026-08-22, bodies present the instant they streamed). The client hands the raw heartbeat document to the coordinator, which diffs the references against a **seen set** — every identifier received, admitted or not, from the socket, a backfill, or an earlier recovery, aged out on the same 48 h clock as the live set — and fetches the unseen ones through the shared content cache (`ECCCProvider.async_fetch_docs_by_reference`), then pushes them through `async_ingest_docs`, where `_admit` screens them by region exactly as if they had streamed. Seen is recorded *before* admission on purpose: the live set alone would make every out-of-region alert in the country look unseen and refetch it once a minute until it left the window. Steady state therefore fetches nothing; the first heartbeat after a (re)connect fetches what the window holds that the entry has not seen — up to ten bodies of ~20–160 KB, most discarded on admission — which also recovers, at startup, anything the GeoRSS seed omitted in the last few minutes. The fetch runs inline in the heartbeat callback under the entry timeout, so the read loop waits at most that long once per (re)connect. Two details from the probe: a few senders (Pelmorex test messages, Manitoba EMO — 14 of 658 alerts in a week) publish a local-offset `sent`, and none crossed midnight, so when the sent date and the UTC date differ both folders are tried in that order; and a reference the repository never serves is retried on `NAAD_REPOSITORY_FETCH_ATTEMPTS` heartbeats, then marked seen and warned about once, since a reference stays in the last-ten window for hours on a quiet night. Recovery does not stamp `last_update_success_time` — it is not the authoritative fetch — and diagnostics report the repository URL and a count of bodies recovered since setup (`stream.repository_recovered`). Cold-start enumeration stays impossible: the repository cannot list, see the roadmap.
+**Repository recovery (issue #164)**: the one gap streaming has is socket downtime — measured over 7.5 days, 6 reconnects totalling 32.7 s offline and exactly one missed alert, an `ended` bulletin sent into a ~6 s reconnect window. The reconnect backfill is throttled as above and the alertready GeoRSS index omits live alerts daily, so neither was guaranteed to recover it, and after the pelmorex sunset the index is the weaker of the two. NAAD's own design closes it: every heartbeat carries `<references>` listing the last ten alerts published as `(sender, identifier, sent)` triples, and the NAADS 48-hour short-term repository on `cap.alertready.ca` — the LMD guide's sanctioned path for "automatic retrieval if an LMD missed an alert" — serves each at `{NAAD_REPOSITORY_URL}/{YYYY-MM-DD}/{sent}I{identifier}.xml` with `:`, `-` and `+` folded to `_` (`providers/eccc.py::repository_url`; 372/372 index links and 10/10 heartbeat references verified 2026-08-22, bodies present the instant they streamed). The client hands the raw heartbeat document to the ingest, which diffs the references against a **seen set** — every identifier received, admitted or not, from the socket, a backfill, or an earlier recovery, aged out on the same 48 h clock as the live set — and fetches the unseen ones through the shared content cache (`ECCCProvider.async_fetch_docs_by_reference`), then pushes them through `async_ingest_docs`, where `_admit` screens them by region exactly as if they had streamed. Seen is recorded *before* admission on purpose: the live set alone would make every out-of-region alert in the country look unseen and refetch it once a minute until it left the window. Steady state therefore fetches nothing; the first heartbeat after a (re)connect fetches what the window holds that the entry has not seen — up to ten bodies of ~20–160 KB, most discarded on admission — which also recovers, at startup, anything the GeoRSS seed omitted in the last few minutes. The fetch runs inline in the heartbeat callback under the entry timeout, so the read loop waits at most that long once per (re)connect. Two details from the probe: a few senders (Pelmorex test messages, Manitoba EMO — 14 of 658 alerts in a week) publish a local-offset `sent`, and none crossed midnight, so when the sent date and the UTC date differ both folders are tried in that order; and a reference the repository never serves is retried on `NAAD_REPOSITORY_FETCH_ATTEMPTS` heartbeats, then marked seen and warned about once, since a reference stays in the last-ten window for hours on a quiet night. Recovery does not stamp `last_update_success_time` — it is not the authoritative fetch — and diagnostics report the repository URL and a count of bodies recovered since setup (`stream.repository_recovered`). Cold-start enumeration stays impossible: the repository cannot list, see the roadmap.
 
 **Observability**: the socket's state is surfaced as a diagnostic **Real-time stream** `binary_sensor` (`binary_sensor.py`, `BinarySensorDeviceClass.CONNECTIVITY`), created only for streaming entries — with the registry entry removed if streaming is later turned off, so it cannot linger as an unavailable orphan. Connectivity rather than a "last stream event" timestamp: Canada is often quiet for hours, so an idle healthy socket and a dead one produce the same timestamp, while `last_changed` on a connectivity entity gives "connected since" / "down since" for free. Like the Refresh button it is deliberately **not** a `CoordinatorEntity` — that base ties `available` to `last_update_success`, which would blank it exactly when a user is working out whether the socket or the backfill is the broken half. The client reports transitions through an edge-triggered `on_connection_change` callback (sync; it only flips a flag and notifies listeners), and `run()`'s `finally` publishes the disconnect even under cancellation. In the log, connect failures are transition-based: the first failure of a streak warns and names the consequence, recovery logs at `info`, repeats stay at `debug` — so a dead socket is visible without enabling debug, and a flapping one does not spam.
 
@@ -431,7 +460,7 @@ added (issue #79). The other feed languages no HA locale can reach (`cnr`,
 - **Country-wide** — return every `Actual` warning for the country.
 - **GPS polygon** — parses each warning's `area.polygon` (CAP whitespace-
   separated `lat,lon` pairs) into a GeoJSON ring and keeps warnings whose
-  ring contains the configured point. Fails loud with `UpdateFailed` when
+  ring contains the configured point. Fails loud with `ProviderError` when
   the page has warnings but none carry polygons (the country does not
   publish per-warning geometry); matches the ECCC GPS-mode contract.
 - **Region picker** — multi-select of region codes. Feeds carry a mix of
@@ -752,7 +781,7 @@ without a parseable `cap:expires` are kept (fail-open), so feeds lacking the
 extension behave as before; the CAP body's own `<expires>` remains the final
 authority via normalization. Buddhist-Era years in the RFC-2822 `cap:expires`
 (Thai TMD feeds) are corrected to Gregorian before the comparison — sharing the
-`const.py` threshold with `normalize._gregorian` — so genuinely-expired Thai
+`MIN_BUDDHIST_ERA_YEAR` threshold with the body-level `_gregorian` — so genuinely-expired Thai
 alerts are pre-dropped instead of read as ~543 years in the future.
 
 **Mirror lag** (issue #210): the mirror is a copy, and it can stop following a
@@ -812,7 +841,7 @@ is exposed.
 - **GPS polygon / GPS tracker** — parses each alert's CAP `<polygon>` into a
   GeoJSON ring and keeps alerts whose ring contains the configured point (static
   coordinates, or a `device_tracker` resolved per poll by the coordinator). Fails
-  loud with `UpdateFailed` when the feed has alerts but none carry polygons (the
+  loud with `ProviderError` when the feed has alerts but none carry polygons (the
   source does not publish per-alert geometry); matches the ECCC/MeteoAlarm
   GPS-mode contract.
 
@@ -880,6 +909,10 @@ to hashing the CAP URL when the identifier is missing.
 | `<info>/<area>/<geocode>` (all schemes, keyed by `valueName`) | `geocodes`; `geocode_same` accessor — see *Area geocodes*. WMO's sources are heterogeneous, so non-`SAME` schemes are surfaced rather than dropped |
 | RSS `<item>/<link>` (CAP XML URL) | `url`, identifier-fallback source for `id` |
 | `sha256(identifier)[:12]` (or `sha256(url)[:12]` fallback) | `id` |
+
+### Calendar correction (Buddhist-Era years)
+
+Thailand's TMD, surfaced via SWIC, emits Buddhist-Era years (Gregorian + 543) in CAP dateTime fields, e.g. `2568-08-05T22:50:00+07:00`. Left uncorrected, `_compute_phase` never expires the alert and the card renders nonsense ("STARTS IN 198034d"). The WMO provider rewrites **only the year** as it builds the alert (`providers/wmo.py::_gregorian`) when it is at or above `MIN_BUDDHIST_ERA_YEAR` (2400) — the Thai solar calendar is Gregorian apart from the era number, so month, day, time, and UTC offset are preserved verbatim. Detection is value-based: no Gregorian weather alert carries a year near 2400, while every BE year is 2543+, so the threshold cannot mangle a valid timestamp. The same threshold corrects the RFC-2822 `cap:expires` in the RSS envelope (`_gregorian_year`), which the pre-filter reads before any body is built. The fix is WMO's because TMD is the one source that publishes BE years and SWIC is the one path it reaches this integration by; normalization downstream sees Gregorian dates only (issue #216 moved it out of `normalize.py`).
 
 ---
 
@@ -1023,7 +1056,7 @@ national standard every state agency publishes under.
 lookup, `store._retain_on_absence` ends an alert the moment its feed
 withdraws it, the GDACS arrangement, and the contract of a "current
 incidents" feed (WA sets RSS `ttl` 1; NSW regenerates every minute or two).
-That is also why a non-200 or unparseable body raises `UpdateFailed` rather
+That is also why a non-200 or unparseable body raises `ProviderError` rather
 than returning `[]`: under this rule an empty result says every incident
 ended. QLD does mint a new `WARN-n` for most updates of one fire (the
 sampler behind #116 saw Teelah run through twelve ids in two days), which
@@ -1062,11 +1095,11 @@ states.
 
 ## Alert Store (`store.py`)
 
-Holds the previous poll's alerts in memory and diffs incoming alerts to detect new / phase-change / removed transitions. Only stateful component between polls — providers and the coordinator remain stateless.
+Holds the previous poll's alerts in memory and diffs incoming alerts to detect new / phase-change / removed transitions. Only stateful component between polls — providers and the coordinator remain stateless. It takes no `hass`: events go out through a `fire` callable and entity ids come back through a `lookup_entity_id` callable, both supplied by the coordinator, so the store is bookkeeping over two functions.
 
 ### Design notes
 
-- **In-memory only, seeded from the registry at boot** (issue #250). No disk persistence, so after a restart `_previous` is empty. The entity registry survives, though, and the alert ids under the entry's unique_id prefix are exactly the set known before the boot. The store reads them at construction (the sensor platform hydrates the same set, but only after the first refresh has run) and treats the first reconciliation as the re-validation RFC §2.5 describes: a known id still live fires nothing, an id not in the registry fires `incident_created`, and a known id still absent on the second reconciliation, when the sensor's grace window drops the entity, fires `incident_removed`. That removal carries only what the registry kept, the id and the entity's name, which is the alert's `event`: `phase: cancel`, `severity: unknown`, no `area_desc`, no `removal_reason`.
+- **In-memory only, seeded from the registry at boot** (issue #250). No disk persistence, so after a restart `_previous` is empty. The entity registry survives, though, and the alert ids under the entry's unique_id prefix are exactly the set known before the boot. The coordinator reads them (`known_alert_entities`) and hands them to the store at construction (the sensor platform hydrates the same set, but only after the first refresh has run), and the store treats the first reconciliation as the re-validation RFC §2.5 describes: a known id still live fires nothing, an id not in the registry fires `incident_created`, and a known id still absent on the second reconciliation, when the sensor's grace window drops the entity, fires `incident_removed`. That removal carries only what the registry kept, the id and the entity's name, which is the alert's `event`: `phase: cancel`, `severity: unknown`, no `area_desc`, no `removal_reason`.
 - **Events are lightweight.** Payload contains only the RFC §2.3 schema plus two project extensions (`entry_id`, `area_desc`). Automations that need full details read the entity attributes — avoids duplicating the CAP payload on the bus. See [`events.md`](events.md) for the full schema.
 - **Runs after normalization.** `phase` must be set before diffing.
 - **Filter is internal to `store.process`.** The coordinator hands in the full normalized list (including `cancel`/`expired`). The store fires `incident_removed` with the true terminal phase and then drops those alerts from the returned active set — so the event payload's `phase` distinguishes cancel from expired directly. Alerts that vanish silently between polls are inferred as `expired` when past their `expires` timestamp, otherwise `cancel`.
@@ -1344,9 +1377,9 @@ The integration implements the `IncidentEntity` contract from `rfc.md` §2.1 to 
 
 ### Icon policy
 
-Every alert entity exposes `icon: mdi:…` derived from the event type. The taxonomy lives in `icons.py` — NWS entries match full event names; ECCC and MeteoAlarm entries match substrings against their respective hazard vocabularies. Unknown events fall back to `mdi:alert`. Severity still drives entity state; the icon indicates hazard.
+Every alert entity exposes `icon: mdi:…` derived from the event type. `icons.py` holds the shared hazard vocabularies — `INTERNATIONAL_EVENT_SUBSTRINGS`, the EUMETNET taxonomy, and `COMMON_EVENT_SUBSTRINGS`, every source's last resort — and `icon_for` asks the source first: a row's `icon` hook (`providers/<name>_conventions.py`) gets the alert and its lowercased classification event, returns an icon or `None`, and `None` falls through to the common sweep. Unknown events fall back to `mdi:alert`. Severity still drives entity state; the icon indicates hazard.
 
-MeteoAlarm is classified on its `awareness_type` code first, and only falls through to the event tables when the code is absent or unrecognized. Event text is free-form CAP prose, so it classifies nothing on the 30-odd non-English member services; the code is the EUMETNET hazard key and is REQUIRED on every MeteoAlarm alert. The code-to-icon table is pinned to MeteoAlarm CAP Profile v2.0 §2.2.17, which is why it has no entry 11 (the profile skips it). No other provider publishes the parameter, so WMO and ECCC keep classifying on their English alternate `<info>` block.
+The hook runs *before* the empty-event check, so a source that classifies on a coded parameter can answer with no event text; a source whose classifier reads text declines an empty event itself. NWS matches full event names, GDACS its fixed hazard names, BBK the DWD `GROUP` code then civil-protection headline needles, AU needles over the event and `IncidentType`; WMO, BBK and MeteoAlarm consult the international vocabulary from inside their hooks ahead of the common sweep. MeteoAlarm classifies on its `awareness_type` code first, and only falls through to text when the code is absent or unrecognized: event text is free-form CAP prose, so it classifies nothing on the 30-odd non-English member services, while the code is the EUMETNET hazard key and is REQUIRED on every MeteoAlarm alert. That table is pinned to MeteoAlarm CAP Profile v2.0 §2.2.17, which is why it has no entry 11 (the profile skips it).
 
 ### Platform version
 
@@ -1368,7 +1401,7 @@ and a property of the source's contract rather than of any message), when the
 query scope changed (`scope_changed`, computed by the coordinator from the
 resolved config and options), or when the alert was superseded by a document
 the region filter dropped before it reached the store
-(`superseded_identifiers`, supplied from `_live_docs`).
+(`superseded_identifiers`, supplied by the push ingest's live set).
 
 **Retention requires an exit.** An alert publishing no `expires` cannot be ended
 by time, so it is retained only when the source can end it some other way:

@@ -2,36 +2,26 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any
 
-from .const import BUDDHIST_ERA_OFFSET, MIN_BUDDHIST_ERA_YEAR
 from .conventions import SourceConventions, conventions_for
 from .icons import icon_for
 from .model import CAPAlert
 
 MAX_STATE_LENGTH = 255
 
-# Some feeds — notably TMD, surfaced via WMO SWIC — emit Buddhist-Era years
-# (Gregorian + 543) in CAP dateTime fields, e.g. "2568-08-05T22:50:00+07:00".
-# Left as-is, _compute_phase never expires the alert and the card renders
-# "STARTS IN 198034d". The detection threshold (MIN_BUDDHIST_ERA_YEAR) lives in
-# const.py, shared with the WMO RSS-envelope correction. Only the year is
-# rewritten; the time and UTC offset are preserved verbatim.
-_ISO_YEAR_RE = re.compile(r"^(\d{4})(\D.*)$")
-
 # CAP canonical severity set (RFC §2.1). Anything outside clamps to "unknown".
 _CANONICAL_SEVERITIES = frozenset({"extreme", "severe", "moderate", "minor", "unknown"})
 
-# Canonical severity ordering, ascending. Public because providers that have to
-# pick the most severe of several records (the MeteoAlarm episode merge) must
-# rank with the same ladder normalization uses — two ladders would drift apart
-# silently. Note "unknown" sits at the bottom, so a MeteoAlarm green (which maps
-# to "unknown", not "minor") can never outrank a real warning.
+# Canonical severity ordering, ascending. Public because a source that has to
+# pick the most severe of several records (an episode merge) must rank with the
+# same ladder normalization uses — two ladders would drift apart silently. Note
+# "unknown" sits at the bottom, so a source whose "no warning" tier maps to
+# "unknown" rather than "minor" can never outrank a real warning.
 SEVERITY_RANK: Mapping[str, int] = MappingProxyType(
     {"unknown": 0, "minor": 1, "moderate": 2, "severe": 3, "extreme": 4}
 )
@@ -85,21 +75,13 @@ def _geometry_ref(alert: CAPAlert, entry_id: str) -> str:
 
 def _normalize(alert: CAPAlert, now: datetime, entry_id: str = "") -> CAPAlert:
     """Normalize a single alert. Returns a new frozen instance."""
-    sent = _gregorian(alert.sent)
-    effective = _gregorian(alert.effective)
-    onset = _gregorian(alert.onset)
-    expires = _gregorian(alert.expires)
     conventions = conventions_for(alert.provider, alert.sender)
     return replace(
         alert,
-        sent=sent,
-        effective=effective,
-        onset=onset,
-        expires=expires,
         event=_truncate_state(alert.event),
         severity_normalized=_normalize_severity(alert, conventions),
         phase=_compute_phase(
-            expires,
+            alert.expires,
             alert.msg_type,
             now,
             alert.lifecycle_status,
@@ -119,33 +101,14 @@ def _normalize_severity(alert: CAPAlert, conventions: SourceConventions) -> str:
     "unknown" so the entity state stays on the five-value axis that the
     frontend styles against (RFC §2.1).
 
-    A source's own derivation (NWS VTEC, MeteoAlarm awareness colour) gets
-    first refusal via the convention table; returning ``None`` — no such
-    signal, or an unrecognized one — falls through to CAP ``severity``.
+    A source's own derivation (a VTEC significance, an awareness colour) gets
+    first refusal via its convention row; returning ``None`` — no such signal,
+    or an unrecognized one — falls through to CAP ``severity``.
     """
     raw = conventions.severity(alert) if conventions.severity else None
     if raw is None:
         raw = alert.severity.lower() if alert.severity else "unknown"
     return raw if raw in _CANONICAL_SEVERITIES else "unknown"
-
-
-def _gregorian(value: str) -> str:
-    """Rewrite a Buddhist-Era year in a CAP dateTime to Gregorian.
-
-    Returns ``value`` unchanged when it lacks a leading 4-digit year or the
-    year is already Gregorian (< 2400). Only the year is touched; month, day,
-    time, and UTC offset are preserved verbatim — the Thai solar calendar is
-    Gregorian apart from the era number (BE = CE + 543).
-    """
-    if not value:
-        return value
-    m = _ISO_YEAR_RE.match(value)
-    if m is None:
-        return value
-    year = int(m.group(1))
-    if year < MIN_BUDDHIST_ERA_YEAR:
-        return value
-    return f"{year - BUDDHIST_ERA_OFFSET:04d}{m.group(2)}"
 
 
 def _compute_phase(
@@ -159,7 +122,7 @@ def _compute_phase(
 
     ``lifecycle_status`` is the provider-supplied termination hint (see
     ``CAPAlert.lifecycle_status``). Some feeds never signal end-of-life through
-    ``msgType`` — ECCC keeps ``Update`` and marks the area group ``ended`` in a
+    ``msgType`` — one keeps ``Update`` and marks the area group ``ended`` in a
     CAP parameter instead, leaving an hour of ``expires`` still on the clock —
     so a terminal status retires the alert regardless of ``msg_type``.
 
@@ -199,8 +162,8 @@ def _normalize_phase(msg_type: str) -> str:
     """Map msg_type to lowercase lifecycle phase.
 
     Known CAP msg_types map: ``Alert → new``, ``Update → update``,
-    ``Cancel → cancel``. Any other value (provider-specific vocabulary such
-    as ECCC's ``Actual``, or a missing field) defaults to ``"new"`` so the
+    ``Cancel → cancel``. Any other value (a provider-specific token, or a
+    missing field) defaults to ``"new"`` so the
     RFC §2.1 guarantee that ``phase`` is always one of
     ``{new, update, cancel, expired}`` is never broken.
     """

@@ -65,7 +65,7 @@ def fake_stream(monkeypatch):
             self._stopped.set()
 
     monkeypatch.setattr(
-        "custom_components.cap_alerts.coordinator.NAADStreamClient",
+        "custom_components.cap_alerts.providers.eccc_ingest.NAADStreamClient",
         _FakeStreamClient,
     )
 

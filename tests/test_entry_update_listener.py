@@ -53,6 +53,12 @@ class _Coordinator:
     def streaming(self) -> bool:
         return self._streaming
 
+    def streaming_enabled(self, entry) -> bool:
+        # Mirrors the real one: only a streaming-capable provider ever says yes.
+        return entry.data.get("provider") == "eccc" and bool(
+            entry.options.get("streaming", True)
+        )
+
     def resolve_update_interval(self, entry) -> str:
         return "interval"
 

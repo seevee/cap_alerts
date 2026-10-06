@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.cap_alerts.const import (
     CONF_ALERT_LEVEL,
@@ -19,6 +18,7 @@ from custom_components.cap_alerts.const import (
     GDACS_RSS_CURRENT_URL,
 )
 from custom_components.cap_alerts.normalize import _bbox_from_geometry
+from custom_components.cap_alerts.providers import ProviderError
 from custom_components.cap_alerts.providers import cap_content_cache as _cap_cache_mod
 from custom_components.cap_alerts.providers import gdacs as _gdacs_mod
 from custom_components.cap_alerts.providers.geometry import geometry_from_shapes
@@ -605,7 +605,7 @@ async def test_both_indexes_failing_raises():
     session = StubSession(
         {GDACS_RSS_CURRENT_URL: (503, ""), GDACS_RSS_24H_URL: (503, "")}
     )
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(ProviderError):
         await GDACSProvider().async_fetch(
             session, {}, _ALL_LEVELS, cap_content_cache=CAPContentCache()
         )
@@ -619,7 +619,7 @@ async def test_both_indexes_malformed_raises():
             GDACS_RSS_24H_URL: "nor is this <<>>",
         }
     )
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(ProviderError):
         await GDACSProvider().async_fetch(
             session, {}, _ALL_LEVELS, cap_content_cache=CAPContentCache()
         )
@@ -746,7 +746,7 @@ async def test_gps_flood_matches_the_footprint_not_the_country():
 @pytest.mark.asyncio
 async def test_gps_filter_rejects_unparseable_coordinates():
     session = StubSession(_full_responses())
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(ProviderError):
         await GDACSProvider().async_fetch(
             session,
             {CONF_GPS_LOC: "not-a-coordinate"},
@@ -763,7 +763,7 @@ async def test_gps_filter_fails_loud_when_no_alert_has_geometry():
     for event in (_EQ_GREEN, _EQ_RED, _TC_ORANGE, _VO_GREEN, _EQ_24H_ONLY):
         responses.pop(_geo_url(event), None)
     session = StubSession(responses)
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(ProviderError):
         await GDACSProvider().async_fetch(
             session,
             {CONF_GPS_LOC: "50.0,157.0"},
