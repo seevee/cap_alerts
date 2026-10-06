@@ -79,6 +79,9 @@ class _StubCoordinator:
         interval_seconds=300,
         geometry_store=None,
         authority_feed_url=None,
+        restored_at_boot=0,
+        expired_at_boot=0,
+        last_saved=None,
     ) -> None:
         self.data = {a.id: a for a in (alerts or [])}
         # What the WMO provider exposes once its registry read succeeded; the
@@ -109,6 +112,9 @@ class _StubCoordinator:
             if streaming
             else None
         )
+        self.restored_at_boot = restored_at_boot
+        self.expired_at_boot = expired_at_boot
+        self.last_saved = last_saved
         self._entry = None
 
     def bind(self, entry) -> _StubCoordinator:
@@ -288,6 +294,24 @@ async def test_stream_block_is_present_and_empty_for_a_polling_entry(hass):
     assert stream["endpoint"] is None
     assert stream["repository"] is None
     assert stream["repository_recovered"] == 0
+
+
+async def test_restore_section_reports_the_boot_counts_and_last_save(hass):
+    """Whether a restart restore did anything is the first question after one."""
+    entry = _entry(
+        {CONF_PROVIDER: "eccc", CONF_PROVINCE: "ON"},
+        restored_at_boot=3,
+        expired_at_boot=1,
+        last_saved="2026-10-06T12:00:00+00:00",
+    )
+
+    restore = (await _payload(hass, entry))["restore"]
+
+    assert restore == {
+        "restored_at_boot": 3,
+        "expired_at_boot": 1,
+        "last_saved": "2026-10-06T12:00:00+00:00",
+    }
 
 
 async def test_reports_configured_and_resolved_language(hass):

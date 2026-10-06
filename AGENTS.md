@@ -80,7 +80,8 @@ custom_components/cap_alerts/
   conventions.py    # the convention *mechanism*: what a row may declare (SourceConventions: marine prefixes, terminal tokens, severity/identity/keep/icon hooks, language + country resolution, explode/merge pipeline stages), shared timestamp + episode_id helpers, and the rows in force (register_source / conventions_for); no provider named here
   normalize.py      # shared normalization: severity, phase, state truncation
   payload.py        # attribute-payload budget: measures what the recorder measures, trims long-form text then redundant keys in priority order (#150)
-  store.py          # alert store: inter-poll diffing, transition detection, event firing (incl. removal_reason) through a fire callable; no hass
+  store.py          # alert store: inter-poll diffing, transition detection, event firing (incl. removal_reason) through a fire callable; no hass; seeded at boot from the restored set (stale until re-validated, offline expiry), registry ids as fallback
+  restore.py        # per-entry HA Store at .storage/cap_alerts.<entry_id>: the live set minus geometry, written on change and at unload/stop (#281)
   icons.py          # event-type → mdi dispatch: the row's icon hook first, then the shared international + common hazard vocabularies
   geometry_store.py # in-memory LRU cache of full GeoJSON polygons, keyed by geometry_ref (RFC §2.4); never persisted
   issues.py         # repairs issues owed by an entry's config (#163): ECCC streaming off / feed source pinned to the retiring NAAD host; issue-registry only, no repairs import
