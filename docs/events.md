@@ -172,14 +172,15 @@ first fetch after a boot covers that case, see below.
 
 ## A restart re-validates, it does not re-announce
 
-The store is in-memory, so a restart empties it. The entity registry is not, and
-the alert ids under an entry's unique_id prefix are exactly the set it knew
-before the boot. The store reads them at construction (issue #250) and treats
-the first reconciliation after a boot the way RFC §2.5 describes: as a
-re-validation of what was already known, not a cold start. The same applies to a
-reload, which a reconfigure or the ECCC streaming toggle triggers, since that
-rebuilds the store too. Cheap options such as the poll interval are applied in
-place and don't reach this path.
+Each entry saves its live set to its own file in `.storage/` (issue #281), and
+the store is seeded from it at boot. Ids with no saved record, as on the first
+boot after upgrading or with a lost file, fall back to the entity registry,
+whose ids under an entry's unique_id prefix are the set it knew before the boot
+(issue #250). Either way the first reconciliation after a boot is what RFC §2.5
+describes: a re-validation of what was already known, not a cold start. The
+same applies to a reload, which a reconfigure or the ECCC streaming toggle
+triggers, since that rebuilds the store too. Cheap options such as the poll
+interval are applied in place and don't reach this path.
 
 | Id at boot | Upstream | Fires |
 | :-- | :-- | :-- |
@@ -188,11 +189,31 @@ place and don't reach this path.
 | In registry | Still absent on the second reconciliation | `incident_removed` |
 | In registry | Terminal | `incident_removed` |
 | Not in registry | Terminal on the first fetch | Nothing |
+| Restored | Live, unchanged | Nothing. `stale` clears |
+| Restored | Live, content changed | `incident_updated` with `changed_fields` |
+| Restored | Absent | The ordinary absence rule, with content |
+| Restored | Terminal | `incident_removed` with the real phase and `removal_reason` |
+| Restored, past `expires` at boot | Absent or terminal | One `incident_removed`, phase `expired` |
 
 A core update therefore no longer re-announces every live alert, and an alert
 that ended while HA was down is announced as ended rather than dropped silently.
 
-**That removal carries almost no content.** The registry keeps the id and the
+A restored alert reads `stale: true` with a `last_confirmed` until the first
+reconciliation confirms it. Absent from it, the alert gets the steady-state
+rule. A source that publishes `expires`, ECCC and NWS among them, retains it,
+still stale, to that time. A source with no exit ends it there: AU, GDACS and
+MoWaS publish no `expires` and declare no terminal vocabulary. The "In
+registry" rows apply only to ids with no saved record.
+
+**Offline expiry is announced once.** An alert whose `expires` passed while HA
+was down fires one `incident_removed`, phase `expired`, with the content it was
+saved with, on the first reconciliation after the boot. Loading fires nothing,
+so a setup that fails and retries can't announce it twice. If upstream still
+publishes it ended, that is the same ending and fires once. If upstream
+extended the expiry and it's live again, it's an `incident_updated` instead.
+
+**A registry-only removal carries almost no content.** Restored ids carry
+their full content. For an id the registry alone knew, it keeps the id and the
 name the entity was registered with, which is the alert's `event`, and nothing
 else. So the payload usually has `event`, always has `phase: cancel` and
 `severity: unknown`, and has `area_desc` empty and `removal_reason` omitted.
@@ -204,7 +225,7 @@ removes it on the same reconciliation, afterwards. An automation that composes a
 message from `area_desc` or `description` should expect both to be missing here.
 
 **Absent twice means ended.** One missing reconciliation is the grace the sensor
-platform already grants a restored entity, so the store waits for the same
+platform already grants a registry-only entity, so the store waits for the same
 second sighting before it announces. An alert that turns up live on either of
 those reconciliations fires nothing at all.
 

@@ -62,6 +62,7 @@ from .providers.eccc import (
     is_actual,
 )
 from .providers.naad_stream import NAADStreamClient
+from .restore import AlertRestoreStore
 from .store import AlertStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -247,8 +248,16 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         user_agent: str,
         geometry_store: GeometryStore,
         cap_content_cache: CAPContentCache | None = None,
+        *,
+        restore_store: AlertRestoreStore | None = None,
     ) -> None:
         self._provider = provider
+        # Per-entry persistence of the live set (issue #281). ``None`` means no
+        # persistence, which is what a coordinator built directly in a test gets.
+        self._restore_store = restore_store
+        # When the last reconciliation ran, from any path. Stamped as the
+        # restore file's ``confirmed_at``; ``None`` until one has run.
+        self._last_reconciled_at: datetime | None = None
         self._store = AlertStore(
             hass, entry.entry_id, provider.name, defer_until_registered=True
         )
@@ -547,6 +556,23 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         return self._last_backfill_at
 
     @property
+    def restored_at_boot(self) -> int:
+        """How many alerts the restore file seeded as live at setup."""
+        return self._store.restored_at_boot
+
+    @property
+    def expired_at_boot(self) -> int:
+        """How many restored alerts had passed ``expires`` while HA was down."""
+        return self._store.expired_at_boot
+
+    @property
+    def last_saved(self) -> str | None:
+        """When the restore file was last written or scheduled, ISO 8601."""
+        if self._restore_store is None:
+            return None
+        return self._restore_store.last_saved
+
+    @property
     def repository_recovered(self) -> int:
         """How many CAP bodies heartbeat references have pulled from the repository.
 
@@ -554,6 +580,43 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         screened out by region. Since setup — it is not persisted.
         """
         return self._repository_recovered
+
+    async def async_restore(self) -> None:
+        """Seed the store and ``data`` from the set the last run saved (issue #281).
+
+        Runs before the first refresh so that refresh reconciles against the
+        restored records: a restored alert the feed omits is retained to its
+        expiry rather than removed as a registry-only id, and one that expired
+        while HA was down is removed with its content. The saved scope key goes
+        in with it, so a scope that changed while HA was down still suspends
+        retention on that first cycle.
+
+        Fires nothing, and safe to repeat: a failed first refresh makes HA
+        retry setup, which builds a new coordinator and calls this again.
+        """
+        if self._restore_store is None:
+            return
+        loaded = await self._restore_store.async_load()
+        if loaded is None:
+            return
+        self._scope_key = loaded.scope_key
+        seeded = self._store.restore(loaded.alerts, confirmed_at=loaded.confirmed_at)
+        self.data = {a.id: a for a in seeded}
+
+    async def async_save_restore_state(self) -> None:
+        """Write the live set now, for unload and HA stop.
+
+        Refreshes ``confirmed_at`` to the last reconciliation, which a
+        write-on-change file would otherwise leave at the last change. Skipped
+        when nothing has reconciled since setup: there is nothing newer to say.
+        """
+        if self._restore_store is None or self._last_reconciled_at is None:
+            return
+        await self._restore_store.async_save_now(
+            list((self.data or {}).values()),
+            scope_key=self._scope_key,
+            confirmed_at=self._last_reconciled_at.isoformat(),
+        )
 
     async def _async_update_data(self) -> dict[str, CAPAlert]:
         try:
@@ -651,6 +714,16 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             fetched=fetched,
         )
         self._scope_changed = False
+        self._last_reconciled_at = datetime.now(timezone.utc)
+        if self._restore_store is not None:
+            # Written on change only (RFC §1.4 requirement 5): an unchanged set
+            # costs nothing however often this runs. A stream rebuild counts as
+            # a confirmation here just as a fetch does.
+            self._restore_store.async_save_if_changed(
+                alerts,
+                scope_key=self._scope_key,
+                confirmed_at=self._last_reconciled_at.isoformat(),
+            )
         # Index by ID for O(1) lookup
         return {a.id: a for a in alerts}
 

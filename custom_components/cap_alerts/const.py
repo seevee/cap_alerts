@@ -25,6 +25,14 @@ EVENT_INCIDENT_REMOVED = "incident_removed"
 REMOVAL_REASON_SUPERSEDED = "superseded"
 REMOVAL_REASON_ENDED = "ended"
 
+# Restart restore (issue #281): one ``.storage/cap_alerts.<entry_id>`` file per
+# config entry, holding the live alert set. Bump the version only with a
+# migration, since a file the Store cannot read is a restore lost, not an error.
+RESTORE_STORAGE_VERSION = 1
+# Coalescing delay before a changed set is written, so a burst of updates in
+# one outbreak costs one write rather than one per reconciliation.
+RESTORE_SAVE_DELAY = 10  # seconds
+
 # User-Agent for API requests — {0} is replaced with the HA instance ID
 USER_AGENT = "HomeAssistant-CAPAlerts/{0}"
 

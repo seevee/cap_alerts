@@ -80,7 +80,8 @@ custom_components/cap_alerts/
   conventions.py    # per-source convention table: marine prefixes, terminal lifecycle tokens, severity derivations, per-sender dialects (identity/keep hooks + explode/merge pipeline stages); an episode dialect declares its own run rule — MeteoFrance merges consecutive forecast days, FMI contiguous windows — over one shared pipeline
   normalize.py      # shared normalization: severity, phase, Buddhist-Era year fix, state truncation
   payload.py        # attribute-payload budget: measures what the recorder measures, trims long-form text then redundant keys in priority order (#150)
-  store.py          # alert store: inter-poll diffing, transition detection, HA event firing (incl. removal_reason)
+  store.py          # alert store: inter-poll diffing, transition detection, HA event firing (incl. removal_reason); seeded at boot from the restored set (stale until re-validated, offline expiry), registry ids as fallback
+  restore.py        # per-entry HA Store at .storage/cap_alerts.<entry_id>: the live set minus geometry, written on change and at unload/stop (#281)
   icons.py          # event-type → mdi dispatch; MeteoAlarm classifies on awareness_type, BBK on the DWD GROUP code then civil-protection headline needles, others on event tables
   geometry_store.py # in-memory LRU cache of full GeoJSON polygons, keyed by geometry_ref (RFC §2.4); never persisted
   issues.py         # repairs issues owed by an entry's config (#163): ECCC streaming off / feed source pinned to the retiring NAAD host; issue-registry only, no repairs import
