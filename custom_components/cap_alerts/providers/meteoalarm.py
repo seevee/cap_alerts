@@ -52,7 +52,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
     CONF_COUNTRY,
@@ -62,19 +61,16 @@ from ..const import (
     CONF_REGIONS,
     METEOALARM_COUNTRY_SLUGS,
 )
-from ..conventions import (
-    METEOALARM_REGION_SCHEMES,
-    RegionEntry,
-    SourceConventions,
-    StageContext,
-    conventions_for,
-)
-from ..conventions import meteoalarm_region_codes as _region_codes
+from ..conventions import RegionEntry, SourceConventions, StageContext, row_for
 from ..model import CAPAlert, geocodes_from
+from . import ProviderError
 from .cap import alternate_info_index, parse_cap_polygon_text
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_polygons
 from .gps import alert_polygons, parse_gps, point_in_polygon
+from .meteoalarm_conventions import CONVENTIONS as _CONVENTIONS
+from .meteoalarm_conventions import METEOALARM_REGION_SCHEMES
+from .meteoalarm_conventions import meteoalarm_region_codes as _region_codes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -94,7 +90,7 @@ def _sender_conventions(alert: CAPAlert) -> SourceConventions:
     the *sender*, not of the provider: the table resolves ``meteoalarm/<sender>``
     before falling back to the shared MeteoAlarm entry.
     """
-    return conventions_for("meteoalarm", alert.sender)
+    return row_for(_CONVENTIONS, "meteoalarm", alert.sender)
 
 
 def _batch_conventions(alerts: list[CAPAlert]) -> list[SourceConventions]:
@@ -610,13 +606,13 @@ async def fetch_regions_for_country(
 
     Returns ``[]`` when the feed is reachable but names no regions — a real
     state for a single-zone or currently-quiet country, and the caller's
-    business to present. Raises ``UpdateFailed`` for an unsupported country or
+    business to present. Raises ``ProviderError`` for an unsupported country or
     a feed that could not be read.
     """
     country = (country_iso or "").upper()
     slug = METEOALARM_COUNTRY_SLUGS.get(country)
     if slug is None:
-        raise UpdateFailed(f"MeteoAlarm: unsupported country {country}")
+        raise ProviderError(f"MeteoAlarm: unsupported country {country}")
 
     preferred_prefix = _lang_prefix(language) or "en"
     regions = await _fetch_regions_from_warnings(session, slug, preferred_prefix)
@@ -634,24 +630,24 @@ async def _fetch_regions_from_warnings(
     repeats are distinct codes that no de-duplication can merge (Norway
     published 26 entries for 13 regions on 2026-08-04).
 
-    Raises ``UpdateFailed`` on any failure to read the feed, so the caller can
+    Raises ``ProviderError`` on any failure to read the feed, so the caller can
     tell a broken fetch from a country that genuinely names no regions.
     """
     url = METEOALARM_FEED_URL.format(country=slug)
     try:
         async with session.get(url) as resp:
             if resp.status != 200:
-                raise UpdateFailed(f"MeteoAlarm {slug}: HTTP {resp.status}")
+                raise ProviderError(f"MeteoAlarm {slug}: HTTP {resp.status}")
             try:
                 payload = await resp.json(content_type=None)
             except (aiohttp.ContentTypeError, ValueError) as err:
-                raise UpdateFailed(f"MeteoAlarm {slug}: invalid JSON: {err}") from err
+                raise ProviderError(f"MeteoAlarm {slug}: invalid JSON: {err}") from err
     except aiohttp.ClientError as err:
-        raise UpdateFailed(f"MeteoAlarm {slug}: {err}") from err
+        raise ProviderError(f"MeteoAlarm {slug}: {err}") from err
 
     warnings = payload.get("warnings") if isinstance(payload, dict) else None
     if not isinstance(warnings, list):
-        raise UpdateFailed(f"MeteoAlarm {slug}: feed missing 'warnings' array")
+        raise ProviderError(f"MeteoAlarm {slug}: feed missing 'warnings' array")
 
     out: list[tuple[str, str]] = []
     for warning in warnings:
@@ -671,6 +667,10 @@ class MeteoAlarmProvider:
     @property
     def name(self) -> str:
         return "meteoalarm"
+
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        return _CONVENTIONS
 
     async def async_validate_config(
         self,
@@ -724,23 +724,23 @@ class MeteoAlarmProvider:
         """
         country = (config.get(CONF_COUNTRY, "") or "").upper()
         if not country:
-            raise UpdateFailed("MeteoAlarm: country not configured")
+            raise ProviderError("MeteoAlarm: country not configured")
         slug = METEOALARM_COUNTRY_SLUGS.get(country)
         if slug is None:
-            raise UpdateFailed(f"MeteoAlarm: unsupported country {country}")
+            raise ProviderError(f"MeteoAlarm: unsupported country {country}")
 
         url = METEOALARM_FEED_URL.format(country=slug)
         async with session.get(url) as resp:
             if resp.status != 200:
-                raise UpdateFailed(f"MeteoAlarm {country}: HTTP {resp.status}")
+                raise ProviderError(f"MeteoAlarm {country}: HTTP {resp.status}")
             try:
                 payload = await resp.json(content_type=None)
             except (aiohttp.ContentTypeError, ValueError) as err:
-                raise UpdateFailed(f"MeteoAlarm: invalid JSON: {err}") from err
+                raise ProviderError(f"MeteoAlarm: invalid JSON: {err}") from err
 
         warnings = payload.get("warnings") if isinstance(payload, dict) else None
         if not isinstance(warnings, list):
-            raise UpdateFailed("MeteoAlarm: feed missing 'warnings' array")
+            raise ProviderError("MeteoAlarm: feed missing 'warnings' array")
 
         preferred_prefix = _lang_prefix(options.get(CONF_LANGUAGE, "")) or "en"
 
@@ -831,7 +831,7 @@ class MeteoAlarmProvider:
                     len(alerts),
                 )
                 return alerts
-            raise UpdateFailed(
+            raise ProviderError(
                 f"MeteoAlarm {country}: GPS filter requested but "
                 f"{len(alerts)} warnings carry no polygons; this country "
                 "does not publish per-warning geometry — use region-picker "
@@ -839,7 +839,7 @@ class MeteoAlarmProvider:
             )
         gps = parse_gps(gps_loc)
         if gps is None:
-            raise UpdateFailed(
+            raise ProviderError(
                 f"MeteoAlarm {country}: invalid GPS coordinates {gps_loc!r}"
             )
         lat, lon = gps

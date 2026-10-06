@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.cap_alerts.const import (
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_SOURCE_ID,
 )
+from custom_components.cap_alerts.providers import ProviderError
 from custom_components.cap_alerts.providers import cap as _cap_mod
 from custom_components.cap_alerts.providers import cap_content_cache as _cap_cache_mod
 from custom_components.cap_alerts.providers import wmo as _wmo_mod
@@ -194,7 +194,7 @@ async def test_fetch_gps_outside_polygon():
 async def test_rss_parse_error():
     session = StubSession({_RSS_URL: "this is not xml <<>>"})
     provider = WMOProvider()
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(ProviderError):
         await provider.async_fetch(
             session,
             {CONF_SOURCE_ID: "mx-smn-es"},
@@ -207,7 +207,7 @@ async def test_rss_parse_error():
 async def test_rss_non_200():
     session = StubSession({_RSS_URL: (503, "")})
     provider = WMOProvider()
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(ProviderError):
         await provider.async_fetch(
             session,
             {CONF_SOURCE_ID: "mx-smn-es"},

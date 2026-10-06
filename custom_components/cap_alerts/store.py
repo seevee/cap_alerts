@@ -1,16 +1,13 @@
-"""Alert store — inter-poll diffing, transition detection, HA event firing."""
+"""Alert store — inter-poll diffing, transition detection, event firing."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
-
 from .const import (
-    DOMAIN,
     EVENT_INCIDENT_CREATED,
     EVENT_INCIDENT_REMOVED,
     EVENT_INCIDENT_UPDATED,
@@ -55,13 +52,24 @@ class AlertStore:
 
     def __init__(
         self,
-        hass: HomeAssistant,
         entry_id: str,
         provider: str,
         *,
+        fire: Callable[[str, dict[str, Any]], None],
+        lookup_entity_id: Callable[[str], str | None],
+        known_at_boot: Mapping[str, str] | None = None,
         defer_until_registered: bool = False,
     ) -> None:
-        self._hass = hass
+        """Build a store over the two things it needs from its host.
+
+        ``fire`` publishes one event (type, payload); ``lookup_entity_id``
+        answers which entity, if any, is registered for an alert id. Both are
+        callables rather than a ``hass`` because the store is otherwise pure
+        bookkeeping, and the host — this integration's coordinator today — is
+        the one that knows how entities are named and where events go.
+        """
+        self._fire = fire
+        self._lookup_entity_id = lookup_entity_id
         self._entry_id = entry_id
         self._provider = provider
         self._previous: dict[str, CAPAlert] = {}
@@ -109,21 +117,16 @@ class AlertStore:
         # a reconciliation (issue #250), mapped to the event name the registry
         # recorded for each. The store is in-memory, so after a restart
         # ``_previous`` is empty and every live alert would read as new; the
-        # entity registry survived, and its ids under this entry's prefix are
-        # exactly the set known before the boot. Read here rather than borrowed
-        # from the sensor platform, which hydrates only after the first refresh
-        # has already run. An id seen live is re-validated silently; one still
-        # unseen by the second fetch-backed reconciliation is announced as
-        # ended, and the sensor platform holds its entity until then. The
-        # event name is the entity's ``original_name``: ``AlertEntity.name`` is
-        # the alert's ``event``, and that is all the registry keeps of the
-        # content, so it is all the removal can carry.
-        alert_prefix = f"{entry_id}_{provider}_"
-        self._known_at_boot: dict[str, str] = {
-            ent.unique_id.removeprefix(alert_prefix): ent.original_name or ""
-            for ent in er.async_entries_for_config_entry(er.async_get(hass), entry_id)
-            if ent.unique_id.startswith(alert_prefix)
-        }
+        # entity registry survived, and the host hands over the ids under this
+        # entry's prefix, which are exactly the set known before the boot
+        # (``coordinator.known_alert_entities``). An id seen live is
+        # re-validated silently; one still unseen by the second fetch-backed
+        # reconciliation is announced as ended, and the sensor platform holds
+        # its entity until then. The event name is the entity's
+        # ``original_name``: ``AlertEntity.name`` is the alert's ``event``, and
+        # that is all the registry keeps of the content, so it is all the
+        # removal can carry.
+        self._known_at_boot: dict[str, str] = dict(known_at_boot or {})
         self._reconciliations = 0
         # True until the first fetch-backed reconciliation has run. The
         # tombstones above don't survive a restart, so until then a terminal
@@ -508,7 +511,7 @@ class AlertStore:
             self._deferred[alert.id] = (event_type, payload)
             return
 
-        self._hass.bus.async_fire(event_type, payload)
+        self._fire(event_type, payload)
 
     def release(self, alert_id: str, entity_id: str) -> None:
         """Fire the events parked for ``alert_id`` now that its entity exists.
@@ -524,7 +527,7 @@ class AlertStore:
             return
         event_type, payload = parked
         payload["entity_id"] = entity_id
-        self._hass.bus.async_fire(event_type, payload)
+        self._fire(event_type, payload)
 
     def _flush_deferred(self) -> None:
         """Fire whatever ``release`` never came for, a reconciliation late.
@@ -542,13 +545,7 @@ class AlertStore:
             entity_id = self._lookup_entity_id(alert_id)
             if entity_id is not None:
                 payload["entity_id"] = entity_id
-            self._hass.bus.async_fire(event_type, payload)
-
-    def _lookup_entity_id(self, alert_id: str) -> str | None:
-        """The registered entity_id for ``alert_id``, or None if there is none yet."""
-        unique_id = f"{self._entry_id}_{self._provider}_{alert_id}"
-        ent_reg = er.async_get(self._hass)
-        return ent_reg.async_get_entity_id("sensor", DOMAIN, unique_id)
+            self._fire(event_type, payload)
 
 
 def _removal_reason(alert: CAPAlert) -> str:

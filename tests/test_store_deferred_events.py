@@ -22,14 +22,6 @@ from custom_components.cap_alerts.const import (
 from custom_components.cap_alerts.store import AlertStore
 
 
-@pytest.fixture(autouse=True)
-def _entity_registry_from_mock(monkeypatch):
-    monkeypatch.setattr(
-        "custom_components.cap_alerts.store.er.async_get",
-        lambda hass: hass.entity_registry,
-    )
-
-
 @pytest.fixture
 def hass():
     h = MagicMock()
@@ -39,6 +31,19 @@ def hass():
     return h
 
 
+def _store(hass, provider: str, **kwargs) -> AlertStore:
+    """A store over the mock's bus and registry, wired the way the coordinator does it."""
+    return AlertStore(
+        "entry1",
+        provider,
+        fire=hass.bus.async_fire,
+        lookup_entity_id=lambda alert_id: hass.entity_registry.async_get_entity_id(
+            "sensor", "cap_alerts", f"entry1_{provider}_{alert_id}"
+        ),
+        **kwargs,
+    )
+
+
 def _fired(hass) -> list[tuple[str, str, str | None]]:
     return [
         (call.args[0], call.args[1]["incident_id"], call.args[1].get("entity_id"))
@@ -46,12 +51,8 @@ def _fired(hass) -> list[tuple[str, str, str | None]]:
     ]
 
 
-def _deferring_store(hass) -> AlertStore:
-    return AlertStore(hass, "entry1", "nws", defer_until_registered=True)
-
-
 def test_created_is_parked_until_released_with_the_entity_id(hass, alert_factory):
-    store = _deferring_store(hass)
+    store = _store(hass, "nws", defer_until_registered=True)
 
     store.process([alert_factory(id="a")])
     assert _fired(hass) == []
@@ -63,7 +64,7 @@ def test_created_is_parked_until_released_with_the_entity_id(hass, alert_factory
 
 
 def test_release_is_per_alert_and_fires_each_in_its_own_turn(hass, alert_factory):
-    store = _deferring_store(hass)
+    store = _store(hass, "nws", defer_until_registered=True)
     store.process([alert_factory(id="a"), alert_factory(id="b")])
     assert _fired(hass) == []
 
@@ -77,14 +78,14 @@ def test_release_is_per_alert_and_fires_each_in_its_own_turn(hass, alert_factory
 
 def test_release_with_nothing_parked_is_a_no_op(hass, alert_factory):
     """Every entity restored from the registry at boot releases nothing."""
-    store = _deferring_store(hass)
+    store = _store(hass, "nws", defer_until_registered=True)
     store.release("never-seen", "sensor.x")
     assert _fired(hass) == []
 
 
 def test_cross_poll_supersession_update_is_parked_too(hass, alert_factory):
     """The superseding alert has a new id, so its entity does not exist yet either."""
-    store = _deferring_store(hass)
+    store = _store(hass, "nws", defer_until_registered=True)
     store.process([alert_factory(id="a", identifier="urn:a")])
     store.release("a", "sensor.a")
     hass.bus.async_fire.reset_mock()
@@ -97,7 +98,7 @@ def test_cross_poll_supersession_update_is_parked_too(hass, alert_factory):
 
 
 def test_in_place_update_fires_immediately_when_the_entity_exists(hass, alert_factory):
-    store = _deferring_store(hass)
+    store = _store(hass, "nws", defer_until_registered=True)
     store.process([alert_factory(id="a")])
     store.release("a", "sensor.a")
     hass.bus.async_fire.reset_mock()
@@ -109,7 +110,7 @@ def test_in_place_update_fires_immediately_when_the_entity_exists(hass, alert_fa
 
 def test_removed_is_never_parked(hass, alert_factory):
     """First sighting already terminal: no entity will ever exist for it."""
-    store = _deferring_store(hass)
+    store = _store(hass, "nws", defer_until_registered=True)
     store.process([])  # past the boot fetch (#257)
     store.process([alert_factory(id="a", phase="cancel")])
     assert _fired(hass) == [(EVENT_INCIDENT_REMOVED, "a", None)]
@@ -117,7 +118,7 @@ def test_removed_is_never_parked(hass, alert_factory):
 
 def test_leftovers_fire_at_the_next_process_ahead_of_that_cycle(hass, alert_factory):
     """No release came; the next reconciliation flushes first, re-checking the registry."""
-    store = _deferring_store(hass)
+    store = _store(hass, "nws", defer_until_registered=True)
     store.process([alert_factory(id="a")])
     assert _fired(hass) == []
 
@@ -140,7 +141,7 @@ def test_leftovers_fire_at_the_next_process_ahead_of_that_cycle(hass, alert_fact
 
 
 def test_leftover_fires_bare_when_the_registry_never_got_an_entry(hass, alert_factory):
-    store = _deferring_store(hass)
+    store = _store(hass, "nws", defer_until_registered=True)
     store.process([alert_factory(id="a")])
     store.process([alert_factory(id="a")])
     assert _fired(hass) == [(EVENT_INCIDENT_CREATED, "a", None)]
@@ -150,7 +151,7 @@ def test_leftover_fires_bare_when_the_registry_never_got_an_entry(hass, alert_fa
 
 
 def test_flag_off_keeps_the_immediate_fire(hass, alert_factory):
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process([alert_factory(id="a")])
     assert _fired(hass) == [(EVENT_INCIDENT_CREATED, "a", None)]
     store.release("a", "sensor.a")

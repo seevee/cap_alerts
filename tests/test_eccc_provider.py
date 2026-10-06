@@ -964,7 +964,7 @@ async def test_eccc_provider_filters_foreign_province():
 
 @pytest.mark.asyncio
 async def test_eccc_provider_raises_on_persistently_truncated_feed(monkeypatch):
-    """A feed body missing </feed> on every attempt raises UpdateFailed, not ParseError.
+    """A feed body missing </feed> on every attempt raises ProviderError, not ParseError.
 
     Simulates istio-envoy terminating the ~7 MB chunked stream early: aiohttp
     returns a partial body without raising, so the guard must catch it. The
@@ -976,7 +976,7 @@ async def test_eccc_provider_raises_on_persistently_truncated_feed(monkeypatch):
     session = StubSession(responses)
     provider = ECCCProvider()
 
-    with pytest.raises(_eccc_mod.UpdateFailed, match="truncated feed response"):
+    with pytest.raises(_eccc_mod.ProviderError, match="truncated feed response"):
         await provider.async_fetch(
             session,
             {"province": "ON"},
@@ -2091,7 +2091,7 @@ async def test_union_all_hosts_failing_raises_naming_both():
         _eccc_mod.NAAD_FEED_ALERTREADY: (503, ""),
         _eccc_mod.NAAD_FEED_PELMOREX: (500, ""),
     }
-    with pytest.raises(_eccc_mod.UpdateFailed) as excinfo:
+    with pytest.raises(_eccc_mod.ProviderError) as excinfo:
         await ECCCProvider().async_fetch(
             StubSession(responses), {"province": "ON"}, {"language": "en-CA"}
         )

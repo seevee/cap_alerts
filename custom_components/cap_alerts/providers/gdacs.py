@@ -56,7 +56,6 @@ from typing import Any
 
 import aiohttp
 from defusedxml import ElementTree as ET
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
     CONF_ALERT_LEVEL,
@@ -72,8 +71,11 @@ from ..const import (
     GDACS_RSS_24H_URL,
     GDACS_RSS_CURRENT_URL,
 )
+from ..conventions import SourceConventions
 from ..model import CAPAlert
+from . import ProviderError
 from .cap_content_cache import CAPContentCache
+from .gdacs_conventions import CONVENTIONS as _CONVENTIONS
 from .geometry import geometry_from_shapes
 from .gps import alert_polygons, parse_gps, point_in_polygon
 
@@ -225,7 +227,7 @@ def _parse_index(
     each survivor costs a geometry fetch. Items missing either identity field
     are skipped — without both, neither the geometry URL nor the alert id can
     be built. Raises ``ET.ParseError`` on malformed XML; the caller converts
-    that to ``UpdateFailed``.
+    that to ``ProviderError``.
     """
     wanted = {code.strip().upper() for code in event_types or () if code.strip()}
     floor = (_alert_level_rank(min_level) or 0) if min_level else 0
@@ -514,6 +516,10 @@ class GDACSProvider:
     def name(self) -> str:
         return "gdacs"
 
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        return _CONVENTIONS
+
     async def async_validate_config(
         self,
         session: aiohttp.ClientSession,
@@ -582,7 +588,7 @@ class GDACSProvider:
         # nothing to distinguish an outage from a world with no disasters in
         # it, and the coordinator must not read that as every alert ending.
         if not batches:
-            raise UpdateFailed(f"GDACS: no index available ({'; '.join(failures)})")
+            raise ProviderError(f"GDACS: no index available ({'; '.join(failures)})")
         for failure in failures:
             _LOGGER.warning(
                 "GDACS: index unavailable, continuing without it: %s", failure
@@ -686,10 +692,10 @@ class GDACSProvider:
         url: str,
         headers: dict[str, str] | None,
     ) -> str:
-        """Fetch one RSS index, raising ``UpdateFailed`` on a non-200."""
+        """Fetch one RSS index, raising ``ProviderError`` on a non-200."""
         async with session.get(url, headers=headers) as resp:
             if resp.status != 200:
-                raise UpdateFailed(f"HTTP {resp.status}")
+                raise ProviderError(f"HTTP {resp.status}")
             return await resp.text()
 
     @staticmethod
@@ -706,13 +712,13 @@ class GDACSProvider:
         if not alerts:
             return []
         if not any(a.geometry for a in alerts):
-            raise UpdateFailed(
+            raise ProviderError(
                 f"GDACS: GPS filter requested but {len(alerts)} alerts carry no "
                 "polygons; this feed did not publish per-alert geometry"
             )
         gps = parse_gps(gps_loc)
         if gps is None:
-            raise UpdateFailed(f"GDACS: invalid GPS coordinates {gps_loc!r}")
+            raise ProviderError(f"GDACS: invalid GPS coordinates {gps_loc!r}")
         lat, lon = gps
         kept: list[CAPAlert] = []
         for alert in alerts:

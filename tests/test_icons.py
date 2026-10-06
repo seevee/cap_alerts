@@ -485,3 +485,46 @@ def test_alternate_ignored_without_language_tags(alert_factory):
         )
         == "mdi:weather-pouring"
     )
+
+
+# ---------------------------------------------------------------------------
+# The classifier runs before the empty-event check (issue #216). What that
+# order means per source: a coded parameter still classifies with no event
+# text, while a text-reading classifier declines an empty event, so the
+# fallback stays what it was before the per-source hooks existed.
+# ---------------------------------------------------------------------------
+
+
+def test_meteoalarm_awareness_code_classifies_an_empty_event(alert_factory):
+    alert = alert_factory(
+        event="", parameters={"awareness_type": "1; Wind"}, provider="meteoalarm"
+    )
+    assert icon_for(alert) == "mdi:weather-windy"
+
+
+def test_bbk_group_does_not_classify_an_empty_event(alert_factory):
+    alert = alert_factory(event="", parameters={"GROUP": "WIND"}, provider="bbk")
+    assert icon_for(alert) == FALLBACK_ICON
+
+
+def test_au_incident_type_does_not_classify_an_empty_event(alert_factory):
+    alert = alert_factory(
+        event="", parameters={"IncidentType": "Structure Fire"}, provider="au"
+    )
+    assert icon_for(alert) == FALLBACK_ICON
+
+
+@pytest.mark.parametrize("sender", ["vigilance@meteo.fr", "cap@fmi.fi"])
+def test_sender_rows_keep_the_meteoalarm_classifier(alert_factory, sender):
+    """A sender-scoped row replaces the provider's, so it restates ``icon``.
+
+    Without the restatement a MeteoFrance or FMI alert would silently lose
+    the awareness-type classification and fall to the text tables.
+    """
+    alert = alert_factory(
+        event="Vigilance orange",
+        parameters={"awareness_type": "8; Forest fire"},
+        provider="meteoalarm",
+        sender=sender,
+    )
+    assert icon_for(alert) == "mdi:fire"

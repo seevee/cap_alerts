@@ -15,21 +15,21 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.cap_alerts.const import (
     AU_FEEDS,
     CONF_ALERT_LEVEL,
     CONF_PROVINCE,
 )
-from custom_components.cap_alerts.conventions import (
-    au_alert_level,
-    au_alert_level_severity,
-    conventions_for,
-)
+from custom_components.cap_alerts.conventions import conventions_for
 from custom_components.cap_alerts.model import CAPAlert
 from custom_components.cap_alerts.normalize import normalize_alerts
+from custom_components.cap_alerts.providers import ProviderError
 from custom_components.cap_alerts.providers import au as _au_mod
+from custom_components.cap_alerts.providers.au_conventions import (
+    au_alert_level,
+    au_alert_level_severity,
+)
 from custom_components.cap_alerts.providers.cap import (
     cap_doc_from_element,
     parse_cap_alert,
@@ -617,12 +617,12 @@ def test_unknown_floor_applies_nothing():
 
 
 async def test_http_error_raises_rather_than_ending_every_incident():
-    with pytest.raises(UpdateFailed, match="HTTP 503"):
+    with pytest.raises(ProviderError, match="HTTP 503"):
         await _fetch("NSW", body=(503, ""))
 
 
 async def test_malformed_feed_raises():
-    with pytest.raises(UpdateFailed, match="not well-formed"):
+    with pytest.raises(ProviderError, match="not well-formed"):
         await _fetch("QLD", body="<EDXLDistribution><contentObject>")
 
 
@@ -638,7 +638,7 @@ async def test_quiet_envelope_is_an_empty_poll():
 
 async def test_unknown_state_raises():
     session = StubSession({})
-    with pytest.raises(UpdateFailed, match="unknown state"):
+    with pytest.raises(ProviderError, match="unknown state"):
         await AUProvider().async_fetch(
             session,  # type: ignore[arg-type]
             {CONF_PROVINCE: "VIC"},

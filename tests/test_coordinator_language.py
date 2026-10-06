@@ -3,9 +3,11 @@
 No Home Assistant runtime is started: the coordinator is built via
 ``object.__new__`` so ``_resolve_config`` can be exercised on its own.
 
-The three providers that read a language deliberately resolve ``auto``
-differently — ECCC to one of two full tags, MeteoAlarm to a 2-letter prefix,
-WMO verbatim (issue #59) — so each branch is pinned here.
+The providers that read a language deliberately resolve ``auto`` differently
+— ECCC to one of two full tags, MeteoAlarm to a 2-letter prefix, WMO and BBK
+verbatim (issue #59) — through the ``resolve_language`` hook on each source's
+convention row, so each is pinned here, along with the sources that declare
+none.
 """
 
 from __future__ import annotations
@@ -42,7 +44,9 @@ def _resolve(provider: str, ha_language: str, options: dict | None = None) -> st
     coord._tracker_resolve_warned = False
     coord._country_resolve_warned = False
     _config, resolved = coord._resolve_config()
-    return resolved[CONF_LANGUAGE]
+    # A source with no ``resolve_language`` hook writes nothing back, so an
+    # entry that never set the option has no key, which reads as ``auto``.
+    return resolved.get(CONF_LANGUAGE, "auto")
 
 
 # --- WMO (issue #59) --------------------------------------------------------
@@ -92,3 +96,12 @@ def test_eccc_auto_resolves_to_english_otherwise():
 
 def test_eccc_explicit_language_passes_through():
     assert _resolve("eccc", "fr-CA", {CONF_LANGUAGE: "en-CA"}) == "en-CA"
+
+
+# --- Sources that take no language ------------------------------------------
+
+
+@pytest.mark.parametrize("provider", ["nws", "gdacs", "au"])
+def test_language_free_source_leaves_auto_in_place(provider: str):
+    """No ``resolve_language`` on the row: nothing to resolve, nothing invented."""
+    assert _resolve(provider, "fr-CA") == "auto"

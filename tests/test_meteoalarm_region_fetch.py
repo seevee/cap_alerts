@@ -15,9 +15,8 @@ import json
 from pathlib import Path
 
 import pytest
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.cap_alerts.providers import meteoalarm
+from custom_components.cap_alerts.providers import ProviderError, meteoalarm
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
@@ -138,27 +137,27 @@ async def test_empty_feed_returns_no_regions():
 @pytest.mark.asyncio
 async def test_http_error_raises():
     session = _RecordingSession({}, status=500)
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(ProviderError):
         await meteoalarm.fetch_regions_for_country(session, "NO")
 
 
 @pytest.mark.asyncio
 async def test_invalid_json_raises():
     session = _RecordingSession("not json")
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(ProviderError):
         await meteoalarm.fetch_regions_for_country(session, "NO")
 
 
 @pytest.mark.asyncio
 async def test_missing_warnings_array_raises():
     session = _RecordingSession({"something": "else"})
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(ProviderError):
         await meteoalarm.fetch_regions_for_country(session, "NO")
 
 
 @pytest.mark.asyncio
 async def test_unsupported_country_raises():
     session = _RecordingSession(_no_payload())
-    with pytest.raises(UpdateFailed):
+    with pytest.raises(ProviderError):
         await meteoalarm.fetch_regions_for_country(session, "ZZ")
     assert session.requested == []

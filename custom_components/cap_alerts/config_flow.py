@@ -36,9 +36,10 @@ from .const import (
     DOMAIN,
     GDACS_EVENT_TYPES,
 )
-from .conventions import conventions_for
+from .conventions import row_for
 from .flows import au, bbk, eccc, gdacs, meteoalarm, nws, wmo
 from .flows.common import OptionsSchema, _validate_geocode_prefixes
+from .providers import get_provider
 
 # Providers that add fields to the options form, in the order the setup menu
 # offers them. A provider absent here (NWS) has nothing beyond the shared
@@ -158,9 +159,12 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
 
         # Marine-alert exclusion is only meaningful for providers that classify
         # marine zones (NWS UGC prefixes, ECCC CLC "00…"). Asked of the
-        # convention table rather than re-listing them here, so a provider that
-        # gains a marine discriminator gets the toggle without a second edit.
-        if conventions_for(provider or "").classifies_marine:
+        # provider's own row rather than re-listing them here, so a provider
+        # that gains a marine discriminator gets the toggle without a second
+        # edit. Read off the provider, not the rows in force, so the form is
+        # right for an entry that has not loaded.
+        row = row_for(get_provider(provider or "").conventions, provider or "")
+        if row.classifies_marine:
             schema[
                 vol.Optional(
                     CONF_EXCLUDE_MARINE,
@@ -171,11 +175,11 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
         # Area-code narrowing composes with every location mode, but only on
         # sources that publish geocodes at all — GDACS never does, so there the
         # field's only possible effect is a permanently unavailable entry.
-        # Asked of the convention table, like the marine toggle above. The
+        # Asked of the provider's row, like the marine toggle above. The
         # field re-renders from the rejected input rather than the stored
         # value, so a typo is shown back to the user to correct instead of
         # silently reverting.
-        if conventions_for(provider or "").publishes_geocodes:
+        if row.publishes_geocodes:
             stored_prefixes = self.config_entry.options.get(CONF_GEOCODE_PREFIXES) or []
             prefix_default = (
                 str(user_input.get(CONF_GEOCODE_PREFIXES, "") or "")

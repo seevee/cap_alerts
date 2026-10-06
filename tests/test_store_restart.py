@@ -17,6 +17,7 @@ from custom_components.cap_alerts.const import (
     EVENT_INCIDENT_CREATED,
     EVENT_INCIDENT_REMOVED,
 )
+from custom_components.cap_alerts.coordinator import known_alert_entities
 from custom_components.cap_alerts.store import AlertStore
 
 
@@ -33,14 +34,27 @@ def registry(monkeypatch, hass):
     """Registry entries for this entry; tests append unique_ids before building."""
     entries: list[SimpleNamespace] = []
     monkeypatch.setattr(
-        "custom_components.cap_alerts.store.er.async_get",
+        "custom_components.cap_alerts.coordinator.er.async_get",
         lambda h: hass.entity_registry,
     )
     monkeypatch.setattr(
-        "custom_components.cap_alerts.store.er.async_entries_for_config_entry",
+        "custom_components.cap_alerts.coordinator.er.async_entries_for_config_entry",
         lambda reg, entry_id: entries,
     )
     return entries
+
+
+def _store(hass, provider: str) -> AlertStore:
+    """A store seeded from the registry the way the coordinator seeds it."""
+    return AlertStore(
+        "entry1",
+        provider,
+        fire=hass.bus.async_fire,
+        lookup_entity_id=lambda alert_id: hass.entity_registry.async_get_entity_id(
+            "sensor", "cap_alerts", f"entry1_{provider}_{alert_id}"
+        ),
+        known_at_boot=known_alert_entities(hass, "entry1", provider),
+    )
 
 
 def _known(registry, *alert_ids: str) -> None:
@@ -63,7 +77,7 @@ def _fired(hass) -> list[tuple[str, str]]:
 
 def test_known_live_alert_is_revalidated_silently(hass, registry, alert_factory):
     _known(registry, "a")
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
 
     result = store.process([alert_factory(id="a", phase="update")])
 
@@ -74,7 +88,7 @@ def test_known_live_alert_is_revalidated_silently(hass, registry, alert_factory)
 
 def test_alert_issued_during_downtime_is_created(hass, registry, alert_factory):
     _known(registry, "a")
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
 
     store.process(
         [alert_factory(id="a", phase="update"), alert_factory(id="b", phase="new")]
@@ -91,7 +105,7 @@ def test_alert_ended_during_downtime_is_removed_after_grace(
     # The entity is still registered at this point: the sensor drops it on the
     # same reconciliation, after this event fires.
     hass.entity_registry.async_get_entity_id.return_value = "sensor.cap_alert_gone"
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
 
     store.process([])
     assert _fired(hass) == []
@@ -118,7 +132,7 @@ def test_stream_rebuilds_do_not_spend_the_grace(hass, registry, alert_factory):
     would announce an alert still in force as ended.
     """
     _known(registry, "gone")
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
 
     store.process([])
     for _ in range(3):
@@ -134,7 +148,7 @@ def test_stream_rebuilds_do_not_spend_the_grace(hass, registry, alert_factory):
 def test_stream_sighting_settles_a_known_alert(hass, registry, alert_factory):
     """A streamed document is still a sighting, fetch or not."""
     _known(registry, "a", "b")
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
 
     store.process([])
     store.process([alert_factory(id="a", phase="update")], fetched=False)
@@ -145,7 +159,7 @@ def test_stream_sighting_settles_a_known_alert(hass, registry, alert_factory):
 
 def test_known_alert_back_within_grace_is_not_news(hass, registry, alert_factory):
     _known(registry, "a")
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
 
     store.process([])
     store.process([alert_factory(id="a", phase="update")])
@@ -155,7 +169,7 @@ def test_known_alert_back_within_grace_is_not_news(hass, registry, alert_factory
 
 def test_known_alert_terminal_at_boot_is_removed_once(hass, registry, alert_factory):
     _known(registry, "a")
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
 
     store.process([alert_factory(id="a", phase="cancel")])
     store.process([])
@@ -165,7 +179,7 @@ def test_known_alert_terminal_at_boot_is_removed_once(hass, registry, alert_fact
 
 def test_other_providers_ids_are_not_known(hass, registry, alert_factory):
     registry.append(SimpleNamespace(unique_id="entry1_eccc_a", original_name="A"))
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
 
     store.process([alert_factory(id="a", phase="new")])
 
@@ -180,7 +194,7 @@ def test_announced_ending_is_not_re_announced_after_restart(
     ECCC keeps an ended record in the feed for up to 48 h, so a restart inside
     that window used to read it as a first sighting already terminal.
     """
-    before = AlertStore(hass, "entry1", "nws")
+    before = _store(hass, "nws")
     before.process([alert_factory(id="a", phase="new")])
     before.process([alert_factory(id="a", phase="cancel")])
     assert _fired(hass) == [
@@ -188,7 +202,7 @@ def test_announced_ending_is_not_re_announced_after_restart(
         (EVENT_INCIDENT_REMOVED, "a"),
     ]
 
-    after = AlertStore(hass, "entry1", "nws")
+    after = _store(hass, "nws")
     for _ in range(3):
         after.process([alert_factory(id="a", phase="cancel")])
 
@@ -197,7 +211,7 @@ def test_announced_ending_is_not_re_announced_after_restart(
 
 def test_boot_suppression_tombstones_the_lineage(hass, registry, alert_factory):
     """A later revision of the suppressed ending is the same ending (#185)."""
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
     store.process([alert_factory(id="a", identifier="cap-a", phase="cancel")])
     store.process(
         [
@@ -214,7 +228,7 @@ def test_stream_rebuilds_before_the_first_fetch_stay_in_boot(
     hass, registry, alert_factory
 ):
     """Only a fetch ends the boot, as it ends the grace (#252)."""
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process([alert_factory(id="a", phase="cancel")], fetched=False)
     store.process([alert_factory(id="b", phase="cancel")])
     store.process([alert_factory(id="c", phase="cancel")])
@@ -224,7 +238,7 @@ def test_stream_rebuilds_before_the_first_fetch_stay_in_boot(
 
 def test_terminal_after_the_boot_fetch_is_announced(hass, registry, alert_factory):
     """The suppression is the boot fetch's alone; later first sightings fire."""
-    store = AlertStore(hass, "entry1", "nws")
+    store = _store(hass, "nws")
     store.process([])
     store.process([alert_factory(id="a", phase="cancel")])
 

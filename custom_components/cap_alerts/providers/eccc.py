@@ -15,23 +15,19 @@ from xml.etree.ElementTree import Element
 
 import aiohttp
 from defusedxml import ElementTree as ET
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
     CONF_FEED_SOURCE,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVINCE,
+    CONF_STREAMING,
     DEFAULT_FEED_SOURCE,
     NAAD_REPOSITORY_URL,
 )
-from ..conventions import (
-    ECCC_LIFECYCLE_REMOVAL_REASONS,
-    conventions_for,
-    is_marine_code,
-)
-from ..conventions import ECCC_MARINE_CLC_PREFIX as _ECCC_MARINE_CLC_PREFIX
+from ..conventions import SourceConventions, is_marine_code
 from ..model import GEOCODE_CLC, GEOCODE_SGC, CAPAlert, geocodes_from
+from . import IngestHost, ProviderError, PushIngest
 from .cap import (
     CAPAreaDoc,
     CAPDoc,
@@ -41,6 +37,9 @@ from .cap import (
     ring_from_lat_lon_pairs,
 )
 from .cap_content_cache import CAPContentCache
+from .eccc_conventions import CONVENTIONS as _CONVENTIONS
+from .eccc_conventions import ECCC_LIFECYCLE_REMOVAL_REASONS
+from .eccc_conventions import ECCC_MARINE_CLC_PREFIX as _ECCC_MARINE_CLC_PREFIX
 from .geometry import (
     geometry_from_polygons,
     geometry_from_shapes,
@@ -170,7 +169,7 @@ _PROVINCE_BBOX: dict[str, tuple[float, float, float, float]] = {
 _PROVINCE_BBOX_PAD_DEG = 0.5
 
 
-_ECCC_CONVENTIONS = conventions_for("eccc")
+_ECCC_CONVENTIONS = _CONVENTIONS["eccc"]
 
 
 def _is_marine_eccc(clc: tuple[str, ...]) -> bool:
@@ -1168,6 +1167,21 @@ class ECCCProvider:
     def name(self) -> str:
         return "eccc"
 
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        return _CONVENTIONS
+
+    def streaming_enabled(self, options: Mapping[str, Any]) -> bool:
+        """Real-time NAAD ingestion is the default; the option is the escape hatch."""
+        return bool(options.get(CONF_STREAMING, True))
+
+    def build_ingest(self, host: IngestHost) -> PushIngest:
+        """The NAAD ingest for one entry."""
+        # Imported here: the ingest module builds on this one.
+        from .eccc_ingest import NAADIngest
+
+        return NAADIngest(host, self)
+
     async def async_validate_config(
         self,
         session: aiohttp.ClientSession,
@@ -1489,7 +1503,7 @@ class ECCCProvider:
 
         Per-host failure is tolerated: as long as one host succeeds the union is
         returned, with one warning logged per failure streak per host. Only an
-        all-hosts failure raises ``UpdateFailed``, naming each host and its error.
+        all-hosts failure raises ``ProviderError``, naming each host and its error.
         """
         sources = resolve_feed_urls(options)
         entries: list[Element] = []
@@ -1500,7 +1514,7 @@ class ECCCProvider:
             except Exception as err:  # noqa: BLE001 — one host down must not sink the union
                 failures.append(f"{source_id} ({url}): {err}")
                 # A pinned single host needs no warning here: its failure is the
-                # whole fetch failing, which the UpdateFailed below reports.
+                # whole fetch failing, which the ProviderError below reports.
                 if len(sources) > 1 and not self._feed_warned.get(source_id):
                     _LOGGER.warning(
                         "ECCC: NAAD host %s failed (%s); continuing with the "
@@ -1514,7 +1528,7 @@ class ECCCProvider:
             entries.extend(root.findall(f"{{{NS_ATOM}}}entry"))
 
         if len(failures) == len(sources):
-            raise UpdateFailed("ECCC: all NAAD hosts failed: " + "; ".join(failures))
+            raise ProviderError("ECCC: all NAAD hosts failed: " + "; ".join(failures))
         return entries
 
     async def _fetch_one_feed(
@@ -1534,7 +1548,7 @@ class ECCCProvider:
         a partial or empty body without raising, and parsing it fails at a
         random offset. A body that is not a complete document (empty, or not
         ending in ``</feed>``) is treated as a transient truncation and retried
-        a bounded number of times before surfacing ``UpdateFailed`` (retried by
+        a bounded number of times before surfacing ``ProviderError`` (retried by
         the coordinator next poll).
         """
         cached = self._feed_conditional.get(source_id)
@@ -1545,7 +1559,7 @@ class ECCCProvider:
                 if cached is not None and resp.status == 304:
                     etag, text = cached
                 elif resp.status != 200:
-                    raise UpdateFailed(
+                    raise ProviderError(
                         f"ECCC NAAD feed {source_id} returned {resp.status}"
                     )
                 else:
@@ -1576,7 +1590,7 @@ class ECCCProvider:
             if attempt < _FEED_FETCH_ATTEMPTS:
                 await asyncio.sleep(_FEED_RETRY_BACKOFF_S)
 
-        raise UpdateFailed(f"ECCC: {last_error}")
+        raise ProviderError(f"ECCC: {last_error}")
 
     @staticmethod
     def _parse_gps(

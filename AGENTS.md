@@ -71,33 +71,35 @@ custom_components/cap_alerts/
     gdacs.py        # GDACS steps + event-type/alert-level options
     bbk.py          # BBK steps: Regionalschlüssel (district) form, GPS, tracker; language option
     au.py           # Australian steps: state picker; minimum alert level option
-  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info + NAAD stream lifecycle; provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs
+  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info; hosts a provider's PushIngest through IngestHost (no transport of its own); provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs; translates ProviderError → UpdateFailed once
   diagnostics.py    # config-entry diagnostics download: scope, endpoints, update health, filters, convention rows in effect; redacts location + credentials
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
   button.py         # RefreshButton: on-demand provider fetch (all providers)
   binary_sensor.py  # StreamConnectivitySensor: NAAD socket state (ECCC streaming only)
   model.py          # CAPAlert dataclass + to_attributes()
-  conventions.py    # per-source convention table: marine prefixes, terminal lifecycle tokens, severity derivations, per-sender dialects (identity/keep hooks + explode/merge pipeline stages); an episode dialect declares its own run rule — MeteoFrance merges consecutive forecast days, FMI contiguous windows — over one shared pipeline
-  normalize.py      # shared normalization: severity, phase, Buddhist-Era year fix, state truncation
+  conventions.py    # the convention *mechanism*: what a row may declare (SourceConventions: marine prefixes, terminal tokens, severity/identity/keep/icon hooks, language + country resolution, explode/merge pipeline stages), shared timestamp + episode_id helpers, and the rows in force (register_source / conventions_for); no provider named here
+  normalize.py      # shared normalization: severity, phase, state truncation
   payload.py        # attribute-payload budget: measures what the recorder measures, trims long-form text then redundant keys in priority order (#150)
-  store.py          # alert store: inter-poll diffing, transition detection, HA event firing (incl. removal_reason)
-  icons.py          # event-type → mdi dispatch; MeteoAlarm classifies on awareness_type, BBK on the DWD GROUP code then civil-protection headline needles, others on event tables
+  store.py          # alert store: inter-poll diffing, transition detection, event firing (incl. removal_reason) through a fire callable; no hass
+  icons.py          # event-type → mdi dispatch: the row's icon hook first, then the shared international + common hazard vocabularies
   geometry_store.py # in-memory LRU cache of full GeoJSON polygons, keyed by geometry_ref (RFC §2.4); never persisted
   issues.py         # repairs issues owed by an entry's config (#163): ECCC streaming off / feed source pinned to the retiring NAAD host; issue-registry only, no repairs import
   repairs.py        # HA repairs platform: the confirm flows that apply each issue's recommended option; loaded lazily by the repairs component
   views.py          # GET /api/cap_alerts/geometry/{ref} → FeatureCollection
   websocket.py      # cap_alerts/geometry WS command, same payload as the REST view
   providers/
-    __init__.py           # AlertProvider protocol (fetch + config-flow scope validation) + get_provider() factory
+    __init__.py           # AlertProvider protocol (fetch + scope validation + declared conventions), ProviderError, the StreamingProvider / PushIngest / IngestHost protocols, PROVIDER_IDS + get_provider() factory
     cap.py                # shared, provider-neutral CAP 1.2 parsing: XML (parse_cap_alert) and JSON (cap_doc_from_json) into CAPDoc/CAPInfoDoc, resolve_chain_leaves, language-block selection (select_info)
     cap_content_cache.py  # LRU cache for fetched bodies: CAP XML, CAP JSON, GeoJSON (shared: eccc, wmo, gdacs, bbk)
     geometry.py           # shared CAP shapes → GeoJSON; polygon/point selection, zero-radius circles
     gps.py                # shared GPS-mode helpers: lat,lon parsing, ray-cast point-in-polygon, rings off a CAPAlert geometry
+    <name>_conventions.py # one per provider: its SourceConventions row(s), the helpers the row references, its icon classifier, exposed as the CONVENTIONS mapping the provider declares
     nws.py                # NWS GeoJSON API — zone/GPS/tracker
     eccc.py               # Environment Canada NAAD Atom feed (GeoRSS host union + CAP bodies)
+    eccc_ingest.py        # NAADIngest (PushIngest): the live document set, admission, heartbeat rebuilds, reconnect/resync backfill, repository recovery (#164)
     naad_stream.py        # NAAD TLS streaming transport: frame reassembly, heartbeats, watchdog, reconnect/backoff — no alert semantics
     meteoalarm.py         # MeteoAlarm (EUMETNET) per-country CAP JSON
-    wmo.py                # WMO SWIC per-source RSS → CAP XML; per-language <info> selection
+    wmo.py                # WMO SWIC per-source RSS → CAP XML; per-language <info> selection; Buddhist-Era year fix
     gdacs.py              # GDACS: two global RSS indexes unioned → CAPAlert (no CAP body exists); per-episode GeoJSON geometry, RSS-stage filters, eventid-based identity
     bbk.py                # BBK / NINA (Germany): district dashboard or five channel indexes → CAP-over-JSON documents + per-warning GeoJSON; MoWaS/KATWARN/BIWAPP/LHP + DWD relay
     au.py                 # Australian state feeds (NSW RFS, QFD, WA DFES, TasALERT): one EDXL-DE document per state → CAP-AU alerts; AlertLevel tier drives severity, marker circles → points, expires dropped (regeneration TTL)

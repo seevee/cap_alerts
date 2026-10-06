@@ -24,19 +24,18 @@ from typing import Any
 
 import aiohttp
 from defusedxml import ElementTree as ET
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import (
-    BUDDHIST_ERA_OFFSET,
     CONF_GEOCODE_PREFIXES,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_SOURCE_ID,
-    MIN_BUDDHIST_ERA_YEAR,
     WMO_SOURCES_URL,
     WMO_UNMIRRORED_SOURCES,
 )
+from ..conventions import SourceConventions
 from ..model import CAPAlert, geocodes_from
+from . import ProviderError
 from .cap import (
     CAPDoc,
     CAPInfoDoc,
@@ -49,10 +48,45 @@ from .cap import (
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_shapes, points_from_circles
 from .gps import alert_polygons, parse_gps, point_in_polygon
+from .wmo_conventions import CONVENTIONS as _CONVENTIONS
 
 _LOGGER = logging.getLogger(__name__)
 
 WMO_RSS_URL = "https://severeweather.wmo.int/v2/cap-alerts/{source_id}/rss.xml"
+
+# Buddhist-Era calendar correction. Thailand's TMD, relayed by SWIC, emits
+# Buddhist-Era years — Gregorian + 543 — in CAP dateTime fields, e.g.
+# "2568-08-05T22:50:00+07:00". Left as-is, ``_compute_phase`` never expires the
+# alert and the card renders "STARTS IN 198034d". A year at or above this
+# threshold is unambiguously BE: no Gregorian weather alert is ~375 years out,
+# while every BE year is 2543+, so the offset can be subtracted with no risk to
+# a valid timestamp. Applied to the CAP-body ISO strings at construction
+# (``_gregorian``) and to the RSS envelope's RFC-2822 ``cap:expires``
+# (``_gregorian_year``), which the pre-filter reads before any body is built.
+MIN_BUDDHIST_ERA_YEAR = 2400
+BUDDHIST_ERA_OFFSET = 543
+
+# A CAP dateTime's leading 4-digit year and everything after it.
+_ISO_YEAR_RE = re.compile(r"^(\d{4})(\D.*)$")
+
+
+def _gregorian(value: str) -> str:
+    """Rewrite a Buddhist-Era year in a CAP dateTime to Gregorian.
+
+    Returns ``value`` unchanged when it lacks a leading 4-digit year or the
+    year is already Gregorian (< 2400). Only the year is touched; month, day,
+    time, and UTC offset are preserved verbatim — the Thai solar calendar is
+    Gregorian apart from the era number (BE = CE + 543).
+    """
+    if not value:
+        return value
+    m = _ISO_YEAR_RE.match(value)
+    if m is None:
+        return value
+    year = int(m.group(1))
+    if year < MIN_BUDDHIST_ERA_YEAR:
+        return value
+    return f"{year - BUDDHIST_ERA_OFFSET:04d}{m.group(2)}"
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +208,7 @@ def _parse_rss_links(
     coordinator poll timeout. Items lacking a parseable ``expires`` are kept
     (fail-open), so feeds without the extension behave as before. Raises
     ``ET.ParseError`` on malformed XML — the caller converts that to
-    ``UpdateFailed``. Returns ``[]`` for a feed with no live items.
+    ``ProviderError``. Returns ``[]`` for a feed with no live items.
     """
     cutoff = now or datetime.now(timezone.utc)
     root = ET.fromstring(xml_text)
@@ -352,10 +386,10 @@ def _build_alert(
         severity=info.severity,
         certainty=info.certainty,
         response_type=",".join(info.response_type) if info.response_type else "",
-        sent=doc.sent,
-        effective=info.effective,
-        onset=info.onset,
-        expires=info.expires,
+        sent=_gregorian(doc.sent),
+        effective=_gregorian(info.effective),
+        onset=_gregorian(info.onset),
+        expires=_gregorian(info.expires),
         headline=info.headline,
         description=info.description,
         instruction=info.instruction or None,
@@ -389,6 +423,10 @@ class WMOProvider:
     @property
     def name(self) -> str:
         return "wmo"
+
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        return _CONVENTIONS
 
     async def async_validate_config(
         self,
@@ -438,12 +476,12 @@ class WMOProvider:
         """
         source_id = (config.get(CONF_SOURCE_ID) or "").strip()
         if not source_id:
-            raise UpdateFailed("WMO: source_id not configured")
+            raise ProviderError("WMO: source_id not configured")
 
         url = WMO_RSS_URL.format(source_id=source_id)
         async with session.get(url) as resp:
             if resp.status != 200:
-                raise UpdateFailed(f"WMO {source_id}: RSS HTTP {resp.status}")
+                raise ProviderError(f"WMO {source_id}: RSS HTTP {resp.status}")
             rss_text = await resp.text()
 
         try:
@@ -451,7 +489,7 @@ class WMOProvider:
                 rss_text, geocode_prefixes=options.get(CONF_GEOCODE_PREFIXES)
             )
         except ET.ParseError as err:
-            raise UpdateFailed(f"WMO {source_id}: failed to parse RSS: {err}") from err
+            raise ProviderError(f"WMO {source_id}: failed to parse RSS: {err}") from err
 
         if not cap_urls:
             return []
@@ -515,13 +553,13 @@ class WMOProvider:
             return []
         with_polygons = [a for a in alerts if a.geometry]
         if not with_polygons:
-            raise UpdateFailed(
+            raise ProviderError(
                 f"WMO {source_id}: GPS filter requested but {len(alerts)} alerts "
                 "carry no polygons; this source does not publish per-alert geometry"
             )
         gps = parse_gps(gps_loc)
         if gps is None:
-            raise UpdateFailed(f"WMO {source_id}: invalid GPS coordinates {gps_loc!r}")
+            raise ProviderError(f"WMO {source_id}: invalid GPS coordinates {gps_loc!r}")
         lat, lon = gps
         kept: list[CAPAlert] = []
         for alert in alerts:

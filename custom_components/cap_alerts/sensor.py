@@ -78,7 +78,7 @@ async def async_setup_entry(
     # to the platform so they can write state. Without this, hydrated
     # entities block creation of new entities for the same alert ID but
     # never become platform-registered, leaving them unavailable.
-    provider = entry.data.get(CONF_PROVIDER, "nws")
+    provider = entry.data[CONF_PROVIDER]
     alert_prefix = f"{entry.entry_id}_{provider}_"
     for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
         if not ent.unique_id.startswith(alert_prefix):
@@ -217,7 +217,7 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
         super().__init__(coordinator)
         self._alert_id = alert_id
         self._entry = entry
-        provider = entry.data.get(CONF_PROVIDER, "nws")
+        provider = entry.data[CONF_PROVIDER]
         self._attr_unique_id = f"{entry.entry_id}_{provider}_{alert_id}"
 
     @property

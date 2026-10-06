@@ -117,9 +117,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) ->
 
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    # Start the NAAD real-time stream (no-op unless ECCC streaming is enabled).
-    # The first refresh above already seeded the active set from the GeoRSS
-    # backfill, so the stream only needs to carry live updates + reconnect gaps.
+    # Start the provider's push ingest (no-op for a polling entry). The first
+    # refresh above already seeded the active set from the backfill, so the
+    # stream only needs to carry live updates + reconnect gaps.
     await coordinator.async_start_stream()
     entry.async_on_unload(coordinator.async_stop_stream)
     entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
@@ -163,10 +163,10 @@ async def _async_entry_updated(
     if coordinator.entry_data_changed(entry):
         hass.config_entries.async_schedule_reload(entry.entry_id)
         return
-    # Toggling real-time streaming changes ingestion wiring captured when the
-    # coordinator was built (the stream task, the poll-vs-resync interval), so a
-    # clean reload is simpler and safer than in-place re-wiring.
-    if AlertsDataUpdateCoordinator.streaming_enabled(entry) != coordinator.streaming:
+    # Toggling real-time ingestion changes wiring captured when the coordinator
+    # was built (the ingest, the poll-vs-resync interval), so a clean reload is
+    # simpler and safer than in-place re-wiring.
+    if coordinator.streaming_enabled(entry) != coordinator.streaming:
         hass.config_entries.async_schedule_reload(entry.entry_id)
         return
     coordinator.update_interval = coordinator.resolve_update_interval(entry)

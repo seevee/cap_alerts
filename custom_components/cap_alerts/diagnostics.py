@@ -72,9 +72,6 @@ from .const import (
     GDACS_RSS_24H_URL,
     GDACS_RSS_CURRENT_URL,
     METEOALARM_COUNTRY_SLUGS,
-    NAAD_REPOSITORY_URL,
-    NAAD_STREAM_HOST,
-    NAAD_STREAM_PORT,
     PLATFORM_VERSION,
 )
 from .conventions import CONVENTIONS, PipelineStage, SourceConventions, conventions_for
@@ -104,6 +101,17 @@ TO_REDACT = {
     CONF_PASSWORD,
     CONF_TOKEN,
     CONF_USERNAME,
+}
+
+# The ``stream`` block for an entry with no push ingest, key for key what
+# ``NAADIngest.diagnostics`` reports when there is one.
+_STREAM_IDLE: dict[str, Any] = {
+    "connected": False,
+    "endpoint": None,
+    "live_documents": 0,
+    "last_backfill": None,
+    "repository": None,
+    "repository_recovered": 0,
 }
 
 # Ceiling on the per-alert lifecycle table. A GDACS entry at the green floor
@@ -181,20 +189,11 @@ async def async_get_config_entry_diagnostics(
             ),
             "timeout_seconds": options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
         },
+        # The ingest reports its own facts; a polling entry gets the same keys
+        # at rest, so streaming being off reads as an answer rather than a gap.
         "stream": {
             "enabled": coordinator.streaming,
-            "connected": coordinator.stream_connected,
-            "endpoint": (
-                f"{NAAD_STREAM_HOST}:{NAAD_STREAM_PORT}"
-                if coordinator.streaming
-                else None
-            ),
-            "live_documents": coordinator.live_doc_count,
-            "last_backfill": _iso(coordinator.last_backfill_time),
-            # Heartbeat-driven recovery from the NAAD short-term repository
-            # (issue #164): the count says whether it has ever fired.
-            "repository": NAAD_REPOSITORY_URL if coordinator.streaming else None,
-            "repository_recovered": coordinator.repository_recovered,
+            **(coordinator.ingest_diagnostics or _STREAM_IDLE),
         },
         "filters": {
             "exclude_marine": options.get(CONF_EXCLUDE_MARINE, False),

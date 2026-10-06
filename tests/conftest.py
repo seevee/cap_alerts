@@ -25,7 +25,18 @@ _repo_cc = str(_REPO_ROOT / "custom_components")
 if _repo_cc not in custom_components.__path__:
     custom_components.__path__.append(_repo_cc)
 
+from custom_components.cap_alerts.conventions import register_source  # noqa: E402
 from custom_components.cap_alerts.model import CAPAlert  # noqa: E402
+from custom_components.cap_alerts.providers import (  # noqa: E402
+    PROVIDER_IDS,
+    get_provider,
+)
+
+# Put every shipped source's rows into force, the way the coordinator does when
+# it builds a provider. Tests that normalize an alert without ever building one
+# would otherwise see the empty row for its source.
+for _provider_id in PROVIDER_IDS:
+    register_source(get_provider(_provider_id).conventions)
 
 
 def make_alert(**overrides: Any) -> CAPAlert:

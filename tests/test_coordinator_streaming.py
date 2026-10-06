@@ -124,7 +124,7 @@ def _atom(*cap_urls: str) -> str:
 
 
 def _install_fake_stream(monkeypatch) -> dict:
-    """Replace NAADStreamClient with a fake that captures the coordinator callbacks."""
+    """Replace NAADStreamClient with a fake that captures the ingest's callbacks."""
     holder: dict = {}
 
     class _FakeStreamClient:
@@ -154,7 +154,7 @@ def _install_fake_stream(monkeypatch) -> dict:
             self._stopped.set()
 
     monkeypatch.setattr(
-        "custom_components.cap_alerts.coordinator.NAADStreamClient",
+        "custom_components.cap_alerts.providers.eccc_ingest.NAADStreamClient",
         _FakeStreamClient,
     )
     return holder
@@ -322,7 +322,7 @@ async def test_non_actual_doc_referencing_a_tracked_alert_is_not_retained(
 
     entry = await _setup(hass)
     coordinator = entry.runtime_data
-    assert "urn:oid:A" in coordinator._live_docs
+    assert "urn:oid:A" in coordinator.ingest._live_docs
 
     await holder["on_alert_doc"](
         _cap_xml(
@@ -333,7 +333,7 @@ async def test_non_actual_doc_referencing_a_tracked_alert_is_not_retained(
     )
     await hass.async_block_till_done()
 
-    assert "urn:oid:TEST" not in coordinator._live_docs
+    assert "urn:oid:TEST" not in coordinator.ingest._live_docs
     assert hass.states.get(_count_id(hass, entry)).state == "1"
 
 
@@ -522,7 +522,7 @@ async def test_out_of_region_streamed_doc_is_not_retained(
     await hass.async_block_till_done()
 
     assert hass.states.get(count_id).state == "1"
-    assert "urn:oid:BC" not in coordinator._live_docs
+    assert "urn:oid:BC" not in coordinator.ingest._live_docs
 
 
 @pytest.mark.asyncio
@@ -556,7 +556,7 @@ async def test_superseding_doc_is_retained_even_when_out_of_region(
     )
     await hass.async_block_till_done()
 
-    assert "urn:oid:A2" in coordinator._live_docs
+    assert "urn:oid:A2" in coordinator.ingest._live_docs
     assert hass.states.get(count_id).state == "0"
 
 
@@ -862,13 +862,13 @@ async def test_unload_stops_the_stream_task(
 
     entry = await _setup(hass)
     coordinator = entry.runtime_data
-    assert coordinator._stream_task is not None
+    assert coordinator.ingest._stream_task is not None
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 
     assert holder["client"]._stopped.is_set()
-    assert coordinator._stream_task is None
+    assert coordinator.ingest._stream_task is None
 
 
 # ---------------------------------------------------------------------------
@@ -912,7 +912,7 @@ async def test_heartbeat_recovers_an_unseen_reference_from_the_repository(
     await hass.async_block_till_done()
 
     assert hass.states.get(count_id).state == "2"
-    assert entry.runtime_data.repository_recovered == 1
+    assert entry.runtime_data.ingest.repository_recovered == 1
     assert _repository_calls(aioclient_mock, url) == 1
 
     await holder["on_heartbeat"](_heartbeat_xml(missed))
@@ -944,7 +944,7 @@ async def test_heartbeat_does_not_refetch_streamed_or_backfilled_alerts(
 
     assert len(aioclient_mock.mock_calls) == calls_before
     assert hass.states.get(count_id).state == "2"
-    assert entry.runtime_data.repository_recovered == 0
+    assert entry.runtime_data.ingest.repository_recovered == 0
 
 
 @pytest.mark.asyncio
@@ -966,7 +966,7 @@ async def test_heartbeat_does_not_refetch_a_rejected_out_of_region_alert(
     coordinator = entry.runtime_data
     await holder["on_alert_doc"](_cap_xml("urn:oid:BC", sgc="5915022"))
     await hass.async_block_till_done()
-    assert "urn:oid:BC" not in coordinator._live_docs
+    assert "urn:oid:BC" not in coordinator.ingest._live_docs
 
     calls_before = len(aioclient_mock.mock_calls)
     for _ in range(3):
@@ -999,8 +999,8 @@ async def test_recovered_out_of_region_alert_is_not_retained_but_is_seen(
         await hass.async_block_till_done()
 
     assert hass.states.get(count_id).state == "1"
-    assert "urn:oid:BC" not in coordinator._live_docs
-    assert coordinator.repository_recovered == 1
+    assert "urn:oid:BC" not in coordinator.ingest._live_docs
+    assert coordinator.ingest.repository_recovered == 1
     assert _repository_calls(aioclient_mock, url) == 1
 
 
@@ -1031,8 +1031,8 @@ async def test_repository_fetch_gives_up_after_bounded_attempts(
             await hass.async_block_till_done()
 
     assert _repository_calls(aioclient_mock, url) == 3
-    assert "urn:oid:GONE" in coordinator._seen
-    assert coordinator._repository_attempts == {}
+    assert "urn:oid:GONE" in coordinator.ingest._seen
+    assert coordinator.ingest._repository_attempts == {}
     give_ups = [
         r for r in caplog.records if "giving up on urn:oid:GONE" in r.getMessage()
     ]
@@ -1058,7 +1058,7 @@ async def test_heartbeat_skips_references_older_than_48h(
     await hass.async_block_till_done()
 
     assert len(aioclient_mock.mock_calls) == calls_before
-    assert entry.runtime_data.repository_recovered == 0
+    assert entry.runtime_data.ingest.repository_recovered == 0
 
 
 @pytest.mark.asyncio
@@ -1093,8 +1093,8 @@ async def test_repository_outage_still_rebuilds_locally(
     assert errors == []
     assert hass.states.get(count_id).state == "1"
     # Not seen and not counted against the give-up bound: the batch never ran.
-    assert "urn:oid:B" not in coordinator._seen
-    assert coordinator._repository_attempts == {}
+    assert "urn:oid:B" not in coordinator.ingest._seen
+    assert coordinator.ingest._repository_attempts == {}
 
 
 @pytest.mark.asyncio
@@ -1113,6 +1113,6 @@ async def test_live_and_seen_sets_prune_past_48h(
     await holder["on_alert_doc"](_cap_xml("urn:oid:OLD", sent_offset_h=49))
     await hass.async_block_till_done()
 
-    assert "urn:oid:OLD" not in coordinator._live_docs
-    assert "urn:oid:OLD" not in coordinator._seen
-    assert "urn:oid:A" in coordinator._seen
+    assert "urn:oid:OLD" not in coordinator.ingest._live_docs
+    assert "urn:oid:OLD" not in coordinator.ingest._seen
+    assert "urn:oid:A" in coordinator.ingest._seen

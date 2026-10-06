@@ -60,14 +60,20 @@ When a change spans layers, follow the dependency order:
    `async_fetch()` returning `list[CAPAlert]`, plus `async_validate_config()`
    for the scope the config flow collects.
 2. Register it in `providers/__init__.py::get_provider()`.
-3. Add a convention row in `conventions.py::CONVENTIONS`. The conventions
-   test rejects a row that leaves alerts no way to end.
+3. Add `providers/<name>_conventions.py`: the `SourceConventions` row, the
+   helpers it references, an `icon` classifier, and a `CONVENTIONS` mapping
+   keyed `"<name>"` that the provider returns from its `conventions`
+   property. Add the id to `PROVIDER_IDS`. The conventions test rejects a row
+   that leaves alerts no way to end; `tests/test_neutral_layer.py` rejects a
+   provider name anywhere in the shared modules.
 4. Add a flow module in `flows/<name>.py` (a menu step plus one form per
    location mode) and mix it into `CAPAlertsFlowHandler` in `config_flow.py`.
 5. Add the strings to `strings.json` and `translations/en.json`.
 6. Add the provider's rows to `SETUP`, `RECONFIGURE` and `OPTIONS_SCHEMA` in
    `scripts/flow_walk.py`, and walk a deployed instance.
-7. Keep severity and phase mapping in `normalize.py`, not in the provider.
+7. Keep severity and phase mapping out of the provider: a source's own
+   severity signal is a `severity` hook on its row, and `normalize.py` is
+   not edited.
 
 ## Workflow
 

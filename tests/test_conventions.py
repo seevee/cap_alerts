@@ -6,18 +6,20 @@ import pytest
 
 from custom_components.cap_alerts.conventions import (
     CONVENTIONS,
+    SourceConventions,
+    StageContext,
+    conventions_for,
+    is_marine_code,
+)
+from custom_components.cap_alerts.providers.eccc_conventions import eccc_superseded_by
+from custom_components.cap_alerts.providers.meteoalarm_conventions import (
     FMI_EPISODES,
     FMI_SENDER,
     METEOFRANCE_EPISODES,
     METEOFRANCE_SENDER,
-    SourceConventions,
-    StageContext,
-    conventions_for,
-    eccc_superseded_by,
-    is_marine_code,
     meteoalarm_awareness_severity,
-    nws_vtec_severity,
 )
+from custom_components.cap_alerts.providers.nws_conventions import nws_vtec_severity
 
 # ---------------------------------------------------------------------------
 # Resolution
@@ -37,6 +39,16 @@ def test_sender_falls_back_to_provider_entry():
     # No sender-scoped entry exists yet, so a sender must not lose the
     # provider's conventions.
     assert conventions_for("nws", "w-nws.webmaster@noaa.gov") is CONVENTIONS["nws"]
+
+
+def test_register_source_rejects_a_second_claim_on_a_key():
+    # Two providers declaring one key is a wiring bug; the same objects again
+    # (a second entry on one provider) is the normal case and a no-op.
+    from custom_components.cap_alerts.conventions import register_source
+
+    register_source({"nws": CONVENTIONS["nws"]})
+    with pytest.raises(ValueError, match="already registered"):
+        register_source({"nws": SourceConventions()})
 
 
 def test_sender_scoped_entry_wins_when_present(monkeypatch):

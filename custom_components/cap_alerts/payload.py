@@ -37,15 +37,9 @@ the description does.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
-
-from homeassistant.const import (
-    ATTR_ATTRIBUTION,
-    ATTR_RESTORED,
-    ATTR_SUPPORTED_FEATURES,
-)
-from homeassistant.helpers.json import json_bytes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,10 +55,9 @@ PAYLOAD_RESERVE = 584
 PAYLOAD_BUDGET = RECORDER_CEILING - PAYLOAD_RESERVE
 
 # ``recorder.const.ALL_DOMAIN_EXCLUDE_ATTRS``, spelled out for the same reason
-# as the ceiling above.
-_RECORDER_EXCLUDED = frozenset(
-    {ATTR_ATTRIBUTION, ATTR_RESTORED, ATTR_SUPPORTED_FEATURES}
-)
+# as the ceiling above: ``homeassistant.const.ATTR_ATTRIBUTION``,
+# ``ATTR_RESTORED`` and ``ATTR_SUPPORTED_FEATURES``.
+_RECORDER_EXCLUDED = frozenset({"attribution", "restored", "supported_features"})
 
 # Attributes the alert entity declares unrecorded, so they neither count toward
 # the bound nor land in history. Both are unbounded and source-controlled.
@@ -168,9 +161,22 @@ def measure(
     """
     excluded = _RECORDER_EXCLUDED | unrecorded
     try:
-        return len(json_bytes({k: v for k, v in attrs.items() if k not in excluded}))
+        return len(_serialize({k: v for k, v in attrs.items() if k not in excluded}))
     except TypeError:
         return None
+
+
+def _serialize(attrs: dict[str, Any]) -> bytes:
+    """Encode the way the recorder's ``json_bytes`` does: compact, UTF-8 verbatim.
+
+    Home Assistant serializes with orjson. The standard library produces the
+    same bytes for the strings, numbers, lists and dicts an attribute set is
+    made of, given no separators and no ASCII escaping; the one divergence is
+    the spelling of an exponent-form float, one byte at most, well inside the
+    reserve above. Not importing the helper is the point: this module measures
+    a payload and owes nothing to the host that stores it.
+    """
+    return json.dumps(attrs, separators=(",", ":"), ensure_ascii=False).encode()
 
 
 def fit_to_budget(

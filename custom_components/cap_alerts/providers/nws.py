@@ -10,13 +10,18 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from ..const import CONF_GPS_LOC, CONF_ZONE_ID
-from ..conventions import NWS_MARINE_UGC_PREFIXES as _NWS_MARINE_UGC_PREFIXES
-from ..conventions import StageContext, conventions_for, is_marine_code
+from ..conventions import (
+    SourceConventions,
+    StageContext,
+    is_marine_code,
+)
 from ..model import CAPAlert, geocodes_from
+from . import ProviderError
 from .cap_content_cache import CAPContentCache
+from .nws_conventions import CONVENTIONS as _CONVENTIONS
+from .nws_conventions import NWS_MARINE_UGC_PREFIXES as _NWS_MARINE_UGC_PREFIXES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,7 +86,7 @@ def _still_cancellable(expires: str, now: datetime) -> bool:
 # here so the parse site below reads in NWS terms.
 NWS_MARINE_UGC_PREFIXES = _NWS_MARINE_UGC_PREFIXES
 
-_NWS_CONVENTIONS = conventions_for("nws")
+_NWS_CONVENTIONS = _CONVENTIONS["nws"]
 
 
 def _is_marine_nws(codes: tuple[str, ...]) -> bool:
@@ -256,6 +261,10 @@ class NWSProvider:
     def name(self) -> str:
         return "nws"
 
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        return _CONVENTIONS
+
     async def async_validate_config(
         self,
         session: aiohttp.ClientSession,
@@ -429,7 +438,7 @@ class NWSProvider:
         url = f"{NWS_ALL_BASE}?message_type=cancel&{scope}&start={since}"
         try:
             data = await self._fetch_page(session, url)
-        except (UpdateFailed, aiohttp.ClientError, TimeoutError) as err:
+        except (ProviderError, aiohttp.ClientError, TimeoutError) as err:
             _LOGGER.debug("nws: cancellation lookup failed, retaining alerts: %s", err)
             return []
 
@@ -471,13 +480,13 @@ class NWSProvider:
         headers = {"Accept": "application/geo+json"}
         async with session.get(url, headers=headers) as resp:
             if resp.status != 200:
-                raise UpdateFailed(f"NWS API returned {resp.status} for {url}")
+                raise ProviderError(f"NWS API returned {resp.status} for {url}")
             data: dict[str, Any] = await resp.json()
 
         # NWS sometimes returns error objects with 200 status
         if data.get("type") != "FeatureCollection":
             problem_type = data.get("type", "unknown")
             detail = data.get("detail", "")
-            raise UpdateFailed(f"NWS API returned {problem_type}: {detail}")
+            raise ProviderError(f"NWS API returned {problem_type}: {detail}")
 
         return data

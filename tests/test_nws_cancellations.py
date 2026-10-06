@@ -59,7 +59,7 @@ class _Pages:
         self.urls.append(url)
         if "message_type=cancel" in url:
             if self.cancel is None:
-                raise _nws_mod.UpdateFailed("boom")
+                raise _nws_mod.ProviderError("boom")
             return self.cancel
         return self.active
 

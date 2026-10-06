@@ -17,19 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def _entity_registry_from_mock(monkeypatch):
-    """Point ``er.async_get`` at the mock ``hass``'s registry attribute.
-
-    The store looks the registry up through ``er.async_get(hass)``, which reads
-    ``hass.data``; the fixture below is a MagicMock, so without this the store
-    gets a bare mock and the entity id in the payload is a mock too.
-    """
-    monkeypatch.setattr(
-        "custom_components.cap_alerts.store.er.async_get",
-        lambda hass: hass.entity_registry,
-    )
+from custom_components.cap_alerts.store import AlertStore
 
 
 @pytest.fixture
@@ -38,6 +26,19 @@ def hass():
     h.bus.async_fire = MagicMock()
     h.entity_registry.async_get_entity_id.return_value = None
     return h
+
+
+def _store(hass, provider: str, **kwargs) -> AlertStore:
+    """A store over the mock's bus and registry, wired the way the coordinator does it."""
+    return AlertStore(
+        "entry1",
+        provider,
+        fire=hass.bus.async_fire,
+        lookup_entity_id=lambda alert_id: hass.entity_registry.async_get_entity_id(
+            "sensor", "cap_alerts", f"entry1_{provider}_{alert_id}"
+        ),
+        **kwargs,
+    )
 
 
 def _events(hass) -> list[str]:
@@ -56,9 +57,8 @@ def test_reissued_ended_group_fires_one_removal(hass, alert_factory):
     name revision 1's identifier — the same ending, not a new one.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
 
     live = _eccc(
         alert_factory,
@@ -97,9 +97,8 @@ def test_reissued_ended_group_fires_one_removal(hass, alert_factory):
 def test_a_different_group_of_the_same_chain_fires_its_own_removal(hass, alert_factory):
     """One chain, two groups: ending A must not swallow the later ending of B."""
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
 
     group_a_live = _eccc(
         alert_factory,
@@ -150,9 +149,8 @@ def test_group_revived_live_then_ended_again_fires_both_events(hass, alert_facto
     would be swallowed as a duplicate of the first.
     """
     from custom_components.cap_alerts.normalize import normalize_alerts
-    from custom_components.cap_alerts.store import AlertStore
 
-    store = AlertStore(hass, "entry1", "eccc")
+    store = _store(hass, "eccc")
 
     ended_rev1 = _eccc(
         alert_factory,
