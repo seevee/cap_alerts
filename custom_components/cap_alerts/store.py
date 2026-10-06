@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -18,6 +18,9 @@ from .const import (
 )
 from .conventions import ABSENCE_RETAIN, conventions_for
 from .model import CAPAlert
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # Fields whose changes automations typically care about. Anything outside
 # this allowlist (normalized timestamps, parameters dict, geometry, etc.)
@@ -110,25 +113,97 @@ class AlertStore:
         # recorded for each. The store is in-memory, so after a restart
         # ``_previous`` is empty and every live alert would read as new; the
         # entity registry survived, and its ids under this entry's prefix are
-        # exactly the set known before the boot. Read here rather than borrowed
-        # from the sensor platform, which hydrates only after the first refresh
-        # has already run. An id seen live is re-validated silently; one still
-        # unseen by the second fetch-backed reconciliation is announced as
-        # ended, and the sensor platform holds its entity until then. The
-        # event name is the entity's ``original_name``: ``AlertEntity.name`` is
-        # the alert's ``event``, and that is all the registry keeps of the
-        # content, so it is all the removal can carry.
+        # exactly the set known before the boot. ``restore`` pops every id it
+        # has a stored record for (issue #281), so what stays here is the ids
+        # with no record: the first boot after the upgrade, or a lost file. Read
+        # here rather than borrowed from the sensor platform, which hydrates
+        # only after the first refresh has already run. An id seen live is
+        # re-validated silently; one still unseen by the second fetch-backed
+        # reconciliation is announced as ended, and the sensor platform holds
+        # its entity until then. The event name is the entity's
+        # ``original_name``: ``AlertEntity.name`` is the alert's ``event``, and
+        # that is all the registry keeps of the content, so it is all the
+        # removal can carry.
         alert_prefix = f"{entry_id}_{provider}_"
         self._known_at_boot: dict[str, str] = {
             ent.unique_id.removeprefix(alert_prefix): ent.original_name or ""
             for ent in er.async_entries_for_config_entry(er.async_get(hass), entry_id)
             if ent.unique_id.startswith(alert_prefix)
         }
+        # Diagnostics counts from ``restore`` (issue #281): how many records the
+        # file seeded, and how many of those were already past ``expires``.
+        self._restored_count = 0
+        self._expired_count = 0
         self._reconciliations = 0
         # True until the first fetch-backed reconciliation has run. The
         # tombstones above don't survive a restart, so until then a terminal
         # first sighting may be an ending already announced (issue #257).
         self._booting = True
+
+    def restore(
+        self,
+        alerts: Iterable[CAPAlert],
+        *,
+        confirmed_at: str,
+        now: datetime | None = None,
+    ) -> list[CAPAlert]:
+        """Seed the store from the set persisted before the restart. Fires NOTHING.
+
+        A restored alert is the record ``_previous`` would have held had HA
+        stayed up, so the first reconciliation runs the steady-state path on
+        it: silent if it is still live, ``incident_updated`` if its content
+        moved, the absence rule (RFC §2.5) if it is missing, with the content
+        a registry-only id cannot carry. It is marked ``stale`` until a
+        reconciliation confirms it, and ``last_confirmed`` is ``confirmed_at``
+        unless the record had already gone unconfirmed before the restart, in
+        which case its own, older, value is the honest one.
+
+        One already past ``expires`` needs no path of its own. Seeded like the
+        rest, it is a previous record the first ``process()`` finds absent and
+        expired, or still published and terminal, and either branch removes it
+        once with its content and phase ``expired``. Nothing fires here, so a
+        setup whose first fetch fails and retries, rebuilding the store each
+        time, announces nothing twice. ``now`` only feeds the diagnostics count.
+
+        Returns the seeded alerts, which is what the coordinator publishes.
+        """
+        now = now or datetime.now(timezone.utc)
+        seeded_alerts: list[CAPAlert] = []
+        for alert in alerts:
+            # A restored id is no longer registry-only, it takes the path above.
+            self._known_at_boot.pop(alert.id, None)
+            expires_at = _parse_iso(alert.expires)
+            if expires_at is not None and now > expires_at:
+                self._expired_count += 1
+            seeded_alerts.append(self._seed(alert, confirmed_at))
+        self._restored_count = len(seeded_alerts)
+        return seeded_alerts
+
+    def _seed(self, alert: CAPAlert, confirmed_at: str) -> CAPAlert:
+        """Put a restored record in ``_previous``, unconfirmed since the restart."""
+        seeded = replace(
+            alert,
+            stale=True,
+            last_confirmed=alert.last_confirmed or confirmed_at,
+            previous_phase="",
+            phase_changed=False,
+        )
+        self._previous[alert.id] = seeded
+        self._last_seen[alert.id] = seeded.last_confirmed
+        return seeded
+
+    @property
+    def restored_at_boot(self) -> int:
+        """How many alerts ``restore`` seeded, for diagnostics."""
+        return self._restored_count
+
+    @property
+    def expired_at_boot(self) -> int:
+        """How many of those were already past ``expires``, for diagnostics.
+
+        Counted at ``restore``; the first ``process()`` removes them.
+        """
+        return self._expired_count
 
     def process(
         self,
@@ -226,13 +301,19 @@ class AlertStore:
                     # the tombstone to this revision without re-announcing.
                     self._tombstone(alert_id, alert.identifier, now)
                     continue
-                if self._booting and alert_id not in self._known_at_boot:
+                if (
+                    self._booting
+                    and prev is None
+                    and alert_id not in self._known_at_boot
+                ):
                     # Terminal on the first fetch after a boot, and no entity
                     # from before it: either its ending was announced before
                     # the restart, or it began and ended while HA was down and
                     # was never announced as created. Neither owes a consumer a
                     # removal (issue #257). A known id still falls through, it
-                    # was live before the restart and this is its ending.
+                    # was live before the restart and this is its ending, and
+                    # so does a restored one (#281), whose record is in
+                    # ``_previous`` and whose id has left ``_known_at_boot``.
                     self._tombstone(alert_id, alert.identifier, now)
                     continue
             else:

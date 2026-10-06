@@ -19,8 +19,9 @@ severity derivations) that keeps the provider modules free of special cases.
 
 This module does the per-instance and per-entry wiring: the shared geometry
 store and CAP body cache, the geometry REST view and websocket command, the
-coordinator that owns the poll and the optional NAAD stream, the repairs
-issues an entry's config owes, and the reload rules when options change.
+coordinator that owns the poll and the optional NAAD stream, the per-entry
+restore file that carries the live set across a restart, the repairs issues
+an entry's config owes, and the reload rules when options change.
 """
 
 from __future__ import annotations
@@ -28,7 +29,8 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.instance_id import async_get as async_get_instance_id
 
 from .const import (
@@ -45,6 +47,7 @@ from .geometry_store import GeometryStore
 from .issues import async_delete_issues, async_sync_issues
 from .providers import get_provider
 from .providers.cap_content_cache import CAPContentCache
+from .restore import AlertRestoreStore
 from .views import CapAlertsGeometryView
 from .websocket import async_register as async_register_ws
 
@@ -112,7 +115,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) ->
         user_agent,
         domain_data["geometry_store"],
         domain_data["cap_content_cache"],
+        restore_store=AlertRestoreStore(hass, entry.entry_id),
     )
+    # Restore first, so the first refresh reconciles against the saved set
+    # (issue #281). A failed first fetch still raises ConfigEntryNotReady as
+    # before; the retry rebuilds the coordinator and restores again.
+    await coordinator.async_restore()
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
@@ -122,6 +130,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) ->
     # backfill, so the stream only needs to carry live updates + reconnect gaps.
     await coordinator.async_start_stream()
     entry.async_on_unload(coordinator.async_stop_stream)
+    # One immediate write at unload and at shutdown, so the restored
+    # ``confirmed_at`` is the last reconciliation rather than the last change.
+    entry.async_on_unload(coordinator.async_save_restore_state)
+
+    # ``async_listen``, not ``async_listen_once``: the stop event fires once
+    # anyway, and unsubscribing a once-listener after it fired logs an error.
+    async def _async_save_on_stop(_event: Event) -> None:
+        await coordinator.async_save_restore_state()
+
+    entry.async_on_unload(
+        hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _async_save_on_stop)
+    )
     entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
     return True
 
@@ -132,8 +152,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) -
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Clear the repairs raised for an entry that is being deleted."""
+    """Clear the repairs and the restore file of an entry that is being deleted."""
     async_delete_issues(hass, entry)
+    await AlertRestoreStore(hass, entry.entry_id).async_remove()
 
 
 async def _async_entry_updated(

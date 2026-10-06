@@ -49,9 +49,9 @@ unchanged to each.
 ## What runs today, and the gap
 
 The [`cap_alerts`](../README.md) custom integration implements everything in §2
-except restart content restore, across weather, civil-protection and disaster
-feeds (§4.1). Its entities don't inherit `RestoreEntity` yet, so that half of
-§2.5 is specified and not field-tested (§5).
+except loading when the first fetch after a boot fails, across weather,
+civil-protection and disaster feeds (§4.1). Content restore ships from its own
+per-entry store, not `RestoreEntity` (§5).
 
 ## What I'm asking for
 

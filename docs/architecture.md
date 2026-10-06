@@ -68,7 +68,14 @@ Each coordinator callback computes full `to_add` / `to_remove` sets from `set(co
 
 ### Restart grace
 
-Registry entries hydrated at startup are seeded into a `_grace_ids` set. On the first sync, any grace ID not yet present in `coordinator.data` is exempted from removal. After that first sync, `_grace_ids` is cleared unconditionally — on the next poll, any still-absent alert is removed through the normal path. This tolerates the RFC §2.5 scenario where HA restarts in the window between an upstream cancellation and the coordinator observing it, at a cost of up to one extra `scan_interval` of lingering entities in genuinely-cleared cases.
+Registry entries are hydrated into the tracked set at startup. Each sync
+exempts `coordinator.boot_pending_ids` from removal: the registry-only ids the
+store has neither seen live nor settled. The store settles them on the second
+fetch-backed reconciliation (#252), since a stream rebuild a minute after boot
+can't recover what the seed backfill missed, and the entity goes on the same
+reconciliation as its `incident_removed`. Restored ids never enter that set.
+They are in `coordinator.data` from the restored record and follow the normal
+absence rule (see the Alert Store notes below).
 
 ---
 
@@ -1066,12 +1073,62 @@ Holds the previous poll's alerts in memory and diffs incoming alerts to detect n
 
 ### Design notes
 
-- **In-memory only, seeded from the registry at boot** (issue #250). No disk persistence, so after a restart `_previous` is empty. The entity registry survives, though, and the alert ids under the entry's unique_id prefix are exactly the set known before the boot. The store reads them at construction (the sensor platform hydrates the same set, but only after the first refresh has run) and treats the first reconciliation as the re-validation RFC §2.5 describes: a known id still live fires nothing, an id not in the registry fires `incident_created`, and a known id still absent on the second reconciliation, when the sensor's grace window drops the entity, fires `incident_removed`. That removal carries only what the registry kept, the id and the entity's name, which is the alert's `event`: `phase: cancel`, `severity: unknown`, no `area_desc`, no `removal_reason`.
+- **Seeded from its own store, then the registry** (issues #281, #250). The
+  diff state is in memory, but the coordinator loads the entry's restore file
+  (see below) before the first refresh and hands it to `restore()`. Each saved
+  alert goes into `_previous` marked `stale: true`, with `last_confirmed` set
+  to its own saved value if it was already stale, else the file's
+  `confirmed_at`. The first reconciliation then runs the steady-state path on
+  it: silent if live and unchanged, `incident_updated` with `changed_fields` if
+  its content moved, the RFC §2.5 absence rule with full content if missing,
+  and `incident_removed` with the real phase and `removal_reason` if terminal
+  upstream. A restored id that is terminal on the boot fetch is not old news:
+  the #257 suppression only applies when there is no previous record.
+  Restored ids leave `_known_at_boot`, so the registry path now serves only ids
+  with no stored record (first boot after the upgrade, a lost or unreadable
+  file). There a known id still live fires nothing, an id not in the registry
+  fires `incident_created`, and a known id still absent on the second
+  fetch-backed reconciliation fires `incident_removed`. That removal carries
+  only what the registry kept, the id and the entity's name, which is the
+  alert's `event`: `phase: cancel`, `severity: unknown`, no `area_desc`, no
+  `removal_reason`.
+- **Offline expiry needs no path of its own.** A restored alert already past
+  `expires` is seeded like the rest, so the first `process()` meets it as a
+  previous record that is absent and expired, or still published and terminal.
+  Either branch removes it once, with the saved content and phase `expired`,
+  and tombstones it. `restore()` itself fires nothing, which is what makes a
+  setup that fails and retries, rebuilding the store each time, safe.
 - **Events are lightweight.** Payload contains only the RFC §2.3 schema plus two project extensions (`entry_id`, `area_desc`). Automations that need full details read the entity attributes — avoids duplicating the CAP payload on the bus. See [`events.md`](events.md) for the full schema.
 - **Runs after normalization.** `phase` must be set before diffing.
 - **Filter is internal to `store.process`.** The coordinator hands in the full normalized list (including `cancel`/`expired`). The store fires `incident_removed` with the true terminal phase and then drops those alerts from the returned active set — so the event payload's `phase` distinguishes cancel from expired directly. Alerts that vanish silently between polls are inferred as `expired` when past their `expires` timestamp, otherwise `cancel`.
 - **Tombstones make an ending announced-once** (issue #145). Dropping a terminal alert from the active set also drops it from `_previous`, so the next reconciliation reads a record the source is still publishing as a first sighting that is already terminal — and re-announces the ending, once per cycle, for as long as it is published (48 h on ECCC, and ~60× an hour of that under streaming, where every heartbeat rebuilds the active set). `_tombstones` is the memory `_previous` cannot carry: an id announced as removed suppresses the next terminal sighting instead of firing. Any non-terminal sighting clears it, so a reissue still fires `incident_created`. Ageing is *idle* — each suppression restamps the entry — which makes the TTL a bound on absence-and-return rather than on a source's retention window, and sizes it from measurement: the NAAD host-gap probe has records dropping out of `rss.alertready.ca` and coming back up to ~21 h later, ended alerts among them, so `TOMBSTONE_IDLE_TTL` is 48 h. Erring long costs nothing measurable (ids are OID- or hash-derived and never recycled onto another incident); erring short is the bug.
 - **The tombstone also follows the CAP identifier, not just the id** (issue #185). `_tombstones` alone only recognises the *same* revision reappearing; it misses a source re-issuing an already-ended record under a new revision, since `sent` is a key input and the new bilingual key has no tombstone of its own. `_tombstoned_identifiers` closes that gap: a terminal alert whose `references` name a CAP `<identifier>` already recorded there is the same ending under a new key, suppressed the same way and folded into both maps so a further revision is caught too. Streaming is where this bites — polling collapses same-cycle revisions before the store sees more than one — so the regression tests feed the store one revision per call. A lineage going live again pops its referenced identifiers back out, so a later, genuine ending of that lineage isn't swallowed as a duplicate of the one the revival superseded.
+
+---
+
+## Restore store (`restore.py`)
+
+One HA `Store` per config entry at `.storage/cap_alerts.<entry_id>`, version 1,
+`atomic_writes=True`, holding the active set the alert store returns plus the
+coordinator's scope key and a `confirmed_at` time. It is written when that set
+changes, coalesced over a 10 s delay, and once at unload and once at HA stop,
+which refreshes `confirmed_at`. A missing file reads as an empty set, so a quiet
+entry never writes one, and the file goes with the entry when it is removed.
+`confirmed_at` is a lower bound on when each alert was last seen live: exact
+after a graceful restart, the time the set last changed after a power cut.
+
+Every `CAPAlert` field round-trips except `geometry` (RFC §2.4: polygons are
+ephemeral) and the per-reconciliation `previous_phase` / `phase_changed`.
+`geometry_ref` is kept, so a card asking for a restored alert's polygon gets
+not-found until the next successful fetch refills the geometry store. A file
+the code can't read is logged and treated as absent, which drops the entry to
+the registry path.
+
+Not `RestoreEntity`: core keeps a removed entity's state for seven days and
+rewrites the whole restore file every 15 minutes, 1 to 1.7 MB a write on a busy
+entry ([evidence](evidence/restoreentity-keeps-a-removed-alert-for-seven-days.md)).
+The setup path is unchanged. A failed first fetch still raises
+`ConfigEntryNotReady`, and loading the platform on restored data is not built.
 
 ---
 

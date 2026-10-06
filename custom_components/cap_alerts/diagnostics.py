@@ -181,6 +181,14 @@ async def async_get_config_entry_diagnostics(
             ),
             "timeout_seconds": options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
         },
+        # Whether the restart restore did anything (issue #281): alerts seeded
+        # live from the file, ones that had expired while HA was down, and when
+        # the file was last written. Counts are since setup.
+        "restore": {
+            "restored_at_boot": coordinator.restored_at_boot,
+            "expired_at_boot": coordinator.expired_at_boot,
+            "last_saved": coordinator.last_saved,
+        },
         "stream": {
             "enabled": coordinator.streaming,
             "connected": coordinator.stream_connected,
