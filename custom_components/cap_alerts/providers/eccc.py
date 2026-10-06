@@ -25,7 +25,7 @@ from ..const import (
     DEFAULT_FEED_SOURCE,
     NAAD_REPOSITORY_URL,
 )
-from ..conventions import conventions_for, is_marine_code
+from ..conventions import SourceConventions, is_marine_code
 from ..model import GEOCODE_CLC, GEOCODE_SGC, CAPAlert, geocodes_from
 from . import IngestHost, ProviderError, PushIngest
 from .cap import (
@@ -37,6 +37,7 @@ from .cap import (
     ring_from_lat_lon_pairs,
 )
 from .cap_content_cache import CAPContentCache
+from .eccc_conventions import CONVENTIONS as _CONVENTIONS
 from .eccc_conventions import ECCC_LIFECYCLE_REMOVAL_REASONS
 from .eccc_conventions import ECCC_MARINE_CLC_PREFIX as _ECCC_MARINE_CLC_PREFIX
 from .geometry import (
@@ -168,7 +169,7 @@ _PROVINCE_BBOX: dict[str, tuple[float, float, float, float]] = {
 _PROVINCE_BBOX_PAD_DEG = 0.5
 
 
-_ECCC_CONVENTIONS = conventions_for("eccc")
+_ECCC_CONVENTIONS = _CONVENTIONS["eccc"]
 
 
 def _is_marine_eccc(clc: tuple[str, ...]) -> bool:
@@ -1165,6 +1166,10 @@ class ECCCProvider:
     @property
     def name(self) -> str:
         return "eccc"
+
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        return _CONVENTIONS
 
     def streaming_enabled(self, options: Mapping[str, Any]) -> bool:
         """Real-time NAAD ingestion is the default; the option is the escape hatch."""

@@ -37,7 +37,7 @@ from .const import (
     DEFAULT_TIMEOUT,
     DOMAIN,
 )
-from .conventions import conventions_for
+from .conventions import conventions_for, register_source
 from .geometry_store import GeometryStore
 from .model import CAPAlert
 from .normalize import normalize_alerts
@@ -219,6 +219,10 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         cap_content_cache: CAPContentCache | None = None,
     ) -> None:
         self._provider = provider
+        # The source's declared rows go into force before anything normalizes
+        # one of its alerts; a second entry on the same provider re-registers
+        # the same objects, which is a no-op.
+        register_source(provider.conventions)
         self._store = AlertStore(
             entry.entry_id,
             provider.name,

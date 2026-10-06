@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from custom_components.cap_alerts.conventions import CONVENTIONS
+from custom_components.cap_alerts.providers import PROVIDER_IDS, get_provider
 
 PACKAGE = Path(__file__).resolve().parent.parent / "custom_components" / "cap_alerts"
 
@@ -39,7 +40,7 @@ NEUTRAL_MODULES = (
     "coordinator.py",
 )
 
-PROVIDER_IDS = frozenset({"nws", "eccc", "meteoalarm", "wmo", "gdacs", "bbk", "au"})
+_PROVIDER_IDS = frozenset(PROVIDER_IDS)
 
 # Provider ids, sender nicknames, and the transports and calendars that belong
 # to one source. An identifier starting with one of these is a source leaking
@@ -78,7 +79,7 @@ def test_neutral_module_names_no_provider_in_code(name: str):
     offenders: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if node.value in PROVIDER_IDS and not _is_docstring(node, parents):
+            if node.value in _PROVIDER_IDS and not _is_docstring(node, parents):
                 offenders.append(f"{name}:{node.lineno} literal {node.value!r}")
         elif isinstance(node, ast.Name) and _PROVIDER_PREFIX.match(node.id):
             offenders.append(f"{name}:{node.lineno} name {node.id}")
@@ -120,11 +121,19 @@ def test_providers_raise_their_own_exception():
     assert offenders == [], "\n".join(offenders)
 
 
-def test_every_shipped_provider_registers_a_row():
-    """Importing the providers package registers a row for each shipped id.
+@pytest.mark.parametrize("provider_id", PROVIDER_IDS)
+def test_every_shipped_provider_declares_its_own_row(provider_id: str):
+    """A provider's rows carry a row under its own id.
 
-    ``conventions_for`` returns the empty row for an unregistered source by
-    design, so a provider whose module forgot to register would fail silently
-    — severity, icons and absence policy would all fall back to pure CAP.
+    ``conventions_for`` returns the empty row for an unknown source by design,
+    so a provider that declared rows under the wrong key would fail silently —
+    severity, icons and absence policy would all fall back to pure CAP.
     """
-    assert PROVIDER_IDS <= set(CONVENTIONS)
+    rows = get_provider(provider_id).conventions
+    assert provider_id in rows
+    assert all(key == provider_id or key.startswith(f"{provider_id}/") for key in rows)
+
+
+def test_rows_in_force_cover_every_shipped_provider():
+    """What ``conftest`` registers is what a coordinator would: every id resolves."""
+    assert _PROVIDER_IDS <= set(CONVENTIONS)

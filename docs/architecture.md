@@ -89,10 +89,13 @@ the field names it publishes.
 and `diagnostics.py`. A shipped source is one fetch module plus one
 convention module, `providers/<name>_conventions.py`, which holds its
 `SourceConventions` row, the helpers that row references and its icon
-classifier, and calls `conventions.register` at import. Importing the
-`providers` package registers every shipped source; `tests/conftest.py`
-imports it for the same reason. Nothing in the neutral half is edited to add a
-provider.
+classifier, and exposes them as a `CONVENTIONS` mapping the provider returns
+from `AlertProvider.conventions`. The coordinator puts those rows into force
+(`conventions.register_source`) when it builds the provider, so the neutral
+modules can resolve a row from the strings an alert carries; the options flow
+reads them straight off the provider instead, so it is right for an entry that
+has not loaded. `tests/conftest.py` registers every shipped provider's rows the
+same way. Nothing in the neutral half is edited to add a provider.
 
 Three seams carry the rest. Providers raise `ProviderError` (`providers/`) and
 the coordinator turns it into Home Assistant's `UpdateFailed` once, in

@@ -33,6 +33,7 @@ from ..const import (
     WMO_SOURCES_URL,
     WMO_UNMIRRORED_SOURCES,
 )
+from ..conventions import SourceConventions
 from ..model import CAPAlert, geocodes_from
 from . import ProviderError
 from .cap import (
@@ -47,6 +48,7 @@ from .cap import (
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_shapes, points_from_circles
 from .gps import alert_polygons, parse_gps, point_in_polygon
+from .wmo_conventions import CONVENTIONS as _CONVENTIONS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -421,6 +423,10 @@ class WMOProvider:
     @property
     def name(self) -> str:
         return "wmo"
+
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        return _CONVENTIONS
 
     async def async_validate_config(
         self,

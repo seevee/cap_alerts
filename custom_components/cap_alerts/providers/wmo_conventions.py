@@ -1,11 +1,14 @@
 """WMO SWIC conventions: pure CAP, a verbatim language tag.
 
-One source's interpretive rules, registered into ``conventions`` at import.
+One source's interpretive rules, exposed to the provider as ``CONVENTIONS``.
 """
 
 from __future__ import annotations
 
-from ..conventions import SourceConventions, register
+from collections.abc import Mapping
+from types import MappingProxyType
+
+from ..conventions import SourceConventions
 from ..icons import INTERNATIONAL_EVENT_SUBSTRINGS, match_event_substrings
 from ..model import CAPAlert
 
@@ -26,6 +29,12 @@ def resolve_language(language: str) -> str:
     return language.strip() or "en"
 
 
-WMO_CONVENTIONS = register(
-    "wmo", SourceConventions(resolve_language=resolve_language, icon=wmo_icon)
+WMO_CONVENTIONS = SourceConventions(resolve_language=resolve_language, icon=wmo_icon)
+
+
+# What this provider declares, keyed as ``conventions_for`` resolves it.
+CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
+    {
+        "wmo": WMO_CONVENTIONS,
+    }
 )

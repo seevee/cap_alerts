@@ -1,11 +1,14 @@
 """GDACS conventions: an event-report source with no area geocodes.
 
-One source's interpretive rules, registered into ``conventions`` at import.
+One source's interpretive rules, exposed to the provider as ``CONVENTIONS``.
 """
 
 from __future__ import annotations
 
-from ..conventions import SourceConventions, register
+from collections.abc import Mapping
+from types import MappingProxyType
+
+from ..conventions import SourceConventions
 from ..model import CAPAlert
 
 # GDACS event-name (CAP ``event``) → mdi. Keys are case-insensitive matched.
@@ -40,6 +43,12 @@ def gdacs_icon(alert: CAPAlert, event: str) -> str | None:
 # sample, and on 2026-10-03 so did 27 wildfires and 8 floods, each about 100 h
 # past its ``todate``. Every earthquake, cyclone and volcano observed stayed
 # true right up to the poll it vanished on.
-GDACS_CONVENTIONS = register(
-    "gdacs", SourceConventions(publishes_geocodes=False, icon=gdacs_icon)
+GDACS_CONVENTIONS = SourceConventions(publishes_geocodes=False, icon=gdacs_icon)
+
+
+# What this provider declares, keyed as ``conventions_for`` resolves it.
+CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
+    {
+        "gdacs": GDACS_CONVENTIONS,
+    }
 )

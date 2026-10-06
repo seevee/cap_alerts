@@ -11,21 +11,20 @@ import aiohttp
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+from ..conventions import SourceConventions
 from ..model import CAPAlert
-
-# Importing this package registers every shipped source's convention rows: each
-# module below calls ``conventions.register`` at import, and nothing in the
-# shared modules names a provider. A new source adds one line here.
-from . import (  # noqa: F401
-    au_conventions,
-    bbk_conventions,
-    eccc_conventions,
-    gdacs_conventions,
-    meteoalarm_conventions,
-    nws_conventions,
-    wmo_conventions,
-)
 from .cap_content_cache import CAPContentCache
+
+# Every shipped provider id, in the order the setup menu offers them.
+PROVIDER_IDS: tuple[str, ...] = (
+    "nws",
+    "eccc",
+    "meteoalarm",
+    "wmo",
+    "gdacs",
+    "bbk",
+    "au",
+)
 
 
 class ProviderError(Exception):
@@ -55,6 +54,16 @@ class AlertProvider(Protocol):
     @property
     def name(self) -> str:
         """Provider identifier for CAPAlert.provider field (e.g. 'nws', 'eccc')."""
+        ...
+
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        """What this source declares about itself, keyed as ``conventions_for``
+        resolves it: ``name`` for the provider row, ``name/sender`` for a
+        dialect. The coordinator puts them into force when it builds the
+        provider (``conventions.register_source``); the options flow reads
+        them straight off the provider.
+        """
         ...
 
     async def async_fetch(

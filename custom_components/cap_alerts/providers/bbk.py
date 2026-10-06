@@ -77,8 +77,10 @@ from ..const import (
     CONF_LANGUAGE,
     CONF_ZONE_ID,
 )
+from ..conventions import SourceConventions
 from ..model import CAPAlert, geocodes_from
 from . import ProviderError
+from .bbk_conventions import CONVENTIONS as _CONVENTIONS
 from .cap import (
     CAPDoc,
     CAPInfoDoc,
@@ -336,6 +338,10 @@ class BBKProvider:
     @property
     def name(self) -> str:
         return "bbk"
+
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        return _CONVENTIONS
 
     async def async_validate_config(
         self,

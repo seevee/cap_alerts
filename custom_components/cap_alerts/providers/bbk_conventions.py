@@ -1,11 +1,14 @@
 """BBK / NINA conventions: no geocodes, a verbatim language tag.
 
-One source's interpretive rules, registered into ``conventions`` at import.
+One source's interpretive rules, exposed to the provider as ``CONVENTIONS``.
 """
 
 from __future__ import annotations
 
-from ..conventions import SourceConventions, register
+from collections.abc import Mapping
+from types import MappingProxyType
+
+from ..conventions import SourceConventions
 from ..icons import INTERNATIONAL_EVENT_SUBSTRINGS, is_english, match_event_substrings
 from ..model import CAPAlert
 
@@ -122,9 +125,14 @@ def resolve_language(language: str) -> str:
 # none and have no terminal vocabulary, so they end the moment the index
 # withdraws them — which is what withdrawal means on warnung.bund.de
 # (issue #66).
-BBK_CONVENTIONS = register(
-    "bbk",
-    SourceConventions(
-        publishes_geocodes=False, resolve_language=resolve_language, icon=bbk_icon
-    ),
+BBK_CONVENTIONS = SourceConventions(
+    publishes_geocodes=False, resolve_language=resolve_language, icon=bbk_icon
+)
+
+
+# What this provider declares, keyed as ``conventions_for`` resolves it.
+CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
+    {
+        "bbk": BBK_CONVENTIONS,
+    }
 )

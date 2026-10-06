@@ -2,8 +2,8 @@
 
 One provider, many dialects: MeteoAlarm relays every EUMETNET member, so the
 provider row carries what every member shares (the ``awareness_level`` severity
-derivation) and two senders register rows of their own. Registered into
-``conventions`` at import.
+derivation) and two senders declare rows of their own. The provider
+exposes them all as ``CONVENTIONS``.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import date, datetime
+from types import MappingProxyType
 
 from ..const import (
     METEOALARM_COUNTRIES,
@@ -27,7 +28,6 @@ from ..conventions import (
     episode_id,
     parse_instant,
     parse_timestamp,
-    register,
     ts_sort_key,
 )
 from ..icons import INTERNATIONAL_EVENT_SUBSTRINGS, match_event_substrings
@@ -731,28 +731,24 @@ def resolve_language(language: str) -> str:
 # The rows
 # ---------------------------------------------------------------------------
 
-METEOALARM_CONVENTIONS = register(
-    "meteoalarm",
-    SourceConventions(
-        severity=meteoalarm_awareness_severity,
-        icon=meteoalarm_icon,
-        resolve_language=resolve_language,
-        country_code=resolve_country_code,
-    ),
+METEOALARM_CONVENTIONS = SourceConventions(
+    severity=meteoalarm_awareness_severity,
+    icon=meteoalarm_icon,
+    resolve_language=resolve_language,
+    country_code=resolve_country_code,
 )
+
 
 # A sender-scoped row replaces the provider's, so the MeteoAlarm severity
 # derivation and icon classifier are restated here rather than inherited.
-METEOFRANCE_CONVENTIONS = register(
-    f"meteoalarm/{METEOFRANCE_SENDER}",
-    SourceConventions(
-        severity=meteoalarm_awareness_severity,
-        icon=meteoalarm_icon,
-        identity=meteofrance_identity,
-        keep=meteofrance_is_live_warning,
-        stages=episode_stages(METEOFRANCE_EPISODES),
-    ),
+METEOFRANCE_CONVENTIONS = SourceConventions(
+    severity=meteoalarm_awareness_severity,
+    icon=meteoalarm_icon,
+    identity=meteofrance_identity,
+    keep=meteofrance_is_live_warning,
+    stages=episode_stages(METEOFRANCE_EPISODES),
 )
+
 
 # FMI splits a continuous warning at the window edge (issue #98), so it
 # declares the episode stages with its own run rule — and nothing else. No
@@ -761,11 +757,18 @@ METEOFRANCE_CONVENTIONS = register(
 # either: the merge re-mints every shipped id, and MeteoFrance's identity hook
 # is load-bearing there only because of the green-marker collision FMI does
 # not have.
-FMI_CONVENTIONS = register(
-    f"meteoalarm/{FMI_SENDER}",
-    SourceConventions(
-        severity=meteoalarm_awareness_severity,
-        icon=meteoalarm_icon,
-        stages=episode_stages(FMI_EPISODES),
-    ),
+FMI_CONVENTIONS = SourceConventions(
+    severity=meteoalarm_awareness_severity,
+    icon=meteoalarm_icon,
+    stages=episode_stages(FMI_EPISODES),
+)
+
+
+# What this provider declares, keyed as ``conventions_for`` resolves it.
+CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
+    {
+        "meteoalarm": METEOALARM_CONVENTIONS,
+        f"meteoalarm/{METEOFRANCE_SENDER}": METEOFRANCE_CONVENTIONS,
+        f"meteoalarm/{FMI_SENDER}": FMI_CONVENTIONS,
+    }
 )

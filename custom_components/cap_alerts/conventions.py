@@ -318,39 +318,47 @@ class SourceConventions:
 # handling rather than an error, so an unknown provider degrades gracefully.
 _NO_CONVENTIONS = SourceConventions()
 
-# The rows, keyed ``provider`` or ``provider/sender``. Filled by ``register``
-# from each source's own module; read-only to everyone else.
+# The rows in force, keyed ``provider`` or ``provider/sender``. A provider
+# declares its rows (``AlertProvider.conventions``) and the coordinator hands
+# them here when it builds the provider, so the neutral modules can resolve a
+# row from the strings an alert carries. Read-only to everyone else.
 _REGISTRY: dict[str, SourceConventions] = {}
 CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(_REGISTRY)
 
 
-def register(key: str, conventions: SourceConventions) -> SourceConventions:
-    """Register one source's row under ``provider`` or ``provider/sender``.
+def register_source(rows: Mapping[str, SourceConventions]) -> None:
+    """Put one provider's declared rows into force.
 
-    Called at import by ``providers/<name>_conventions.py``, so importing the
-    ``providers`` package registers every shipped source. Returns the row so
-    the module can bind it to a name. Two modules claiming one key is a wiring
-    bug and raises; re-registering the same object is harmless.
+    Idempotent for the same objects, which is what a second config entry on
+    the same provider sends. Two providers claiming one key is a wiring bug
+    and raises.
     """
-    existing = _REGISTRY.get(key)
-    if existing is not None and existing is not conventions:
-        raise ValueError(f"conventions for {key!r} are already registered")
-    _REGISTRY[key] = conventions
-    return conventions
+    for key, conventions in rows.items():
+        existing = _REGISTRY.get(key)
+        if existing is not None and existing is not conventions:
+            raise ValueError(f"conventions for {key!r} are already registered")
+        _REGISTRY[key] = conventions
+
+
+def row_for(
+    rows: Mapping[str, SourceConventions], provider: str, sender: str = ""
+) -> SourceConventions:
+    """Resolve a source's row from ``rows``, most specific key first.
+
+    Tries ``"{provider}/{sender}"`` before ``provider`` so a single provider
+    can host per-sender dialects, and falls back to an all-empty row for
+    sources ``rows`` does not know.
+    """
+    if sender:
+        scoped = rows.get(f"{provider}/{sender}")
+        if scoped is not None:
+            return scoped
+    return rows.get(provider, _NO_CONVENTIONS)
 
 
 def conventions_for(provider: str, sender: str = "") -> SourceConventions:
-    """Resolve conventions for a source, most specific key first.
-
-    Tries ``"{provider}/{sender}"`` before ``provider`` so a single provider
-    can host per-sender dialects, and falls back to an all-empty entry for
-    sources the table does not know.
-    """
-    if sender:
-        scoped = CONVENTIONS.get(f"{provider}/{sender}")
-        if scoped is not None:
-            return scoped
-    return CONVENTIONS.get(provider, _NO_CONVENTIONS)
+    """Resolve a source's row from the rows in force (see ``row_for``)."""
+    return row_for(CONVENTIONS, provider, sender)
 
 
 def is_marine_code(codes: Iterable[str], conventions: SourceConventions) -> bool:

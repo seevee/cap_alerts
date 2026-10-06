@@ -1,13 +1,14 @@
 """Australian state-feed conventions: the Australian Warning System tier.
 
-One source's interpretive rules, registered into ``conventions`` at import.
+One source's interpretive rules, exposed to the provider as ``CONVENTIONS``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import MappingProxyType
 
-from ..conventions import SourceConventions, register
+from ..conventions import SourceConventions
 from ..model import CAPAlert
 
 # --- icons ------------------------------------------------------------------
@@ -130,11 +131,16 @@ def au_alert_level_severity(alert: CAPAlert) -> str | None:
 # ``providers/au.py``), the feeds publish no terminal vocabulary and nothing
 # fetches terminations, so an alert ends the moment its feed withdraws it —
 # which is what withdrawal from a "current incidents" feed means (issue #127).
-AU_CONVENTIONS = register(
-    "au",
-    SourceConventions(
-        severity=au_alert_level_severity,
-        icon=au_icon,
-        publishes_geocodes=False,
-    ),
+AU_CONVENTIONS = SourceConventions(
+    severity=au_alert_level_severity,
+    icon=au_icon,
+    publishes_geocodes=False,
+)
+
+
+# What this provider declares, keyed as ``conventions_for`` resolves it.
+CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
+    {
+        "au": AU_CONVENTIONS,
+    }
 )

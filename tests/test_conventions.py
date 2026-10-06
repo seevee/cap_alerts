@@ -41,6 +41,16 @@ def test_sender_falls_back_to_provider_entry():
     assert conventions_for("nws", "w-nws.webmaster@noaa.gov") is CONVENTIONS["nws"]
 
 
+def test_register_source_rejects_a_second_claim_on_a_key():
+    # Two providers declaring one key is a wiring bug; the same objects again
+    # (a second entry on one provider) is the normal case and a no-op.
+    from custom_components.cap_alerts.conventions import register_source
+
+    register_source({"nws": CONVENTIONS["nws"]})
+    with pytest.raises(ValueError, match="already registered"):
+        register_source({"nws": SourceConventions()})
+
+
 def test_sender_scoped_entry_wins_when_present(monkeypatch):
     # The MeteoFrance case the table is shaped for: one provider, several
     # dialects. Patched over the shipped entry so the lookup is tested on its

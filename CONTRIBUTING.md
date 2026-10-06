@@ -61,11 +61,11 @@ When a change spans layers, follow the dependency order:
    for the scope the config flow collects.
 2. Register it in `providers/__init__.py::get_provider()`.
 3. Add `providers/<name>_conventions.py`: the `SourceConventions` row, the
-   helpers it references, an `icon` classifier, and a `register("<name>", …)`
-   call at import. Import the module from `providers/__init__.py` so the row
-   registers. The conventions test rejects a row that leaves alerts no way to
-   end; `tests/test_neutral_layer.py` rejects a provider name anywhere in the
-   shared modules.
+   helpers it references, an `icon` classifier, and a `CONVENTIONS` mapping
+   keyed `"<name>"` that the provider returns from its `conventions`
+   property. Add the id to `PROVIDER_IDS`. The conventions test rejects a row
+   that leaves alerts no way to end; `tests/test_neutral_layer.py` rejects a
+   provider name anywhere in the shared modules.
 4. Add a flow module in `flows/<name>.py` (a menu step plus one form per
    location mode) and mix it into `CAPAlertsFlowHandler` in `config_flow.py`.
 5. Add the strings to `strings.json` and `translations/en.json`.

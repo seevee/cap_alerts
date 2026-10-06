@@ -87,9 +87,11 @@ from ..const import (
     CONF_ALERT_LEVEL,
     CONF_PROVINCE,
 )
+from ..conventions import SourceConventions
 from ..model import CAPAlert, geocodes_from
 from . import ProviderError
 from .au_conventions import AU_ALERT_LEVEL_PARAMETER, au_alert_level
+from .au_conventions import CONVENTIONS as _CONVENTIONS
 from .cap import CAPDoc, CAPInfoDoc, cap_doc_from_element, select_info
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_shapes, points_from_circles
@@ -308,6 +310,10 @@ class AUProvider:
     @property
     def name(self) -> str:
         return "au"
+
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        return _CONVENTIONS
 
     async def async_validate_config(
         self,

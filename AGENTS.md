@@ -77,7 +77,7 @@ custom_components/cap_alerts/
   button.py         # RefreshButton: on-demand provider fetch (all providers)
   binary_sensor.py  # StreamConnectivitySensor: NAAD socket state (ECCC streaming only)
   model.py          # CAPAlert dataclass + to_attributes()
-  conventions.py    # the convention *mechanism*: what a row may declare (SourceConventions: marine prefixes, terminal tokens, severity/identity/keep/icon hooks, language + country resolution, explode/merge pipeline stages), shared timestamp + episode_id helpers, and the registry rows register into; no provider named here
+  conventions.py    # the convention *mechanism*: what a row may declare (SourceConventions: marine prefixes, terminal tokens, severity/identity/keep/icon hooks, language + country resolution, explode/merge pipeline stages), shared timestamp + episode_id helpers, and the rows in force (register_source / conventions_for); no provider named here
   normalize.py      # shared normalization: severity, phase, state truncation
   payload.py        # attribute-payload budget: measures what the recorder measures, trims long-form text then redundant keys in priority order (#150)
   store.py          # alert store: inter-poll diffing, transition detection, event firing (incl. removal_reason) through a fire callable; no hass
@@ -88,12 +88,12 @@ custom_components/cap_alerts/
   views.py          # GET /api/cap_alerts/geometry/{ref} → FeatureCollection
   websocket.py      # cap_alerts/geometry WS command, same payload as the REST view
   providers/
-    __init__.py           # AlertProvider protocol (fetch + config-flow scope validation), ProviderError, the StreamingProvider / PushIngest / IngestHost protocols, get_provider() factory; imports every *_conventions module so the rows register
+    __init__.py           # AlertProvider protocol (fetch + scope validation + declared conventions), ProviderError, the StreamingProvider / PushIngest / IngestHost protocols, PROVIDER_IDS + get_provider() factory
     cap.py                # shared, provider-neutral CAP 1.2 parsing: XML (parse_cap_alert) and JSON (cap_doc_from_json) into CAPDoc/CAPInfoDoc, resolve_chain_leaves, language-block selection (select_info)
     cap_content_cache.py  # LRU cache for fetched bodies: CAP XML, CAP JSON, GeoJSON (shared: eccc, wmo, gdacs, bbk)
     geometry.py           # shared CAP shapes → GeoJSON; polygon/point selection, zero-radius circles
     gps.py                # shared GPS-mode helpers: lat,lon parsing, ray-cast point-in-polygon, rings off a CAPAlert geometry
-    <name>_conventions.py # one per provider: its SourceConventions row(s), the helpers the row references, its icon classifier; registers at import
+    <name>_conventions.py # one per provider: its SourceConventions row(s), the helpers the row references, its icon classifier, exposed as the CONVENTIONS mapping the provider declares
     nws.py                # NWS GeoJSON API — zone/GPS/tracker
     eccc.py               # Environment Canada NAAD Atom feed (GeoRSS host union + CAP bodies)
     eccc_ingest.py        # NAADIngest (PushIngest): the live document set, admission, heartbeat rebuilds, reconnect/resync backfill, repository recovery (#164)

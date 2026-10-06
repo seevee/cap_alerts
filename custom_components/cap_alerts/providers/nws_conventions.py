@@ -1,11 +1,13 @@
 """NWS conventions: marine UGC prefixes, VTEC severity, the re-issue collapse.
 
-One source's interpretive rules, registered into ``conventions`` at import.
+One source's interpretive rules, exposed to the provider as ``CONVENTIONS``.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
+from types import MappingProxyType
 
 from ..conventions import (
     PipelineStage,
@@ -13,7 +15,6 @@ from ..conventions import (
     StageContext,
     episode_id,
     parse_instant,
-    register,
 )
 from ..model import CAPAlert
 
@@ -240,19 +241,24 @@ NWS_REISSUE_STAGES: tuple[PipelineStage, ...] = (
 )
 
 
-NWS_CONVENTIONS = register(
-    "nws",
-    # The collapse is a stage rather than an ``identity`` hook because a
-    # per-alert rewrite cannot also discard the messages it superseded, and
-    # leaving that to the store's id-keyed last-write-wins would pick the
-    # oldest of them off a newest-first feed.
-    SourceConventions(
-        marine_code_prefixes=NWS_MARINE_UGC_PREFIXES,
-        severity=nws_vtec_severity,
-        icon=nws_icon,
-        stages=NWS_REISSUE_STAGES,
-        # NWSProvider._fetch_cancellations goes and gets the VTEC CAN
-        # products the active endpoint never carries.
-        discovers_terminations=True,
-    ),
+# The collapse is a stage rather than an ``identity`` hook because a
+# per-alert rewrite cannot also discard the messages it superseded, and
+# leaving that to the store's id-keyed last-write-wins would pick the
+# oldest of them off a newest-first feed.
+NWS_CONVENTIONS = SourceConventions(
+    marine_code_prefixes=NWS_MARINE_UGC_PREFIXES,
+    severity=nws_vtec_severity,
+    icon=nws_icon,
+    stages=NWS_REISSUE_STAGES,
+    # NWSProvider._fetch_cancellations goes and gets the VTEC CAN
+    # products the active endpoint never carries.
+    discovers_terminations=True,
+)
+
+
+# What this provider declares, keyed as ``conventions_for`` resolves it.
+CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
+    {
+        "nws": NWS_CONVENTIONS,
+    }
 )

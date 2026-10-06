@@ -71,9 +71,11 @@ from ..const import (
     GDACS_RSS_24H_URL,
     GDACS_RSS_CURRENT_URL,
 )
+from ..conventions import SourceConventions
 from ..model import CAPAlert
 from . import ProviderError
 from .cap_content_cache import CAPContentCache
+from .gdacs_conventions import CONVENTIONS as _CONVENTIONS
 from .geometry import geometry_from_shapes
 from .gps import alert_polygons, parse_gps, point_in_polygon
 
@@ -513,6 +515,10 @@ class GDACSProvider:
     @property
     def name(self) -> str:
         return "gdacs"
+
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        return _CONVENTIONS
 
     async def async_validate_config(
         self,

@@ -61,13 +61,14 @@ from ..const import (
     CONF_REGIONS,
     METEOALARM_COUNTRY_SLUGS,
 )
-from ..conventions import RegionEntry, SourceConventions, StageContext, conventions_for
+from ..conventions import RegionEntry, SourceConventions, StageContext, row_for
 from ..model import CAPAlert, geocodes_from
 from . import ProviderError
 from .cap import alternate_info_index, parse_cap_polygon_text
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_polygons
 from .gps import alert_polygons, parse_gps, point_in_polygon
+from .meteoalarm_conventions import CONVENTIONS as _CONVENTIONS
 from .meteoalarm_conventions import METEOALARM_REGION_SCHEMES
 from .meteoalarm_conventions import meteoalarm_region_codes as _region_codes
 
@@ -89,7 +90,7 @@ def _sender_conventions(alert: CAPAlert) -> SourceConventions:
     the *sender*, not of the provider: the table resolves ``meteoalarm/<sender>``
     before falling back to the shared MeteoAlarm entry.
     """
-    return conventions_for("meteoalarm", alert.sender)
+    return row_for(_CONVENTIONS, "meteoalarm", alert.sender)
 
 
 def _batch_conventions(alerts: list[CAPAlert]) -> list[SourceConventions]:
@@ -666,6 +667,10 @@ class MeteoAlarmProvider:
     @property
     def name(self) -> str:
         return "meteoalarm"
+
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]:
+        return _CONVENTIONS
 
     async def async_validate_config(
         self,

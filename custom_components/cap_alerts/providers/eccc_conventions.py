@@ -1,6 +1,6 @@
 """ECCC conventions: the marine CLC block, lifecycle tokens, the successor hook.
 
-One source's interpretive rules, registered into ``conventions`` at import.
+One source's interpretive rules, exposed to the provider as ``CONVENTIONS``.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 
 from ..const import REMOVAL_REASON_ENDED, REMOVAL_REASON_SUPERSEDED
-from ..conventions import SourceConventions, register
+from ..conventions import SourceConventions
 from ..model import CAPAlert
 
 # ECCC Canadian Location Codes are province-numbered for land zones; marine and
@@ -81,12 +81,17 @@ def resolve_language(language: str) -> str:
     return "fr-CA" if language.startswith("fr") else "en-CA"
 
 
-ECCC_CONVENTIONS = register(
-    "eccc",
-    SourceConventions(
-        marine_code_prefixes=frozenset({ECCC_MARINE_CLC_PREFIX}),
-        lifecycle_removal_reasons=ECCC_LIFECYCLE_REMOVAL_REASONS,
-        superseded_by=eccc_superseded_by,
-        resolve_language=resolve_language,
-    ),
+ECCC_CONVENTIONS = SourceConventions(
+    marine_code_prefixes=frozenset({ECCC_MARINE_CLC_PREFIX}),
+    lifecycle_removal_reasons=ECCC_LIFECYCLE_REMOVAL_REASONS,
+    superseded_by=eccc_superseded_by,
+    resolve_language=resolve_language,
+)
+
+
+# What this provider declares, keyed as ``conventions_for`` resolves it.
+CONVENTIONS: Mapping[str, SourceConventions] = MappingProxyType(
+    {
+        "eccc": ECCC_CONVENTIONS,
+    }
 )
