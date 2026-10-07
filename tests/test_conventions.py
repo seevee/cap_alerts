@@ -318,13 +318,41 @@ def test_nws_vtec_severity_without_vtec_returns_none(alert_factory):
 
 
 def test_nws_vtec_severity_escalates_tornado_warning(alert_factory):
-    alert = alert_factory(vtec_significance="W", vtec_phenomena="TO")
+    alert = alert_factory(
+        parameters={"VTEC": ["/O.NEW.KOKX.TO.W.0042.260414T1947Z-260414T2045Z/"]}
+    )
     assert nws_vtec_severity(alert) == "extreme"
 
 
 def test_nws_vtec_severity_maps_significance(alert_factory):
-    assert nws_vtec_severity(alert_factory(vtec_significance="A")) == "moderate"
-    assert nws_vtec_severity(alert_factory(vtec_significance="Y")) == "minor"
+    watch = alert_factory(
+        parameters={"VTEC": ["/O.NEW.KOKX.HT.A.0042.260414T1947Z-260414T2045Z/"]}
+    )
+    advisory = alert_factory(
+        parameters={"VTEC": ["/O.NEW.KOKX.HT.Y.0042.260414T1947Z-260414T2045Z/"]}
+    )
+    assert nws_vtec_severity(watch) == "moderate"
+    assert nws_vtec_severity(advisory) == "minor"
+
+
+def test_nws_vtec_severity_reads_the_parameter_in_either_shape(alert_factory):
+    # The provider copies NWS's list-valued ``parameters`` through verbatim
+    # (#292); a bare string is accepted too, as ``_nws_parameter`` promises.
+    assert (
+        nws_vtec_severity(
+            alert_factory(
+                parameters={"VTEC": "/O.NEW.KOKX.HT.A.0042.260414T1947Z-260414T2045Z/"}
+            )
+        )
+        == "moderate"
+    )
+    assert nws_vtec_severity(alert_factory(parameters={"VTEC": []})) is None
+
+
+def test_nws_vtec_severity_declines_an_unparseable_string(alert_factory):
+    # A VTEC the pattern cannot read is no signal, not a wrong one: the CAP
+    # severity string decides, exactly as with no VTEC at all.
+    assert nws_vtec_severity(alert_factory(parameters={"VTEC": ["/nope/"]})) is None
 
 
 def test_meteoalarm_awareness_severity_reads_colour_token(alert_factory):

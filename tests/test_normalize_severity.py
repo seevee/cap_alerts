@@ -150,7 +150,7 @@ def test_nws_without_vtec_clamps_foreign_severity(alert_factory):
         [
             alert_factory(
                 provider="nws",
-                vtec_significance="",
+                parameters=None,
                 severity="bogus",
                 msg_type="Alert",
             )
@@ -164,8 +164,9 @@ def test_nws_tornado_warning_is_extreme(alert_factory):
         [
             alert_factory(
                 provider="nws",
-                vtec_significance="W",
-                vtec_phenomena="TO",
+                parameters={
+                    "VTEC": ["/O.NEW.KOKX.TO.W.0042.260414T1947Z-260414T2045Z/"]
+                },
                 msg_type="Alert",
             )
         ]
@@ -177,16 +178,17 @@ def test_every_normalized_severity_is_canonical(alert_factory):
     # Sweep several provider/severity combos and assert the output stays on
     # the canonical axis even when the input is garbage.
     inputs = [
-        ("nws", "", ""),
-        ("nws", "W", ""),
-        ("nws", "", "gibberish"),
-        ("eccc", "", "severe"),
-        ("eccc", "", "LOUD"),
-        ("eccc", "", ""),
+        ("nws", None, ""),
+        ("nws", {"VTEC": ["/O.NEW.KOKX.TO.W.0042.260414T1947Z-260414T2045Z/"]}, ""),
+        ("nws", {"VTEC": ["/garbage/"]}, ""),
+        ("nws", None, "gibberish"),
+        ("eccc", None, "severe"),
+        ("eccc", None, "LOUD"),
+        ("eccc", None, ""),
     ]
     alerts = [
-        alert_factory(provider=p, vtec_significance=sig, severity=sev, msg_type="Alert")
-        for (p, sig, sev) in inputs
+        alert_factory(provider=p, parameters=params, severity=sev, msg_type="Alert")
+        for (p, params, sev) in inputs
     ]
     for out in normalize_alerts(alerts):
         assert out.severity_normalized in _CANONICAL

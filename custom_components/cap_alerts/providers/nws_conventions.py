@@ -1,10 +1,18 @@
 """NWS conventions: marine UGC prefixes, VTEC severity, the re-issue collapse.
 
 One source's interpretive rules, exposed to the provider as ``CONVENTIONS``.
+
+Everything NWS-shaped the rules need is read back out of ``CAPAlert.parameters``
+rather than from typed fields: the model carries CAP plus normalization
+metadata and nothing from one provider's envelope (issue #292). The provider
+copies the GeoJSON ``parameters`` dict through verbatim, so ``VTEC`` is there
+under NWS's own name; ``_parse_vtec`` lives here because both the severity hook
+and the re-issue key need it and the provider module imports this one.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import replace
 from types import MappingProxyType
@@ -90,6 +98,43 @@ NWS_MARINE_UGC_PREFIXES: frozenset[str] = frozenset(
     }
 )
 
+# VTEC regex: /P.ACTION.OFFICE.PP.S.NNNN.YYMMDDTHHMMZ-YYMMDDTHHMMZ/
+_VTEC_RE = re.compile(
+    r"/[A-Z]\.([A-Z]{3})\.([A-Z]{4})\.([A-Z]{2})\.([A-Z])\.(\d{4})"
+    r"\.(\d{2})\d{4}T\d{4}Z-\d{6}T\d{4}Z/"
+)
+
+
+def _parse_vtec(vtec_str: str) -> dict[str, str]:
+    """Parse a VTEC string into component fields; ``{}`` if it does not match."""
+    m = _VTEC_RE.match(vtec_str)
+    if not m:
+        return {}
+    return {
+        "action": m.group(1),
+        "office": m.group(2),
+        "phenomena": m.group(3),
+        "significance": m.group(4),
+        "tracking": m.group(5),
+        "year": m.group(6),
+    }
+
+
+def _nws_parameter(alert: CAPAlert, name: str) -> str:
+    """First value of an NWS ``parameters`` entry, whose values are lists.
+
+    ``CAPAlert.parameters`` is an untyped dict carrying each provider's native
+    shape; NWS publishes ``{"AWIPSidentifier": ["AQABOU"]}`` where MeteoAlarm
+    publishes a bare string, so both are accepted here.
+    """
+    raw = (alert.parameters or {}).get(name)
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, (list, tuple)) and raw:
+        return str(raw[0])
+    return ""
+
+
 # VTEC significance → severity tier (NWS).
 _VTEC_SIG_SEVERITY = {
     "W": "severe",  # Warning
@@ -103,12 +148,17 @@ _VTEC_EXTREME_PHENOMENA = {"TO", "EW"}  # Tornado, Extreme Wind
 
 
 def nws_vtec_severity(alert: CAPAlert) -> str | None:
-    """Derive severity from VTEC codes (authoritative for NWS)."""
-    sig = alert.vtec_significance
+    """Derive severity from the VTEC string (authoritative for NWS).
+
+    ``None`` — no VTEC, or one the pattern does not recognize — hands the
+    decision back to the CAP ``severity`` string.
+    """
+    parsed = _parse_vtec(_nws_parameter(alert, "VTEC"))
+    sig = parsed.get("significance", "")
     if not sig:
         return None
     # Tornado/Extreme Wind warnings are "extreme", not just "severe"
-    if sig == "W" and alert.vtec_phenomena in _VTEC_EXTREME_PHENOMENA:
+    if sig == "W" and parsed["phenomena"] in _VTEC_EXTREME_PHENOMENA:
         return "extreme"
     return _VTEC_SIG_SEVERITY.get(sig, "unknown")
 
@@ -131,21 +181,6 @@ def nws_vtec_severity(alert: CAPAlert) -> str | None:
 # store's reference-based supersession path cannot see them either.
 
 
-def _nws_parameter(alert: CAPAlert, name: str) -> str:
-    """First value of an NWS ``parameters`` entry, whose values are lists.
-
-    ``CAPAlert.parameters`` is an untyped dict carrying each provider's native
-    shape; NWS publishes ``{"AWIPSidentifier": ["AQABOU"]}`` where MeteoAlarm
-    publishes a bare string, so both are accepted here.
-    """
-    raw = (alert.parameters or {}).get(name)
-    if isinstance(raw, str):
-        return raw
-    if isinstance(raw, (list, tuple)) and raw:
-        return str(raw[0])
-    return ""
-
-
 def _nws_reissue_key(alert: CAPAlert) -> tuple[str, str, tuple[str, ...]] | None:
     """Content key for a re-issuable NWS product, or ``None`` to leave it alone.
 
@@ -161,7 +196,7 @@ def _nws_reissue_key(alert: CAPAlert) -> tuple[str, str, tuple[str, ...]] | None
     Refusing to collapse on an unknown is the fail-open direction: a duplicate
     entity is a nuisance, a silently dropped alert is not.
     """
-    if alert.vtec:
+    if _nws_parameter(alert, "VTEC"):
         return None
     awips = _nws_parameter(alert, "AWIPSidentifier")
     ugc = tuple(sorted(alert.geocodes.get("UGC", ())))

@@ -27,7 +27,6 @@ from custom_components.cap_alerts.normalize import (
     normalize_alerts,
 )
 from custom_components.cap_alerts.payload import (
-    DROP_PRIORITY,
     TRIM_PRIORITY,
     fit_to_budget,
     measure,
@@ -415,7 +414,6 @@ def test_truncate_bytes_fits_and_keeps_a_prefix(text, limit):
 attr_keys = st.sampled_from(
     [
         *TRIM_PRIORITY,
-        *DROP_PRIORITY,
         "id",
         "event",
         "headline",
@@ -442,14 +440,14 @@ def test_fit_to_budget_never_mutates_and_fits_or_exhausts(attrs, budget):
     for key, value in result.items():
         if key in TRIM_PRIORITY and isinstance(value, str) and value != attrs[key]:
             assert value.endswith("…") and attrs[key].startswith(value[:-1])
-        elif key not in DROP_PRIORITY:
+        else:
             assert value == attrs[key]
 
     after = measure(result)
     assert after is not None
     if after > budget:
-        # Nothing left to give: every spendable key is gone.
-        assert not any(k in result for k in DROP_PRIORITY)
+        # Nothing left to give: every spendable key is gone. The ladder is
+        # text only, so nothing structural is dropped on the way (#292).
         assert not any(
             isinstance(result.get(k), str) and result[k] for k in TRIM_PRIORITY
         )

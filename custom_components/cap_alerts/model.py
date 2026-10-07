@@ -123,15 +123,13 @@ class CAPAlert:
 
     # -- Geography --
     area_desc: str = ""
-    affected_zones: tuple[str, ...] = ()
-    affected_zone_uris: tuple[str, ...] = ()
     # Every area geocode a feed publishes, keyed by CAP ``valueName`` (e.g.
     # ``UGC``, ``SAME``, ``EMMA_ID``, ``NUTS3``) or, for well-known versioned
     # schemes, by the canonical short name ``geocodes_from()`` rewrites them to
     # (``CLC``, ``SGC`` — see ``_CANONICAL_SCHEMES``). The complete geocode
-    # surface for all providers, and the only one published as an attribute;
-    # well-known schemes are also reachable in code through the ``geocode_*``
-    # accessors below. Build it with ``geocodes_from()``.
+    # surface for all providers and the one read path, in code and on the
+    # wire: integration code reaches in with the ``GEOCODE_*`` names above.
+    # Build it with ``geocodes_from()``.
     # Serialized as ``{scheme: [codes]}``, omitted if empty.
     geocodes: Mapping[str, tuple[str, ...]] = field(
         default_factory=lambda: _EMPTY_GEOCODES
@@ -157,32 +155,22 @@ class CAPAlert:
     # surfaced as an attribute only when True.
     is_marine: bool = False
 
-    # -- Event Codes --
-    event_code_nws: str = ""
-    event_code_same: str = ""
-
-    # -- VTEC (NWS-specific) --
-    vtec: tuple[str, ...] = ()
-    vtec_office: str = ""
-    vtec_phenomena: str = ""
-    vtec_significance: str = ""
-    vtec_action: str = ""
-    vtec_tracking: str = ""
-
     # -- Sender --
     sender: str = ""
     sender_name: str = ""
 
     # -- References / Lifecycle --
     references: tuple[str, ...] = ()
-    replaced_by: str = ""
-    replaced_at: str = ""
     # Reserved for sub-incident relationships (RFC §6.3). Never populated in
     # v1; ``to_attributes()`` skips empty strings so the attribute stays
     # absent until a future provider sets it.
     parent_id: str = ""
 
-    # -- NWS Parameters (catch-all) --
+    # -- Provider parameters (catch-all) --
+    # The source's ``<parameter>`` blocks verbatim, plus whatever else of its
+    # envelope a provider chooses to pass through under the source's own names
+    # (NWS puts its ``eventCode`` schemes and VTEC strings here). Untyped and
+    # unrecorded; a provider's convention row reads what it needs back out.
     parameters: dict[str, Any] | None = None
 
     # -- Alternate language content (populated when available) --
@@ -239,32 +227,6 @@ class CAPAlert:
     stale: bool = False
     last_confirmed: str = ""
 
-    # -- Promoted geocode schemes (derived from ``geocodes``) --
-    # Read-only aliases, not fields: ``geocodes`` is the single source of truth,
-    # so a provider cannot populate an alias and the container inconsistently.
-    # They are also not attributes — see ``to_attributes()``. Each is a direct
-    # lookup because ``geocodes_from()`` has already canonicalized the key.
-
-    @property
-    def geocode_ugc(self) -> tuple[str, ...]:
-        """NWS Universal Geographic Code zones (``UGC``)."""
-        return tuple(self.geocodes.get(GEOCODE_UGC, ()))
-
-    @property
-    def geocode_same(self) -> tuple[str, ...]:
-        """FIPS-based SAME/FIPS6 area codes (``SAME``)."""
-        return tuple(self.geocodes.get(GEOCODE_SAME, ()))
-
-    @property
-    def geocode_clc(self) -> tuple[str, ...]:
-        """ECCC Canadian Location Codes (``CLC``)."""
-        return tuple(self.geocodes.get(GEOCODE_CLC, ()))
-
-    @property
-    def geocode_sgc(self) -> tuple[str, ...]:
-        """StatCan SGC location codes (``SGC``)."""
-        return tuple(self.geocodes.get(GEOCODE_SGC, ()))
-
     def to_attributes(self) -> dict[str, Any]:
         """Flat attribute dict. Omits empty/None/False values (except id).
 
@@ -272,12 +234,12 @@ class CAPAlert:
         via the ``geometry_ref`` handle (see websocket command ``cap_alerts/geometry``
         and REST endpoint ``/api/cap_alerts/geometry/{geometry_ref}``).
 
-        The promoted ``geocode_*`` aliases are **not** serialized: they are the
-        same codes ``geocodes`` already carries under its own key, and
-        publishing both put the geocode surface twice on the wire — 5,510
-        bytes of one live ECCC alert's 19,080-byte payload, on the alert that
-        overflowed the recorder's ceiling (issue #150). The aliases remain as
-        typed accessors for integration code; a consumer reads the container.
+        ``geocodes`` is published once, as the container. The promoted
+        ``geocode_*`` aliases it used to carry alongside put the same codes on
+        the wire twice — 5,510 bytes of one live ECCC alert's 19,080-byte
+        payload, on the alert that overflowed the recorder's ceiling (issue
+        #150) — and came off the model with the rest of the one-provider
+        fields (issue #292). A consumer reads the container.
         """
         attrs: dict[str, Any] = {}
         for f in fields(self):

@@ -237,40 +237,21 @@ def test_the_instruction_outlives_the_description():
     assert measure(out) <= 2600
 
 
-def test_structural_redundancy_goes_once_the_text_is_spent():
-    attrs = {
-        "id": "x",
-        "description": "D" * 400,
-        "affected_zones": ["ONZ001"] * 40,
-        "affected_zone_uris": ["https://api.weather.gov/zones/forecast/ONZ001"] * 40,
-        "geocodes": {"UGC": ["ONZ001"] * 40},
-    }
-    out = fit_to_budget(attrs, budget=900)
-
-    # Text first, then the redundant structure — and only the redundant kind:
-    # the URIs are a fixed prefix on codes that survive in ``affected_zones``.
-    assert "description" not in out
-    assert "affected_zone_uris" not in out
-    assert out["geocodes"] == {"UGC": ["ONZ001"] * 40}
-    assert out["affected_zones"] == ["ONZ001"] * 40
-    assert measure(out) <= 900
-
-
 def test_a_payload_that_cannot_be_made_to_fit_keeps_what_it_can(caplog):
-    # Nothing on the ladder can rescue an alert whose bulk is a zone list this
-    # size, and the ladder does not carry a rung it hasn't got. The expendable
-    # text still goes; the rest is reported, once, where someone will see it.
+    # Nothing on the ladder can rescue an alert whose bulk is a reference list
+    # this size, and the ladder is text only (#292). The expendable text still
+    # goes; the rest is reported, once, where someone will see it.
     attrs = {
         "id": "unfixable",
         "description": "D" * 1000,
-        "affected_zones": [f"ONZ{i:03d}" for i in range(400)],
+        "references": [f"urn:oid:2.49.0.1.124.{i:04d}" for i in range(400)],
     }
     with caplog.at_level("DEBUG", logger="custom_components.cap_alerts.payload"):
         out = fit_to_budget(attrs, budget=800)
         again = fit_to_budget(attrs, budget=800)
 
     assert "description" not in out
-    assert out["affected_zones"] == attrs["affected_zones"]
+    assert out["references"] == attrs["references"]
     assert measure(out) > 800
     assert again == out
 

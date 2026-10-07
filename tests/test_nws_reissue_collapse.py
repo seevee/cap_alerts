@@ -15,6 +15,7 @@ key component, and a builder keeps that difference legible.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from custom_components.cap_alerts.conventions import conventions_for
 from custom_components.cap_alerts.model import CAPAlert, geocodes_from
@@ -44,6 +45,11 @@ def _alert(
 ) -> CAPAlert:
     """One NWS message. ``alert_id`` stands in for the URL hash the provider
     would have minted from the per-message ``urn:oid:`` identifier."""
+    parameters: dict[str, Any] = {}
+    if awips:
+        parameters["AWIPSidentifier"] = [awips]
+    if vtec:
+        parameters["VTEC"] = list(vtec)
     return CAPAlert(
         id=alert_id,
         identifier=f"urn:oid:2.49.0.1.840.0.{alert_id}.001.1",
@@ -52,8 +58,7 @@ def _alert(
         expires=expires,
         sender="w-nws.webmaster@noaa.gov",
         geocodes=geocodes_from({"UGC": ugc}) if ugc else geocodes_from({}),
-        parameters={"AWIPSidentifier": [awips]} if awips else None,
-        vtec=vtec,
+        parameters=parameters or None,
         provider="nws",
     )
 

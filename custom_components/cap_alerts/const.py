@@ -5,8 +5,9 @@ from __future__ import annotations
 DOMAIN = "cap_alerts"
 PLATFORMS = ["binary_sensor", "button", "sensor"]
 
-# RFC §2.6 — bumped on breaking attribute/event payload changes
-PLATFORM_VERSION = "1.0"
+# RFC §2.6 — bumped on breaking attribute/event payload changes. 2.0 removed
+# the NWS envelope fields from the attribute surface (issue #292).
+PLATFORM_VERSION = "2.0"
 
 # RFC §1.5: the sensor device class that marks a per-alert entity, so selectors
 # and triggers can target ``domain: sensor, device_class: incident``.

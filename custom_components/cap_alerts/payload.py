@@ -86,16 +86,11 @@ TRIM_PRIORITY: tuple[str, ...] = (
     "instruction",
 )
 
-# Structural redundancy, dropped whole once the text is spent: a fixed prefix
-# plus the codes already in ``affected_zones``.
-#
-# The geocode surface used to belong here too — the ``geocode_*`` aliases
-# republished codes ``geocodes`` already carried, 5,510 bytes of them on the
-# alert that overflowed. That is now de-duplicated at the source
-# (``model.to_attributes``) rather than under pressure, so there is nothing left
-# to drop: paying it back only on oversized alerts would have left every other
-# alert carrying the same waste.
-DROP_PRIORITY: tuple[str, ...] = ("affected_zone_uris",)
+# The ladder is text only. It once ended on structural rungs — ``geocode_*``
+# aliases republishing codes ``geocodes`` already carried, then NWS zone URIs
+# that were a fixed prefix on codes ``geocodes`` also carried — and each came
+# off at the source instead (issues #150, #292): paying the duplication back
+# only on oversized alerts would have left every other alert carrying it.
 
 # Below this many bytes a survivor is a stub rather than text, so the key is
 # dropped instead. An attribute holding two words and an ellipsis tells a
@@ -210,14 +205,6 @@ def fit_to_budget(
             trimmed[key] = _cut_at_name_boundary(truncate_bytes(text, room))
         else:
             trimmed[key] = truncate_bytes(text, room)
-        size = measure(trimmed, unrecorded)
-        if size is None or size <= budget:
-            return trimmed
-
-    for key in DROP_PRIORITY:
-        if key not in trimmed:
-            continue
-        del trimmed[key]
         size = measure(trimmed, unrecorded)
         if size is None or size <= budget:
             return trimmed

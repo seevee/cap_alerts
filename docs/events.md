@@ -297,7 +297,7 @@ The CAP `<identifier>` used for this lookup is distinct from `incident_id` (the 
 
 ## ECCC — CAP-body fields now populated
 
-Every CAP-1.2 field is provider-supplied for ECCC alerts: `identifier`, `sender`, `sender_name`, `sent`, `effective`, `onset`, `expires`, `headline`, `description`, `instruction`, `references`, `category`, `scope`. The `event` field uses the title-case form from the CAP body (e.g. `"Freezing Drizzle Advisory"` instead of the lowercase Atom category term). ECCC CAP-CP `<eventCode>` blocks flow through `parameters` under their `valueName` key (e.g. `parameters["profile:CAP-CP:Event:0.4"] == "freezing-drizzle"`); `event_code_same` and `event_code_nws` remain empty for ECCC.
+Every CAP-1.2 field is provider-supplied for ECCC alerts: `identifier`, `sender`, `sender_name`, `sent`, `effective`, `onset`, `expires`, `headline`, `description`, `instruction`, `references`, `category`, `scope`. The `event` field uses the title-case form from the CAP body (e.g. `"Freezing Drizzle Advisory"` instead of the lowercase Atom category term). ECCC CAP-CP `<eventCode>` blocks flow through `parameters` under their `valueName` key (e.g. `parameters["profile:CAP-CP:Event:0.4"] == "freezing-drizzle"`), the same slot NWS uses for its `NationalWeatherService` and `SAME` codes.
 
 ## `unique_id` vs. RFC §2.2
 

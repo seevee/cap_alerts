@@ -88,10 +88,9 @@ the guaranteed set defensively.
 | `phase_changed` | `bool` | Always present. `true` on first sighting or on a phase transition. |
 | `lifecycle_status` | `str` | Provider-native termination vocabulary (ECCC `ended` / `transitioned_out`). |
 | `references` | `list[str]` | CAP `<references>` identifiers. |
-| `replaced_by`, `replaced_at` | `str` | Supersession pointers when published. |
 | `stale` | `bool` | Present **only when true**. The latest poll did not see this alert, but it was kept rather than removed, because one missed observation is not proof an alert ended. Grey it out; do not treat it as gone. |
 | `last_confirmed` | `str` | ISO timestamp of the last poll that did see it. Only present alongside `stale`. |
-| `incident_platform_version` | `str` | Contract version (currently `"1.0"`). Branch on this, not on integration version. |
+| `incident_platform_version` | `str` | Contract version (currently `"2.0"`). Branch on this, not on integration version. |
 
 ### Classification
 
@@ -102,7 +101,6 @@ the guaranteed set defensively.
 | `severity` | `str` | Raw CAP value, as received. Absent where severity is derived rather than transmitted (MeteoAlarm). |
 | `msg_type`, `status`, `scope`, `category`, `urgency`, `certainty`, `response_type` | `str` | Raw CAP 1.2 values. |
 | `icon` | `str` | Always present. mdi icon name, dispatched from event type. |
-| `event_code_nws`, `event_code_same` | `str` | Provider event codes where published. |
 
 ### Timing
 
@@ -145,7 +143,7 @@ text, so a localized one matches no icon keyword.
 | `points` | `list[[lon, lat]]` | Point locations from zero-radius CAP `<circle>` elements. |
 | `geocodes` | `dict[str, list[str]]` | Every area geocode the feed published, keyed by CAP `valueName`. The complete surface. See [Geocode keys](#geocode-keys). Present on the live state, but declared unrecorded, so it is absent from history (#245). |
 | ~~`geocode_ugc`, `geocode_same`, `geocode_clc`, `geocode_sgc`~~ | — | **Removed.** They republished codes `geocodes` already carried — the geocode surface twice on every alert. Read the container and take every scheme, well-known or not. |
-| `affected_zones`, `affected_zone_uris` | `list[str]` | Zone codes and their provider URIs. |
+| ~~`affected_zones`, `affected_zone_uris`~~ | — | **Removed in 2.0.** The same codes as `geocodes["UGC"]` on every NWS alert, and the URIs were a fixed prefix on them. See [Stability](#stability). |
 | `is_marine` | `bool` | Present **only when true**. Absence means "not marine". |
 
 Full `geometry` is **never** an attribute — see below.
@@ -172,9 +170,8 @@ versions of the same scheme at once, their codes are unioned under the one key.
 | Attribute | Type | Notes |
 | :-- | :-- | :-- |
 | `sender`, `sender_name` | `str` | Issuing office. |
-| `vtec` | `list[str]` | Raw VTEC strings (NWS). |
-| `vtec_office`, `vtec_phenomena`, `vtec_significance`, `vtec_action`, `vtec_tracking` | `str` | Parsed VTEC components (NWS). |
-| `parameters` | `dict` | Provider `<parameter>` catch-all. Shape varies by source — treat as untyped. Present on the live state, but declared unrecorded, so it is absent from history. |
+| `parameters` | `dict` | Provider `<parameter>` catch-all, plus whatever of its envelope a provider passes through under the source's own names: NWS puts `VTEC`, `NationalWeatherService` and `SAME` here (each a one-element list, as NWS publishes every parameter), ECCC its CAP-CP codes under their `valueName`. Shape varies by source — treat as untyped. Present on the live state, but declared unrecorded, so it is absent from history. |
+| ~~`vtec`, `vtec_office`, `vtec_phenomena`, `vtec_significance`, `vtec_action`, `vtec_tracking`, `event_code_nws`, `event_code_same`, `replaced_by`, `replaced_at`~~ | — | **Removed in 2.0.** Read `parameters` and `references`. See [Stability](#stability). |
 | `episode_days` | `list[dict]` | Per-day profile of a merged MeteoFrance episode, ordered by date. Keys: `date`, `onset`, `expires`, `severity`, `awareness_level`, `event`, `headline`, `area_desc`. |
 
 ### Oversized alerts
@@ -191,11 +188,10 @@ and the one alert since that did was a frost advisory covering 291 areas
    list pays before the primary text, and the instruction outlives the
    description within a language. A cut `area_desc` ends on a whole name,
    then the `…`, so splitting it on `, ` yields only names the feed sent.
-2. `affected_zone_uris` is dropped — a fixed prefix plus the codes already in
-   `affected_zones`.
 
-`geocodes` and `parameters` never count: both are unrecorded, so the recorder
-neither measures nor stores them, and the trim never touches them.
+The ladder is text only. `geocodes` and `parameters` never count: both are
+unrecorded, so the recorder neither measures nor stores them, and the trim
+never touches them.
 
 The trim is display-side only: the integration keeps the full text internally,
 so `changed_fields` on the event bus never reports a truncation as a reword.
@@ -243,7 +239,7 @@ rather than returning someone else's polygon. Treat 404 as "this alert is
 gone" and drop the layer.
 
 Not every alert has geometry. Zone-based alerts — the majority of the NWS
-feed — carry `affected_zones` and no polygon at all. Fall back to `bbox`, or
+feed — carry `geocodes["UGC"]` and no polygon at all. Fall back to `bbox`, or
 resolve zone shapes yourself from the provider.
 
 ---
@@ -344,9 +340,27 @@ documented in [`events.md`](events.md).
   [Oversized alerts](#oversized-alerts)) — that is sparseness on one state, not
   a change to the schema.
 
-Both changes to the surface so far predate the first stable release, and the
-marker stays at `1.0` because the promise above binds from the stable release
-onward, not across the alphas:
+**2.0** removed the attributes only NWS ever set (issue #292). The model is
+CAP plus normalization metadata; one provider's envelope lives in
+`parameters`, where every other provider's already did. The values are still
+on the wire:
+
+| Removed attribute | Read instead |
+| :-- | :-- |
+| `vtec` | `parameters["VTEC"]` (a one-element list) |
+| `vtec_office`, `vtec_phenomena`, `vtec_significance`, `vtec_action`, `vtec_tracking` | parse `parameters["VTEC"][0]`: `/O.NEW.KOKX.SV.W.0042.…/` is action, office, phenomena, significance, tracking number |
+| `event_code_nws` | `parameters["NationalWeatherService"][0]` |
+| `event_code_same` | `parameters["SAME"][0]` |
+| `affected_zones` | `geocodes["UGC"]`, the same codes on every NWS alert |
+| `affected_zone_uris` | `https://api.weather.gov/zones/<type>/` plus the code; nothing read it |
+| `replaced_by`, `replaced_at` | `references`, which carries supersession for every provider |
+
+`parameters` is unrecorded, so a template that read `vtec_significance` off
+*history* has no equivalent; off the live state it is the parse above.
+
+Both changes to the surface before that predate the first stable release, and
+the marker stayed at `1.0` through them because the promise above binds from
+the stable release onward, not across the alphas:
 
 - The `geocode_*` aliases came off during the 0.x alpha line, because they
   republished codes `geocodes` already carried on every alert. Read `geocodes`,
