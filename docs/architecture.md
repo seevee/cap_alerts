@@ -201,28 +201,19 @@ is one code), drops empty schemes and values, and returns an immutable mapping.
 clean for its non-model consumers (ECCC province matching, marine detection). Serialization
 is sparse: `geocodes` is omitted entirely when empty.
 
-Well-known schemes are additionally **promoted** to `geocode_*` accessors, derived as
-read-only properties — never stored, so the container stays the single source of truth.
-Each is a direct lookup, since `geocodes_from()` has already settled the key:
+The container is the **one read path**, in code and on the wire. Integration code that
+reaches for a well-known scheme uses the `GEOCODE_*` names `model.py` exports (`CLC` and
+`SGC` for ECCC marine detection and province matching); the `geocode_*` accessors that
+used to wrap those lookups had no reader left in the integration and came off with the
+rest of the one-provider fields (issue #292). They were never attributes either:
+`to_attributes()` publishes the container alone, because an alias is the same codes a
+second time, and on the live ECCC alert that overflowed the recorder it was 5,510 bytes
+of a 19,080-byte payload — the geocode surface stored twice over (issue #150). Consumers
+read `geocodes` and get every scheme; the card's `collectZones` already flattens it.
 
-| Alias | Container key | Consumer |
-| --- | --- | --- |
-| `geocode_ugc` | `UGC` | zone matching |
-| `geocode_same` | `SAME` | zone matching |
-| `geocode_clc` | `CLC` | ECCC marine detection (`00…` = water zone) |
-| `geocode_sgc` | `SGC` | visibility into what ECCC province filtering matches |
-
-They are **read paths in code, not attributes**. `to_attributes()` publishes the container
-and not the views: an alias is the same codes a second time, and on the live ECCC alert
-that overflowed the recorder it was 5,510 bytes of a 19,080-byte payload — the geocode
-surface stored twice over (issue #150). Consumers read `geocodes` and get every scheme,
-promoted or not; the card's `collectZones` already flattens it.
-
-Promotion policy: **a new scheme needs no model change** — it lands in `geocodes` for free.
-An alias is only added when integration code reaches for a scheme often enough to want a
-name for it, which is what keeps "add a scheme" from meaning "add a field". Version bumps
-are absorbed by canonicalization on the way into the container, so neither the alias nor
-any provider needs an edit when a source moves `…:1.0:CLC` to `…:1.1:CLC`.
+**A new scheme needs no model change** — it lands in `geocodes` for free, and version
+bumps are absorbed by canonicalization on the way into the container, so no provider
+needs an edit when a source moves `…:1.0:CLC` to `…:1.1:CLC`.
 
 `is_marine` is **not** read back off the container — each provider computes it locally
 before constructing the alert (NWS from UGC + zone codes, ECCC from the CLC prefix), so
@@ -309,14 +300,13 @@ Design points:
 | `properties.headline` (fallback `parameters.NWSheadline[0]`) | `headline` |
 | `properties.description` / `instruction` / `note` / `web` | same-named fields |
 | `properties.areaDesc` | `area_desc` |
-| `properties.affectedZones` | `affected_zone_uris` → extract codes → `affected_zones` |
-| `properties.geocode` (all schemes, keyed as published) | `geocodes`; `geocode_ugc` / `geocode_same` accessors — see *Area geocodes* |
-| `properties.eventCode.NationalWeatherService[0]` | `event_code_nws` |
-| `properties.eventCode.SAME[0]` | `event_code_same` |
-| `properties.parameters.VTEC` | `vtec` → parsed → `vtec_{office,phenomena,significance,action,tracking}` |
+| `properties.affectedZones` | read for marine classification only; the code set equals `geocode.UGC` on every live alert (333/333, 2026-10-07) |
+| `properties.geocode` (all schemes, keyed as published) | `geocodes` — see *Area geocodes* |
+| `properties.eventCode` (`NationalWeatherService`, `SAME`) | folded into `parameters` under those names, list-valued like every NWS parameter; the feed's own parameters win on collision (#292) |
+| `properties.parameters.VTEC` | `parameters["VTEC"]`; `nws_conventions._parse_vtec` reads it back for severity, identity and the re-issue key |
 | `properties.sender` / `senderName` | `sender` / `sender_name` |
-| `properties.references` / `replacedBy` / `replacedAt` | same-named fields |
-| `properties.parameters` | `parameters` (full dict) |
+| `properties.references` | `references` (`replacedBy` / `replacedAt` are not carried; `references` is the supersession signal for every provider) |
+| `properties.parameters` | `parameters` (full dict, plus the event codes above) |
 
 ---
 
@@ -395,10 +385,10 @@ The tokens are not interchangeable either, and `phase` cannot express the differ
 | `<info>/<area>/<polygon>` | `geometry` (GeoJSON Polygon or MultiPolygon; a CAM block's threat rings only — see *CAM threat areas*) |
 | `<info>/<eventCode>` blocks merged into `parameters` | `parameters` |
 | `<info>/<parameter>` blocks | `parameters` (merged; parameters win on key collision) |
-| `<info>/<area>/<geocode>` (all schemes, keyed by `valueName`) | `geocodes`; `geocode_clc` / `geocode_sgc` / `geocode_same` accessors — see *Area geocodes* |
+| `<info>/<area>/<geocode>` (all schemes, keyed by `valueName`) | `geocodes` (`CLC`, `SGC` canonical) — see *Area geocodes* |
 | `<info>/<parameter>` `Alert_Location_Status` (1.1 preferred over 1.0) | `lifecycle_status` (ECCC-native `active`/`ended`/`cancelled`/`transitioned_out`; drives `phase` and `removal_reason`; in GPS mode a terminal CAM threat-area token at the point replaces it, see *Location matching*) |
 
-The mapped `<info>` is the region-matching block, preferring a non-terminal one — see *Area-group selection* above. Note: `event_code_same` and `event_code_nws` remain empty for ECCC. CAP-CP profile codes (e.g. `profile:CAP-CP:Event:0.4 → freezing-drizzle`) flow through `parameters` under their `valueName` keys. Every area geocode scheme in the CAP body lands in `geocodes` (see *Area geocodes*): `geocode_clc` reads the Canadian Location Code (province-numbered for land, `00…` for marine/water zones) and `geocode_sgc` the StatCan SGC code — the signal province filtering actually matches on, so a province mismatch is inspectable from the `geocodes` container on the entity.
+The mapped `<info>` is the region-matching block, preferring a non-terminal one — see *Area-group selection* above. CAP-CP profile codes (e.g. `profile:CAP-CP:Event:0.4 → freezing-drizzle`) flow through `parameters` under their `valueName` keys, the slot every provider's codes share. Every area geocode scheme in the CAP body lands in `geocodes` (see *Area geocodes*): `CLC` is the Canadian Location Code (province-numbered for land, `00…` for marine/water zones) and `SGC` the StatCan SGC code — the signal province filtering actually matches on, so a province mismatch is inspectable from the `geocodes` container on the entity.
 
 ## ECCC — NAAD streaming
 
@@ -734,7 +724,7 @@ page.
 | `alert.info[].headline` / `description` / `instruction` / `web` | same-named fields |
 | `alert.info[].parameter[]` (valueName/value pairs) | `parameters` dict |
 | `alert.info[].area[].areaDesc` | `area_desc` (joined across area blocks) |
-| `alert.info[].area[].geocode[]` (all schemes, keyed by `valueName`) | `geocodes` — scheme-keyed container (`{"EMMA_ID": (...), "NUTS3": (...)}`); drives the region-picker filter. MeteoAlarm publishes no `SAME` scheme, so `geocode_same` stays empty (EMMA_ID is not a SAME code) |
+| `alert.info[].area[].geocode[]` (all schemes, keyed by `valueName`) | `geocodes` — scheme-keyed container (`{"EMMA_ID": (...), "NUTS3": (...)}`); drives the region-picker filter. MeteoAlarm publishes no `SAME` scheme, and `EMMA_ID` is not relabeled as one (#24) |
 | `alert.info[].area[].polygon` | `geometry` (GeoJSON Polygon or MultiPolygon, lon/lat) |
 | `sha256(identifier)[:12]` (or `sha256(uuid)[:12]` fallback) | `id` — replaced by `conventions.episode_id` for an episode dialect |
 
@@ -909,7 +899,7 @@ to hashing the CAP URL when the identifier is missing.
 | `<info>/<area>/<areaDesc>` | `area_desc` |
 | `<info>/<area>/<polygon>` | `geometry` (GeoJSON Polygon or MultiPolygon) |
 | `<info>/<eventCode>` + `<parameter>` blocks merged | `parameters` (parameters win on collision) |
-| `<info>/<area>/<geocode>` (all schemes, keyed by `valueName`) | `geocodes`; `geocode_same` accessor — see *Area geocodes*. WMO's sources are heterogeneous, so non-`SAME` schemes are surfaced rather than dropped |
+| `<info>/<area>/<geocode>` (all schemes, keyed by `valueName`) | `geocodes` — see *Area geocodes*. WMO's sources are heterogeneous, so non-`SAME` schemes are surfaced rather than dropped |
 | RSS `<item>/<link>` (CAP XML URL) | `url`, identifier-fallback source for `id` |
 | `sha256(identifier)[:12]` (or `sha256(url)[:12]` fallback) | `id` |
 
@@ -1386,7 +1376,7 @@ The hook runs *before* the empty-event check, so a source that classifies on a c
 
 ### Platform version
 
-`PLATFORM_VERSION = "1.0"` is exposed on every alert entity as the `incident_platform_version` attribute. Card consumers can branch on this when the contract evolves.
+`PLATFORM_VERSION = "2.0"` is exposed on every alert entity as the `incident_platform_version` attribute. Card consumers can branch on this when the contract evolves. The major bumped once, when the NWS envelope fields came off the attribute surface (#292); `docs/frontend_hints.md` carries the migration table.
 
 ### bbox
 
@@ -1509,18 +1499,17 @@ field the user needs in order to spare the one nobody reads:
    since a comma-joined run of place names reads as well cut short as whole and
    on a wide alert dwarfs the text (#245); the instruction outlives the
    description within a language, being the protective-action text.
-6. `affected_zone_uris` — a fixed prefix plus the codes already in
-   `affected_zones`.
 
 A field trimmed below 160 bytes is dropped instead: a fragment tells a consumer
 less than an absence does. Truncation keeps the trailing `…` at a UTF-8
 character boundary; `area_desc` backs off further to its last `, ` so the list
 ends on a whole name (#245).
 
-The `geocode_*` aliases were a sixth rung until measurement said otherwise. They
-duplicated the container outright — 5,510 bytes of the overflowing alert, the
-same SGC codes twice — so they are de-duplicated at the source instead (see
-*Area geocodes*). Paying that back only under pressure would have left every
+The ladder is text only. It once ended on structural rungs: the `geocode_*`
+aliases, which duplicated the container outright — 5,510 bytes of the
+overflowing alert, the same SGC codes twice — and then NWS's zone URIs, a fixed
+prefix on codes `geocodes` also carried. Each came off at the source instead
+(#150, #292). Paying duplication back only under pressure would have left every
 other alert carrying the same waste.
 
 **Measured the way the recorder measures it.** `db_schema.py` checks

@@ -120,12 +120,12 @@ The `incident` integration provides `IncidentEntity` as the base class, on top o
 - `severity`: the raw provider value. Absent where severity is derived rather than transmitted (MeteoAlarm publishes awareness levels). Present and misleading where the authority publishes a uniform CAP severity and ranks on something else: the Australian feeds carry the Australian Warning System tier in a parameter, and raw `severity` disagrees with the normalized value on 22 of 108 live alerts. Read `severity_normalized`.
 - `urgency`, `certainty`, `msg_type`, `status`, `category`. `category` is the cross-domain discriminator: `Met` for weather, `Infra` for a 911 outage, `Other` for an AMBER alert, all three observed in one NAAD sample (§4.1).
 - `sent`, `effective`, `onset`, `expires`, `ends`
-- `area_desc`, `affected_zones`. `area_desc` is not guaranteed descriptive; GDACS writes the literal `Polygon` there and the provider substitutes the country name.
+- `area_desc`, and `geocodes`, every area geocode scheme the source publishes keyed by its CAP `valueName`. `area_desc` is not guaranteed descriptive; GDACS writes the literal `Polygon` there and the provider substitutes the country name.
 - `bbox` (four floats), `points` (`[[lon, lat], …]`, published alongside a polygon, not instead of one) and `geometry_ref`, the handle for §2.4.
 - `language`, and `headline_alt`, `description_alt`, `instruction_alt`, `language_alt` when the provider emits a second language (§2.7)
 - `stale`, `last_confirmed`: set on an incident the current reconciliation did not confirm but the platform kept, either retained through an absence (§2.5) or restored after a restart and not yet re-validated. Both clear when a reconciliation sees it again.
 - `parent_id`: reserved (§6.3), unset in v1
-- Provider-specific fields, for example `vtec`
+- `parameters`: the source's `<parameter>` blocks verbatim, plus whatever of its envelope a provider passes through under the source's own names (NWS puts its `eventCode` schemes and VTEC strings here). The one provider-shaped slot; no typed field belongs to one provider.
 
 **Severity normalization** is deterministic and central. Providers that do not emit CAP severity adapt to this table in their own layer; the core entity never sees a provider vocabulary. National CAP deployments already do this by hand, folding Myanmar's color codes and the Philippine storm-signal numbers onto the same five tiers (§8.4).
 
@@ -410,7 +410,7 @@ Durable records subscribe to the events and forward payloads to an external sink
 
 ### 6.5 Per-zone Sub-device Grouping
 
-One sub-device per `affected_zones` entry multiplies registry churn under fan-out, and per-issuer grouping (§2.1) probably obviates it. Deferred.
+One sub-device per `geocodes` entry multiplies registry churn under fan-out, and per-issuer grouping (§2.1) probably obviates it. Deferred.
 
 ### 6.6 Bundled Zone-Geometry Artifact: Considered and Rejected
 
@@ -451,14 +451,15 @@ attributes:
   expires: "2026-04-14T16:45:00-04:00"
   ends: "2026-04-14T16:45:00-04:00"
   area_desc: "Southern Westchester, NY; Bronx, NY"
-  affected_zones:
-    - NYZ071
-    - NYZ072
+  geocodes:
+    UGC: [NYZ071, NYZ072]
+    SAME: ["036119", "036005"]
   bbox: [-73.98, 40.85, -73.74, 41.02]
   geometry_ref: 01J8Z3K5R7Q9X2M4N6P8T0V1W3:nws:OKX.SV.W.0042.2026
   language: "en-US"
-  vtec: "/O.NEW.KOKX.SV.W.0042.260414T1947Z-260414T2045Z/"
-  event_code_nws: SV.W
+  parameters:
+    VTEC: ["/O.NEW.KOKX.SV.W.0042.260414T1947Z-260414T2045Z/"]
+    NationalWeatherService: [SVR]
   friendly_name: Severe Thunderstorm Warning
   icon: mdi:weather-lightning
 ```
@@ -511,19 +512,17 @@ Modeled size of a CAP-rich incident after externalization, and the bound the ref
 | `phase`, `msg_type`, `lifecycle_status`, `previous_phase`, `phase_changed` | 70 | 120 |
 | 5× timestamps | 160 | 200 |
 | `area_desc` | 200 | **on the trim ladder, after the alternate text** |
-| `affected_zones`, `affected_zone_uris` | 240 | 900 |
 | `geocodes` | 350 | **unrecorded, outside the bound** |
 | `bbox`, `points` | 48 | 260 |
 | `geometry_ref` | 80 | 128 |
 | `sender`, `sender_name`, `web`, `note` | 160 | 400 |
-| `references`, `replaced_by`, `replaced_at` | 0 | 300 |
+| `references` | 0 | 300 |
 | `parameters` (provider passthrough) | 400 | **unrecorded, outside the bound** |
-| VTEC block (6 fields, NWS) | 180 | 300 |
-| `event_code_nws`, `event_code_same`, `is_marine`, `parent_id` | 30 | 90 |
+| `is_marine`, `parent_id` | 0 | 40 |
 | `episode_days` (merged episodes) | 0 | 1,200 |
 | `provider`, `icon`, `severity_normalized`, `stale`, `last_confirmed`, `incident_platform_version` | 180 | 260 |
 | JSON overhead | 300 | 600 |
-| **Total, as the recorder measures it** | **~6.9 KB** | **~6.0 KB structural, plus the trimmable text and area list** |
+| **Total, as the recorder measures it** | **~6.4 KB** | **~5.6 KB structural, plus the trimmable text and area list** |
 
 The implementation serializes what it is about to publish, measures it as the recorder does (`state.attributes` minus the domain exclusions and the entity's unrecorded attributes), and trims only past 15,800 bytes: `description_alt`, `instruction_alt`, `area_desc`, `description`, `instruction`, each spent in full before the next, a field under 160 bytes dropped rather than stubbed. `parameters` and `geocodes` are unrecorded, the two source-controlled lists no cap can bound; the second joined after a 291-area frost advisory carried 14,072 bytes of area names and 12,245 of codes against 1,837 of text. The model keeps the full text, so the lifecycle diff runs on what the source sent ([sweep](docs/evidence/per-field-text-caps-fail-both-ways.md), [overflow](docs/evidence/area-lists-overflow-after-text-is-spent.md)).
 

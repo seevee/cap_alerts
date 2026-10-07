@@ -16,8 +16,6 @@ _model = sys.modules[CAPAlert.__module__]
 canonical_scheme = _model.canonical_scheme
 geocodes_from = _model.geocodes_from
 
-ALIAS_PROPERTIES = ("geocode_ugc", "geocode_same", "geocode_clc", "geocode_sgc")
-
 
 def test_to_attributes_serializes_geocodes():
     alert = make_alert(geocodes={"NUTS3": ("FR614", "FR611")})
@@ -62,30 +60,6 @@ def test_geocodes_from_result_is_immutable():
     geocodes = geocodes_from({"UGC": ["OHC049"]})
     with pytest.raises(TypeError):
         geocodes["UGC"] = ("nope",)  # type: ignore[index]
-
-
-# ---------------------------------------------------------------------------
-# Promoted aliases — derived properties, never stored
-
-
-@pytest.mark.parametrize(
-    ("alias", "scheme"),
-    [
-        ("geocode_ugc", "UGC"),
-        ("geocode_same", "SAME"),
-        ("geocode_clc", "layer:EC-MSC-SMC:1.0:CLC"),
-        ("geocode_sgc", "profile:CAP-CP:Location:0.3"),
-    ],
-)
-def test_alias_property_reads_its_scheme(alias, scheme):
-    alert = make_alert(geocodes=geocodes_from({scheme: ["001", "002"]}))
-    assert getattr(alert, alias) == ("001", "002")
-
-
-@pytest.mark.parametrize("alias", ALIAS_PROPERTIES)
-def test_alias_property_empty_when_scheme_absent(alias):
-    alert = make_alert(geocodes=geocodes_from({"NUTS3": ["FR614"]}))
-    assert getattr(alert, alias) == ()
 
 
 # ---------------------------------------------------------------------------
@@ -147,30 +121,24 @@ def test_geocodes_from_unions_schemes_that_canonicalize_together():
     assert geocodes == {"CLC": ("071100", "090000", "099999")}
 
 
-def test_alias_reads_a_version_the_code_has_never_seen():
+def test_container_reads_a_version_the_code_has_never_seen():
     alert = make_alert(geocodes=geocodes_from({"layer:EC-MSC-SMC:9.9:CLC": ["071100"]}))
-    assert alert.geocode_clc == ("071100",)
+    assert alert.geocodes["CLC"] == ("071100",)
 
 
 # ---------------------------------------------------------------------------
-# The attribute surface carries the container, never the aliases
+# The attribute surface carries the container, and only the container
 
 
-def test_to_attributes_publishes_the_container_not_the_alias():
-    # The alias is a read path in code; republishing it would put the same
-    # codes on the wire twice (issue #150).
+def test_to_attributes_publishes_the_container_once():
+    # The ``geocode_*`` aliases republished the same codes a second time
+    # (issue #150) and are gone from the model altogether (issue #292): the
+    # container is the one read path, in code and on the wire.
     alert = make_alert(geocodes=geocodes_from({"UGC": ["OHC049"]}))
     attrs = alert.to_attributes()
     assert attrs["geocodes"] == {"UGC": ["OHC049"]}
-    assert alert.geocode_ugc == ("OHC049",)
-    assert "geocode_ugc" not in attrs
-
-
-def test_to_attributes_omits_alias_for_unpromoted_scheme():
-    alert = make_alert(geocodes=geocodes_from({"NUTS3": ["FR614"]}))
-    attrs = alert.to_attributes()
-    assert attrs["geocodes"] == {"NUTS3": ["FR614"]}
     assert not [k for k in attrs if k.startswith("geocode_")]
+    assert not hasattr(alert, "geocode_ugc")
 
 
 def test_to_attributes_omits_container_and_aliases_when_no_geocodes():

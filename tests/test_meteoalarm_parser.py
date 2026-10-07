@@ -207,8 +207,8 @@ def test_emma_geocodes_collected(feed_de):
     alerts = _parse(feed_de)
     gusts = next(a for a in alerts if a.event == "STURMBÖEN")
     # MeteoAlarm no longer mislabels EMMA_ID as SAME (#24); codes live in the
-    # scheme-keyed ``geocodes`` container instead.
-    assert gusts.geocode_same == ()
+    # scheme-keyed ``geocodes`` container under their own name.
+    assert "SAME" not in gusts.geocodes
     emma = gusts.geocodes.get("EMMA_ID", ())
     assert emma
     for code in emma:
@@ -235,12 +235,12 @@ def test_scheme_geocodes_multi_scheme(feed_de):
         assert code.startswith("DE")
 
 
-def test_nuts3_feed_populates_geocodes_not_geocode_same(feed_fr):
+def test_nuts3_feed_populates_geocodes_not_same(feed_fr):
     # France publishes NUTS3 department codes and no polygons — the #25 bug.
     alerts = _parse(feed_fr, preferred_prefix="fr")
     assert alerts
     for a in alerts:
-        assert a.geocode_same == ()
+        assert "SAME" not in a.geocodes
         assert a.geometry is None
         assert "NUTS3" in a.geocodes
         for code in a.geocodes["NUTS3"]:

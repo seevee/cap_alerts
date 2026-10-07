@@ -8,20 +8,22 @@ adding one touches none of the modules below.
 
 The gate is scoped to *dispatch*: string literals naming a provider, identifiers
 carrying a provider prefix, and imports reaching into a provider module.
-Docstrings and comments are free to say where a number was measured, and
-``CAPAlert`` keeps the field names it publishes (``vtec``, ``event_code_nws``)
-because those are attribute names on the wire.
+Docstrings and comments are free to say where a number was measured. The model
+is held to the same standard one level down (issue #292): a ``CAPAlert`` field
+is CAP or normalization metadata, never one provider's envelope.
 """
 
 from __future__ import annotations
 
 import ast
 import re
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
 
 from custom_components.cap_alerts.conventions import CONVENTIONS
+from custom_components.cap_alerts.model import CAPAlert
 from custom_components.cap_alerts.providers import PROVIDER_IDS, get_provider
 
 PACKAGE = Path(__file__).resolve().parent.parent / "custom_components" / "cap_alerts"
@@ -137,3 +139,37 @@ def test_every_shipped_provider_declares_its_own_row(provider_id: str):
 def test_rows_in_force_cover_every_shipped_provider():
     """What ``conftest`` registers is what a coordinator would: every id resolves."""
     assert _PROVIDER_IDS <= set(CONVENTIONS)
+
+
+# The fields that came off the model in issue #292, each set by NWS alone.
+# Their values live in ``parameters`` or were redundant with ``geocodes`` and
+# ``references``; a provider with an envelope of its own passes it through
+# ``parameters`` and reads it back in its convention row.
+_REMOVED_ENVELOPE_FIELDS = frozenset(
+    {
+        "vtec",
+        "vtec_office",
+        "vtec_phenomena",
+        "vtec_significance",
+        "vtec_action",
+        "vtec_tracking",
+        "event_code_nws",
+        "event_code_same",
+        "affected_zones",
+        "affected_zone_uris",
+        "replaced_by",
+        "replaced_at",
+    }
+)
+
+
+def test_model_carries_no_provider_envelope_fields():
+    """No ``CAPAlert`` field is named for one provider, and the pruned ones stay gone."""
+    names = {f.name for f in fields(CAPAlert)}
+    assert not names & _REMOVED_ENVELOPE_FIELDS
+    offenders = [
+        name
+        for name in names
+        if _PROVIDER_IDS & set(name.lower().split("_")) or name.startswith("vtec")
+    ]
+    assert offenders == [], offenders

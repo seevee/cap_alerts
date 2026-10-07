@@ -503,7 +503,7 @@ def test_build_alert_from_cap_populates_geocode_clc():
     # the alert. Ottawa is a land zone -> province-numbered prefix (07), not
     # marine ("00").
     alert = _make_alert_from_update_fixture()
-    assert alert.geocode_clc == ("071100",)
+    assert alert.geocodes["CLC"] == ("071100",)
 
 
 def test_build_alert_from_cap_populates_full_geocode_container():
@@ -518,17 +518,17 @@ def test_build_alert_from_cap_populates_full_geocode_container():
 
 
 def test_build_alert_from_cap_populates_geocode_sgc():
-    # 35 = Ontario; reachable through the accessor, and inspectable from the
-    # entity attributes through the container that publishes it.
+    # 35 = Ontario; inspectable from the entity attributes through the
+    # container that publishes it, under the canonical short name.
     alert = _make_alert_from_update_fixture()
-    assert alert.geocode_sgc == ("3506008",)
+    assert alert.geocodes["SGC"] == ("3506008",)
     attrs = alert.to_attributes()
     assert attrs["geocodes"]["SGC"] == ["3506008"]
     assert "geocode_sgc" not in attrs
 
 
 def test_build_alert_from_cap_geocode_sgc_absent_stays_sparse():
-    # The marine fixture carries CLC only -> no SGC alias, and no attribute key.
+    # The marine fixture carries CLC only -> no SGC scheme in the container.
     xml = _fixture("eccc_cap_en_marine.xml")
     doc = _parse_cap_alert(xml)
     assert doc is not None
@@ -536,13 +536,12 @@ def test_build_alert_from_cap_geocode_sgc_absent_stays_sparse():
     alert = _build_alert_from_cap(
         doc, info, {"atom_id": "", "language": "en-CA"}, "", _bilingual_key(doc, info)
     )
-    assert alert.geocode_sgc == ()
-    assert "geocode_sgc" not in alert.to_attributes()
+    assert "SGC" not in alert.geocodes
+    assert "SGC" not in alert.to_attributes()["geocodes"]
 
 
 def test_build_alert_from_cap_geocode_clc_empty_when_absent():
-    # No CLC geocode in the SPS fixture -> field stays an empty tuple (omitted
-    # from to_attributes by the sparse serializer).
+    # No CLC geocode in the SPS fixture -> no CLC scheme in the container.
     xml = _fixture("eccc_cap_en_sps.xml")
     doc = _parse_cap_alert(xml)
     assert doc is not None
@@ -550,7 +549,7 @@ def test_build_alert_from_cap_geocode_clc_empty_when_absent():
     alert = _build_alert_from_cap(
         doc, info, {"atom_id": "", "language": "en-CA"}, "", _bilingual_key(doc, info)
     )
-    assert alert.geocode_clc == ()
+    assert "CLC" not in alert.geocodes
 
 
 def test_is_marine_eccc_true_for_water_zone_prefix():
@@ -573,7 +572,7 @@ def test_build_alert_from_cap_marine_zone_sets_is_marine():
     alert = _build_alert_from_cap(
         doc, info, {"atom_id": "", "language": "en-CA"}, "", _bilingual_key(doc, info)
     )
-    assert alert.geocode_clc == ("004310",)
+    assert alert.geocodes["CLC"] == ("004310",)
     assert alert.is_marine is True
     # Surfaced as an attribute only when True.
     assert alert.to_attributes().get("is_marine") is True
@@ -589,9 +588,8 @@ def test_build_alert_from_cap_land_zone_not_marine():
 
 def test_build_alert_from_cap_routes_eventcode_to_parameters():
     alert = _make_alert_from_update_fixture()
-    # CAP-CP event codes must land in parameters, NOT event_code_same/event_code_nws
-    assert alert.event_code_same == ""
-    assert alert.event_code_nws == ""
+    # CAP-CP event codes land in parameters under their valueName, the one
+    # slot every provider's codes share (#292).
     assert alert.parameters is not None
     assert alert.parameters.get("profile:CAP-CP:Event:0.4") == "freezing-drizzle"
     assert alert.parameters.get("alertColourLevel") == "Yellow"
