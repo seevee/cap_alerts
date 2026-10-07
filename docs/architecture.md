@@ -811,8 +811,13 @@ Extreme rain warning in force 09-24 to 09-27, never reached the mirror.
 India's `in-imd-en` (2026-09-23) filed on 2026-10-04 and is lossy like
 Cameroon's: 13 of the 59 Actual alerts IMD has uploaded since 2025-09 are
 absent from the mirror, two of September's nine among them, each a Severe
-heavy-rainfall warning that was in force for a day. The probe's baseline is
-the maintained list; this one is a snapshot.
+heavy-rainfall warning that was in force for a day. Nigeria's `ng-nimet-en`
+(2026-09-27) filed on 2026-10-06 and is the lossiest so far: of the 208 Actual
+alerts NiMet has uploaded since May 2024, the oldest month the mirror still
+lists, 95 are absent, 8 of September 2026's 18 and both of October's so far
+among them, each a Severe thunderstorm warning in force into that night. The
+files it does carry arrive in about six minutes. The probe's baseline is the
+maintained list; this one is a snapshot.
 
 **Shared CAP parsing**: the CAP body parsing lives in the provider-neutral
 `providers/cap.py` module, used verbatim by both WMO and ECCC. `parse_cap_alert`
