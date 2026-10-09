@@ -7,7 +7,7 @@ import logging
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, ClassVar, Self
 
 import pytest
 
@@ -1269,6 +1269,72 @@ async def test_cache_returns_none_on_http_error():
     cache = CAPContentCache()
     result = await cache.get_or_fetch(session, "http://test/cap.xml")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_cache_refuses_a_redirect_when_asked_not_to_follow():
+    """``follow_redirects=False`` raises ``Redirected`` naming the Location,
+    asks aiohttp not to follow, and caches nothing (#295)."""
+    url = "http://test/warnings/mow.X-000.json"
+    archive = "http://test/archive/alerts/mow.X-000?contentType=json"
+    session = StubSession({url: (302, "", {"Location": archive})})
+    cache = CAPContentCache()
+    with pytest.raises(_cap_cache_mod.Redirected) as excinfo:
+        await cache.get_or_fetch(session, url, follow_redirects=False)
+    assert excinfo.value.url == url
+    assert excinfo.value.location == archive
+    assert session.request_allow_redirects == [False]
+    assert len(cache) == 0
+    assert cache._inflight == {}
+    # A redirect that names nowhere is still a redirect.
+    session = StubSession({url: (301, "")})
+    with pytest.raises(_cap_cache_mod.Redirected, match="no Location"):
+        await cache.get_or_fetch(session, url, follow_redirects=False)
+
+
+@pytest.mark.asyncio
+async def test_cache_default_leaves_following_to_aiohttp():
+    session = StubSession({"http://test/cap.xml": "body"})
+    cache = CAPContentCache()
+    assert await cache.get_or_fetch(session, "http://test/cap.xml") == "body"
+    assert session.request_allow_redirects == [True]
+
+
+@pytest.mark.asyncio
+async def test_cache_coalesced_waiter_sees_the_redirect_too():
+    url = "http://test/warnings/mow.X-000.json"
+    gate: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+
+    class GatedSession:
+        def get(self, url: str, **kw: Any) -> Any:
+            class Resp:
+                status = 302
+                headers: ClassVar[dict[str, str]] = {
+                    "Location": "http://test/archive/alerts/mow.X-000"
+                }
+
+                async def __aenter__(self) -> Self:
+                    await gate
+                    return self
+
+                async def __aexit__(self, *a: object) -> None:
+                    pass
+
+            return Resp()
+
+    cache = CAPContentCache()
+    first = asyncio.create_task(
+        cache.get_or_fetch(GatedSession(), url, follow_redirects=False)
+    )
+    await asyncio.sleep(0)
+    second = asyncio.create_task(
+        cache.get_or_fetch(GatedSession(), url, follow_redirects=False)
+    )
+    await asyncio.sleep(0)
+    gate.set_result(None)
+    results = await asyncio.gather(first, second, return_exceptions=True)
+    assert all(isinstance(r, _cap_cache_mod.Redirected) for r in results)
+    assert cache._inflight == {}
 
 
 @pytest.mark.asyncio

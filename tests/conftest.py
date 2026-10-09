@@ -147,11 +147,16 @@ class StubSession:
         # ``ClientTimeout`` object, or None) — lets per-caller timeout tests
         # assert what reached the session.
         self.request_timeouts: list[Any] = []
+        # ``allow_redirects`` per call, likewise parallel (None when the
+        # caller left aiohttp's default) — the stub never follows one either
+        # way; a 3xx entry is served as given.
+        self.request_allow_redirects: list[bool | None] = []
 
     def get(self, url: str, **kwargs: Any) -> Any:
         self.requested.append(url)
         self.request_headers.append(kwargs.get("headers"))
         self.request_timeouts.append(kwargs.get("timeout"))
+        self.request_allow_redirects.append(kwargs.get("allow_redirects"))
         value = self._responses.get(url)
         if isinstance(value, list):
             idx = min(self._seq_index.get(url, 0), len(value) - 1) if value else 0

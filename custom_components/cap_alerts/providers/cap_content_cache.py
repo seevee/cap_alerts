@@ -35,6 +35,20 @@ DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 DEFAULT_FETCH_TIMEOUT = 10  # seconds
 
 
+class Redirected(Exception):
+    """A fetch made with ``follow_redirects=False`` was answered with a 3xx.
+
+    ``url`` is what was asked for, ``location`` where the host pointed
+    instead (empty when it named nowhere). Raised to every caller sharing
+    the in-flight fetch; nothing is cached.
+    """
+
+    def __init__(self, url: str, location: str) -> None:
+        super().__init__(f"{url} redirected to {location or '(no Location)'}")
+        self.url = url
+        self.location = location
+
+
 class CAPContentCache:
     """LRU cache for CAP XML bodies with Future-based in-flight coalescing.
 
@@ -97,11 +111,20 @@ class CAPContentCache:
         *,
         user_agent: str | None = None,
         timeout: float = DEFAULT_FETCH_TIMEOUT,
+        follow_redirects: bool = True,
     ) -> str | None:
         """Return cached body for URL, fetching on miss.
 
         ``timeout`` bounds one HTTP request in seconds; a cache hit or an
         in-flight coalesce never waits on it.
+
+        ``follow_redirects=False`` makes a 3xx answer raise ``Redirected``
+        instead of being followed. A feed whose document URLs are keyed by an
+        immutable revision id never redirects a live document, so a redirect
+        there is the host answering with something else: a withdrawn warning's
+        archive copy, say, in a shape that parses as a live alert (#295). The
+        caller decides what the Location means; the body behind it is never
+        fetched.
 
         Returns None on HTTP error, network error, or timeout.  Logs a
         warning at most once per URL per cache instance.
@@ -124,14 +147,26 @@ class CAPContentCache:
                 headers["User-Agent"] = user_agent
             client_timeout = aiohttp.ClientTimeout(total=timeout)
             async with session.get(
-                url, headers=headers, timeout=client_timeout
+                url,
+                headers=headers,
+                timeout=client_timeout,
+                allow_redirects=follow_redirects,
             ) as resp:
+                if not follow_redirects and 300 <= resp.status < 400:
+                    raise Redirected(url, resp.headers.get("Location", ""))
                 if resp.status != 200:
                     _LOGGER.warning("CAP fetch HTTP %s for %s", resp.status, url)
                 else:
                     result = await resp.text()
             if result is not None:
                 self._store(url, result)
+        except Redirected as exc:
+            fut.set_exception(exc)
+            # Coalesced waiters re-raise it on await; mark it retrieved so a
+            # fetch nobody else was waiting on does not log "exception was
+            # never retrieved" when the future is collected.
+            fut.exception()
+            raise
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             _LOGGER.warning("CAP fetch failed for %s: %s", url, exc)
         finally:

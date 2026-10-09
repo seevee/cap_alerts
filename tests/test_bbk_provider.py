@@ -11,6 +11,7 @@ blocks and no ``expires``. The MoWaS all-clear (``Cancel``, with an
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -573,6 +574,41 @@ async def test_documents_the_host_cannot_serve_are_skipped():
     assert _warning_url(_MOW_ID_2) in session.requested
     assert _warning_url(_MOW_ID_3) in session.requested
     assert [a.identifier for a in alerts] == [_MOW_ID]
+
+
+async def test_documents_the_host_has_archived_are_withdrawn(caplog):
+    """A listed MoWaS warning whose document 302s into ``archive/`` is a
+    withdrawal the index has not caught up with: dropped quietly, no geometry
+    fetched. Any other redirect is dropped with a warning (#295)."""
+    archive = (
+        "https://warnung.bund.de/api31/archive/alerts/"
+        + _MOW_ID_2
+        + "?contentType=json"
+    )
+    responses = _gps_responses()
+    responses[_warning_url(_MOW_ID_2)] = (302, "", {"Location": archive})
+    responses[_warning_url(_MOW_ID_3)] = (301, "", {"Location": "https://x/y.json"})
+    with caplog.at_level(logging.DEBUG, logger="custom_components.cap_alerts"):
+        alerts, session = await _fetch(responses, {CONF_GPS_LOC: _IN_MOWAS})
+    assert [a.identifier for a in alerts] == [_MOW_ID]
+    assert _geojson_url(_MOW_ID_2) not in session.requested
+    assert _geojson_url(_MOW_ID_3) not in session.requested
+    # Documents are asked for without following; indexes and geometry as before.
+    by_url = dict(zip(session.requested, session.request_allow_redirects))
+    assert by_url[_warning_url(_MOW_ID)] is False
+    assert by_url[_warning_url(_MOW_ID_2)] is False
+    assert by_url[_geojson_url(_MOW_ID)] is True
+    assert by_url[_mapdata_url("mowas")] is None
+    records = [
+        r
+        for r in caplog.records
+        if r.name == "custom_components.cap_alerts.providers.bbk"
+    ]
+    archived = [r for r in records if "withdrawn" in r.getMessage()]
+    assert [r.levelno for r in archived] == [logging.DEBUG]
+    assert archive in archived[0].getMessage()
+    other = [r for r in records if "redirected to https://x/y.json" in r.getMessage()]
+    assert [r.levelno for r in other] == [logging.WARNING]
 
 
 async def test_non_json_and_non_cap_documents_are_skipped():
