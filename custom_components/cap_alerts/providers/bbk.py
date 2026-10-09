@@ -42,6 +42,15 @@ leaves the index, which is this feed's contract: warnung.bund.de lists live
 warnings and withdraws the rest. DWD documents do carry ``expires`` and are
 retained until it when the index blinks.
 
+The index lags the withdrawal. A withdrawn MoWaS warning stays listed for
+hours (5 of 29 rows on 2026-10-08, #295) while its document URL already 302s
+to ``archive/alerts/{id}``, a copy of a different shape: headline prefixed
+"ABGELAUFENE WARNMELDUNG:", empty ``polygon`` / ``circle`` / ``geocode`` /
+``resource`` lists, still no ``expires``. It parses as a live alert. MoWaS
+index rows carry no ``expiresDate`` either, so the expiry filter cannot drop
+them; the document fetch refuses redirects instead and treats one into the
+archive as the withdrawal it is.
+
 A MoWaS all-clear ("Entwarnung") is a ``Cancel`` revision of the warning,
 ``responseType`` ``AllClear``, with ``expires`` set six hours after ``sent``;
 the index lists it for that long (five of eight MoWaS rows on 2026-09-20).
@@ -89,7 +98,7 @@ from .cap import (
     select_alt_info,
     select_info,
 )
-from .cap_content_cache import CAPContentCache
+from .cap_content_cache import CAPContentCache, Redirected
 from .geometry import geometry_from_polygons
 from .gps import alert_polygons, parse_gps, point_in_polygon
 
@@ -382,7 +391,8 @@ class BBKProvider:
 
         (a) Fetches the district dashboard, or all five channel indexes.
         (b) Drops entries already expired, de-duplicated by id.
-        (c) Fetches each CAP document through the shared cache and reads it.
+        (c) Fetches each CAP document through the shared cache and reads it;
+            a document the host redirects to its archive is withdrawn.
         (d) Resolves revision chains to leaves.
         (e) Fetches each leaf's GeoJSON, builds alerts in the configured
             language, and applies the GPS filter when the scope is a point.
@@ -431,13 +441,40 @@ class BBKProvider:
             async with semaphore:
                 return await cache.get_or_fetch(session, url, user_agent=user_agent)
 
+        async def _fetch_document(url: str) -> str | None:
+            """The document body, or None once the outcome has been logged.
+
+            A live document never redirects (the URL is keyed by the immutable
+            revision id). A 302 into ``archive/`` is the host saying the
+            warning is withdrawn while the index still lists it (see the
+            module docstring): dropped at debug, since it is routine. Any
+            other redirect is the host changing under us and is worth a line.
+            """
+            async with semaphore:
+                try:
+                    body = await cache.get_or_fetch(
+                        session, url, user_agent=user_agent, follow_redirects=False
+                    )
+                except Redirected as redirect:
+                    if "/archive/" in redirect.location:
+                        _LOGGER.debug(
+                            "BBK: %s is withdrawn (archived at %s); dropped",
+                            url,
+                            redirect.location,
+                        )
+                    else:
+                        _LOGGER.warning("BBK: document %s; dropped", redirect)
+                    return None
+            if body is None:
+                _LOGGER.warning("BBK: document fetch failed for %s", url)
+            return body
+
         # (c) The documents.
         doc_urls = [BBK_WARNING_URL.format(warning_id=e.warning_id) for e in live]
-        bodies = await asyncio.gather(*[_fetch_body(url) for url in doc_urls])
+        bodies = await asyncio.gather(*[_fetch_document(url) for url in doc_urls])
         parsed: list[tuple[_IndexEntry, str, CAPDoc]] = []
         for entry, url, body in zip(live, doc_urls, bodies):
             if body is None:
-                _LOGGER.warning("BBK: document fetch failed for %s", url)
                 continue
             try:
                 payload = json.loads(body)

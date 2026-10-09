@@ -5,8 +5,8 @@
 | Supports | RFC §2.5 (the absence algorithm, last three branches) |
 | Source | WMO SWIC CAP bodies across 113 authorities, and the convention table |
 | Sample | 330 CAP documents, 510 `<info>` blocks ([#122](https://github.com/seevee/cap_alerts/pull/122)), re-checked live on two sources |
-| Observed | 2026-08-08 or shortly before (#122), live check 2026-10-03 |
-| Reproduce | `.venv/bin/python scripts/provider_probe.py wmo --source mo-smg-xx --json` and count `expires` keys |
+| Observed | 2026-08-08 or shortly before (#122), live check 2026-10-03, BBK archive redirect 2026-10-08 (#295) |
+| Reproduce | `.venv/bin/python scripts/provider_probe.py wmo --source mo-smg-xx --json` and count `expires` keys; `tests/test_bbk_provider.py::test_documents_the_host_has_archived_are_withdrawn` for the BBK row |
 
 The rule, copied from `rfc.md` §2.5:
 
@@ -30,7 +30,7 @@ What each shipped source can do, from
 | MeteoAlarm | yes, 0 of 11,384 blocks missing (#122) | none declared (conventions.py:1237) | no | at `expires` |
 | WMO | 20 of 510 blocks missing, 100% on Macao and Curaçao (#122) | none (conventions.py:1259) | no | at `expires` when published, otherwise on absence (last branch) |
 | GDACS | never (providers/gdacs.py:29) | none (conventions.py:1269) | no | on absence (last branch) |
-| BBK / NINA | DWD relay yes, MoWaS none (providers/bbk.py:38) | none (conventions.py:1277) | no | DWD at `expires`, MoWaS on absence (last branch) |
+| BBK / NINA | DWD relay yes, MoWaS none (providers/bbk.py:38) | none (conventions.py:1277) | no | DWD at `expires`, MoWaS on absence (last branch), which the provider brings forward when the document 302s into `archive/` (providers/bbk.py:45) |
 | Australian states | blanked, feed value is a regeneration TTL (providers/au.py:29) | none (conventions.py:1288) | no | on absence (last branch) |
 
 No row sets `absence_policy=ABSENCE_ENDS` (conventions.py:1114, default at
@@ -70,3 +70,9 @@ absence-ends branch stays unused.
   (#122), so the envelope offers no fallback. Not re-measured here.
 - The RSS mirror for `mo-smg-xx` returned HTTP 404 for 2 of its linked CAP
   bodies on the live run. Those two are not in the 498.
+- A withdrawn MoWaS warning stays in the BBK index for hours after its
+  document URL starts redirecting to an archive copy: 5 of 29 listed rows on
+  2026-10-08 (#295), one run, not re-measured. MoWaS index rows carry no
+  `expiresDate`, so the expiry filter cannot drop them; the provider treats
+  the redirect as the withdrawal and the alert still ends by absence from the
+  store's point of view.

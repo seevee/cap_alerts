@@ -31,7 +31,7 @@ table at its top says which figure is which.
 | §2.5, §1.4 requirement 5, §5 | [RestoreEntity keeps a removed alert for seven days and rewrites the file every fifteen minutes](restoreentity-keeps-a-removed-alert-for-seven-days.md) | 2026-10-05 | test, script, one-time capture |
 | §2.5 | [NWS publishes cancellations where the active endpoint cannot see them](nws-cancellations-never-reach-the-active-endpoint.md) | 2026-08-08 or shortly before (reported in [#121](https://github.com/seevee/cap_alerts/pull/121)), live check 2026-10-03 | script |
 | §2.5, §2.3 | [A restart re-validates known alerts instead of re-announcing them](restart-revalidates-instead-of-reannouncing.md) | 2026-10-01 (#249, #250, #252), 2026-10-02 (#257) | test |
-| §2.5 | [Retaining an absent alert is only safe when something else can end it](retention-needs-an-exit.md) | 2026-08-08 or shortly before (#122), live check 2026-10-03 | script |
+| §2.5 | [Retaining an absent alert is only safe when something else can end it](retention-needs-an-exit.md) | 2026-08-08 or shortly before (#122), live check 2026-10-03, BBK archive redirect 2026-10-08 (#295) | script, test, one-time capture |
 | §2.5 | [The NAAD streaming socket does not share the GeoRSS index gap](the-streaming-socket-does-not-share-the-gap.md) | 2026-08-21 | script, data file, one-time capture |
 | §2.5, §1.4 requirement 8 | [Two sanctioned NAAD hosts disagree on which alerts are live](two-naad-hosts-disagree-on-live-alerts.md) | 2026-07-22 | script, data file |
 | §2.7 | [The alternate language block is chosen by rule, not by document order](the-alternate-language-is-a-rule-not-document-order.md) | 2026-08-16 (report), 2026-08-21 (sweep) | script, test |

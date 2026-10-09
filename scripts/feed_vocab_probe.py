@@ -98,6 +98,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from typing import Any
 from xml.etree import ElementTree as ET
 
 _const_spec = importlib.util.spec_from_file_location(
@@ -383,20 +384,48 @@ _ECCC_DLC_SCHEME_PREFIX = "layer:EC-MSC-SMC:DLC:"
 # ---------------------------------------------------------------------------
 
 
-def fetch(url: str, *, timeout: float, retries: int = 3) -> str:
+class Redirected(Exception):
+    """A fetch made with ``follow_redirects=False`` was answered with a 3xx."""
+
+    def __init__(self, url: str, location: str) -> None:
+        super().__init__(f"{url} redirected to {location or '(no Location)'}")
+        self.url = url
+        self.location = location
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Leave a 3xx to the default handler, which raises it as an HTTPError."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def fetch(
+    url: str, *, timeout: float, retries: int = 3, follow_redirects: bool = True
+) -> str:
     """GET a URL, returning the body text; raises on persistent failure.
 
     Bodies carrying a DOCTYPE are refused before any XML parse: stdlib
     ElementTree has no entity-expansion guard (the integration proper uses
     defusedxml), and none of these feeds legitimately declares one.
+
+    ``follow_redirects=False`` raises ``Redirected`` on a 3xx instead, the
+    way the integration's body cache does: a document URL keyed by an
+    immutable id never redirects while the document is live (#295).
     """
     last_err: Exception | None = None
+    opener = urllib.request.urlopen if follow_redirects else _NO_REDIRECT_OPENER.open
     for _ in range(retries):
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with opener(req, timeout=timeout) as resp:
                 body = resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as err:
+            if not follow_redirects and 300 <= err.code < 400:
+                raise Redirected(url, err.headers.get("Location", "")) from None
             if err.code == 404:
                 raise  # an answer, not a transient failure; callers may expect it
             last_err = err
@@ -868,16 +897,22 @@ def probe_bbk(timeout: float, max_bodies: int, workers: int) -> Sample:
                 # ``circle`` / ``geocode`` / ``resource`` keys, a relabelled
                 # headline). The provider drops such rows before fetching
                 # (``bbk._live_entries``), so the probe does too (#217).
+                # MoWaS rows carry no ``expiresDate`` and 302 just the same
+                # once withdrawn, so the document fetch below refuses
+                # redirects as well, as the provider does (#295).
                 if not _bbk_row_expired(row.get("expiresDate"), now):
                     ids.setdefault(warning_id, channel)
     if len(failures) == len(BBK_CHANNELS):
         raise RuntimeError(f"every BBK channel index failed: {'; '.join(failures)}")
 
-    def fetch_doc(warning_id: str) -> tuple[str, dict | None]:
+    def fetch_doc(warning_id: str) -> tuple[str, dict | Redirected | None]:
+        url = BBK_WARNING_URL.format(warning_id=warning_id)
         try:
             return warning_id, json.loads(
-                fetch(BBK_WARNING_URL.format(warning_id=warning_id), timeout=timeout)
+                fetch(url, timeout=timeout, follow_redirects=False)
             )
+        except Redirected as redirect:
+            return warning_id, redirect
         except Exception:  # noqa: BLE001 — a probe reports None on any failure
             return warning_id, None
 
@@ -886,7 +921,14 @@ def probe_bbk(timeout: float, max_bodies: int, workers: int) -> Sample:
         docs = list(pool.map(fetch_doc, sampled))
 
     fetched = 0
+    archived = 0
     for warning_id, doc in docs:
+        if isinstance(doc, Redirected):
+            if "/archive/" in doc.location:
+                archived += 1
+            else:
+                print(f"  bbk: {warning_id} redirected to {doc.location}; skipped")
+            continue
         if not isinstance(doc, dict):
             continue
         fetched += 1
@@ -925,6 +967,8 @@ def probe_bbk(timeout: float, max_bodies: int, workers: int) -> Sample:
     note = (
         f", {len(failures)} channels failed ({'; '.join(failures)})" if failures else ""
     )
+    if archived:
+        note += f", {archived} archived (withdrawn, still listed)"
     print(f"  bbk: {len(ids)} index entries, {fetched} documents fetched{note}")
     return sample
 
