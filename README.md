@@ -47,6 +47,23 @@ model rather than a weather model. Further providers (BoM, a direct DWD feed, â€
 plug in behind the same provider protocol; see
 [Contributing](CONTRIBUTING.md#adding-a-provider).
 
+## Limits
+
+The integration shows what the feed publishes, and feeds have gaps. Two
+sanctioned hosts of one national feed have been measured
+[disagreeing about which alerts are live](docs/evidence/two-naad-hosts-disagree-on-live-alerts.md),
+and NWS
+[never publishes a cancellation](docs/evidence/nws-cancellations-never-reach-the-active-endpoint.md)
+to the endpoint it serves active alerts from. The model is built around that,
+an alert missing from one poll is kept and marked `stale` rather than dropped,
+but it can't show an alert the feed never carried.
+
+Latency is the poll interval, 5 minutes by default, plus the feed's own delay
+behind the issuing office. ECCC streaming is the one path that is not polled.
+
+Keep the official channel for your area as the primary warning. This is a
+second one, and a way to automate on it.
+
 ## Installation
 
 Requires Home Assistant 2026.4.3 or newer.
