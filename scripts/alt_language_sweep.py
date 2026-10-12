@@ -64,7 +64,7 @@ from custom_components.cap_alerts.providers.meteoalarm import (
 )
 from custom_components.cap_alerts.providers.wmo import (
     WMO_RSS_URL,
-    _parse_rss_links,
+    _parse_feed_links,
     fetch_wmo_sources,
 )
 
@@ -93,7 +93,7 @@ async def _wmo_source_docs(
                 if resp.status != 200:
                     return sid, [], f"RSS HTTP {resp.status}"
                 rss = await resp.text()
-            urls = _parse_rss_links(rss)[:per_source]
+            urls = _parse_feed_links(rss)[:per_source]
             bodies = await asyncio.gather(
                 *(cache.get_or_fetch(session, u, user_agent=UA) for u in urls)
             )

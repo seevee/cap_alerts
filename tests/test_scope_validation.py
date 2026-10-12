@@ -12,6 +12,7 @@ Each provider answers with the cheapest authoritative request it has, and
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +23,7 @@ from custom_components.cap_alerts.const import (
     CONF_SOURCE_ID,
     CONF_TRACKER_ENTITY,
     CONF_ZONE_ID,
+    WMO_SOURCES_URL,
 )
 from custom_components.cap_alerts.providers import get_provider
 from tests.conftest import StubSession
@@ -31,6 +33,11 @@ _ZONES = "https://api.weather.gov/zones"
 _POINTS = "https://api.weather.gov/points"
 _MA_FRANCE = "https://feeds.meteoalarm.org/api/v1/warnings/feeds-france"
 _WMO_RSS = "https://severeweather.wmo.int/v2/cap-alerts/mx-smn-es/rss.xml"
+_WMO_TH_RSS = "https://severeweather.wmo.int/v2/cap-alerts/th-tmd-en/rss.xml"
+_WMO_TMD_FEED = "https://www.tmd.go.th/en/api/xml/CAP"
+_WMO_REGISTRY = (Path(__file__).parent / "fixtures" / "wmo_sources.json").read_text(
+    encoding="utf-8"
+)
 
 
 def _zone_collection(*ids: str) -> str:
@@ -195,7 +202,7 @@ async def test_meteoalarm_mobile_mode_has_no_country_to_check():
 
 
 # ---------------------------------------------------------------------------
-# WMO — the mirror has to serve the source
+# WMO — the mirror or the authority's own feed has to serve the source
 # ---------------------------------------------------------------------------
 
 
@@ -203,13 +210,64 @@ async def test_a_mirrored_source_validates():
     _RESPONSES.clear()
     _RESPONSES[_WMO_RSS] = "<rss/>"
     assert await _validate("wmo", {CONF_SOURCE_ID: "mx-smn-es"}) is None
+    # The mirror answered; the registry was never needed.
 
 
-async def test_a_source_the_mirror_does_not_carry_is_rejected():
-    """Covers both a typo and a registered-but-unmirrored source."""
+async def test_validate_mirror_down_accepts_resolved_source():
+    """#302: the mirror 404s during an outage, TMD's own feed is fine."""
     _RESPONSES.clear()
-    _RESPONSES[_WMO_RSS] = (404, "")
-    assert await _validate("wmo", {CONF_SOURCE_ID: "mx-smn-es"}) == "unknown_wmo_source"
+    _RESPONSES[_WMO_TH_RSS] = (404, "")
+    _RESPONSES[WMO_SOURCES_URL] = _WMO_REGISTRY
+    _RESPONSES[_WMO_TMD_FEED] = "<rss/>"
+    assert await _validate("wmo", {CONF_SOURCE_ID: "th-tmd-en"}) is None
+
+
+async def test_validate_mirror_and_feed_down_is_cannot_connect():
+    """An outage is an outage, not a claim that the source does not exist."""
+    _RESPONSES.clear()
+    _RESPONSES[_WMO_TH_RSS] = (404, "")
+    _RESPONSES[WMO_SOURCES_URL] = _WMO_REGISTRY
+    _RESPONSES[_WMO_TMD_FEED] = (503, "")
+    assert await _validate("wmo", {CONF_SOURCE_ID: "th-tmd-en"}) == "cannot_connect"
+
+
+async def test_validate_feed_that_is_not_xml_is_cannot_connect():
+    _RESPONSES.clear()
+    _RESPONSES[_WMO_TH_RSS] = (404, "")
+    _RESPONSES[WMO_SOURCES_URL] = _WMO_REGISTRY
+    _RESPONSES[_WMO_TMD_FEED] = "<html>not a feed"
+    assert await _validate("wmo", {CONF_SOURCE_ID: "th-tmd-en"}) == "cannot_connect"
+
+
+async def test_validate_registry_down_is_cannot_connect():
+    _RESPONSES.clear()
+    _RESPONSES[_WMO_TH_RSS] = (404, "")
+    assert await _validate("wmo", {CONF_SOURCE_ID: "th-tmd-en"}) == "cannot_connect"
+
+
+async def test_validate_no_record_is_unknown_source():
+    """Only a registry that answers and has no record blames the id."""
+    _RESPONSES.clear()
+    _RESPONSES["https://severeweather.wmo.int/v2/cap-alerts/zz-nobody-en/rss.xml"] = (
+        404,
+        "",
+    )
+    _RESPONSES[WMO_SOURCES_URL] = _WMO_REGISTRY
+    assert (
+        await _validate("wmo", {CONF_SOURCE_ID: "zz-nobody-en"}) == "unknown_wmo_source"
+    )
+
+
+async def test_validate_other_mirror_error_is_cannot_connect():
+    _RESPONSES.clear()
+    _RESPONSES[_WMO_RSS] = (503, "")
+    _RESPONSES[WMO_SOURCES_URL] = (503, "")
+    assert await _validate("wmo", {CONF_SOURCE_ID: "mx-smn-es"}) == "cannot_connect"
+
+
+async def test_validate_without_a_source_asks_nothing():
+    _RESPONSES.clear()
+    assert await _validate("wmo", {}) is None
 
 
 # ---------------------------------------------------------------------------

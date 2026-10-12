@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
+from collections.abc import Mapping
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.instance_id import async_get as async_get_instance_id
 from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
@@ -16,16 +21,21 @@ from homeassistant.helpers.selector import (
 )
 
 from ..const import (
+    CONF_FEED_SOURCE,
     CONF_GEOCODE_PREFIXES,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
     CONF_SOURCE_ID,
     CONF_TRACKER_ENTITY,
+    CONFIG_FLOW_TIMEOUT,
+    DEFAULT_WMO_FEED_SOURCE,
+    USER_AGENT,
+    WMO_FEED_SOURCES,
     WMO_LANGUAGES,
     WMO_SOURCE_NAMES,
 )
-from ..providers.wmo import fetch_wmo_sources
+from ..providers.wmo import async_authority_feed_available, fetch_wmo_sources
 from .common import (
     OptionsSchema,
     ScopedEntryFlowMixin,
@@ -100,13 +110,48 @@ def _wmo_language_selector() -> SelectSelector:
 
 
 def options_schema(entry: ConfigEntry) -> OptionsSchema:
-    """WMO-specific option fields: which ``<info>`` language to read."""
+    """WMO-specific option fields: ``<info>`` language, then the feed source.
+
+    The feed source is offered on every WMO entry rather than only where the
+    registry record resolves: the options flow makes no network call to
+    render a form, and the one value that needs the network (``authority``)
+    is checked on save by ``async_validate_options`` instead.
+    """
     return {
         vol.Optional(
             CONF_LANGUAGE,
             default=entry.options.get(CONF_LANGUAGE, "auto"),
         ): _wmo_language_selector(),
+        vol.Optional(
+            CONF_FEED_SOURCE,
+            default=entry.options.get(CONF_FEED_SOURCE, DEFAULT_WMO_FEED_SOURCE),
+        ): vol.In(list(WMO_FEED_SOURCES)),
     }
+
+
+async def async_validate_options(
+    hass: HomeAssistant, entry: ConfigEntry, user_input: Mapping[str, Any]
+) -> str | None:
+    """Reject a feed source the entry could not poll (issue #210).
+
+    Only ``authority`` can fail: ``auto`` always has the mirror and ``mirror``
+    is what every entry polled before. Resolving the registry record and
+    fetching the feed once here, under the config-flow timeout, is cheaper
+    for the user than an entry that goes unavailable with a reason to go and
+    find in the log. Returns a ``strings.json`` error key or ``None``.
+    """
+    if user_input.get(CONF_FEED_SOURCE) != "authority":
+        return None
+    source_id = str(entry.data.get(CONF_SOURCE_ID, "") or "").strip()
+    user_agent = USER_AGENT.format(await async_get_instance_id(hass))
+    try:
+        async with asyncio.timeout(CONFIG_FLOW_TIMEOUT):
+            available = await async_authority_feed_available(
+                async_get_clientsession(hass), source_id, user_agent=user_agent
+            )
+    except (TimeoutError, aiohttp.ClientError, ValueError):
+        available = False
+    return None if available else "authority_feed_unavailable"
 
 
 class WMOFlowMixin(ScopedEntryFlowMixin):

@@ -67,7 +67,7 @@ custom_components/cap_alerts/
     nws.py          # NWS steps + zone validation
     eccc.py         # ECCC steps + province validation, language/streaming/feed options
     meteoalarm.py   # MeteoAlarm steps: country, region picker, fully-mobile mode
-    wmo.py          # WMO steps: source picker, geocode narrowing, language option
+    wmo.py          # WMO steps: source picker, geocode narrowing, language + feed-source options (authority validated on save)
     gdacs.py        # GDACS steps + event-type/alert-level options
     bbk.py          # BBK steps: Regionalschlüssel (district) form, GPS, tracker; language option
     au.py           # Australian steps: state picker; minimum alert level option
@@ -99,7 +99,7 @@ custom_components/cap_alerts/
     eccc_ingest.py        # NAADIngest (PushIngest): the live document set, admission, heartbeat rebuilds, reconnect/resync backfill, repository recovery (#164)
     naad_stream.py        # NAAD TLS streaming transport: frame reassembly, heartbeats, watchdog, reconnect/backoff — no alert semantics
     meteoalarm.py         # MeteoAlarm (EUMETNET) per-country CAP JSON
-    wmo.py                # WMO SWIC per-source RSS → CAP XML; per-language <info> selection; Buddhist-Era year fix
+    wmo.py                # WMO: SWIC mirror + the authority's own feed (registry record) unioned by CAP identifier, RSS or Atom index → CAP XML; per-language <info> selection; Buddhist-Era year fix
     gdacs.py              # GDACS: two global RSS indexes unioned → CAPAlert (no CAP body exists); per-episode GeoJSON geometry, RSS-stage filters, eventid-based identity
     bbk.py                # BBK / NINA (Germany): district dashboard or five channel indexes → CAP-over-JSON documents + per-warning GeoJSON; MoWaS/KATWARN/BIWAPP/LHP + DWD relay
     au.py                 # Australian state feeds (NSW RFS, QFD, WA DFES, TasALERT): one EDXL-DE document per state → CAP-AU alerts; AlertLevel tier drives severity, marker circles → points, expires dropped (regeneration TTL)
@@ -177,6 +177,12 @@ it walks the deployed instance, not the working tree.
 form, and options schema through HA's own flow manager on a deployed instance.
 Run it after any config-flow change, and before a prerelease. A new provider
 adds its rows to `SETUP`, `RECONFIGURE`, and `OPTIONS_SCHEMA` there.
+
+`scripts/wmo_bucket_probe.py` (stdlib only, read-only) reports what the WMO
+provider would see on the cap-sources bucket feeds behind the registry: item
+counts, `cap:` extensions, body status and expiry. It is the measurement
+behind the WMO feed-source design (#210); re-run it before changing the
+body-level filters.
 
 `scripts/feed_vocab_probe.py` (stdlib only) diffs each provider's live feed
 vocabulary against `scripts/feed_vocab_baseline.json`; a scheduled workflow

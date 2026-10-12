@@ -1,8 +1,19 @@
 """WMO Severe Weather Information Centre (SWIC) provider.
 
-Two-step fetch: pull a per-source RSS 2.0 feed, extract the per-item
-``<link>`` CAP XML URLs, fetch those via the shared ``CAPContentCache``, and
-parse standard CAP 1.2 XML into ``CAPAlert`` objects.
+Two-step fetch: pull a per-source feed of links, extract the per-item CAP XML
+URLs, fetch those via the shared ``CAPContentCache``, and parse standard CAP
+1.2 XML into ``CAPAlert`` objects.
+
+Two feeds carry a source (issue #210). The SWIC mirror serves
+``…/cap-alerts/{source_id}/rss.xml`` for every source it follows, and the
+registry record names the feed the authority itself publishes
+(``capAlertFeed``): a folder on WMO's cap-sources bucket for ~120 language
+feeds, a national host for the rest. The mirror is a copy that can lag, drop
+files, or go down with nothing in the feed to say so, and none of that is
+detectable inside one poll, so ``feed_source`` ``auto`` polls both and unions
+them by CAP identifier; ``mirror`` / ``authority`` pin one. Both feed shapes
+are an index of links, RSS 2.0 (``<item><link>`` text) or Atom
+(``<entry><link href>``), and the CAP body is the record either way.
 
 The CAP body parsing is shared with ECCC via the provider-neutral ``cap``
 module: ``parse_cap_alert`` is namespace-agnostic and handles the
@@ -26,14 +37,16 @@ import aiohttp
 from defusedxml import ElementTree as ET
 
 from ..const import (
+    CONF_FEED_SOURCE,
     CONF_GEOCODE_PREFIXES,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_SOURCE_ID,
+    DEFAULT_WMO_FEED_SOURCE,
+    WMO_CAP_SOURCES_BUCKET,
     WMO_SOURCES_URL,
-    WMO_UNMIRRORED_SOURCES,
 )
-from ..conventions import SourceConventions
+from ..conventions import SourceConventions, parse_instant
 from ..model import CAPAlert, geocodes_from
 from . import ProviderError
 from .cap import (
@@ -53,6 +66,19 @@ from .wmo_conventions import CONVENTIONS as _CONVENTIONS
 _LOGGER = logging.getLogger(__name__)
 
 WMO_RSS_URL = "https://severeweather.wmo.int/v2/cap-alerts/{source_id}/rss.xml"
+
+# The feed names used in log lines, ``ProviderError`` text, and the
+# per-feed warning streaks; ``feed_source`` pins by the same names.
+FEED_MIRROR = "mirror"
+FEED_AUTHORITY = "authority"
+
+_ATOM_NS = "http://www.w3.org/2005/Atom"
+
+
+def _utcnow() -> datetime:
+    """The poll clock, a seam so tests can pin a captured feed in time."""
+    return datetime.now(timezone.utc)
+
 
 # Buddhist-Era calendar correction. Thailand's TMD, relayed by SWIC, emits
 # Buddhist-Era years — Gregorian + 543 — in CAP dateTime fields, e.g.
@@ -90,7 +116,7 @@ def _gregorian(value: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# RSS envelope parsing
+# Feed envelope parsing (RSS 2.0 and Atom)
 # ---------------------------------------------------------------------------
 
 
@@ -192,26 +218,53 @@ def _prefilter_by_guid(items: list[Any], prefixes: Sequence[str]) -> set[int] | 
     return kept or None
 
 
-def _parse_rss_links(
+def _atom_entry_href(entry: Any) -> str | None:
+    """The CAP document URL of an Atom ``<entry>``.
+
+    A ``<link>`` typed ``application/cap+xml`` wins (DWD carries one beside
+    its ``alternate``); otherwise the first ``alternate`` or untyped link.
+    Hub and self links on the entry are skipped by their ``rel``.
+    """
+    alternate: str | None = None
+    for link in entry.findall(f"{{{_ATOM_NS}}}link"):
+        href = (link.get("href") or "").strip()
+        if not href:
+            continue
+        if "cap+xml" in (link.get("type") or ""):
+            return href
+        if (link.get("rel") or "alternate") == "alternate" and alternate is None:
+            alternate = href
+    return alternate
+
+
+def _parse_feed_links(
     xml_text: str,
     *,
     now: datetime | None = None,
     geocode_prefixes: Sequence[str] | None = None,
 ) -> list[str]:
-    """Extract per-item ``<link>`` CAP XML URLs for currently-active alerts.
+    """Extract the per-item CAP XML URLs of a feed, for currently-active alerts.
 
-    RSS 2.0 ``<link>`` is a plain-text element (the URL is the element text,
-    unlike Atom where it is an ``href`` attribute). Items whose CAP
-    ``expires`` extension is already in the past are skipped, so high-volume
-    feeds (PAGASA lists ~500 items, nearly all expired) only trigger CAP-body
-    fetches for live alerts — without this the cold-start cascade exceeds the
-    coordinator poll timeout. Items lacking a parseable ``expires`` are kept
-    (fail-open), so feeds without the extension behave as before. Raises
-    ``ET.ParseError`` on malformed XML — the caller converts that to
-    ``ProviderError``. Returns ``[]`` for a feed with no live items.
+    Two envelope shapes. RSS 2.0 (the mirror, the cap-sources bucket, and
+    about half the national hosts): ``<link>`` is a plain-text element. Atom
+    (DWD, Belhydromet, the other half): the URL is a ``<link href>``
+    attribute, see ``_atom_entry_href``.
+
+    Items whose CAP ``expires`` extension is already in the past are skipped,
+    so high-volume feeds (PAGASA lists ~500 items, nearly all expired) only
+    trigger CAP-body fetches for live alerts — without this the cold-start
+    cascade exceeds the coordinator poll timeout. Items lacking a parseable
+    ``expires`` are kept (fail-open): the bucket and national feeds carry no
+    ``cap:`` extensions at all, and the body-level filter in ``async_fetch``
+    does the work there. Raises ``ET.ParseError`` on malformed XML — the
+    caller converts that to ``ProviderError``. Returns ``[]`` for a feed with
+    no live items.
     """
-    cutoff = now or datetime.now(timezone.utc)
+    cutoff = now or _utcnow()
     root = ET.fromstring(xml_text)
+    if root.tag == f"{{{_ATOM_NS}}}feed":
+        hrefs = (_atom_entry_href(e) for e in root.findall(f"{{{_ATOM_NS}}}entry"))
+        return [href for href in hrefs if href]
     items = list(root.iter("item"))
     # Optional area-code gate, applied before any CAP body is fetched. Returns
     # None whenever the guid cannot answer the question, in which case every
@@ -232,8 +285,205 @@ def _parse_rss_links(
 
 
 # ---------------------------------------------------------------------------
-# Source registry (config-flow dropdown)
+# Source registry: the config-flow dropdown and the authority feed resolver
 # ---------------------------------------------------------------------------
+
+
+async def _registry_payload(
+    session: aiohttp.ClientSession, *, user_agent: str | None = None
+) -> Any | None:
+    """The SWIC registry (``WMO_SOURCES_URL``) as parsed JSON, or ``None``.
+
+    ``None`` means the registry could not be read (HTTP error, network
+    error, bad JSON); callers treat that as "unknown for now", never as "no
+    such source". The registry is served from CloudFront edge copies and only
+    404s when an edge's copy expires during a full origin outage, so a retry
+    on the next poll closes that window.
+    """
+    headers = {"User-Agent": user_agent} if user_agent else None
+    try:
+        async with session.get(WMO_SOURCES_URL, headers=headers) as resp:
+            if resp.status != 200:
+                return None
+            try:
+                return await resp.json(content_type=None)
+            except (aiohttp.ContentTypeError, ValueError):
+                return None
+    except aiohttp.ClientError:
+        return None
+
+
+def _registry_records(payload: Any) -> list[Mapping[str, Any]]:
+    """The ``source`` records of a registry payload that carry a ``sourceId``.
+
+    An unexpected shape yields ``[]`` rather than raising, so a changed
+    registry degrades to "no sources" / "no authority feed" everywhere.
+    """
+    sources = payload.get("sources") if isinstance(payload, dict) else None
+    if not isinstance(sources, list):
+        return []
+    records: list[Mapping[str, Any]] = []
+    for entry in sources:
+        if not isinstance(entry, Mapping):
+            continue
+        source = entry.get("source")
+        if isinstance(source, Mapping) and str(source.get("sourceId") or "").strip():
+            records.append(source)
+    return records
+
+
+def _record_feed_urls(record: Mapping[str, Any]) -> list[str]:
+    """A record's ``capAlertFeed`` URLs: 51 of 140 list several, comma-joined."""
+    raw = str(record.get("capAlertFeed") or "")
+    return [url.strip() for url in raw.split(",") if url.strip()]
+
+
+_BUCKET_FOLDER_RE = re.compile(re.escape(WMO_CAP_SOURCES_BUCKET) + r"([^/]+)/rss\.xml$")
+
+
+def _bucket_folder(url: str) -> str | None:
+    """The cap-sources folder a feed URL names, or ``None`` off the bucket."""
+    match = _BUCKET_FOLDER_RE.match(url)
+    return match.group(1) if match else None
+
+
+def _primary_subtags(record: Mapping[str, Any]) -> list[str]:
+    """``byLanguage`` codes reduced to their primary subtag, in record order."""
+    by_language = record.get("byLanguage")
+    if not isinstance(by_language, list):
+        return []
+    return [
+        str(entry.get("code") or "").strip().split("-", 1)[0].lower()
+        for entry in by_language
+        if isinstance(entry, Mapping)
+    ]
+
+
+def authority_feed_url(payload: Any, source_id: str) -> str | None:
+    """The feed the authority publishes for a mirror source id, or ``None``.
+
+    Mirror ids and registry ids are not the same set: a multilingual authority
+    is one record (``th-tmd-th``, ``tl-dnmg-en``) whose ``capAlertFeed``
+    lists one URL per language, and the mirror serves each language under its
+    own id (``th-tmd-en``, ``tl-dnmg-pt``). Resolution, in order:
+
+    1. A cap-sources folder named like the id, in any record: the folder names
+       *are* mirror ids (``tl-dnmg-pt`` lives in ``tl-dnmg-en``'s record).
+    2. Else the record with that ``sourceId``, else the one record sharing the
+       id's ``{country}-{agency}`` prefix (``th-tmd-en`` → ``th-tmd-th``).
+       Two or more sharing it is ambiguous and resolves nothing.
+    3. One URL: that one. Several: the URL at the index of the ``byLanguage``
+       entry whose primary subtag equals the id's trailing tag (``th-tmd-en``
+       → ``[en, th]`` → the first), else the first URL. Except when every URL
+       is a bucket folder: then the folders are the ids, none matched in step
+       1, and the id is unresolvable (``gw-inm-en`` lists ``gw-inm-fr`` and
+       ``gw-inm-pt``, neither its own).
+
+    Pure; the registry payload comes from ``_registry_payload``.
+    """
+    sid = source_id.strip().lower()
+    if not sid:
+        return None
+    records = _registry_records(payload)
+    for candidate in records:
+        for url in _record_feed_urls(candidate):
+            if _bucket_folder(url) == sid:
+                return url
+    record: Mapping[str, Any] | None = next(
+        (r for r in records if str(r.get("sourceId")).strip() == sid), None
+    )
+    if record is None:
+        prefix = "-".join(sid.split("-")[:2]) + "-"
+        matches = [r for r in records if str(r.get("sourceId")).startswith(prefix)]
+        if len(matches) != 1:
+            return None
+        record = matches[0]
+    urls = _record_feed_urls(record)
+    if not urls:
+        return None
+    if len(urls) == 1:
+        return urls[0]
+    if all(_bucket_folder(url) for url in urls):
+        return None
+    tag = sid.rsplit("-", 1)[-1]
+    subtags = _primary_subtags(record)
+    if tag in subtags and subtags.index(tag) < len(urls):
+        return urls[subtags.index(tag)]
+    return urls[0]
+
+
+async def _fetch_feed_links(
+    session: aiohttp.ClientSession,
+    url: str,
+    *,
+    geocode_prefixes: Sequence[str] | None = None,
+    user_agent: str | None = None,
+) -> list[str]:
+    """Fetch one feed and return its live CAP URLs; ``ProviderError`` on any failure."""
+    headers = {"User-Agent": user_agent} if user_agent else None
+    try:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status != 200:
+                raise ProviderError(f"HTTP {resp.status}")
+            text = await resp.text()
+    except aiohttp.ClientError as err:
+        raise ProviderError(f"{type(err).__name__}: {err}") from err
+    try:
+        return _parse_feed_links(text, geocode_prefixes=geocode_prefixes)
+    except ET.ParseError as err:
+        raise ProviderError(f"failed to parse feed: {err}") from err
+
+
+async def _feed_parses(
+    session: aiohttp.ClientSession, url: str, *, user_agent: str | None = None
+) -> bool:
+    """Whether ``url`` answers 200 with a feed ``_parse_feed_links`` reads."""
+    try:
+        await _fetch_feed_links(session, url, user_agent=user_agent)
+    except ProviderError:
+        return False
+    return True
+
+
+async def async_authority_feed_available(
+    session: aiohttp.ClientSession, source_id: str, *, user_agent: str | None = None
+) -> bool:
+    """Whether the registry resolves ``source_id`` to a feed that answers.
+
+    The check behind pinning ``feed_source`` to ``authority`` in the options
+    flow: a pin that cannot fetch would only surface later as an unavailable
+    entry with a reason the user has to go and find.
+    """
+    payload = await _registry_payload(session, user_agent=user_agent)
+    if payload is None:
+        return False
+    url = authority_feed_url(payload, source_id)
+    if url is None:
+        return False
+    return await _feed_parses(session, url, user_agent=user_agent)
+
+
+def wmo_feed_urls(
+    options: Mapping[str, Any], source_id: str, authority_url: str | None
+) -> list[tuple[str, str]]:
+    """The ``(feed, url)`` pairs a poll reads, in union order.
+
+    ``feed_source`` ``auto`` (the default, and any unrecognised value — fail
+    open) yields the mirror and then the authority feed when one is resolved;
+    ``mirror`` / ``authority`` pin one. The mirror comes first so that an alert
+    both feeds carry keeps the mirror's copy, and with it the ``url`` attribute
+    existing entries already publish. An authority URL that *is* the mirror
+    (``cn-cma-xx``'s record once pointed there) is read once. ``authority``
+    with nothing resolved yields ``[]``; the caller decides what that means.
+    """
+    mirror = WMO_RSS_URL.format(source_id=source_id)
+    source = options.get(CONF_FEED_SOURCE, DEFAULT_WMO_FEED_SOURCE)
+    if source == FEED_AUTHORITY:
+        return [(FEED_AUTHORITY, authority_url)] if authority_url else []
+    feeds = [(FEED_MIRROR, mirror)]
+    if source != FEED_MIRROR and authority_url and authority_url != mirror:
+        feeds.append((FEED_AUTHORITY, authority_url))
+    return feeds
 
 
 def _source_languages(source: Mapping[str, Any]) -> str:
@@ -290,48 +540,51 @@ def _wmo_source_label(source: Mapping[str, Any]) -> str:
 async def fetch_wmo_sources(
     session: aiohttp.ClientSession, *, user_agent: str | None = None
 ) -> list[tuple[str, str]]:
-    """Return ``[(sourceId, label), ...]`` for mirror-reachable WMO sources.
+    """Return ``[(sourceId, label), ...]`` for every registered WMO source.
 
-    Fetches the live SWIC registry (``WMO_SOURCES_URL``) and drops only the
-    known-unmirrored sources (the ~21 that 404 on the mirror). No
-    cross-provider uniqueness filtering — feeds also covered by MeteoAlarm or
-    NWS are included. Returns ``[]`` on any failure (HTTP error, JSON error,
-    unexpected shape); the caller falls back to the static ``WMO_SOURCE_NAMES``
-    catalog. Sorted by label.
+    Fetches the live SWIC registry (``WMO_SOURCES_URL``). No filtering: every
+    record resolves to a feed the provider can poll (the mirror, the
+    authority's own, or both under ``auto``), and a source whose feeds are
+    all dead is reported by the source step's validation rather than hidden.
+    Feeds also covered by MeteoAlarm or NWS are included. Returns ``[]`` on
+    any failure (HTTP error, JSON error, unexpected shape); the caller falls
+    back to the static ``WMO_SOURCE_NAMES`` catalog. Sorted by label.
     """
-    headers = {"User-Agent": user_agent} if user_agent else None
-    try:
-        async with session.get(WMO_SOURCES_URL, headers=headers) as resp:
-            if resp.status != 200:
-                return []
-            try:
-                payload = await resp.json(content_type=None)
-            except (aiohttp.ContentTypeError, ValueError):
-                return []
-    except aiohttp.ClientError:
-        return []
-
-    sources = payload.get("sources") if isinstance(payload, dict) else None
-    if not isinstance(sources, list):
-        return []
-
+    payload = await _registry_payload(session, user_agent=user_agent)
     seen: dict[str, str] = {}
-    for entry in sources:
-        if not isinstance(entry, Mapping):
-            continue
-        source = entry.get("source")
-        if not isinstance(source, Mapping):
-            continue
+    for source in _registry_records(payload):
         sid = str(source.get("sourceId") or "").strip()
-        if not sid or sid in WMO_UNMIRRORED_SOURCES or sid in seen:
-            continue
-        seen[sid] = _wmo_source_label(source)
+        if sid not in seen:
+            seen[sid] = _wmo_source_label(source)
     return sorted(seen.items(), key=lambda item: item[1].lower())
 
 
 # ---------------------------------------------------------------------------
 # Alert identity
 # ---------------------------------------------------------------------------
+
+
+def _doc_is_live(doc: CAPDoc, now: datetime) -> bool:
+    """Whether a parsed document is an ``Actual`` alert not yet expired.
+
+    The body-level counterpart of the envelope pre-filter, and the only
+    filter the bucket and national feeds get: their envelopes carry no
+    ``cap:expires``, and the bucket's ``rss.xml`` is a lazily-purged recent
+    list (50 items, 263 of 278 sampled bodies expired, 17 ``Test``). A
+    first-sight terminal alert fires ``incident_removed`` outside boot
+    (``store.py``), so an expired body must never reach the store. Fail-open
+    on a missing or unparseable ``<expires>``: the body's own expiry is still
+    read by normalization. Buddhist-Era years corrected as in ``_build_alert``.
+    """
+    if doc.status and doc.status != "Actual":
+        return False
+    expiries: list[datetime] = []
+    for info in doc.infos:
+        parsed = parse_instant(_gregorian(info.expires)) if info.expires else None
+        if parsed is None:
+            return True
+        expiries.append(parsed)
+    return not expiries or max(expiries) >= now
 
 
 def _compute_wmo_id(identifier: str, fallback_url: str) -> str:
@@ -418,11 +671,52 @@ def _build_alert(
 
 
 class WMOProvider:
-    """WMO SWIC per-source RSS → CAP XML provider."""
+    """WMO SWIC per-source feed → CAP XML provider."""
+
+    def __init__(self) -> None:
+        # The authority feed, resolved from the registry on first need and
+        # kept for the life of the instance (an entry reload builds a new
+        # one). ``_authority_source`` is the id it was resolved for, so
+        # "registry answered, no record" (``None``) is cached while "registry
+        # unreachable" (nothing recorded) is retried next poll.
+        self._authority_url: str | None = None
+        self._authority_source: str | None = None
+        # One warning per failure streak per feed, as ECCC does per host.
+        self._feed_warned: dict[str, bool] = {}
 
     @property
     def name(self) -> str:
         return "wmo"
+
+    @property
+    def authority_feed_url(self) -> str | None:
+        """The resolved authority feed, ``None`` until the registry answered."""
+        return self._authority_url
+
+    async def _resolve_authority_url(
+        self,
+        session: aiohttp.ClientSession,
+        source_id: str,
+        *,
+        user_agent: str | None = None,
+    ) -> str | None:
+        if self._authority_source == source_id:
+            return self._authority_url
+        payload = await _registry_payload(session, user_agent=user_agent)
+        if payload is None:
+            _LOGGER.debug(
+                "WMO %s: registry unreachable; polling the mirror alone this cycle",
+                source_id,
+            )
+            return None
+        self._authority_url = authority_feed_url(payload, source_id)
+        self._authority_source = source_id
+        if self._authority_url is None:
+            _LOGGER.debug(
+                "WMO %s: no authority feed resolves for this source; mirror only",
+                source_id,
+            )
+        return self._authority_url
 
     @property
     def conventions(self) -> Mapping[str, SourceConventions]:
@@ -435,14 +729,17 @@ class WMOProvider:
         *,
         user_agent: str | None = None,
     ) -> str | None:
-        """Check that the SWIC mirror actually serves this source.
+        """Check that some feed actually serves this source.
 
         The source field accepts a custom value on purpose — the registry gains
         sources faster than the catalog here does — so a well-formed id is not
-        evidence that anything is published under it. Asking the mirror is,
-        and it is the same URL the coordinator will poll: 404 for a source it
-        does not carry, which covers both a typo and one of the registered but
-        unmirrored sources in ``WMO_UNMIRRORED_SOURCES``.
+        evidence that anything is published under it. Asking the feeds is.
+        The mirror answering 200 settles it. Otherwise the registry decides:
+        unreachable is ``cannot_connect``; no record resolving for the id is
+        ``unknown_wmo_source``; a record whose feed answers is fine (the
+        2026-10 mirror outage reaching #302's Thai source), and one whose
+        feed is dead is ``cannot_connect``. Before #210 a mirror 404 alone
+        read as "no such source", which blamed the id for an outage.
         """
         source_id = str(config.get(CONF_SOURCE_ID, "") or "").strip()
         if not source_id:
@@ -451,9 +748,17 @@ class WMOProvider:
         async with session.get(
             WMO_RSS_URL.format(source_id=source_id), headers=headers
         ) as resp:
-            if resp.status == 404:
-                return "unknown_wmo_source"
-            return None if resp.status == 200 else "cannot_connect"
+            if resp.status == 200:
+                return None
+        payload = await _registry_payload(session, user_agent=user_agent)
+        if payload is None:
+            return "cannot_connect"
+        url = authority_feed_url(payload, source_id)
+        if url is None:
+            return "unknown_wmo_source"
+        if await _feed_parses(session, url, user_agent=user_agent):
+            return None
+        return "cannot_connect"
 
     async def async_fetch(
         self,
@@ -466,30 +771,67 @@ class WMOProvider:
     ) -> list[CAPAlert]:
         """Fetch active alerts from a WMO SWIC source.
 
-        (a) Fetches the per-source RSS feed.
-        (b) Extracts per-item CAP XML URLs.
+        (a) Resolves the authority feed from the registry (once per instance)
+            and fetches each feed ``wmo_feed_urls`` names, in order.
+        (b) Extracts per-item CAP XML URLs, unioned across feeds.
         (c) Fetches CAP XML for each via a shared cache (bounded concurrency).
-        (d) Parses CAP XML in the thread pool executor.
+        (d) Parses CAP XML in the thread pool executor, keeps the first copy
+            of each identifier, and drops non-``Actual`` and expired bodies.
         (e) Resolves revision chains to leaf revisions.
         (f) Selects the preferred-language ``<info>`` block, builds CAPAlert
             objects, and applies the optional GPS filter.
+
+        Per-feed failure is tolerated under ``auto``: as long as one feed
+        answers the union is returned, with one warning per failure streak
+        per feed. Only every feed failing raises ``ProviderError``, naming
+        each feed and its error.
         """
         source_id = (config.get(CONF_SOURCE_ID) or "").strip()
         if not source_id:
             raise ProviderError("WMO: source_id not configured")
 
-        url = WMO_RSS_URL.format(source_id=source_id)
-        async with session.get(url) as resp:
-            if resp.status != 200:
-                raise ProviderError(f"WMO {source_id}: RSS HTTP {resp.status}")
-            rss_text = await resp.text()
-
-        try:
-            cap_urls = _parse_rss_links(
-                rss_text, geocode_prefixes=options.get(CONF_GEOCODE_PREFIXES)
+        feed_source = options.get(CONF_FEED_SOURCE, DEFAULT_WMO_FEED_SOURCE)
+        authority_url: str | None = None
+        if feed_source != FEED_MIRROR:
+            authority_url = await self._resolve_authority_url(
+                session, source_id, user_agent=user_agent
             )
-        except ET.ParseError as err:
-            raise ProviderError(f"WMO {source_id}: failed to parse RSS: {err}") from err
+        feeds = wmo_feed_urls(options, source_id, authority_url)
+        if not feeds:
+            raise ProviderError(
+                f"WMO {source_id}: feed source is pinned to the authority but no "
+                "authority feed resolves for this source (registry unreachable, "
+                "no record, or an ambiguous one)"
+            )
+
+        prefixes = options.get(CONF_GEOCODE_PREFIXES)
+        cap_urls: list[str] = []
+        failures: list[str] = []
+        for feed, url in feeds:
+            try:
+                links = await _fetch_feed_links(
+                    session, url, geocode_prefixes=prefixes, user_agent=user_agent
+                )
+            except ProviderError as err:
+                failures.append(f"{feed} feed ({url}): {err}")
+                if len(feeds) > 1 and not self._feed_warned.get(feed):
+                    _LOGGER.warning(
+                        "WMO %s: %s feed failed (%s); continuing with the other feed",
+                        source_id,
+                        feed,
+                        err,
+                    )
+                    self._feed_warned[feed] = True
+                continue
+            self._feed_warned[feed] = False
+            cap_urls.extend(link for link in links if link not in cap_urls)
+
+        if failures and len(failures) == len(feeds):
+            if len(feeds) == 1:
+                raise ProviderError(f"WMO {source_id}: {failures[0]}")
+            raise ProviderError(
+                f"WMO {source_id}: every feed failed: " + "; ".join(failures)
+            )
 
         if not cap_urls:
             return []
@@ -510,14 +852,24 @@ class WMOProvider:
 
         # (d) Parse CAP XML in the executor (CPU-bound). Drop CAP fetch
         # failures gracefully — a missing body means that one alert is skipped.
+        # An alert reached through both feeds keeps its first copy, the
+        # mirror's, so the ``url`` attribute does not flip when ``auto`` lands.
         loop = asyncio.get_running_loop()
+        now = _utcnow()
         parsed: list[tuple[str, CAPDoc]] = []
+        seen_identifiers: set[str] = set()
         for cap_url, body in zip(cap_urls, bodies):
             if body is None:
                 _LOGGER.warning("WMO %s: CAP fetch failed for %s", source_id, cap_url)
                 continue
             doc = await loop.run_in_executor(None, parse_cap_alert, body)
-            if doc is not None:
+            if doc is None:
+                continue
+            if doc.identifier:
+                if doc.identifier in seen_identifiers:
+                    continue
+                seen_identifiers.add(doc.identifier)
+            if _doc_is_live(doc, now):
                 parsed.append((cap_url, doc))
 
         # (e) Resolve revision chains within this poll.

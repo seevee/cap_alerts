@@ -312,7 +312,7 @@ OPTIONS_SCHEMA: dict[str, list[str]] = {
         "geocode_prefixes",
     ],
     "meteoalarm": ["scan_interval", "timeout", "language", "geocode_prefixes"],
-    "wmo": ["scan_interval", "timeout", "language", "geocode_prefixes"],
+    "wmo": ["scan_interval", "timeout", "language", "feed_source", "geocode_prefixes"],
     "gdacs": ["scan_interval", "timeout", "gdacs_event_types", "alert_level"],
     "bbk": ["scan_interval", "timeout", "language"],
     "au": ["scan_interval", "timeout", "alert_level"],

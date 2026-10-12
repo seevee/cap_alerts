@@ -12,7 +12,7 @@ named ``config_flow.py``.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -22,7 +22,7 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 
 from .const import (
     CONF_EXCLUDE_MARINE,
@@ -51,6 +51,16 @@ _OPTIONS_SCHEMAS: dict[str, Callable[[ConfigEntry], OptionsSchema]] = {
     "gdacs": gdacs.options_schema,
     "bbk": bbk.options_schema,
     "au": au.options_schema,
+}
+
+# Providers that check a submitted option against the network before it is
+# saved, called after the shared validators pass and before the entry is
+# written. Each returns a ``strings.json`` ``options.error`` key or ``None``.
+_OPTIONS_VALIDATORS: dict[
+    str,
+    Callable[[HomeAssistant, ConfigEntry, Mapping[str, Any]], Awaitable[str | None]],
+] = {
+    "wmo": wmo.async_validate_options,
 }
 
 
@@ -112,10 +122,14 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
+        provider = self.config_entry.data.get(CONF_PROVIDER)
         if user_input is not None:
             prefixes, err = _validate_geocode_prefixes(
                 str(user_input.get(CONF_GEOCODE_PREFIXES, "") or "")
             )
+            validator = _OPTIONS_VALIDATORS.get(provider or "")
+            if not err and validator is not None:
+                err = await validator(self.hass, self.config_entry, user_input)
             if err:
                 errors["base"] = err
             else:
@@ -139,7 +153,6 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                     data.pop(CONF_GDACS_EVENT_TYPES)
                 return self.async_create_entry(title="", data=data)
 
-        provider = self.config_entry.data.get(CONF_PROVIDER)
         schema: OptionsSchema = {
             vol.Optional(
                 CONF_SCAN_INTERVAL,

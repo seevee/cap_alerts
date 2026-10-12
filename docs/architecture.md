@@ -741,30 +741,90 @@ entries. Covers countries without a dedicated provider (Mexico, Brazil, Japan, �
 **Source dropdown** (config flow only — never touched at poll time): populated
 from the live SWIC registry at `https://severeweather.wmo.int/v2/json/sources.json`
 via `wmo.fetch_wmo_sources` (mirroring `meteoalarm.fetch_regions_for_country`).
-The only filter is `const.py::WMO_UNMIRRORED_SOURCES` — the ~21 WMO-category
-sources whose feeds live only on national domains and 404 on the mirror this
-provider fetches from. There is **no** cross-provider uniqueness filtering:
-feeds also served by MeteoAlarm or NWS are listed too, since `custom_value`
-would bypass any such filter anyway and the dedicated providers are merely
-*recommended*, not enforced (the field description points EU/US users at them
-and notes that US alerts fetched via WMO hash the CAP `<identifier>` rather than
-VTEC, so their entities churn across NEW→CON→CAN). On any fetch/parse failure
-the flow falls back to the static `const.py::WMO_SOURCE_NAMES` catalog (verified
-entries), so setup never hard-fails — and the *alert fetch* always uses the
-mirror URL template, independent of the registry. `WMO_UNMIRRORED_SOURCES` is a
-point-in-time curation (verified 2026-05-24); a newly-mirrored source stays
-hidden until the set is updated, but `custom_value` lets users enter any ID.
+Nothing is filtered: since #210 every record resolves to a feed the provider
+can poll (the mirror, the authority's own, or both), and a source whose feeds
+are all dead is reported by the source step's validation rather than hidden.
+`const.py::WMO_UNMIRRORED_SOURCES`, the ~21 sources that 404'd on the mirror
+when verified on 2026-05-24, stays as a point-in-time record of mirror
+coverage and filters nothing. There is **no** cross-provider uniqueness
+filtering: feeds also served by MeteoAlarm or NWS are listed too, since
+`custom_value` would bypass any such filter anyway and the dedicated providers
+are merely *recommended*, not enforced (the field description points EU/US
+users at them and notes that US alerts fetched via WMO hash the CAP
+`<identifier>` rather than VTEC, so their entities churn across NEW→CON→CAN).
+On any fetch/parse failure the flow falls back to the static
+`const.py::WMO_SOURCE_NAMES` catalog (verified entries), so setup never
+hard-fails.
 
-**Feed shape**: the RSS envelope is an index, not the payload. Each `<item>`
-carries a plain-text `<link>` pointing to an individual CAP 1.2 XML document
-(unlike Atom, where the URL is an `href` attribute). The provider fetches the
-RSS feed, extracts the per-item links, then fetches and parses each CAP file —
-the CAP body is the authoritative source for every `CAPAlert` field. WMO feeds
-ship one language per source, so there is no bilingual merge: `headline_alt` /
-`description_alt` stay empty.
+**Feed shape**: the envelope is an index, not the payload. The mirror, the
+cap-sources bucket and about half the national hosts publish RSS 2.0, where
+each `<item>` carries a plain-text `<link>` to an individual CAP 1.2 XML
+document; the other half (DWD, Belhydromet, …) publish Atom, where the URL is
+a `<link href>` attribute and `_atom_entry_href` prefers a link typed
+`application/cap+xml` over the `alternate`. `_parse_feed_links` reads both.
+The provider fetches the feed, extracts the per-item links, then fetches and
+parses each CAP file — the CAP body is the authoritative source for every
+`CAPAlert` field. WMO feeds ship one language per source, so there is no
+bilingual merge: `headline_alt` / `description_alt` stay empty.
+
+**Feed sources (issue #210)**: two feeds can carry a source. The SWIC mirror
+serves `…/cap-alerts/{source_id}/rss.xml` for every source it follows, and
+the registry record's `capAlertFeed` names the feed the authority publishes
+itself: a folder on WMO's `cap-sources` S3 bucket for ~120 language feeds
+(~61 records), a national host for the ~42 others, and MeteoAlarm or NWS for
+the rest. The mirror is a copy that can lag, drop files, or go down with
+nothing in the feed to say so (the 2026-10 outage 404'd every mirrored source
+for days while the registry kept answering from CloudFront edge copies), and
+none of that is detectable inside one poll. So `feed_source` (`CONF_FEED_SOURCE`,
+WMO options flow, default `auto`) does not detect anything: `auto` polls the
+mirror **and** the authority feed and unions them by CAP `<identifier>`; an
+alert both carry keeps the mirror's copy, so the `url` attribute existing
+entries publish does not flip. `mirror` / `authority` pin one feed as an
+escape hatch; `authority` is validated on save (`flows/wmo.py::
+async_validate_options`, error `authority_feed_unavailable`) by resolving the
+record and fetching the feed once under the config-flow timeout. An absent
+option means `auto`, so existing entries get the union without reconfiguring.
+Per-feed failure is tolerated under `auto` (one warning per failure streak per
+feed, as ECCC does per NAAD host); only every feed failing raises
+`ProviderError` naming each. The cost of the second feed is one small GET plus
+bodies for *new* items only, since `CAPContentCache` keys by URL and CAP
+bodies are immutable.
+
+*Resolution* (`wmo.authority_feed_url`, pure over the registry payload,
+resolved once per provider instance on first need and retried next poll while
+the registry is unreachable): mirror ids and registry ids are not the same
+set. A multilingual authority is one record (`th-tmd-th`, `tl-dnmg-en`) whose
+`capAlertFeed` lists one URL per language (51 of 140 records do, each with as
+many URLs as `byLanguage` entries, paired by index), and the mirror serves
+each language under its own id (`th-tmd-en`, `tl-dnmg-pt`). In order: (1) a
+bucket folder named like the id, in any record, since the folder names *are*
+mirror ids; (2) else the record with that `sourceId`, else the one record
+sharing the id's `{country}-{agency}` prefix, two or more being ambiguous;
+(3) one URL is the feed; several pick the URL at the index of the `byLanguage`
+entry whose primary subtag equals the id's trailing tag, else the first, except
+that a record whose URLs are all bucket folders is unresolvable when none
+matched in (1): `gw-inm-en` lists `gw-inm-fr` and `gw-inm-pt`, neither its
+own, and stays mirror-only. `cn-cma-xx`'s record names a different bucket
+(`alert-feed-worldweather-org`); a record that names the mirror itself is read
+once.
+
+*Body-level filters*: the bucket's `rss.xml` is a lazily-purged recent list
+(26 of 120 folders list anything, the largest 50; of 278 bodies read on
+2026-10-10, 263 were expired and 17 were `status=Test`), and neither it nor
+the national feeds carry `cap:` extensions, so the envelope pre-filter below
+cannot run there. `_doc_is_live` drops non-`Actual` and expired bodies after
+parsing on every path, because a first-sight terminal alert fires
+`incident_removed` outside boot (`store.py`) and the mirror path never handed
+those over. Fail-open on a missing or unparseable `<expires>`.
+
+*National hosts that fail today* (swept 2026-10-12, 41 records): 7 fail DNS
+or TLS, `id-inatews-id` is 403, `sa-ncm-en` is 404, and `ca-msc-xx`,
+`is-vedur-is`, `tt-ttms-en` answer something other than XML (a JSON broker,
+an API). They resolve, fail the source step with `cannot_connect` while the
+mirror is down, and poll the mirror alone under `auto` otherwise.
 
 **Expiry pre-filter**: the mirror enriches each `<item>` with CAP-namespace
-extensions (`cap:expires`, `cap:severity`, `cap:areaDesc`, …). `_parse_rss_links`
+extensions (`cap:expires`, `cap:severity`, `cap:areaDesc`, …). `_parse_feed_links`
 parses `cap:expires` (namespace-agnostic) and skips items already expired, so
 only currently-active alerts trigger a CAP-body fetch. This is essential for
 high-volume sources: PAGASA's feed lists ~500 items, nearly all expired —
@@ -781,18 +841,15 @@ alerts are pre-dropped instead of read as ~543 years in the future.
 source without any signal in the feed itself. Three DNMG (Timor-Leste) alerts
 issued over 2024-2025 exist in the authority's own feed and never reached the
 mirror, whose newest `tl-dnmg-en` item is from December 2023; to a user of
-that source an empty feed looks exactly like no warnings in force. The
-authority feed is the registry record's `capAlertFeed`, and for ~120 of the
-language feeds that is a folder on WMO's `cap-sources` S3 bucket, one CAP file
-per alert plus a lazily-purged `rss.xml` of recent ones. That feed is not a
-drop-in: its items carry no `cap:` extensions, so the expiry pre-filter above
-cannot run and every listed item costs a body fetch (bounded, the largest
-lists 50). The bodies are byte-identical to the mirror's, so an alert's
-identity survives either path. A lagging mirror is indistinguishable from a
-quiet authority inside one poll, so there is no runtime fallback; the
-scheduled probe measures it instead (`docs/provider-watch.md`, *WMO mirror
-lag*), filing only while the authority is still publishing, and offering the
-authority feed as a per-entry source is roadmap work.
+that source an empty feed looks exactly like no warnings in force. The bodies
+are byte-identical to the mirror's, so an alert's identity survives either
+path. A lagging mirror is indistinguishable from a quiet authority inside one
+poll, which is why the `auto` feed source above polls both rather than
+detecting anything: an entry on `auto` is unaffected by every mirror below,
+and only an entry pinned to `mirror` still sees the lag. The scheduled probe
+keeps measuring it (`docs/provider-watch.md`, *WMO mirror lag*), filing only
+while the authority is still publishing, because the mirror is still the
+first feed read and its coverage is still worth reporting upstream.
 Mirrors known to lag on 2026-09-19, with the date of their newest item:
 `tl-dnmg-en` (2023-12-20), `tl-dnmg-pt` (2023-09-21), `tl-dnmg-tet`
 (2022-11-10), `ci-sodexam-fr` (2024-10-04), `om-met-ar` (2023-10-24),
@@ -1176,7 +1233,7 @@ The flow used to check syntax and stop there. `OHZ999` matches `_ZONE_RE` and do
 | NWS | `/zones?id=A,B` returns a feature per zone it knows | one request for the whole list |
 | ECCC | province is in the SGC table | none — the feed is national |
 | MeteoAlarm | the country feed is not a 404 | one request |
-| WMO | the mirror serves `…/{source_id}/rss.xml` | one request |
+| WMO | the mirror serves `…/{source_id}/rss.xml`, else the registry resolves the source and its feed answers (`cannot_connect` for an outage, `unknown_wmo_source` only when the registry has no record) | one request, three during a mirror outage |
 | GDACS | nothing; the scope is the planet | none |
 
 **Called from the step that collects the value, not from entry creation.** The issue proposed the latter, but several create paths are menu clicks — `wmo_country_wide`, `meteoalarm_country_only`, `gdacs_global` — with no field to attach an error to. Each of those inherits a value an earlier form already put through the check, so validating at the input covers them and keeps every failure renderable. It also halves the wiring: four input steps and their reconfigure twins, rather than all thirty-five create/update sites.

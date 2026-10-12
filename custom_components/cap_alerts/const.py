@@ -269,16 +269,30 @@ METEOALARM_COUNTRY_NAME_ALIASES: dict[str, str] = {
 }
 
 # WMO SWIC source registry. Fetched at config-flow time to populate the
-# source dropdown with every mirror-reachable source. The HTML index 403s,
-# but the JSON endpoint serves with the integration's own User-Agent.
+# source dropdown, and once per provider instance to resolve a source's
+# authority feed (``capAlertFeed``, issue #210). The HTML index 403s, but the
+# JSON endpoint serves with the integration's own User-Agent.
 WMO_SOURCES_URL = "https://severeweather.wmo.int/v2/json/sources.json"
 
-# WMO-category SWIC sources that are registered but NOT reachable on the
-# severeweather.wmo.int mirror (their feeds live only on national domains in
-# non-uniform formats). Excluded from the dynamic dropdown so users aren't
-# offered sources that 404. Curated from verification on 2026-05-24; a newly
-# mirrored source merely stays hidden until this set is updated, and the
-# config flow's custom-value entry lets users enter any ID regardless.
+# WMO feed source (WMO options flow). The integration historically polled only
+# the SWIC mirror, a copy that can lag, drop files, or go down with no signal
+# in the feed itself (issue #210; the 2026-10 outage 404'd every mirrored
+# source). "auto" polls the mirror AND the feed the registry record names as
+# the authority's own, and unions them by CAP identifier, so nothing has to
+# detect a lagging copy. "mirror" / "authority" pin one feed as an escape
+# hatch. An absent option means "auto", so existing entries get the union
+# without reconfiguring. For ~120 language feeds the authority feed is a
+# folder on WMO's cap-sources bucket; the rest are national hosts, most of
+# them RSS or Atom feeds of CAP links like the mirror's own.
+WMO_FEED_SOURCES: tuple[str, ...] = ("auto", "mirror", "authority")
+DEFAULT_WMO_FEED_SOURCE = "auto"
+WMO_CAP_SOURCES_BUCKET = "https://cap-sources.s3.amazonaws.com/"
+
+# WMO-category SWIC sources that were registered but NOT reachable on the
+# severeweather.wmo.int mirror when verified on 2026-05-24. Since #210 every
+# registry record resolves to a feed the provider can poll, so this set no
+# longer filters the dropdown; it stays as a point-in-time record of mirror
+# coverage, the baseline a future mirror-coverage check would diff against.
 WMO_UNMIRRORED_SOURCES: frozenset[str] = frozenset(
     {
         "bf-meteo-en",

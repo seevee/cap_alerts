@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from homeassistant.helpers import entity_registry as er
@@ -30,6 +31,7 @@ from custom_components.cap_alerts import diagnostics
 from custom_components.cap_alerts.const import (
     CONF_COUNTRY,
     CONF_COUNTRY_ENTITY,
+    CONF_FEED_SOURCE,
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_PROVIDER,
@@ -75,8 +77,12 @@ class _StubCoordinator:
         repository_recovered=0,
         interval_seconds=300,
         geometry_store=None,
+        authority_feed_url=None,
     ) -> None:
         self.data = {a.id: a for a in (alerts or [])}
+        # What the WMO provider exposes once its registry read succeeded; the
+        # other providers have no such attribute and the payload reads None.
+        self.provider = SimpleNamespace(authority_feed_url=authority_feed_url)
         self.geometry_store = geometry_store or GeometryStore()
         self._resolved_config = resolved_config
         self._resolved_options = resolved_options
@@ -192,6 +198,60 @@ async def test_reports_the_pinned_host_when_the_feed_source_is_named(hass):
     assert payload["source"]["feed_source"] == "pelmorex"
     assert len(payload["source"]["endpoints"]) == 1
     assert "pelmorex" in payload["source"]["endpoints"][0]
+
+
+_WMO_MIRROR = "https://severeweather.wmo.int/v2/cap-alerts/th-tmd-en/rss.xml"
+_WMO_AUTHORITY = "https://www.tmd.go.th/en/api/xml/CAP"
+
+
+async def test_reports_wmo_feed_source_and_both_endpoints(hass):
+    entry = _entry(
+        {CONF_PROVIDER: "wmo", "source_id": "th-tmd-en"},
+        authority_feed_url=_WMO_AUTHORITY,
+    )
+
+    payload = await _payload(hass, entry)
+
+    assert payload["source"]["feed_source"] == "auto"
+    assert payload["source"]["endpoints"] == [_WMO_MIRROR, _WMO_AUTHORITY]
+
+
+async def test_wmo_endpoints_before_resolution_is_mirror_only(hass):
+    """The dump never resolves the registry itself; it reads what the provider has."""
+    entry = _entry({CONF_PROVIDER: "wmo", "source_id": "th-tmd-en"})
+
+    payload = await _payload(hass, entry)
+
+    assert payload["source"]["endpoints"] == [_WMO_MIRROR]
+
+
+async def test_wmo_pinned_feed_source_lists_that_feed_alone(hass):
+    pinned = await _payload(
+        hass,
+        _entry(
+            {CONF_PROVIDER: "wmo", "source_id": "th-tmd-en"},
+            {CONF_FEED_SOURCE: "authority"},
+            authority_feed_url=_WMO_AUTHORITY,
+        ),
+    )
+    assert pinned["source"]["feed_source"] == "authority"
+    assert pinned["source"]["endpoints"] == [_WMO_AUTHORITY]
+
+    mirror = await _payload(
+        hass,
+        _entry(
+            {CONF_PROVIDER: "wmo", "source_id": "th-tmd-en"},
+            {CONF_FEED_SOURCE: "mirror"},
+            authority_feed_url=_WMO_AUTHORITY,
+        ),
+    )
+    assert mirror["source"]["feed_source"] == "mirror"
+    assert mirror["source"]["endpoints"] == [_WMO_MIRROR]
+
+
+async def test_feed_source_is_none_for_providers_without_one(hass):
+    entry = _entry({CONF_PROVIDER: "nws", CONF_ZONE_ID: "OHZ049"})
+    assert (await _payload(hass, entry))["source"]["feed_source"] is None
 
 
 async def test_reports_stream_state_for_a_streaming_entry(hass):

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Thai Meteorological Department English feed, captured 2026-10-12 13:35Z, first three of 11 items. -->
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+  <channel>
+    <atom:link rel="hub" href="//alert-hub.appspot.com" />
+    <atom:link rel="self" href="https://www.tmd.go.th/en/api/xml/CAP" type="application/rss+xml" />
+    <title>Latest alerts from Thai Meteorological Department (TMD)</title>
+    <link>https://www.tmd.go.th/en/api/xml/CAP</link>
+    <description>Latest alerts from Thai Meteorological Department (TMD)</description>
+    <language>en</language>
+    <copyright>public domain</copyright>
+    <pubDate>Mon, 12 Oct 2026 20:35:20 +0700</pubDate>
+    <lastBuildDate>Mon, 12 Oct 2026 20:35:20 +0700</lastBuildDate>
+    <docs>https://cyber.harvard.edu/rss/rss.html</docs>
+    <image>
+      <title>Latest alerts from Thai Meteorological Department (TMD)</title>
+      <url>https://www.tmd.go.th/CustomTheme3/logoes/logo_colorcmyk.png</url>
+      <link>https://www.tmd.go.th/en/api/xml/CAP</link>
+    </image>
+    <item>
+      <title>Heavy Rain</title>
+      <link>https://www.tmd.go.th/uploads/CAP/en/CAPTMD20261012165615_2.xml</link>
+      <description>The high-pressure system from China covers upper Thailand and the South China Sea leading to the easterly wind prevails over the Gulf while the monsoon trough lies across the lower South with isolated heavy rains in the South.
+
+ In the Andaman Sea and the Gulf, the waves will be higher than 2 meters high in thundershower areas.</description>
+      <author>info_service@tmd.mail.go.th (Thai Meteorological Department)</author>
+      <guid isPermaLink="false">TMD20261012165615_2-en</guid>
+      <pubDate>Mon, 12 Oct 2026 09:50:00 +0700</pubDate>
+    </item>
+    <item>
+      <title>Heavy Rain</title>
+      <link>https://www.tmd.go.th/uploads/CAP/en/CAPTMD20261012054148_2.xml</link>
+      <description>The high-pressure system from China covers upper Thailand and the South China Sea leading to the easterly wind prevails over the Gulf while the monsoon trough lies across the lower South with isolated heavy rains in the South and isolated thundershowers in the upper country.         
+In the Andaman Sea and the Gulf, the waves will be higher than 2 meters high in thundershower areas. 
+</description>
+      <author>info_service@tmd.mail.go.th (Thai Meteorological Department)</author>
+      <guid isPermaLink="false">TMD20261012054148_2-en</guid>
+      <pubDate>Sun, 11 Oct 2026 22:37:00 +0700</pubDate>
+    </item>
+    <item>
+      <title>Very Heavy Rain</title>
+      <link>https://www.tmd.go.th/uploads/CAP/en/CAPTMD20261011164117_2.xml</link>
+      <description>The high-pressure system from China extended to the North, the Northeast and the South China Sea while the easterly and southeasterly winds bring the moisture from the South China Sea and the Gulf to the lower part of the Northeast, the East and the lower Central. Meanwhile, the monsoon trough lies across the middle South. Variable weather with thundershower, gusty wind and isolated heavy rains are forecast in the North and the Central while isolated heavy to very heavy rains are possible in the South. 
+In the Andaman Sea and the Gulf, the waves will be higher than 2 meters high in thundershower areas. 
+
+</description>
+      <author>info_service@tmd.mail.go.th (Thai Meteorological Department)</author>
+      <guid isPermaLink="false">TMD20261011164117_2-en</guid>
+      <pubDate>Sun, 11 Oct 2026 09:39:00 +0700</pubDate>
+    </item>
+  </channel>
+</rss>

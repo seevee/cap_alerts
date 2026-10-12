@@ -94,8 +94,12 @@ skipped about a third of its bucket's files since 2022 and only paged (#240)
 once a skipped file was the newest settled one, so a token's date is where the
 mirror's feed ends, not necessarily where the loss began.
 
-Responding to a mirror-lag token is different from vocabulary drift, since
-nothing in the integration can fix it:
+Responding to a mirror-lag token is different from vocabulary drift. Since
+#210 shipped the `auto` feed source, an entry on the default polls the bucket
+feed beside the mirror and already carries the alert the mirror lacks; only
+an entry pinned to `mirror` sees the lag. The token is still worth reporting
+upstream, because the mirror is the first feed read and its coverage is what
+SWIC maintains:
 
 1. Confirm it against the witness: the alert exists in the bucket and the
    mirror's feed for that source doesn't list it.
@@ -103,7 +107,8 @@ nothing in the integration can fix it:
    record links to). There is no formal channel; #210's reporter went
    through the SWIC site.
 3. Add the source to the mirror-lag list under the WMO section of
-   `docs/architecture.md`, so a user picking it can find out why it's empty.
+   `docs/architecture.md`, so a user who pinned `mirror` can find out why
+   it's empty.
 4. Accept the token with `--update` as for vocabulary, and close the issue.
 
 ## The human half: announcement channels

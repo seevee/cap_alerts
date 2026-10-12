@@ -69,6 +69,7 @@ from .const import (
     CONF_ZONE_ID,
     DEFAULT_FEED_SOURCE,
     DEFAULT_TIMEOUT,
+    DEFAULT_WMO_FEED_SOURCE,
     GDACS_RSS_24H_URL,
     GDACS_RSS_CURRENT_URL,
     METEOALARM_COUNTRY_SLUGS,
@@ -80,7 +81,7 @@ from .normalize import count_by_onset
 from .providers.eccc import resolve_feed_urls
 from .providers.meteoalarm import METEOALARM_FEED_URL
 from .providers.nws import NWS_ALL_BASE, NWS_API_BASE
-from .providers.wmo import WMO_RSS_URL
+from .providers.wmo import wmo_feed_urls
 
 if TYPE_CHECKING:
     from . import CAPAlertsConfigEntry
@@ -166,12 +167,16 @@ async def async_get_config_entry_diagnostics(
             },
         },
         "source": {
-            "endpoints": _endpoints(provider, resolved_config, resolved_options),
-            "feed_source": (
-                options.get(CONF_FEED_SOURCE, DEFAULT_FEED_SOURCE)
-                if provider == "eccc"
-                else None
+            "endpoints": _endpoints(
+                provider,
+                resolved_config,
+                resolved_options,
+                # The WMO authority feed is resolved from the registry by the
+                # provider on its first poll; read, never resolved here, so a
+                # diagnostics download stays off the network.
+                authority_url=getattr(coordinator.provider, "authority_feed_url", None),
             ),
+            "feed_source": _feed_source(provider, options),
         },
         # Whether the polygons behind this entry's refs are still in the
         # store (issue #197): has_geometry on an alert row is the ref, and a
@@ -242,14 +247,29 @@ def _scope(data: Mapping[str, Any]) -> dict[str, Any]:
     return {"mode": "global", "value": None}
 
 
+def _feed_source(provider: str, options: Mapping[str, Any]) -> str | None:
+    """The ``feed_source`` in effect, for the two providers that offer one."""
+    if provider == "eccc":
+        return str(options.get(CONF_FEED_SOURCE, DEFAULT_FEED_SOURCE))
+    if provider == "wmo":
+        return str(options.get(CONF_FEED_SOURCE, DEFAULT_WMO_FEED_SOURCE))
+    return None
+
+
 def _endpoints(
-    provider: str, config: Mapping[str, Any], options: Mapping[str, Any]
+    provider: str,
+    config: Mapping[str, Any],
+    options: Mapping[str, Any],
+    *,
+    authority_url: str | None = None,
 ) -> list[str]:
     """The upstream URLs this entry's next fetch would use.
 
     Built from the *resolved* config so a tracker entry names the endpoint it
     is actually polling. Only NWS puts the location into the URL, and there the
-    coordinates are replaced rather than reproduced.
+    coordinates are replaced rather than reproduced. ``authority_url`` is the
+    WMO authority feed as the provider resolved it, ``None`` before its first
+    successful registry read, when the list is the mirror alone.
     """
     if provider == "nws":
         return _nws_endpoints(config)
@@ -260,7 +280,9 @@ def _endpoints(
         return [METEOALARM_FEED_URL.format(country=slug)] if slug else []
     if provider == "wmo":
         source_id = (config.get(CONF_SOURCE_ID) or "").strip()
-        return [WMO_RSS_URL.format(source_id=source_id)] if source_id else []
+        if not source_id:
+            return []
+        return [url for _feed, url in wmo_feed_urls(options, source_id, authority_url)]
     if provider == "gdacs":
         # Both indexes, always — the union is not configurable.
         return [GDACS_RSS_CURRENT_URL, GDACS_RSS_24H_URL]
