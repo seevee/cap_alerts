@@ -860,7 +860,9 @@ class WMOProvider:
         seen_identifiers: set[str] = set()
         for cap_url, body in zip(cap_urls, bodies):
             if body is None:
-                _LOGGER.warning("WMO %s: CAP fetch failed for %s", source_id, cap_url)
+                # The cache already warned, once per URL; this line only ties
+                # the miss to the source for anyone reading at debug.
+                _LOGGER.debug("WMO %s: CAP fetch failed for %s", source_id, cap_url)
                 continue
             doc = await loop.run_in_executor(None, parse_cap_alert, body)
             if doc is None:
