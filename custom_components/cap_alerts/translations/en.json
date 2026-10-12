@@ -534,7 +534,7 @@
       "point_not_served": "The National Weather Service does not serve this point. NWS covers the United States, its territories, and nearby coastal waters — check the coordinates, or use a different provider for this location.",
       "unknown_bbk_region": "warnung.bund.de has no district under this Regionalschlüssel. Check the code on the NINA app's region page.",
       "unknown_country_feed": "MeteoAlarm no longer publishes a feed for this country. Pick another, or report it so the country list can be updated.",
-      "unknown_wmo_source": "The WMO mirror does not publish this source. Pick one from the list — some registered sources are only served on national sites, which this integration cannot read.",
+      "unknown_wmo_source": "The WMO registry has no source under this ID, and the mirror does not serve one either. Pick one from the list, or check the ID against severeweather.wmo.int.",
       "unknown_zone": "No such NWS zone. The format is right, but the National Weather Service does not publish a zone with that ID — check it at weather.gov/zones."
     },
     "abort": {
@@ -562,7 +562,7 @@
           "timeout": "Per-request API timeout (5–120)",
           "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes. WMO: auto, or any BCP 47 tag the source publishes (e.g. zh-Hans); the source falls back to English when it does not carry your language. BBK: auto, de, de-LS (easy-read German), en or one of the app's other translations.",
           "streaming": "Stream ECCC alerts over the NAAD real-time feed for near-instant updates (recommended). When off, alerts are polled from the GeoRSS feed on the polling interval. ECCC only.",
-          "feed_source": "Which NAAD GeoRSS host(s) to fetch. 'auto' combines both feeds so no alert carried by only one is missed (recommended). The legacy host retires around September 2026; pin a single host only to work around a specific feed issue. ECCC only.",
+          "feed_source": "ECCC: which NAAD GeoRSS host(s) to fetch. 'auto' combines both feeds so no alert carried by only one is missed (recommended); the legacy host retires around September 2026, so pin a single host only to work around a specific feed issue. WMO: 'auto' reads the SWIC mirror and the feed the weather service publishes itself, and merges them (recommended), so a mirror that lags or is down costs nothing; 'mirror' or 'authority' reads one of them only. ECCC and WMO only.",
           "exclude_marine": "Hide alerts issued for marine/water zones (boating, open water). NWS and ECCC only.",
           "gdacs_event_types": "Which GDACS hazards to track. Filtering happens before any alert is fetched, so narrowing this also cuts the fetch cost. Leave every type selected (the default) to track them all, including hazards GDACS adds later. GDACS only.",
           "alert_level": "GDACS: lowest alert level to fetch, Green (all), Orange, or Red, on GDACS's own impact scale; it decides which events are fetched, not how they are shown. Raise it to cut the volume of green earthquakes. Australia: lowest Australian Warning System tier to keep, All, Advice, Watch and Act or Emergency Warning; All also keeps the informational tiers below the ladder (planned burns, incidents with no warning). A warning with no tier at all, such as a WA hazmat warning, ranks by its own severity. GDACS and Australia only.",
@@ -571,6 +571,7 @@
       }
     },
     "error": {
+      "authority_feed_unavailable": "The weather service's own feed for this source could not be fetched right now. Keep 'auto', which reads the mirror as well, or try again later.",
       "invalid_geocode_prefix": "Invalid area code prefix. Use a comma-separated list of codes made up of letters, digits, and : _ . - (max 32 characters each)."
     }
   },

@@ -34,6 +34,15 @@ DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 # the poll.
 DEFAULT_FETCH_TIMEOUT = 10  # seconds
 
+# A failed fetch is never stored, so the next poll retries it and, without
+# this, warns again: a body that fails every poll logs every poll. PAGASA's
+# own feed links ten bodies on a raw IP whose certificate never matches, 20
+# lines per poll across the cache and the provider before #303. The first
+# failure per URL warns, later ones log at debug, and a success clears the
+# mark so a URL that recovers and fails again warns again. Bounded so a
+# feed that rotates failing URLs cannot grow the set without limit.
+_MAX_WARNED_URLS = 256
+
 
 class Redirected(Exception):
     """A fetch made with ``follow_redirects=False`` was answered with a 3xx.
@@ -69,6 +78,18 @@ class CAPContentCache:
         self._sizes: dict[str, int] = {}
         self._total_bytes = 0
         self._inflight: dict[str, asyncio.Future[str | None]] = {}
+        # URLs whose last fetch failed and has been warned about, oldest first.
+        self._warned: OrderedDict[str, None] = OrderedDict()
+
+    def _warn_once(self, url: str, msg: str, *args: object) -> None:
+        """Warn the first time ``url`` fails, debug on every later failure."""
+        if url in self._warned:
+            _LOGGER.debug(msg, *args)
+            return
+        self._warned[url] = None
+        while len(self._warned) > _MAX_WARNED_URLS:
+            self._warned.popitem(last=False)
+        _LOGGER.warning(msg, *args)
 
     @property
     def total_bytes(self) -> int:
@@ -126,8 +147,9 @@ class CAPContentCache:
         caller decides what the Location means; the body behind it is never
         fetched.
 
-        Returns None on HTTP error, network error, or timeout.  Logs a
-        warning at most once per URL per cache instance.
+        Returns None on HTTP error, network error, or timeout. Logs a
+        warning the first time a URL fails and at debug on later failures,
+        until a fetch of it succeeds (``_warn_once``).
         """
         if url in self._cache:
             self._cache.move_to_end(url)
@@ -155,10 +177,11 @@ class CAPContentCache:
                 if not follow_redirects and 300 <= resp.status < 400:
                     raise Redirected(url, resp.headers.get("Location", ""))
                 if resp.status != 200:
-                    _LOGGER.warning("CAP fetch HTTP %s for %s", resp.status, url)
+                    self._warn_once(url, "CAP fetch HTTP %s for %s", resp.status, url)
                 else:
                     result = await resp.text()
             if result is not None:
+                self._warned.pop(url, None)
                 self._store(url, result)
         except Redirected as exc:
             fut.set_exception(exc)
@@ -168,7 +191,7 @@ class CAPContentCache:
             fut.exception()
             raise
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            _LOGGER.warning("CAP fetch failed for %s: %s", url, exc)
+            self._warn_once(url, "CAP fetch failed for %s: %s", url, exc)
         finally:
             if not fut.done():
                 fut.set_result(result)

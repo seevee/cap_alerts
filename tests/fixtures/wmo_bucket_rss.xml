@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- cap-sources bucket shape (captured 2026-10-10 from mz-inam-pt, reduced):
+     no cap: namespace, guid is the CAP identifier, one file per alert. -->
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+  <channel>
+    <atom:link rel="hub" href="//alert-hub.appspot.com"/>
+    <atom:link rel="self" href="https://cap-sources.s3.amazonaws.com/tl-dnmg-en/rss.xml" type="application/rss+xml"/>
+    <title>Latest alerts from National Directorate of Meteorology and Geophysics</title>
+    <link>https://cap-sources.s3.amazonaws.com/tl-dnmg-en/rss.xml</link>
+    <description>Latest alerts from National Directorate of Meteorology and Geophysics</description>
+    <language>en</language>
+    <pubDate>Tue, 12 May 2026 18:30:00 +0000</pubDate>
+    <lastBuildDate>Tue, 12 May 2026 18:30:00 +0000</lastBuildDate>
+    <item>
+      <title>Severe Thunderstorm Warning</title>
+      <link>https://cap-sources.s3.amazonaws.com/tl-dnmg-en/2026-05-12-18-00-00.xml</link>
+      <description>Also carried by the mirror: same CAP body, different URL.</description>
+      <category>Met</category>
+      <guid>urn:wmo:mx-smn:2026:001</guid>
+      <pubDate>Tue, 12 May 2026 18:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Coastal Flood Warning</title>
+      <link>https://cap-sources.s3.amazonaws.com/tl-dnmg-en/2026-05-12-18-15-00.xml</link>
+      <description>Only the authority feed lists this one.</description>
+      <category>Met</category>
+      <guid>urn:wmo:mx-smn:2026:003</guid>
+      <pubDate>Tue, 12 May 2026 18:15:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Expired advisory</title>
+      <link>https://cap-sources.s3.amazonaws.com/tl-dnmg-en/2026-05-10-09-00-00.xml</link>
+      <description>Expired body; the bucket list is lazily purged.</description>
+      <category>Met</category>
+      <guid>urn:wmo:mx-smn:2026:004</guid>
+      <pubDate>Sun, 10 May 2026 09:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Maputo</title>
+      <link>https://cap-sources.s3.amazonaws.com/tl-dnmg-en/2026-05-05-12-16-22.xml</link>
+      <description>status=Test body.</description>
+      <category>Met</category>
+      <guid>urn:oid:2.49.0.1.508.0.2026.5.5.12.16.22</guid>
+      <pubDate>Tue, 05 May 2026 12:16:22 +0000</pubDate>
+    </item>
+  </channel>
+</rss>

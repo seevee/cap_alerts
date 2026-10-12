@@ -30,7 +30,7 @@ cards work too, see [Cards and automations](#cards-and-automations).*
 | **NWS** | U.S. National Weather Service | United States | Zone ID (`ILZ014`, comma-separated allowed), GPS `lat,lon`, `device_tracker` entity |
 | **ECCC** | Environment and Climate Change Canada | Canada | Province code (`AB`, `BC`, `ON`, …), GPS, `device_tracker` entity |
 | **MeteoAlarm** | EUMETNET European aggregator | About 37 national services | Country (`DE`), with an optional GPS filter or a region multi-select |
-| **WMO** | WMO Severe Weather Information Centre | About 100 national services with no dedicated provider | Source ID from the live SWIC registry (`mx-smn-es`), with an optional GPS filter |
+| **WMO** | WMO Severe Weather Information Centre, plus each service's own feed | About 100 national services with no dedicated provider | Source ID from the live SWIC registry (`mx-smn-es`), with an optional GPS filter |
 | **GDACS** | Global Disaster Alert and Coordination System | Worldwide earthquakes, cyclones, floods, volcanoes, droughts, wildfires, tsunamis | Worldwide, GPS, or `device_tracker` entity |
 | **BBK** | German federal civil protection (the NINA app backend) | Germany: MoWaS, KATWARN, BIWAPP, LHP flood warnings, DWD weather warnings of level 3 and up | District (Regionalschlüssel, `09564`), GPS, or `device_tracker` entity |
 | **AU** | Australian state fire and emergency services | NSW (RFS), Queensland (QFD), Western Australia (DFES), Tasmania (TasALERT): bushfires and incidents, plus SES weather warnings on TasALERT | State |
@@ -108,7 +108,7 @@ Per provider:
 |---|---|---|
 | Language | ECCC, MeteoAlarm, WMO, BBK | Which `<info>` block to read. ECCC: `auto`, `en-CA` or `fr-CA`. MeteoAlarm: a two-letter prefix (`en`, `de`, `fr`). WMO: `auto` or any BCP 47 tag the source publishes (`zh-Hans`). BBK: `auto`, `de`, `de-LS` (easy-read German), `en` or one of the app's other translations. NWS is English only. |
 | Real-time streaming | ECCC | Ingest alerts the moment they are issued, over the NAAD socket. Default on. See [ECCC streaming](#eccc-streaming). |
-| Feed source | ECCC | Which NAAD GeoRSS host serves polling and backfill. `auto` (default) fetches both hosts and unions them. `alertready` or `pelmorex` pins one. |
+| Feed source | ECCC, WMO | ECCC: which NAAD GeoRSS host serves polling and backfill. `auto` (default) fetches both hosts and unions them. `alertready` or `pelmorex` pins one. WMO: `auto` (default) reads the SWIC mirror and the feed the weather service publishes itself, and merges them, so a mirror that lags or is down costs nothing. `mirror` or `authority` reads one only. |
 | Event types | GDACS | Which hazards to track. All by default. Applied before any geometry is fetched, so narrowing it also cuts fetch cost. |
 | Minimum alert level | GDACS, AU | GDACS: `Green`, `Orange` (default) or `Red`, on GDACS's own impact scale. The entity state derives from it too: Green → `minor`, Orange → `severe`, Red → `extreme`. AU: `All` (default), `Advice`, `Watch and Act` or `Emergency Warning` on the Australian Warning System; `All` also keeps the informational tiers below the ladder (planned burns, incidents with no warning). |
 | Exclude marine alerts | NWS, ECCC | Drop alerts carrying a marine zone code. Default off. |

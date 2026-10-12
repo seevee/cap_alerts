@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DWD German CAP Atom feed captured 2026-10-12 13:35Z, first two of five entries:
+     the CAP URL is a link href, once as rel=alternate and once typed application/cap+xml. -->
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <title>Amtliche Warnungen</title>
+  <link rel="alternate" href="https://www.dwd.de/DWD/warnungen/cap-feed/de/atom.xml" />
+  <author>
+    <name>opendata@dwd.de (Deutscher Wetterdienst)</name>
+    <email>opendata@dwd.de</email>
+  </author>
+  <subtitle>Amtliche Warnungen des Deutschen Wetterdienstes</subtitle>
+  <id>https://www.dwd.de/DWD/warnungen/cap-feed/de/atom.xml</id>
+  <rights>public domain</rights>
+  <updated>2026-10-12T13:33:00Z</updated>
+  <dc:date>2026-10-12T13:33:00Z</dc:date>
+  <dc:rights>public domain</dc:rights>
+  <entry>
+    <title>(Alert) Amtliche WARNUNG vor FROST</title>
+    <link rel="alternate" href="https://www.dwd.de/DWD/warnungen/cap-feed/de/2.49.0.0.276.0.DWD.PVW.1791801840000.9e2b5f3c-8356-4d50-b874-850dacee8d6e.DEU.xml" />
+    <link rel="related" type="application/cap+xml" href="https://www.dwd.de/DWD/warnungen/cap-feed/de/2.49.0.0.276.0.DWD.PVW.1791801840000.9e2b5f3c-8356-4d50-b874-850dacee8d6e.DEU.xml" />
+    <author>
+      <name>opendata@dwd.de (Deutscher Wetterdienst)</name>
+      <email>opendata@dwd.de</email>
+    </author>
+    <id>https://www.dwd.de/DWD/warnungen/cap-feed/de/2.49.0.0.276.0.DWD.PVW.1791801840000.9e2b5f3c-8356-4d50-b874-850dacee8d6e.DEU.xml</id>
+    <updated>2026-10-12T10:44:00Z</updated>
+    <published>2026-10-12T10:44:00Z</published>
+    <summary type="text">Es tritt leichter Frost zwischen 0 °C und -2 °C auf. - Betroffene Gebiete: Gemeinde Wildeck, Gemeinde Ronshausen, Stadt Rotenburg a.d. Fulda, Gemeinde Morschen, Gemeinde Cornberg, Gemeinde Hauneck, Gemeinde Alheim, Stadt Bad Hersfeld, Stadt Bebra, Gemeinde Ludwigsau...</summary>
+    <dc:date>2026-10-12T10:44:00Z</dc:date>
+  </entry>
+  <entry>
+    <title>(Alert) Amtliche WARNUNG vor FROST</title>
+    <link rel="alternate" href="https://www.dwd.de/DWD/warnungen/cap-feed/de/2.49.0.0.276.0.DWD.PVW.1791801780000.4ea5ba81-e41f-4682-8b0c-43f23a00260d.DEU.xml" />
+    <link rel="related" type="application/cap+xml" href="https://www.dwd.de/DWD/warnungen/cap-feed/de/2.49.0.0.276.0.DWD.PVW.1791801780000.4ea5ba81-e41f-4682-8b0c-43f23a00260d.DEU.xml" />
+    <author>
+      <name>opendata@dwd.de (Deutscher Wetterdienst)</name>
+      <email>opendata@dwd.de</email>
+    </author>
+    <id>https://www.dwd.de/DWD/warnungen/cap-feed/de/2.49.0.0.276.0.DWD.PVW.1791801780000.4ea5ba81-e41f-4682-8b0c-43f23a00260d.DEU.xml</id>
+    <updated>2026-10-12T10:43:00Z</updated>
+    <published>2026-10-12T10:43:00Z</published>
+    <summary type="text">Es tritt leichter Frost bis -1 °C auf. - Betroffene Gebiete: Gemeinde Dettingen an der Iller, Gemeinde Altheim (Alb), Gemeinde Altheim, Gemeinde Burgrieden, Gemeinde Allmendingen, Stadt Biberach an der Riß, Gemeinde Betzenweiler, Gemeinde Berkheim, Stadt Crailsheim, Gemeinde Bühlerzell...</summary>
+    <dc:date>2026-10-12T10:43:00Z</dc:date>
+  </entry>
+</feed>

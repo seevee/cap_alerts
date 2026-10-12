@@ -16,7 +16,7 @@ import sys
 import pytest
 
 from custom_components.cap_alerts.providers.cap_content_cache import CAPContentCache
-from custom_components.cap_alerts.providers.wmo import _parse_rss_links
+from custom_components.cap_alerts.providers.wmo import _parse_feed_links
 
 _ITEM = """
   <item>
@@ -39,7 +39,7 @@ _BEIJING = "11010541600000_20260804103516"
 
 
 def _kept(xml: str, prefixes=None) -> list[str]:
-    return _parse_rss_links(xml, geocode_prefixes=prefixes)
+    return _parse_feed_links(xml, geocode_prefixes=prefixes)
 
 
 # ---------------------------------------------------------------------------

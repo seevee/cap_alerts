@@ -9,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, ClassVar, Self
 
+import aiohttp
 import pytest
 
 from custom_components.cap_alerts.providers import cap as _cap_mod
@@ -1269,6 +1270,81 @@ async def test_cache_returns_none_on_http_error():
     cache = CAPContentCache()
     result = await cache.get_or_fetch(session, "http://test/cap.xml")
     assert result is None
+
+
+def _cache_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == _cap_cache_mod.__name__ and r.levelno == logging.WARNING
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cache_warns_once_per_failing_url(caplog):
+    # A failed body is never stored, so every poll retries it; PAGASA's own
+    # feed links ten bodies on a raw IP whose certificate never matches, and
+    # before #303 each one warned on every poll. One warning per URL, the
+    # rest at debug, whether the failure is a status or a connection error.
+    session = StubSession(
+        {
+            "http://test/down.cap": (503, ""),
+            "http://test/tls.cap": lambda: aiohttp.ClientConnectionError("cert"),
+        }
+    )
+    cache = CAPContentCache()
+    with caplog.at_level(logging.DEBUG, logger=_cap_cache_mod.__name__):
+        for _ in range(3):
+            assert await cache.get_or_fetch(session, "http://test/down.cap") is None
+            assert await cache.get_or_fetch(session, "http://test/tls.cap") is None
+    warnings = _cache_warnings(caplog)
+    assert len(warnings) == 2
+    assert any("HTTP 503" in w and "down.cap" in w for w in warnings)
+    assert any("cert" in w and "tls.cap" in w for w in warnings)
+    debugs = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.DEBUG and "CAP fetch" in r.getMessage()
+    ]
+    assert len(debugs) == 4
+
+
+@pytest.mark.asyncio
+async def test_cache_warns_again_after_a_url_recovers(caplog):
+    # A success clears the mark, so a URL that comes back and then fails
+    # again is a new streak and warns again. The budget is too small to
+    # store the body, which is what lets the third fetch reach the host.
+    session = StubSession(
+        {
+            "http://test/flaky.cap": [
+                lambda: aiohttp.ClientConnectionError("down"),
+                "body",
+                lambda: aiohttp.ClientConnectionError("down again"),
+            ]
+        }
+    )
+    cache = CAPContentCache(max_bytes=1)
+    with caplog.at_level(logging.WARNING, logger=_cap_cache_mod.__name__):
+        assert await cache.get_or_fetch(session, "http://test/flaky.cap") is None
+        assert await cache.get_or_fetch(session, "http://test/flaky.cap") == "body"
+        assert await cache.get_or_fetch(session, "http://test/flaky.cap") is None
+    assert len(_cache_warnings(caplog)) == 2
+
+
+@pytest.mark.asyncio
+async def test_cache_warned_set_is_bounded(caplog):
+    # A feed that rotates failing URLs must not grow the set without limit.
+    limit = _cap_cache_mod._MAX_WARNED_URLS
+    urls = [f"http://test/{i}.cap" for i in range(limit + 10)]
+    session = StubSession({url: (503, "") for url in urls})
+    cache = CAPContentCache()
+    with caplog.at_level(logging.WARNING, logger=_cap_cache_mod.__name__):
+        for url in urls:
+            await cache.get_or_fetch(session, url)
+    assert len(_cache_warnings(caplog)) == len(urls)
+    assert len(cache._warned) == limit
+    assert urls[0] not in cache._warned
+    assert urls[-1] in cache._warned
 
 
 @pytest.mark.asyncio

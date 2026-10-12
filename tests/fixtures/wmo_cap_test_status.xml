@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- cap-sources bucket body captured 2026-10-12 (mz-inam-pt/2026-05-05-12-16-22.xml):
+     status=Test, cap: prefixed namespace, XML signature stripped, expiry moved to 2099. -->
+<?xml-stylesheet type="text/xsl" href="https://cap-sources.s3.amazonaws.com/mz-inam-pt/alert-style.xsl" ?>
+<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+  <cap:identifier>urn:oid:2.49.0.1.508.0.2026.5.5.12.16.22</cap:identifier>
+  <cap:sender>previsaoinam1@gmail.com</cap:sender>
+  <cap:sent>2026-05-05T14:16:22+02:00</cap:sent>
+  <cap:status>Test</cap:status>
+  <cap:msgType>Alert</cap:msgType>
+  <cap:scope>Public</cap:scope>
+  <cap:info>
+    <cap:language>pt</cap:language>
+    <cap:category>Met</cap:category>
+    <cap:event>chuva, vento e raio</cap:event>
+    <cap:responseType>Prepare</cap:responseType>
+    <cap:urgency>Expected</cap:urgency>
+    <cap:severity>Moderate</cap:severity>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:eventCode>
+      <cap:valueName>OET:v1.2</cap:valueName>
+      <cap:value>OET-122</cap:value>
+    </cap:eventCode>
+    <cap:onset>2026-05-05T14:14:41+02:00</cap:onset>
+    <cap:expires>2099-05-06T14:13:41+02:00</cap:expires>
+    <cap:senderName>INAM-IP</cap:senderName>
+    <cap:headline>Maputo</cap:headline>
+    <cap:description>INAM,IP prevê para as próximas 24 horas, a ocorrência de chuvas em regime
+moderado a forte (30 à 50 milímetros), acompanhadas de trovoadas e ventos com
+rajadas nos distritos e cidades acima mencionados.
+
+Adicionalmente espera-se agitação marítima gerando ondas até 6 metros na costa de
+Maputo.</cap:description>
+    <cap:instruction>Tomada de medidas de precaução e segurança face aos
+riscos associados ao vento forte, Chuvas a trovoadas.
+
+•Evite circular em zonas alagadas, rios, valas e pontes pequenas — podem transbordar rapidamente.
+•Afaste-se de postes, árvores grandes, antenas e linhas elétricas durante trovoadas.
+
+•Se estiver dentro de casa, desligue aparelhos elétricos para evitar danos por descargas elétricas.
+
+•Não atravesse estradas cheias de água — mesmo água baixa pode arrastar pessoas e carros.</cap:instruction>
+    <cap:web>https://www.inam.gov.mz/</cap:web>
+    <cap:area>
+      <cap:areaDesc>Maputo</cap:areaDesc>
+      <cap:polygon>-24.6412,32.0142 -25.0599,32.0364 -25.1817,32.0407 -25.2993,32.0416 -25.3713,32.0270 -25.4497,31.9906 -25.5294,31.9961 -25.6159,32.0169 -25.6589,32.0103 -25.7007,31.9867 -25.8442,31.9375 -25.9510,31.9855 -26.0025,32.0913 -26.1067,32.1050 -26.1620,32.1128 -26.2403,32.0954 -26.3937,32.0798 -26.5212,32.1398 -26.6532,32.1398 -26.7217,32.1416 -26.8353,32.1416 -26.8549,32.1833 -26.8247,32.2227 -26.8435,32.2838 -26.8535,32.4316 -26.8469,32.6807 -26.8412,32.8683 -26.5787,32.8857 -26.2967,32.9517 -25.9943,32.9517 -26.1390,32.8564 -26.3295,32.8271 -26.0930,32.6440 -25.9737,32.5259 -25.8230,32.6953 -25.6118,32.8052 -25.4730,32.9004 -25.1221,32.7246 -24.7502,32.5122 -24.6412,32.0142</cap:polygon>
+    </cap:area>
+  </cap:info>
+</cap:alert>
+

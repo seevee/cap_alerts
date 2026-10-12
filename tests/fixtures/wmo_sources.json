@@ -132,6 +132,145 @@
         "isMeteoalarm": false,
         "isCountry": true
       }
+    },
+    {
+      "source": {
+        "sourceId": "tl-dnmg-en",
+        "countryName": "Timor-Leste",
+        "authorityCountry": "TL",
+        "authorityAbbrev": "DNMG",
+        "byLanguage": [
+          {
+            "code": "en",
+            "name": "Timor-Leste: National Directorate of Meteorology and Geophysics",
+            "logo": "tl-dnmg.png"
+          },
+          {
+            "code": "pt",
+            "name": "Timor-Leste: Direcção Nacional de Meteorologia e Geofísica",
+            "logo": "tl-dnmg.png"
+          },
+          {
+            "code": "tet",
+            "name": "Timor-Leste: Direção Nasionál Meteorolojia no Jeofízika",
+            "logo": "tl-dnmg.png"
+          }
+        ],
+        "capAlertFeed": "https://cap-sources.s3.amazonaws.com/tl-dnmg-en/rss.xml,https://cap-sources.s3.amazonaws.com/tl-dnmg-pt/rss.xml,https://cap-sources.s3.amazonaws.com/tl-dnmg-tet/rss.xml",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
+    },
+    {
+      "source": {
+        "sourceId": "sb-sims-en",
+        "countryName": "Solomon Islands",
+        "authorityCountry": "SB",
+        "authorityAbbrev": "SIMS",
+        "byLanguage": [
+          {
+            "code": "en",
+            "name": "Solomon Islands: Meteorological Service",
+            "logo": "sb-sims.png"
+          }
+        ],
+        "capAlertFeed": "https://cap-sources.s3.amazonaws.com/sb-met-en/rss.xml",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
+    },
+    {
+      "source": {
+        "sourceId": "gw-inm-en",
+        "countryName": "Guinea-Bissau",
+        "authorityCountry": "GW",
+        "authorityAbbrev": "INM",
+        "byLanguage": [
+          {
+            "code": "fr",
+            "name": "Guinea-Bissau: Institut National de Météorologie",
+            "logo": "gw-inm.png"
+          },
+          {
+            "code": "pt",
+            "name": "Guiné-Bissau: Instituto Nacional de Meteorologia",
+            "logo": "gw-inm.png"
+          }
+        ],
+        "capAlertFeed": "https://cap-sources.s3.amazonaws.com/gw-inm-fr/rss.xml,https://cap-sources.s3.amazonaws.com/gw-inm-pt/rss.xml",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
+    },
+    {
+      "source": {
+        "sourceId": "th-tmd-th",
+        "countryName": "Thailand",
+        "authorityCountry": "TH",
+        "authorityAbbrev": "TMD",
+        "byLanguage": [
+          {
+            "code": "en",
+            "name": "Thailand: Thai Meteorological Department",
+            "logo": "th-tmd.png"
+          },
+          {
+            "code": "th",
+            "name": "ประเทศไทย: กรมอุตุนิยมวิทยา",
+            "logo": "th-tmd.png"
+          }
+        ],
+        "capAlertFeed": "https://www.tmd.go.th/en/api/xml/CAP,https://www.tmd.go.th/api/xml/CAP",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
+    },
+    {
+      "source": {
+        "sourceId": "mz-inam-en",
+        "countryName": "Mozambique",
+        "authorityCountry": "MZ",
+        "authorityAbbrev": "INAM",
+        "byLanguage": [
+          {
+            "code": "en",
+            "name": "Mozambique: National Institute of Meteorology",
+            "logo": "mz-inam.png"
+          },
+          {
+            "code": "pt",
+            "name": "Moçambique: Instituto Nacional de Meteorologia",
+            "logo": "mz-inam.png"
+          }
+        ],
+        "capAlertFeed": "https://cap-sources.s3.amazonaws.com/mz-inam-en/rss.xml,https://cap-sources.s3.amazonaws.com/mz-inam-pt/rss.xml",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
+    },
+    {
+      "source": {
+        "sourceId": "us-noaa-nws-en-marine",
+        "countryName": "United States",
+        "authorityCountry": "US",
+        "authorityAbbrev": "NWS",
+        "byLanguage": [
+          {
+            "code": "en-US",
+            "name": "United States: National Weather Service (marine)",
+            "logo": "us-nws.png"
+          }
+        ],
+        "capAlertFeed": "https://api.weather.gov/alerts/active.atom?region_type=marine",
+        "capAlertFeedStatus": "1",
+        "isMeteoalarm": false,
+        "isCountry": true
+      }
     }
   ]
 }
