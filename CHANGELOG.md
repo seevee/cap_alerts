@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.0 (2026-10-13)
+
+> [!IMPORTANT]
+> **Breaking**
+> - The vtec, vtec_office, vtec_phenomena, vtec_significance, vtec_action, vtec_tracking, event_code_nws, event_code_same, affected_zones, affected_zone_uris, replaced_by and replaced_at attributes are gone from alert entities. Read parameters, geocodes and references instead; incident_platform_version is "2.0".
+
+### Added
+- Mark alert entities with an incident device class (#286) (closes #277)
+- Poll the authority's own feed beside the SWIC mirror (#210) (#303)
+
+### Fixed
+- Drop a document the host redirects into its archive (#295) (#296)
+
+### Changed
+- Keep the provider-neutral modules free of provider names (#291)
+- Drop the NWS-only fields from CAPAlert (#293) (closes #292)
+
+### Documentation
+- A device-class trigger fires on escalation, not arrival (#287)
+- RestoreEntity holds a removed alert for seven days (#288)
+- Link DTekNO's HA Alert Card as a second card (#284)
+- Add a Limits section on feed gaps and latency (#299)
+- GeoSphere is the third core review to move alert bodies into an action (#301)
+
+### Internal
+- Accept the Nigeria mirror loss (#290) (#294)
+- Accept WA Structure Fire eventCode (#306) (#307)
+
 ## 0.6.1 (2026-10-05)
 
 ### Fixed
