@@ -302,6 +302,7 @@
   "json_paths": [
    "code",
    "identifier",
+   "incidents",
    "info",
    "info[].area",
    "info[].area[].areaDesc",
