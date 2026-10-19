@@ -154,6 +154,20 @@ def _polygon_payload() -> dict:
 
 
 @pytest.mark.asyncio
+async def test_gps_polygon_rejects_unparseable_coordinates_without_repeating_them():
+    session = _FakeSession(_polygon_payload())
+    provider = meteoalarm.MeteoAlarmProvider()
+    with pytest.raises(Exception) as excinfo:
+        await provider.async_fetch(
+            session,
+            config={"country": "DE", "gps_loc": "nowhere"},
+            options={"language": "en"},
+        )
+    assert "invalid GPS" in str(excinfo.value)
+    assert "nowhere" not in str(excinfo.value)
+
+
+@pytest.mark.asyncio
 async def test_gps_polygon_keeps_warnings_inside_polygon():
     session = _FakeSession(_polygon_payload())
     provider = meteoalarm.MeteoAlarmProvider()

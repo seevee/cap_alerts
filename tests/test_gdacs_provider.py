@@ -746,13 +746,16 @@ async def test_gps_flood_matches_the_footprint_not_the_country():
 @pytest.mark.asyncio
 async def test_gps_filter_rejects_unparseable_coordinates():
     session = StubSession(_full_responses())
-    with pytest.raises(ProviderError):
+    with pytest.raises(ProviderError, match="invalid GPS") as excinfo:
         await GDACSProvider().async_fetch(
             session,
             {CONF_GPS_LOC: "not-a-coordinate"},
             _ALL_LEVELS,
             cap_content_cache=CAPContentCache(),
         )
+    # The configured value is redacted in diagnostics; the message that lands
+    # next to it must not repeat it.
+    assert "not-a-coordinate" not in str(excinfo.value)
 
 
 @pytest.mark.asyncio

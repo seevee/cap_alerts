@@ -581,6 +581,13 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             raise ProviderError(
                 f"{self._provider.name}: timeout after {self._timeout}s"
             ) from err
+        except aiohttp.ClientResponseError as err:
+            # ``str(err)`` quotes the request URL, which in NWS GPS and tracker
+            # modes carries the coordinates. The status and reason say what
+            # happened; the endpoint is in diagnostics already, redacted.
+            raise ProviderError(
+                f"{self._provider.name}: HTTP {err.status} {err.message}"
+            ) from err
         except aiohttp.ClientError as err:
             raise ProviderError(f"{self._provider.name}: {err}") from err
 

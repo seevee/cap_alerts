@@ -455,7 +455,9 @@ class NWSProvider:
         headers = {"Accept": "application/geo+json"}
         async with session.get(url, headers=headers) as resp:
             if resp.status != 200:
-                raise ProviderError(f"NWS API returned {resp.status} for {url}")
+                # No URL in the message: in GPS and tracker modes it carries the
+                # coordinates, and the message is kept for diagnostics.
+                raise ProviderError(f"NWS API returned {resp.status}")
             data: dict[str, Any] = await resp.json()
 
         # NWS sometimes returns error objects with 200 status

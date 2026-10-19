@@ -284,6 +284,19 @@ async def test_fetch_country_wide():
 
 
 @pytest.mark.asyncio
+async def test_fetch_gps_rejects_unparseable_coordinates_without_repeating_them():
+    session = StubSession(_full_responses())
+    with pytest.raises(ProviderError, match="invalid GPS") as excinfo:
+        await WMOProvider().async_fetch(
+            session,
+            {CONF_SOURCE_ID: "mx-smn-es", CONF_GPS_LOC: "nowhere"},
+            {},
+            cap_content_cache=CAPContentCache(),
+        )
+    assert "nowhere" not in str(excinfo.value)
+
+
+@pytest.mark.asyncio
 async def test_fetch_gps_inside_polygon():
     session = StubSession(_full_responses())
     provider = WMOProvider()

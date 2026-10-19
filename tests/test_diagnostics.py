@@ -42,6 +42,7 @@ from custom_components.cap_alerts.const import (
 )
 from custom_components.cap_alerts.coordinator import AlertsDataUpdateCoordinator
 from custom_components.cap_alerts.geometry_store import GeometryStore
+from custom_components.cap_alerts.providers import ProviderError
 from custom_components.cap_alerts.providers.meteoalarm_conventions import (
     FMI_SENDER,
     METEOFRANCE_SENDER,
@@ -491,6 +492,54 @@ async def test_gps_coordinates_appear_nowhere_in_the_dump(hass):
     assert "40.7128" not in json.dumps(payload)
 
 
+async def test_the_last_failure_message_cannot_carry_the_coordinates(hass):
+    """A failure string is whatever the last error said; the dump scrubs it anyway.
+
+    The NWS poll URL carries ``point=<lat>,<lon>`` in GPS and tracker modes, and
+    an upstream ``str(err)`` quotes the request URL. The field outlives recovery,
+    so one hiccup would otherwise put the home position into every later dump
+    (hacs/default#11005 review).
+    """
+    entry = _entry(
+        {CONF_PROVIDER: "nws", CONF_GPS_LOC: "40.7128,-74.006"},
+        failure_error=(
+            "nws: HTTP 503, message='Service Unavailable', "
+            "url='https://api.weather.gov/alerts/active?point=40.7128,-74.006'"
+        ),
+    )
+
+    payload = await _payload(hass, entry)
+
+    error = payload["update"]["last_failure_error"]
+    assert error.startswith("nws: HTTP 503")
+    assert error.endswith(f"point={REDACTED}'")
+    assert "40.7128" not in json.dumps(payload)
+
+
+async def test_the_failure_scrub_catches_the_rounded_and_spaced_forms(hass):
+    """The provider rounds to 4 places and a tracker resolves with a space, so a
+    literal match on the configured value is not enough on its own."""
+    entry = _entry(
+        {CONF_PROVIDER: "nws", CONF_GPS_LOC: "40.712776,-74.005974"},
+        failure_error="nws: HTTP 404 for point=40.7128,-74.006; tracker at 40.71, -74.0",
+    )
+
+    error = (await _payload(hass, entry))["update"]["last_failure_error"]
+
+    assert error == f"nws: HTTP 404 for point={REDACTED}; tracker at {REDACTED}"
+
+
+async def test_the_failure_scrub_leaves_an_ordinary_message_alone(hass):
+    entry = _entry(
+        {CONF_PROVIDER: "nws", CONF_ZONE_ID: "OHZ049"},
+        failure_error="nws: timeout after 30s",
+    )
+
+    assert (await _payload(hass, entry))["update"][
+        "last_failure_error"
+    ] == "nws: timeout after 30s"
+
+
 async def test_tracker_and_the_location_it_resolved_to_are_both_redacted(hass):
     entry = _entry(
         {CONF_PROVIDER: "nws", CONF_TRACKER_ENTITY: "device_tracker.pixel"},
@@ -717,6 +766,47 @@ async def test_a_silent_exception_is_recorded_by_type():
         await coordinator._async_update_data()
 
     assert coordinator.last_update_failure == "TimeoutError"
+
+
+async def test_an_http_error_from_the_client_is_reported_without_its_url(monkeypatch):
+    """``aiohttp.ClientResponseError.__str__`` quotes the request URL, which in
+    NWS GPS mode is ``?point=<lat>,<lon>``. The coordinator keeps the status
+    and reason and drops the URL before the message reaches the failure field."""
+    import aiohttp
+    from yarl import URL
+
+    from custom_components.cap_alerts import coordinator as coordinator_mod
+
+    coordinator = _bare_coordinator()
+    coordinator.hass = None
+    coordinator._timeout = 30
+    coordinator._cap_content_cache = None
+    coordinator._user_agent = "test"
+
+    url = URL("https://api.weather.gov/alerts/active?point=40.7128,-74.006")
+    request_info = aiohttp.RequestInfo(url, "GET", {}, url)  # type: ignore[arg-type]
+
+    class _Provider:
+        name = "nws"
+
+        async def async_fetch(self, session, config, options, **kwargs):
+            raise aiohttp.ContentTypeError(
+                request_info,
+                (),
+                status=200,
+                message="Attempt to decode JSON with unexpected mimetype: text/html",
+            )
+
+    coordinator._provider = _Provider()
+    monkeypatch.setattr(coordinator_mod, "async_get_clientsession", lambda hass: None)
+
+    with pytest.raises(ProviderError) as excinfo:
+        await coordinator._fetch({}, {})
+
+    message = str(excinfo.value)
+    assert message.startswith("nws: HTTP 200 Attempt to decode JSON")
+    assert "point=" not in message
+    assert "40.7128" not in message
 
 
 def test_resolved_config_falls_back_to_entry_data_before_the_first_update():

@@ -16,9 +16,11 @@ running it here would consume a scope change the next real cycle needs to see.
 **Nothing that makes the dump unsafe to paste.** A diagnostics download usually
 ends up in a public issue. GPS coordinates, the tracker entity and the
 MeteoAlarm country-source entity are redacted wherever they appear, including
-inside a provider endpoint built from them. Credential keys go through the same
-list even though no shipped provider authenticates today — the first one that
-does should not have to remember this file exists.
+inside a provider endpoint built from them and in the last failure message,
+which is scrubbed of anything shaped like a coordinate pair before it is
+reported. Credential keys go through the same list even though no shipped
+provider authenticates today — the first one that does should not have to
+remember this file exists.
 
 Raw alert bodies are left out: they are large, and geometry is already
 externalized (RFC §2.4) for that reason. What each alert contributes is its
@@ -28,6 +30,7 @@ what a report about a stuck or missing entity turns on.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import fields
 from datetime import datetime, timezone
@@ -186,7 +189,9 @@ async def async_get_config_entry_diagnostics(
             "success": coordinator.last_update_success,
             "last_success": _iso(coordinator.last_update_success_time),
             "last_failure": _iso(coordinator.last_update_failure_time),
-            "last_failure_error": coordinator.last_update_failure,
+            "last_failure_error": _scrub_coordinates(
+                coordinator.last_update_failure, resolved_config
+            ),
             "interval_seconds": (
                 coordinator.update_interval.total_seconds()
                 if coordinator.update_interval
@@ -296,6 +301,28 @@ def _endpoints(
         feed = AU_FEEDS.get((config.get(CONF_PROVINCE) or "").strip().upper())
         return [feed[1]] if feed else []
     return []
+
+
+# A ``lat,lon`` pair as the providers and ``_resolve_tracker_gps`` write one:
+# signed decimals, an optional space after the comma.
+_COORDINATE_PAIR = re.compile(r"-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+")
+
+
+def _scrub_coordinates(text: str | None, config: Mapping[str, Any]) -> str | None:
+    """The last failure message with any coordinates taken out.
+
+    The providers keep coordinates out of their messages, but the field holds
+    whatever the last failure said, and an upstream library's ``str(err)`` can
+    quote a request URL. Both the entry's own location values and anything
+    shaped like a coordinate pair are replaced, so a message that slips through
+    the first layer still cannot carry the user's position into an issue.
+    """
+    if not text:
+        return text
+    for key in (CONF_GPS_LOC, CONF_LATITUDE, CONF_LONGITUDE):
+        if value := config.get(key):
+            text = text.replace(str(value), REDACTED)
+    return _COORDINATE_PAIR.sub(REDACTED, text)
 
 
 def _nws_endpoints(config: Mapping[str, Any]) -> list[str]:
