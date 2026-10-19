@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.1 (2026-10-19)
+
+### Fixed
+- Keep coordinates out of the last failure message (#314)
+
+### Documentation
+- Drop the skill references from AGENTS.md and the CLAUDE.md shim (#313)
+
+### Internal
+- Accept the BBK incidents path (#311) (#312)
+
 ## 0.7.0 (2026-10-13)
 
 > [!IMPORTANT]
