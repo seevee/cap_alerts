@@ -913,7 +913,7 @@ class WMOProvider:
             )
         gps = parse_gps(gps_loc)
         if gps is None:
-            raise ProviderError(f"WMO {source_id}: invalid GPS coordinates {gps_loc!r}")
+            raise ProviderError(f"WMO {source_id}: invalid GPS coordinates")
         lat, lon = gps
         kept: list[CAPAlert] = []
         for alert in alerts:

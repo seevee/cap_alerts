@@ -839,9 +839,7 @@ class MeteoAlarmProvider:
             )
         gps = parse_gps(gps_loc)
         if gps is None:
-            raise ProviderError(
-                f"MeteoAlarm {country}: invalid GPS coordinates {gps_loc!r}"
-            )
+            raise ProviderError(f"MeteoAlarm {country}: invalid GPS coordinates")
         lat, lon = gps
         kept: list[CAPAlert] = []
         for alert in alerts:

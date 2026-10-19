@@ -718,7 +718,7 @@ class GDACSProvider:
             )
         gps = parse_gps(gps_loc)
         if gps is None:
-            raise ProviderError(f"GDACS: invalid GPS coordinates {gps_loc!r}")
+            raise ProviderError("GDACS: invalid GPS coordinates")
         lat, lon = gps
         kept: list[CAPAlert] = []
         for alert in alerts:

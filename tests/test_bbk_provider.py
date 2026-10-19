@@ -646,8 +646,9 @@ def test_gps_filter_on_an_empty_list_is_empty():
 
 
 async def test_gps_scope_rejects_unparseable_coordinates():
-    with pytest.raises(ProviderError, match="invalid GPS"):
+    with pytest.raises(ProviderError, match="invalid GPS") as excinfo:
         await _fetch(_gps_responses(), {CONF_GPS_LOC: "nowhere"})
+    assert "nowhere" not in str(excinfo.value)
 
 
 async def test_a_failed_geometry_fetch_ships_the_alert_without_a_shape():

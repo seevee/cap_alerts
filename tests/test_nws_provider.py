@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from custom_components.cap_alerts.providers import nws as _nws_mod
 
 _is_marine_nws = _nws_mod._is_marine_nws
@@ -199,3 +201,22 @@ def test_parse_feature_publishes_no_nws_envelope_attributes():
     # What a consumer reads instead.
     assert attrs["geocodes"]["UGC"] == ["NYZ071", "NYZ072"]
     assert attrs["parameters"]["NationalWeatherService"] == ["SVR"]
+
+
+# ---------------------------------------------------------------------------
+# Error messages — kept free of the poll URL (hacs/default#11005 review)
+# ---------------------------------------------------------------------------
+
+
+async def test_a_non_200_answer_is_reported_without_the_url(hass, aioclient_mock):
+    """In GPS and tracker modes the URL carries ``point=<lat>,<lon>``, and the
+    message lands in ``last_update_failure`` and the diagnostics download."""
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+    url = f"{_nws_mod.NWS_API_BASE}?point=40.7128,-74.006"
+    aioclient_mock.get(url, status=503, text="")
+
+    with pytest.raises(_nws_mod.ProviderError) as excinfo:
+        await _nws_mod.NWSProvider()._fetch_page(async_get_clientsession(hass), url)
+
+    assert str(excinfo.value) == "NWS API returned 503"

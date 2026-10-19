@@ -552,7 +552,7 @@ class BBKProvider:
             )
         gps = parse_gps(gps_loc)
         if gps is None:
-            raise ProviderError(f"BBK: invalid GPS coordinates {gps_loc!r}")
+            raise ProviderError("BBK: invalid GPS coordinates")
         lat, lon = gps
         kept: list[CAPAlert] = []
         for alert in alerts:

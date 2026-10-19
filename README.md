@@ -260,8 +260,9 @@ diagnostics**. Attach it to a bug report instead of a debug log. It reports:
 - which per-source convention row is in effect
 
 GPS coordinates, the tracker entity, and the MeteoAlarm country source are
-redacted everywhere they appear, including inside provider URLs. Alert text
-and geometry are omitted. The file is safe to paste into a public issue.
+redacted everywhere they appear, including inside provider URLs and in the
+last failure message. Alert text and geometry are omitted. The file is safe to
+paste into a public issue.
 
 ## Removal
 
