@@ -21,7 +21,7 @@ normalization.
 
 See `docs/architecture.md` for design rationale (alert identity, field
 mappings, provider layer) and `docs/roadmap.md` for planned work. `plans/` is
-gitignored scratch for `/plan` output — not reference material.
+gitignored scratch for agent planning output — not reference material.
 
 ### Entity Model
 
@@ -228,7 +228,7 @@ regenerate with `git cliff --config cliff.toml --output CHANGELOG.md`. See
 
 ### Git discipline
 - `main` is protected: all changes go through PRs
-- Never auto-commit, push, or open PRs — defer to the user or `/commit`
+- Never auto-commit, push, or open PRs — defer to the user
 - Commit format: `type(scope): description` (types: feat, fix, docs, refactor,
   test, chore)
 - Branch format: `<type>/<slug>`, with the same type the commits will carry
@@ -249,9 +249,3 @@ Wrap by surface, not by habit:
   wrapping buys nothing there; meanwhile tables and long URLs can't be wrapped
   (leaving one document in two styles), and editing a wrapped body in GitHub's
   soft-wrapping web editor re-wraps it raggedly.
-
-### Skills Reference
-Slash-command skills (`/explore`, `/plan`, `/implement`, `/fix`, `/review`,
-`/commit`, …) come from the developer's own environment, not this repo —
-`.claude/` is gitignored and intentionally empty of commands. `/plan` output
-goes to `plans/<slug>.md` (gitignored scratch).
