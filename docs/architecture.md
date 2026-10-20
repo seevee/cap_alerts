@@ -817,6 +817,36 @@ parsing on every path, because a first-sight terminal alert fires
 `incident_removed` outside boot (`store.py`) and the mirror path never handed
 those over. Fail-open on a missing or unparseable `<expires>`.
 
+*Index cost* (issues #304, #309): both index feeds are read with the
+validators their last `200` sent (`providers/revalidate.py`: `ETag` →
+`If-None-Match`, `Last-Modified` → `If-Modified-Since`), and a `304` replays
+the remembered body, so a quiet feed costs one request and no transfer. The
+bucket indexes send an `ETag`, the mirror `Last-Modified` only, and both
+answer `304` to their validator (measured 2026-10-20). That does not
+rescue `cn-cma-xx`, whose record names a ~950 KB, 1000-item index on a bucket
+that regenerates between polls: every poll was a full download billed to the
+bucket's owner, WMO, about 8 GB a month per install at the default 300 s
+interval, and prefix narrowing
+does not shrink it because the guid prefilter runs after the download. The
+provider measures the authority index on each read, and one over
+`WMO_HEAVY_INDEX_BYTES` (256 KB; every other bucket index measured is under
+60 KB) is re-read only every `WMO_HEAVY_INDEX_INTERVAL` (30 min), the links of
+its last read standing in on the polls between, and on a read that fails,
+which is retried next poll, for up to `WMO_HEAVY_INDEX_STAND_IN_LIMIT` (three
+intervals) after the last read that succeeded; past that the failure
+propagates like any feed failure and the index's alerts go absent as they
+did before, so an index that went away for good cannot keep its last list in
+sight forever. The mirror is read every poll regardless: it is
+the fresher feed and carries the envelope pre-filter. Health-gated fallback
+(mirror alone while healthy) was measured and rejected: the mirror is a fixed
+500-item list that is always fresh, and 31% of its items are missing from the
+bucket while the bucket carries alerts the mirror evicted, so neither feed
+alone is complete and the union stays. The stand-in is what makes the slower
+cadence safe: a bucket-only alert stays in sight between reads, so a body
+with no `<expires>`, which the store would otherwise end on absence, is not
+flapped by the cadence. Diagnostics reports the index's size, link count,
+last read and the interval in effect under `source.authority_index`.
+
 *National hosts that fail today* (swept 2026-10-12, 41 records): 7 fail DNS
 or TLS, `id-inatews-id` is 403, `sa-ncm-en` is 404, and `ca-msc-xx`,
 `is-vedur-is`, `tt-ttms-en` answer something other than XML (a JSON broker,

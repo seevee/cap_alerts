@@ -9,7 +9,7 @@ tolerance, the body-level filters the authority feed needs, and the two pins.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -1132,3 +1132,193 @@ async def test_async_authority_feed_available(
         )
         is expected
     )
+
+
+# ---------------------------------------------------------------------------
+# Index cost (issues #304 and #309)
+# ---------------------------------------------------------------------------
+
+_T0 = datetime(2026, 5, 12, 12, 0, tzinfo=timezone.utc)
+_MIRROR_STAMP = "Tue, 12 May 2026 11:58:00 GMT"
+
+
+def _conditional_union_responses() -> dict[str, Any]:
+    """The union, with the mirror sending ``Last-Modified`` and the bucket an
+    ``ETag``, and both answering ``304`` to the second read."""
+    responses = _union_responses()
+    responses[_TL_MIRROR_URL] = [
+        (200, _fixture("wmo_rss.xml"), {"Last-Modified": _MIRROR_STAMP}),
+        (304, ""),
+    ]
+    responses[_TL_BUCKET_URL] = [
+        (200, _fixture("wmo_bucket_rss.xml"), {"ETag": '"bucket-1"'}),
+        (304, ""),
+    ]
+    return responses
+
+
+def _headers_for(session: StubSession, url: str) -> list[dict[str, str] | None]:
+    return [h for u, h in zip(session.requested, session.request_headers) if u == url]
+
+
+@pytest.mark.asyncio
+async def test_second_poll_revalidates_both_feeds(monkeypatch):
+    """An unchanged index costs one request and no body (issue #304)."""
+    _pin_clock(monkeypatch, _T0)
+    provider = WMOProvider()
+    session = StubSession(_conditional_union_responses())
+
+    first = await _fetch(provider, session, "tl-dnmg-en")
+    second = await _fetch(provider, session, "tl-dnmg-en")
+
+    assert sorted(a.identifier for a in second) == sorted(a.identifier for a in first)
+    assert session.requested.count(_TL_MIRROR_URL) == 2
+    assert session.requested.count(_TL_BUCKET_URL) == 2
+    assert _headers_for(session, _TL_MIRROR_URL)[1] == {
+        "If-Modified-Since": _MIRROR_STAMP
+    }
+    assert _headers_for(session, _TL_BUCKET_URL)[1] == {"If-None-Match": '"bucket-1"'}
+
+
+@pytest.mark.asyncio
+async def test_light_authority_index_is_read_every_poll(monkeypatch):
+    _pin_clock(monkeypatch, _T0)
+    provider = WMOProvider()
+    session = StubSession(_union_responses())
+    await _fetch(provider, session, "tl-dnmg-en")
+    await _fetch(provider, session, "tl-dnmg-en")
+    assert session.requested.count(_TL_BUCKET_URL) == 2
+    assert provider.authority_index == {
+        "bytes": len(_fixture("wmo_bucket_rss.xml")),
+        "links": 4,
+        "last_read": _T0.isoformat(),
+        "reread_interval_s": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_heavy_authority_index_stands_in_between_reads(monkeypatch, caplog):
+    """Over the size threshold the index is re-read every 30 min, and the
+    links of its last read keep its alerts in sight meanwhile (issue #309)."""
+    monkeypatch.setattr(_wmo_mod, "WMO_HEAVY_INDEX_BYTES", 10)
+    provider = WMOProvider()
+    session = StubSession(_union_responses())
+
+    _pin_clock(monkeypatch, _T0)
+    with caplog.at_level(logging.INFO, logger="custom_components.cap_alerts"):
+        first = await _fetch(provider, session, "tl-dnmg-en")
+    assert "re-reading it every 30 min" in caplog.text
+    assert provider.authority_index is not None
+    assert provider.authority_index["reread_interval_s"] == 1800
+
+    _pin_clock(monkeypatch, _T0 + timedelta(minutes=5))
+    second = await _fetch(provider, session, "tl-dnmg-en")
+    assert session.requested.count(_TL_MIRROR_URL) == 2
+    assert session.requested.count(_TL_BUCKET_URL) == 1
+    assert {a.identifier for a in second} == {a.identifier for a in first}
+    assert _ID_3 in {a.identifier for a in second}  # bucket-only, stood in
+
+    _pin_clock(monkeypatch, _T0 + timedelta(minutes=31))
+    await _fetch(provider, session, "tl-dnmg-en")
+    assert session.requested.count(_TL_BUCKET_URL) == 2
+    assert (
+        provider.authority_index["last_read"]
+        == (_T0 + timedelta(minutes=31)).isoformat()
+    )
+
+
+@pytest.mark.asyncio
+async def test_heavy_index_read_failure_keeps_the_last_links(monkeypatch, caplog):
+    """A failed scheduled read stands in too, warns once, and retries next poll."""
+    monkeypatch.setattr(_wmo_mod, "WMO_HEAVY_INDEX_BYTES", 10)
+    responses = _union_responses()
+    responses[_TL_BUCKET_URL] = [_fixture("wmo_bucket_rss.xml"), (503, ""), (503, "")]
+    provider = WMOProvider()
+    session = StubSession(responses)
+
+    _pin_clock(monkeypatch, _T0)
+    await _fetch(provider, session, "tl-dnmg-en")
+    _pin_clock(monkeypatch, _T0 + timedelta(minutes=31))
+    with caplog.at_level(logging.WARNING, logger="custom_components.cap_alerts"):
+        alerts = await _fetch(provider, session, "tl-dnmg-en")
+        await _fetch(provider, session, "tl-dnmg-en")
+
+    assert _ID_3 in {a.identifier for a in alerts}
+    assert session.requested.count(_TL_BUCKET_URL) == 3  # retried, not restamped
+    assert caplog.text.count("its last read stand in") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_recovered_read_rearms_the_stand_in_warning(monkeypatch, caplog):
+    monkeypatch.setattr(_wmo_mod, "WMO_HEAVY_INDEX_BYTES", 10)
+    body = _fixture("wmo_bucket_rss.xml")
+    responses = _union_responses()
+    responses[_TL_BUCKET_URL] = [body, (503, ""), body, (503, "")]
+    provider = WMOProvider()
+    session = StubSession(responses)
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.cap_alerts"):
+        for minutes in (0, 31, 62, 93):
+            _pin_clock(monkeypatch, _T0 + timedelta(minutes=minutes))
+            await _fetch(provider, session, "tl-dnmg-en")
+
+    assert caplog.text.count("its last read stand in") == 2
+
+
+@pytest.mark.asyncio
+async def test_stand_in_ends_after_the_limit(monkeypatch, caplog):
+    """An index that went away for good cannot keep its last list in sight."""
+    monkeypatch.setattr(_wmo_mod, "WMO_HEAVY_INDEX_BYTES", 10)
+    responses = _union_responses()
+    responses[_TL_BUCKET_URL] = [_fixture("wmo_bucket_rss.xml"), (404, "")]
+    provider = WMOProvider()
+    session = StubSession(responses)
+
+    _pin_clock(monkeypatch, _T0)
+    await _fetch(provider, session, "tl-dnmg-en")
+    _pin_clock(monkeypatch, _T0 + timedelta(minutes=89))
+    assert _ID_3 in {
+        a.identifier for a in await _fetch(provider, session, "tl-dnmg-en")
+    }
+    _pin_clock(monkeypatch, _T0 + timedelta(minutes=91))
+    with caplog.at_level(logging.WARNING, logger="custom_components.cap_alerts"):
+        alerts = await _fetch(provider, session, "tl-dnmg-en")
+
+    assert _ID_3 not in {a.identifier for a in alerts}
+    assert "continuing with the other feed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_an_index_that_turns_light_stops_standing_in(monkeypatch):
+    monkeypatch.setattr(_wmo_mod, "WMO_HEAVY_INDEX_BYTES", 10)
+    responses = _union_responses()
+    responses[_TL_BUCKET_URL] = [_fixture("wmo_bucket_rss.xml"), _EMPTY_RSS, (503, "")]
+    provider = WMOProvider()
+    session = StubSession(responses)
+
+    _pin_clock(monkeypatch, _T0)
+    await _fetch(provider, session, "tl-dnmg-en")
+    monkeypatch.setattr(_wmo_mod, "WMO_HEAVY_INDEX_BYTES", 10**6)
+    _pin_clock(monkeypatch, _T0 + timedelta(minutes=31))
+    await _fetch(provider, session, "tl-dnmg-en")  # light now: read every poll
+    assert provider.authority_index["reread_interval_s"] is None
+    alerts = await _fetch(provider, session, "tl-dnmg-en")  # 503, nothing stands in
+    assert session.requested.count(_TL_BUCKET_URL) == 3
+    assert _ID_3 not in {a.identifier for a in alerts}
+
+
+@pytest.mark.asyncio
+async def test_light_authority_index_failure_is_still_a_feed_failure(monkeypatch):
+    """Below the threshold nothing stands in: the mirror alone answers."""
+    _pin_clock(monkeypatch, _T0)
+    responses = _union_responses()
+    responses[_TL_BUCKET_URL] = [_fixture("wmo_bucket_rss.xml"), (503, "")]
+    provider = WMOProvider()
+    session = StubSession(responses)
+    await _fetch(provider, session, "tl-dnmg-en")
+    alerts = await _fetch(provider, session, "tl-dnmg-en")
+    assert _ID_3 not in {a.identifier for a in alerts}
+
+
+def test_authority_index_is_none_before_the_first_read():
+    assert WMOProvider().authority_index is None

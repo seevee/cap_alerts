@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 DOMAIN = "cap_alerts"
 PLATFORMS = ["binary_sensor", "button", "sensor"]
 
@@ -287,6 +289,22 @@ WMO_SOURCES_URL = "https://severeweather.wmo.int/v2/json/sources.json"
 WMO_FEED_SOURCES: tuple[str, ...] = ("auto", "mirror", "authority")
 DEFAULT_WMO_FEED_SOURCE = "auto"
 WMO_CAP_SOURCES_BUCKET = "https://cap-sources.s3.amazonaws.com/"
+
+# An authority index this large is re-read on the slower cadence below, and
+# its last link list stands in between reads (issue #309). Sized for the one
+# known case: ``cn-cma-xx``'s record names a ~950 KB, 1000-item bucket index
+# that regenerates between polls, so every poll was a full download billed to
+# WMO's bucket, about 8 GB a month per install; every other bucket index
+# measured is under 60 KB. The store retains a tracked alert until its
+# ``expires``, and the stand-in keeps the index's alerts in sight between
+# reads anyway, so nothing ends on absence for being read less often.
+WMO_HEAVY_INDEX_BYTES = 256 * 1024
+WMO_HEAVY_INDEX_INTERVAL = timedelta(minutes=30)
+# How long a read that keeps failing may go on standing in. Past this the
+# failure propagates like any feed failure, and the index's alerts go absent
+# the way they did before the cadence existed; without a bound, an index that
+# went away for good would keep its last link list in sight forever.
+WMO_HEAVY_INDEX_STAND_IN_LIMIT = 3 * WMO_HEAVY_INDEX_INTERVAL
 
 # WMO-category SWIC sources that were registered but NOT reachable on the
 # severeweather.wmo.int mirror when verified on 2026-05-24. Since #210 every
