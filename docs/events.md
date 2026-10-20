@@ -330,10 +330,10 @@ know to be non-numeric, as *continuous* and shows no rows for it at all:
 that is the count sensor (state class `measurement`) and every alert entity
 (the custom `incident` device class) for as long as it exists. The
 last-updated sensor, a timestamp, is the one entity whose changes Activity
-lists. An alert entity gets a single row once it is gone and logbook can no
-longer tell what it was: the `unknown` it writes on the cycle that removes
-it, which traces to the removal event, named by entity id since the
-registry no longer holds its name.
+lists. An alert entity can get a single row once it is gone and logbook can
+no longer tell what it was: an `unknown` it may write on the cycle that
+removes it, depending on which listener runs first, named by entity id since
+the registry no longer holds its name. It carries no context.
 
 The three events are the record of the lifecycle, and the integration ships
 a `logbook.py` platform describing them. Each row is named the way the alert
@@ -353,22 +353,23 @@ show the event alone, and a removal announced from the registry with no
 **One context per cycle.** Activity's "What happened" line resolves a state
 change to the first row logbook saw with the same context, hidden rows
 included. Each reconciliation mints one `Context`; the events fired from the
-diff carry it, and every entity write it causes is made under it. So on a
-cycle that ended or revised an alert, the last-updated row reads "triggered
-by CAP Alerts NWS Wind Warning ended". A quiet poll writes the timestamp
-first, so that row is the origin and reads as uncaused, the same as every
-polled sensor in core. A failed refresh and a stream connect or disconnect
-begin cycles of their own, so an `unavailable` write never traces to the
-last good cycle's events.
+diff carry it, and so does the one write Activity will show, the last-updated
+sensor's. So on a cycle that ended or revised an alert, the last-updated row
+reads "triggered by CAP Alerts NWS Wind Warning ended". A write Activity
+hides takes no context at all, the count sensor's and the alert entities':
+listeners run in no order Home Assistant promises, and a hidden write made
+first would be the origin a visible row is traced to. A quiet poll therefore
+leaves the timestamp's row as the origin, and it reads as uncaused, the same
+as every polled sensor in core. A failed refresh and a stream connect or
+disconnect begin cycles of their own, so an `unavailable` write never traces
+to the last good cycle's events.
 
 **`incident_created` is the exception.** It fires after the entity it names
-has written (see *`entity_id` is always there*), which is after the cycle's
-other writes. Shared, logbook would take one of those as the cause of the
+has written (see *`entity_id` is always there*), which is after the
+timestamp's write. Shared, logbook would take that as the cause of the
 alert's issue. It fires under a context of its own instead, with no parent,
 so on a cycle that only added alerts the event row and the last-updated row
-both read as uncaused. The last-updated sensor is registered ahead of the
-count sensor for the same reason: it writes first, so the count's hidden row
-is never the origin a visible row traces to.
+both read as uncaused.
 
 **A refresh button press lends the cycle its context.** The service call's
 context goes with the request, and the next cycle adopts it: its writes and
