@@ -320,6 +320,64 @@ as `incident_id` on event payloads and as the `id` attribute on alert
 entities, so consumers cross-referencing the RFC can use that value
 directly from either surface.
 
+## Activity and the logbook (issue #310)
+
+Activity shows none of the integration's state changes but one. Logbook
+keeps a state row only when the old state and the new one both exist and
+differ, so an alert entity's first state and its removal never appear. And
+logbook treats a sensor with a state class, or a device class it does not
+know to be non-numeric, as *continuous* and shows no rows for it at all:
+that is the count sensor (state class `measurement`) and every alert entity
+(the custom `incident` device class) for as long as it exists. The
+last-updated sensor, a timestamp, is the one entity whose changes Activity
+lists. An alert entity gets a single row once it is gone and logbook can no
+longer tell what it was: the `unknown` it writes on the cycle that removes
+it, which traces to the removal event, named by entity id since the
+registry no longer holds its name.
+
+The three events are the record of the lifecycle, and the integration ships
+a `logbook.py` platform describing them. Each row is named the way the alert
+entity is (device name, then event), links to the entity through
+`entity_id`, and reads:
+
+| Event | Row |
+| :-- | :-- |
+| `incident_created` | `CAP Alerts NWS Winter Storm Warning issued (severe)`; the severity is dropped when `unknown`. |
+| `incident_updated` | `… updated (severity, expires)`, listing `changed_fields`; bare `updated` when the list is empty. |
+| `incident_removed` | `… superseded` or `… ended` from `removal_reason`; without one, `… cancelled` or `… expired` from `phase`. |
+
+The device name comes from the entry at read time, so rows of a deleted entry
+show the event alone, and a removal announced from the registry with no
+`event` (see above) shows the device name alone.
+
+**One context per cycle.** Activity's "What happened" line resolves a state
+change to the first row logbook saw with the same context, hidden rows
+included. Each reconciliation mints one `Context`; the events fired from the
+diff carry it, and every entity write it causes is made under it. So on a
+cycle that ended or revised an alert, the last-updated row reads "triggered
+by CAP Alerts NWS Wind Warning ended". A quiet poll writes the timestamp
+first, so that row is the origin and reads as uncaused, the same as every
+polled sensor in core. A failed refresh and a stream connect or disconnect
+begin cycles of their own, so an `unavailable` write never traces to the
+last good cycle's events.
+
+**`incident_created` is the exception.** It fires after the entity it names
+has written (see *`entity_id` is always there*), which is after the cycle's
+other writes. Shared, logbook would take one of those as the cause of the
+alert's issue. It fires under a context of its own instead, with no parent,
+so on a cycle that only added alerts the event row and the last-updated row
+both read as uncaused. The last-updated sensor is registered ahead of the
+count sensor for the same reason: it writes first, so the count's hidden row
+is never the origin a visible row traces to.
+
+**A refresh button press lends the cycle its context.** The service call's
+context goes with the request, and the next cycle adopts it: its writes and
+diff-time events carry the press's context, and the `incident_created` it
+fires names it as `parent_id`. The dialog then reads "triggered by action
+button.press" with the user's name, on the last-updated change and on the
+alert's issue alike. The lent context is spent once used; the next poll is
+anonymous.
+
 ## Archival pattern (RFC §6.4)
 
 Because registry-removed entities lose their friendly names in the

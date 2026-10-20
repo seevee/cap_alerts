@@ -71,10 +71,11 @@ custom_components/cap_alerts/
     gdacs.py        # GDACS steps + event-type/alert-level options
     bbk.py          # BBK steps: Regionalschlüssel (district) form, GPS, tracker; language option
     au.py           # Australian steps: state picker; minimum alert level option
-  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info; hosts a provider's PushIngest through IngestHost (no transport of its own); provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs; translates ProviderError → UpdateFailed once
+  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info; hosts a provider's PushIngest through IngestHost (no transport of its own); provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs; translates ProviderError → UpdateFailed once; mints the per-cycle Context the events and entity writes carry (#310)
   diagnostics.py    # config-entry diagnostics download: scope, endpoints, update health, filters, convention rows in effect; redacts location + credentials
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
-  button.py         # RefreshButton: on-demand provider fetch (all providers)
+  button.py         # RefreshButton: on-demand provider fetch (all providers); hands the press's context to the coordinator for that cycle
+  logbook.py        # logbook platform (#310): describes the three incident events as Activity rows; discovered by filename, nothing in the manifest
   binary_sensor.py  # StreamConnectivitySensor: NAAD socket state (ECCC streaming only)
   model.py          # CAPAlert dataclass + to_attributes()
   conventions.py    # the convention *mechanism*: what a row may declare (SourceConventions: marine prefixes, terminal tokens, severity/identity/keep/icon hooks, language + country resolution, explode/merge pipeline stages), shared timestamp + episode_id helpers, and the rows in force (register_source / conventions_for); no provider named here

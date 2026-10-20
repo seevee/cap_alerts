@@ -60,6 +60,9 @@ class RefreshButton(ButtonEntity):
         """Request an off-cycle provider fetch.
 
         Goes through the coordinator's debouncer rather than ``async_refresh`` so
-        repeated presses cannot hammer the ~7 MB GeoRSS feed.
+        repeated presses cannot hammer the ~7 MB GeoRSS feed. The press's own
+        context, which the service call set on this entity, goes with it so
+        the cycle it starts reads in Activity as triggered by the press
+        (issue #310).
         """
-        await self._coordinator.async_request_refresh()
+        await self._coordinator.async_request_refresh(context=self._context)

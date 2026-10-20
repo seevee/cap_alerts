@@ -12,7 +12,7 @@ from typing import Any
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_LATITUDE, ATTR_LONGITUDE
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -135,6 +135,16 @@ def _scope_key(config: Mapping[str, Any], options: Mapping[str, Any]) -> str:
     return json.dumps([config, options], sort_keys=True, default=str)
 
 
+def device_name(provider_id: str) -> str:
+    """The name of the device an entry's entities hang off, from its provider id.
+
+    Module-level so the logbook platform can name a row the way the entity
+    is named without a coordinator in hand: the entry may be gone by the time
+    the row is read.
+    """
+    return f"CAP Alerts {provider_id.upper()}"
+
+
 def _alert_unique_id(entry_id: str, provider: str, alert_id: str) -> str:
     """The unique_id ``sensor.AlertEntity`` registers an alert under."""
     return f"{entry_id}_{provider}_{alert_id}"
@@ -209,6 +219,12 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     _resolved_config: dict[str, Any] | None = None
     _resolved_options: dict[str, Any] | None = None
 
+    # The cycle-context bookkeeping (issue #310), class-level for the same
+    # reason. ``_cycle_context`` itself is per instance, see ``__init__``.
+    _pending_context: Context | None = None
+    _cycle_origin: Context | None = None
+    _cycle_settled: bool = False
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -223,10 +239,14 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # one of its alerts; a second entry on the same provider re-registers
         # the same objects, which is a no-op.
         register_source(provider.conventions)
+        # The context the current cycle's events and state writes carry, so
+        # Activity can trace one to the other (issue #310). ``_begin_cycle``
+        # replaces it whenever listeners are about to be told something new.
+        self._cycle_context = Context()
         self._store = AlertStore(
             entry.entry_id,
             provider.name,
-            fire=hass.bus.async_fire,
+            fire=self._async_fire_event,
             lookup_entity_id=alert_entity_lookup(hass, entry.entry_id, provider.name),
             # Read here rather than borrowed from the sensor platform, which
             # hydrates only after the first refresh has already run.
@@ -348,12 +368,11 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         so the device name/model cannot drift between them — a mismatch would
         split one entry's entities across two devices in the registry.
         """
-        model = self._provider.name.upper()
         return DeviceInfo(
             identifiers={(DOMAIN, self.config_entry.entry_id)},
-            name=f"CAP Alerts {model}",
+            name=device_name(self._provider.name),
             manufacturer="CAP Alerts",
-            model=model,
+            model=self._provider.name.upper(),
         )
 
     def update_timeout(self, timeout: int) -> None:
@@ -529,9 +548,80 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
 
         It must not touch ``last_update_success``: a dropped socket is not a
         failed data refresh (issue #16), and the entry stays available on
-        backfills while the client reconnects.
+        backfills while the client reconnects. It is its own cycle, though: a
+        write it causes must not be traced to the last reconciliation's events.
         """
+        self._begin_cycle()
         self.async_update_listeners()
+
+    # ------------------------------------------------------------------
+    # Cycle context (issue #310)
+    # ------------------------------------------------------------------
+
+    @property
+    def cycle_context(self) -> Context:
+        """The context an entity writes under for the cycle being published.
+
+        Entities set it right before they write rather than when the cycle
+        began: Home Assistant honours a context set on an entity within the
+        last 5 s, and a slow fetch takes longer than that.
+        """
+        return self._cycle_context
+
+    @callback
+    def _begin_cycle(self) -> None:
+        """Start a cycle: a fresh context, or the one a user's refresh parked.
+
+        ``_cycle_origin`` keeps the user's context apart from the cycle's own
+        because an event fired after the writes gets a context of its own and
+        this is the parent it is given; ``_cycle_settled`` is whether the
+        cycle's listeners have run, which is what decides that (see
+        ``_async_fire_event``).
+        """
+        pending, self._pending_context = self._pending_context, None
+        self._cycle_context = pending or Context()
+        self._cycle_origin = pending
+        self._cycle_settled = False
+
+    @callback
+    def async_update_listeners(self) -> None:
+        """Mark the cycle's writes as done before the base class runs them."""
+        self._cycle_settled = True
+        super().async_update_listeners()
+
+    async def async_request_refresh(self, context: Context | None = None) -> None:
+        """Request a refresh whose cycle carries ``context`` (issue #310).
+
+        The refresh button arrives with the user's context on the entity, but
+        the base method goes through the debouncer and the cycle it starts
+        would otherwise mint an anonymous one. Parked here and adopted by the
+        next cycle that begins, so Activity reads the writes and events of
+        that cycle as triggered by the press.
+        """
+        if context is not None:
+            self._pending_context = context
+        await super().async_request_refresh()
+
+    @callback
+    def _async_fire_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        """The store's ``fire``: one bus event, under a context Activity can trace.
+
+        Logbook attributes a row to the first row it saw with the same context,
+        hidden rows included. An event fired before the cycle's entities write
+        (``incident_updated`` and ``incident_removed`` fire from the diff)
+        shares the cycle's context, so the last-updated row that follows reads
+        as caused by it. An event fired *after* the writes, which is every
+        event the store parks until its entity exists (``incident_created``,
+        issue #249), gets a context of its own: shared, one of those writes
+        would come first and the alert's issue would read as caused by it.
+        When the cycle was a user's refresh the child names that context as
+        its parent, so the row still traces to the press.
+        """
+        context = self._cycle_context
+        if self._cycle_settled:
+            origin = self._cycle_origin
+            context = Context(parent_id=origin.id if origin is not None else None)
+        self.hass.bus.async_fire(event_type, payload, context=context)
 
     async def _async_update_data(self) -> dict[str, CAPAlert]:
         try:
@@ -541,6 +631,9 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             # coordinator still owns availability, logging, and backoff.
             self.last_update_failure = str(err) or type(err).__name__
             self.last_update_failure_time = datetime.now(timezone.utc)
+            # The unavailable writes that follow are this failure's, not the
+            # last successful cycle's.
+            self._begin_cycle()
             raise
 
     async def _async_fetch_data(self) -> dict[str, CAPAlert]:
@@ -612,6 +705,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # cancelled/expired alerts — is handed to store.process so it can
         # fire incident_removed with the true terminal phase before
         # dropping them from the active set (RFC §2.3).
+        self._begin_cycle()
         entry_id = self.config_entry.entry_id
         alerts = normalize_alerts(alerts, entry_id)
         # Opt-in marine filter (NWS/ECCC). Dropped alerts flow through store as
