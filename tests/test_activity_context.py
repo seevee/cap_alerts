@@ -141,14 +141,16 @@ async def test_one_cycle_one_context_across_the_entities(
     assert len(at_boot) == 3
 
     # A quiet poll: the count's state and attributes are unchanged, so it
-    # is not rewritten; the timestamp and the alert's ``last_confirmed`` are,
-    # under one context. The last-updated sensor writes first, so its row is
-    # the origin and reads as uncaused, the same as any polled sensor in core.
+    # is not rewritten; the timestamp and the alert's ``last_confirmed`` are.
+    # Only the timestamp takes the cycle's context: Activity shows that row
+    # and no other, so it is the origin and reads as uncaused, the same as
+    # any polled sensor in core.
     await _poll(hass, freezer)
     cycle = hass.states.get(last_updated_id).context.id
     assert cycle not in at_boot
     assert hass.states.get(count_id).context.id in at_boot
-    assert hass.states.get(alert_id).context.id == cycle
+    alert_write = hass.states.get(alert_id).context.id
+    assert alert_write not in at_boot and alert_write != cycle
 
     # The next poll is a new cycle, so a new context.
     await _poll(hass, freezer)
@@ -179,16 +181,17 @@ async def test_created_fires_under_its_own_context(
 
 
 @pytest.mark.asyncio
-async def test_last_updated_writes_before_the_count(
+async def test_hidden_rows_take_no_cycle_context(
     hass, aioclient_mock, enable_custom_integrations, freezer
 ):
-    """The one row Activity shows must not trace to the count's hidden row.
+    """The one row Activity shows must not trace to a hidden write.
 
-    Logbook shows no rows for the count sensor (it has a state class) but
-    still memoizes its writes as a context's first row. On a cycle that only
-    added alerts nothing fires before the writes, so whichever entity writes
-    first is what the others trace to: the last-updated sensor is registered
-    first so that is itself, and its row reads as uncaused.
+    Logbook shows no rows for the count sensor (a state class) or an alert
+    entity (a device class it takes as numeric), but still memoizes their
+    writes as a context's first row, and listeners run in no promised order:
+    the floor release writes the count before the timestamp. So on a cycle
+    that only added alerts, where nothing fires before the writes, neither
+    takes the context, and the last-updated row reads as uncaused.
     """
     cap_a = "https://cap.example/a.cap"
     cap_b = "https://cap.example/b.cap"
@@ -197,11 +200,8 @@ async def test_last_updated_writes_before_the_count(
     entry = await _setup(hass)
     count_id = _entity_id(hass, entry, "count")
     last_updated_id = _entity_id(hass, entry, "last_updated")
+    (alert_a,) = _alert_entity_ids(hass, entry)
 
-    order: list[str] = []
-    hass.bus.async_listen(
-        "state_changed", lambda event: order.append(event.data["entity_id"])
-    )
     aioclient_mock.clear_requests()
     aioclient_mock.get(FEED, text=_atom(cap_a, cap_b))
     aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A", "Wind Warning"))
@@ -214,10 +214,11 @@ async def test_last_updated_writes_before_the_count(
     await _poll(hass, freezer)
 
     assert hass.states.get(count_id).state == "2"
-    assert order.index(last_updated_id) < order.index(count_id)
-    assert hass.states.get(count_id).context.id == (
-        hass.states.get(last_updated_id).context.id
-    )
+    cycle = hass.states.get(last_updated_id).context.id
+    assert hass.states.get(count_id).context.id != cycle
+    for alert_id in _alert_entity_ids(hass, entry):
+        assert hass.states.get(alert_id).context.id != cycle
+    assert alert_a in _alert_entity_ids(hass, entry)
 
 
 @pytest.mark.asyncio
@@ -245,7 +246,9 @@ async def test_updated_is_the_cause_of_the_writes_that_follow(
     assert "severity_normalized" in updated[0].data["changed_fields"]
     alert = hass.states.get(alert_id)
     assert alert.state == "severe"
-    assert alert.context.id == updated[0].context.id
+    # Its own row is hidden (a live alert entity is continuous to logbook),
+    # so the write takes no context; the event is the origin either way.
+    assert alert.context.id != updated[0].context.id
     assert hass.states.get(_entity_id(hass, entry, "last_updated")).context.id == (
         updated[0].context.id
     )
@@ -253,23 +256,25 @@ async def test_updated_is_the_cause_of_the_writes_that_follow(
 
 
 @pytest.mark.asyncio
-async def test_removed_is_the_cause_of_the_count_dropping(
+async def test_removed_is_the_cause_of_the_writes_that_follow(
     hass, aioclient_mock, enable_custom_integrations, freezer
 ):
+    """The timestamp's row traces to it; the count's hidden write takes nothing."""
     cap_a = "https://cap.example/a.cap"
     aioclient_mock.get(FEED, text=_atom(cap_a))
     aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A", "Wind Warning", expires_h=1))
     entry = await _setup(hass)
     count_id = _entity_id(hass, entry, "count")
+    last_updated_id = _entity_id(hass, entry, "last_updated")
     assert hass.states.get(count_id).state == "1"
 
     removed = async_capture_events(hass, "incident_removed")
     await _poll(hass, freezer, seconds=2 * 3600)
 
     assert len(removed) == 1
-    count = hass.states.get(count_id)
-    assert count.state == "0"
-    assert count.context.id == removed[0].context.id
+    assert hass.states.get(count_id).state == "0"
+    assert hass.states.get(last_updated_id).context.id == removed[0].context.id
+    assert hass.states.get(count_id).context.id != removed[0].context.id
 
 
 @pytest.mark.asyncio
