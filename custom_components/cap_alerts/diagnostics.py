@@ -180,6 +180,10 @@ async def async_get_config_entry_diagnostics(
                 authority_url=getattr(coordinator.provider, "authority_feed_url", None),
             ),
             "feed_source": _feed_source(provider, options),
+            # How the WMO authority index is being read (issues #304/#309):
+            # its size, and the slower cadence a heavy one takes. ``None``
+            # for every other provider and before the first read.
+            "authority_index": getattr(coordinator.provider, "authority_index", None),
         },
         # Whether the polygons behind this entry's refs are still in the
         # store (issue #197): has_geometry on an alert row is the ref, and a

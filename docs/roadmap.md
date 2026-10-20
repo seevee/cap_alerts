@@ -245,9 +245,9 @@ The Australian state feeds (#127) are one document per poll, 19 KB to 556 KB,
 fetched whole every cycle. NSW, QLD and TAS answer with an `ETag` and
 `Last-Modified` (WA rejects `HEAD` and was not checked); NSW regenerates every
 minute or two, so a 304 would only save the transfer on the quieter feeds, but
-QLD and TAS sit still for long stretches. ECCC already revalidates its GeoRSS
-hosts with `If-None-Match` and replays the stored body on 304, but that state
-lives in the ECCC provider, keyed by feed source. Lifting it into a shared
-"single-document feed" helper would let AU, and any future feed of the same
-shape, revalidate for free. Not urgent: aiohttp negotiates gzip, which takes
-NSW to 65 KB on the wire.
+QLD and TAS sit still for long stretches. The shared helper now exists:
+`providers/revalidate.py` (`FeedValidators` + `fetch_feed_text`, issue #304)
+revalidates WMO's two index feeds and replays the body on 304. AU would be
+its second caller; ECCC still carries its own copy inside its retry loop, and
+could move over once the truncation guard is folded in. Not urgent: aiohttp
+negotiates gzip, which takes NSW to 65 KB on the wire.

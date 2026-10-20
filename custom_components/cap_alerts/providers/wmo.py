@@ -29,7 +29,8 @@ import hashlib
 import logging
 import re
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -44,6 +45,9 @@ from ..const import (
     CONF_SOURCE_ID,
     DEFAULT_WMO_FEED_SOURCE,
     WMO_CAP_SOURCES_BUCKET,
+    WMO_HEAVY_INDEX_BYTES,
+    WMO_HEAVY_INDEX_INTERVAL,
+    WMO_HEAVY_INDEX_STAND_IN_LIMIT,
     WMO_SOURCES_URL,
 )
 from ..conventions import SourceConventions, parse_instant
@@ -61,6 +65,7 @@ from .cap import (
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_shapes, points_from_circles
 from .gps import alert_polygons, parse_gps, point_in_polygon
+from .revalidate import FeedValidators, fetch_feed_text
 from .wmo_conventions import CONVENTIONS as _CONVENTIONS
 
 _LOGGER = logging.getLogger(__name__)
@@ -412,6 +417,14 @@ def authority_feed_url(payload: Any, source_id: str) -> str | None:
     return urls[0]
 
 
+def _links_from_feed(text: str, geocode_prefixes: Sequence[str] | None) -> list[str]:
+    """``_parse_feed_links`` in the provider layer's exception."""
+    try:
+        return _parse_feed_links(text, geocode_prefixes=geocode_prefixes)
+    except ET.ParseError as err:
+        raise ProviderError(f"failed to parse feed: {err}") from err
+
+
 async def _fetch_feed_links(
     session: aiohttp.ClientSession,
     url: str,
@@ -420,18 +433,25 @@ async def _fetch_feed_links(
     user_agent: str | None = None,
 ) -> list[str]:
     """Fetch one feed and return its live CAP URLs; ``ProviderError`` on any failure."""
-    headers = {"User-Agent": user_agent} if user_agent else None
-    try:
-        async with session.get(url, headers=headers) as resp:
-            if resp.status != 200:
-                raise ProviderError(f"HTTP {resp.status}")
-            text = await resp.text()
-    except aiohttp.ClientError as err:
-        raise ProviderError(f"{type(err).__name__}: {err}") from err
-    try:
-        return _parse_feed_links(text, geocode_prefixes=geocode_prefixes)
-    except ET.ParseError as err:
-        raise ProviderError(f"failed to parse feed: {err}") from err
+    text = await fetch_feed_text(session, url, user_agent=user_agent)
+    return _links_from_feed(text, geocode_prefixes)
+
+
+@dataclass(frozen=True)
+class _IndexRead:
+    """One read of an index feed: when, how big (in bytes), and its links."""
+
+    read_at: datetime
+    size: int
+    links: tuple[str, ...]
+
+    @property
+    def heavy(self) -> bool:
+        return self.size >= WMO_HEAVY_INDEX_BYTES
+
+    def stands_in(self, now: datetime, limit: timedelta) -> bool:
+        """Whether a heavy read this recent still spares the next one."""
+        return self.heavy and now - self.read_at < limit
 
 
 async def _feed_parses(
@@ -683,6 +703,16 @@ class WMOProvider:
         self._authority_source: str | None = None
         # One warning per failure streak per feed, as ECCC does per host.
         self._feed_warned: dict[str, bool] = {}
+        # The validators each index feed answered with, so the next poll can
+        # ask for it conditionally and replay the body on a 304 (issue #304).
+        self._validators = FeedValidators()
+        # The last read of the authority index, keyed by its URL: a heavy one
+        # is re-read on a slower cadence and this stands in between (#309).
+        self._index_reads: dict[str, _IndexRead] = {}
+        # Whether the current streak of failed heavy-index reads has been
+        # warned about. Separate from ``_feed_warned``: a stand-in counts as
+        # the feed answering, which resets that one.
+        self._stand_in_warned = False
 
     @property
     def name(self) -> str:
@@ -692,6 +722,83 @@ class WMOProvider:
     def authority_feed_url(self) -> str | None:
         """The resolved authority feed, ``None`` until the registry answered."""
         return self._authority_url
+
+    @property
+    def authority_index(self) -> dict[str, Any] | None:
+        """How the authority index is being read, for diagnostics.
+
+        ``None`` until it has been read once, and for a record that names
+        the mirror itself, which is read once as the mirror.
+        ``reread_interval_s`` is set when the index is heavy enough to take
+        the slower cadence, and ``None`` when it is read every poll like the
+        mirror.
+        """
+        read = self._index_reads.get(self._authority_url or "")
+        if read is None:
+            return None
+        return {
+            "bytes": read.size,
+            "links": len(read.links),
+            "last_read": read.read_at.isoformat(),
+            "reread_interval_s": (
+                int(WMO_HEAVY_INDEX_INTERVAL.total_seconds()) if read.heavy else None
+            ),
+        }
+
+    async def _feed_links(
+        self,
+        session: aiohttp.ClientSession,
+        feed: str,
+        url: str,
+        *,
+        geocode_prefixes: Sequence[str] | None,
+        user_agent: str | None,
+        now: datetime,
+    ) -> list[str]:
+        """The live CAP URLs one feed lists this poll; ``ProviderError`` on failure.
+
+        Both feeds are read with the validators their last ``200`` sent, so
+        an unchanged index costs one request and no body (issue #304). The
+        authority index is also measured: one over ``WMO_HEAVY_INDEX_BYTES``
+        is re-read only every ``WMO_HEAVY_INDEX_INTERVAL``, and the links of
+        its last read stand in on the polls between, and on a read that
+        fails, which is retried next poll, for up to
+        ``WMO_HEAVY_INDEX_STAND_IN_LIMIT`` after the read that succeeded
+        (issue #309). The mirror is the fresher feed and carries the
+        envelope pre-filter, so it is read every poll regardless of size.
+        """
+        last = self._index_reads.get(url) if feed == FEED_AUTHORITY else None
+        if last is not None and last.stands_in(now, WMO_HEAVY_INDEX_INTERVAL):
+            return list(last.links)
+        try:
+            text = await fetch_feed_text(
+                session, url, self._validators, user_agent=user_agent
+            )
+        except ProviderError as err:
+            if last is None or not last.stands_in(now, WMO_HEAVY_INDEX_STAND_IN_LIMIT):
+                raise
+            if not self._stand_in_warned:
+                _LOGGER.warning(
+                    "WMO: %s feed failed (%s); the links of its last read stand in",
+                    feed,
+                    err,
+                )
+                self._stand_in_warned = True
+            return list(last.links)
+        links = _links_from_feed(text, geocode_prefixes)
+        if feed == FEED_AUTHORITY:
+            self._stand_in_warned = False
+            read = _IndexRead(now, len(text.encode("utf-8")), tuple(links))
+            if read.heavy and (last is None or not last.heavy):
+                _LOGGER.info(
+                    "WMO: the authority index at %s is %d KB; re-reading it every "
+                    "%d min, its last link list stands in between",
+                    url,
+                    read.size // 1024,
+                    int(WMO_HEAVY_INDEX_INTERVAL.total_seconds() // 60),
+                )
+            self._index_reads[url] = read
+        return links
 
     async def _resolve_authority_url(
         self,
@@ -805,12 +912,18 @@ class WMOProvider:
             )
 
         prefixes = options.get(CONF_GEOCODE_PREFIXES)
+        now = _utcnow()
         cap_urls: list[str] = []
         failures: list[str] = []
         for feed, url in feeds:
             try:
-                links = await _fetch_feed_links(
-                    session, url, geocode_prefixes=prefixes, user_agent=user_agent
+                links = await self._feed_links(
+                    session,
+                    feed,
+                    url,
+                    geocode_prefixes=prefixes,
+                    user_agent=user_agent,
+                    now=now,
                 )
             except ProviderError as err:
                 failures.append(f"{feed} feed ({url}): {err}")

@@ -79,11 +79,14 @@ class _StubCoordinator:
         interval_seconds=300,
         geometry_store=None,
         authority_feed_url=None,
+        authority_index=None,
     ) -> None:
         self.data = {a.id: a for a in (alerts or [])}
         # What the WMO provider exposes once its registry read succeeded; the
         # other providers have no such attribute and the payload reads None.
-        self.provider = SimpleNamespace(authority_feed_url=authority_feed_url)
+        self.provider = SimpleNamespace(
+            authority_feed_url=authority_feed_url, authority_index=authority_index
+        )
         self.geometry_store = geometry_store or GeometryStore()
         self._resolved_config = resolved_config
         self._resolved_options = resolved_options
@@ -215,6 +218,26 @@ async def test_reports_wmo_feed_source_and_both_endpoints(hass):
 
     assert payload["source"]["feed_source"] == "auto"
     assert payload["source"]["endpoints"] == [_WMO_MIRROR, _WMO_AUTHORITY]
+
+
+async def test_reports_how_the_wmo_authority_index_is_read(hass):
+    """The size and cadence the provider measured (issues #304/#309), verbatim."""
+    index = {
+        "bytes": 973_000,
+        "links": 1000,
+        "last_read": "2026-10-20T20:07:11+00:00",
+        "reread_interval_s": 1800,
+    }
+    entry = _entry(
+        {CONF_PROVIDER: "wmo", "source_id": "cn-cma-xx"},
+        authority_feed_url=_WMO_AUTHORITY,
+        authority_index=index,
+    )
+    payload = await _payload(hass, entry)
+    assert payload["source"]["authority_index"] == index
+
+    plain = await _payload(hass, _entry({CONF_PROVIDER: "nws", "zone": "COZ040"}))
+    assert plain["source"]["authority_index"] is None
 
 
 async def test_wmo_endpoints_before_resolution_is_mirror_only(hass):

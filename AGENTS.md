@@ -92,6 +92,7 @@ custom_components/cap_alerts/
     __init__.py           # AlertProvider protocol (fetch + scope validation + declared conventions), ProviderError, the StreamingProvider / PushIngest / IngestHost protocols, PROVIDER_IDS + get_provider() factory
     cap.py                # shared, provider-neutral CAP 1.2 parsing: XML (parse_cap_alert) and JSON (cap_doc_from_json) into CAPDoc/CAPInfoDoc, resolve_chain_leaves, language-block selection (select_info)
     cap_content_cache.py  # LRU cache for fetched bodies: CAP XML, CAP JSON, GeoJSON (shared: eccc, wmo, gdacs, bbk)
+    revalidate.py         # conditional GET for index feeds (#304): per-URL ETag / Last-Modified validators, body replay on 304 (wmo today; AU next)
     geometry.py           # shared CAP shapes → GeoJSON; polygon/point selection, zero-radius circles
     gps.py                # shared GPS-mode helpers: lat,lon parsing, ray-cast point-in-polygon, rings off a CAPAlert geometry
     <name>_conventions.py # one per provider: its SourceConventions row(s), the helpers the row references, its icon classifier, exposed as the CONVENTIONS mapping the provider declares
@@ -100,7 +101,7 @@ custom_components/cap_alerts/
     eccc_ingest.py        # NAADIngest (PushIngest): the live document set, admission, heartbeat rebuilds, reconnect/resync backfill, repository recovery (#164)
     naad_stream.py        # NAAD TLS streaming transport: frame reassembly, heartbeats, watchdog, reconnect/backoff — no alert semantics
     meteoalarm.py         # MeteoAlarm (EUMETNET) per-country CAP JSON
-    wmo.py                # WMO: SWIC mirror + the authority's own feed (registry record) unioned by CAP identifier, RSS or Atom index → CAP XML; per-language <info> selection; Buddhist-Era year fix
+    wmo.py                # WMO: SWIC mirror + the authority's own feed (registry record) unioned by CAP identifier, RSS or Atom index → CAP XML; per-language <info> selection; Buddhist-Era year fix; a heavy authority index is re-read every 30 min with its last link list standing in (#309)
     gdacs.py              # GDACS: two global RSS indexes unioned → CAPAlert (no CAP body exists); per-episode GeoJSON geometry, RSS-stage filters, eventid-based identity
     bbk.py                # BBK / NINA (Germany): district dashboard or five channel indexes → CAP-over-JSON documents + per-warning GeoJSON; MoWaS/KATWARN/BIWAPP/LHP + DWD relay
     au.py                 # Australian state feeds (NSW RFS, QFD, WA DFES, TasALERT): one EDXL-DE document per state → CAP-AU alerts; AlertLevel tier drives severity, marker circles → points, expires dropped (regeneration TTL)
