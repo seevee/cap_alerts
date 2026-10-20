@@ -210,6 +210,14 @@ carries `removal_reason` (`superseded` or `ended`). An automation with a
 message budget can skip `superseded`, since the replacement fires its own
 `incident_created`.
 
+The same three events show in Activity, which otherwise lists nothing of the
+integration's but the last-updated sensor: logbook never keeps an entity's
+first state or its removal, and treats the count and alert sensors as
+continuous. Each event row names the alert and links to its entity, and the
+last-updated change on the same cycle names the event as its cause, or the
+refresh button press that asked for it. See
+[`docs/events.md`](docs/events.md#activity-and-the-logbook-issue-310).
+
 An alert that merely disappears from the feed is not removed. Feeds have been
 measured dropping live alerts, so the alert is retained until its published
 expiry. An alert with no expiry, and no other way for its source to end it,

@@ -65,9 +65,14 @@ async def async_setup_entry(
     """Set up CAP Alerts sensor entities."""
     coordinator: AlertsDataUpdateCoordinator = entry.runtime_data
 
-    # Static diagnostic sensors
+    # Static diagnostic sensors. Listeners run in registration order, and
+    # logbook names the first row it saw with a cycle's context as the cause
+    # of the rest (issue #310). The count sensor is a continuous sensor in
+    # logbook's eyes (it has a state class) and never gets a row of its own,
+    # so it goes second: first, its hidden row would be named as what
+    # triggered the last-updated change on every cycle that added alerts.
     async_add_entities(
-        [CountSensor(coordinator, entry), LastUpdatedSensor(coordinator, entry)]
+        [LastUpdatedSensor(coordinator, entry), CountSensor(coordinator, entry)]
     )
 
     # Dynamic alert entities
@@ -140,6 +145,20 @@ class _CAPAlertsEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEnt
     def device_info(self) -> DeviceInfo:
         return self.coordinator.device_info
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Write under the cycle's context, so Activity can name the cause (#310).
+
+        Set here, right before the write, rather than when the cycle began:
+        Home Assistant honours a context set on an entity within the last 5 s,
+        and a slow fetch takes longer than that. The first write on being
+        added deliberately takes none: logbook never shows it, but it would
+        still be the first row with the context, and the last-updated row of
+        every boot would read as triggered by the count sensor's first state.
+        """
+        self.async_set_context(self.coordinator.cycle_context)
+        super()._handle_coordinator_update()
+
 
 class CountSensor(_CAPAlertsEntity):
     """Sensor showing the number of active alerts."""
@@ -195,10 +214,9 @@ class LastUpdatedSensor(_CAPAlertsEntity):
         return self.coordinator.last_update_success_time
 
 
-class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
+class AlertEntity(_CAPAlertsEntity):
     """Sensor representing a single active weather alert."""
 
-    _attr_has_entity_name = True
     # Not a ``SensorDeviceClass`` member: core sets custom classes aside before
     # it validates, which ``tests/test_device_class_binding.py`` pins (#277).
     _attr_device_class = INCIDENT_DEVICE_CLASS  # type: ignore[assignment]
@@ -214,15 +232,10 @@ class AlertEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEntity):
         entry: ConfigEntry,
         alert_id: str,
     ) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, entry)
         self._alert_id = alert_id
-        self._entry = entry
         provider = entry.data[CONF_PROVIDER]
         self._attr_unique_id = f"{entry.entry_id}_{provider}_{alert_id}"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        return self.coordinator.device_info
 
     async def async_added_to_hass(self) -> None:
         """Release the store's parked events once this entity is in place.
