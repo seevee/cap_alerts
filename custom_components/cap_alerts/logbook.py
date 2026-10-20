@@ -74,6 +74,12 @@ def describe_message(event_type: str, data: Mapping[str, Any]) -> str:
         return "superseded"
     if reason == REMOVAL_REASON_ENDED:
         return "ended"
+    if data.get("severity") == "unknown" and not data.get("area_desc"):
+        # Announced from the registry after a restart (events.md): the store
+        # knew the id and the name, nothing else, so "cancelled" would claim
+        # a withdrawal nobody saw. Only this path carries no area; an alert
+        # published without a severity still has one.
+        return "removed"
     return "cancelled" if data.get("phase") == "cancel" else "expired"
 
 
