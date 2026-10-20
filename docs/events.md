@@ -202,6 +202,9 @@ after an earlier boot and never re-registered since. `entity_id` is present,
 because the entity is still registered when the event fires; the sensor platform
 removes it on the same reconciliation, afterwards. An automation that composes a
 message from `area_desc` or `description` should expect both to be missing here.
+The logbook reads this shape (`severity: unknown`, no `area_desc`, no
+`removal_reason`) as "removed" rather than "cancelled", since nobody saw a
+withdrawal (issue #321).
 
 **Absent twice means ended.** One missing reconciliation is the grace the sensor
 platform already grants a restored entity, so the store waits for the same
@@ -344,7 +347,7 @@ entity is (device name, then event), links to the entity through
 | :-- | :-- |
 | `incident_created` | `CAP Alerts NWS Winter Storm Warning issued (severe)`; the severity is dropped when `unknown`. |
 | `incident_updated` | `… updated (severity, expires)`, listing `changed_fields`; bare `updated` when the list is empty. |
-| `incident_removed` | `… superseded` or `… ended` from `removal_reason`; without one, `… cancelled` or `… expired` from `phase`. |
+| `incident_removed` | `… superseded` or `… ended` from `removal_reason`; without one, `… cancelled` or `… expired` from `phase`. A removal announced from the registry after a restart (severity `unknown`, no `area_desc`) reads `… removed`: nobody saw a withdrawal (issue #321). |
 
 The device name comes from the entry at read time, so rows of a deleted entry
 show the event alone, and a removal announced from the registry with no

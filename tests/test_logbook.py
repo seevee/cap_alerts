@@ -81,6 +81,25 @@ def test_name_never_comes_back_empty(hass):
         (EVENT_INCIDENT_REMOVED, {"phase": "cancel"}, "cancelled"),
         (EVENT_INCIDENT_REMOVED, {"phase": "expired"}, "expired"),
         (EVENT_INCIDENT_REMOVED, {}, "expired"),
+        # The registry-path removal after a restart (issue #321): phase cancel,
+        # severity unknown, no area and no reason. Not a cancellation.
+        (
+            EVENT_INCIDENT_REMOVED,
+            {"phase": "cancel", "severity": "unknown", "area_desc": ""},
+            "removed",
+        ),
+        # An alert the source published without a severity still carries its
+        # area, and its silent disappearance still reads as the inference.
+        (
+            EVENT_INCIDENT_REMOVED,
+            {"phase": "cancel", "severity": "unknown", "area_desc": "Clark County"},
+            "cancelled",
+        ),
+        (
+            EVENT_INCIDENT_REMOVED,
+            {"phase": "cancel", "severity": "unknown", "removal_reason": "ended"},
+            "ended",
+        ),
     ],
 )
 def test_message(event_type, data, expected):
