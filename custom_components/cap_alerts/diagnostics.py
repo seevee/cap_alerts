@@ -192,6 +192,7 @@ async def async_get_config_entry_diagnostics(
         "update": {
             "success": coordinator.last_update_success,
             "last_success": _iso(coordinator.last_update_success_time),
+            "last_change": _iso(coordinator.last_change_time),
             "last_failure": _iso(coordinator.last_update_failure_time),
             "last_failure_error": _scrub_coordinates(
                 coordinator.last_update_failure, resolved_config

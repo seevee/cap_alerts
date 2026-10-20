@@ -30,7 +30,9 @@ gitignored scratch for agent planning output — not reference material.
   number of active alerts, attributes `active`/`upcoming` split it on `onset`,
   `EntityCategory.DIAGNOSTIC`
 - **Last updated sensor** (`sensor.cap_alerts_<provider>_last_updated`):
-  `state` = ISO timestamp, `EntityCategory.DIAGNOSTIC`
+  `state` = ISO timestamp of the last change to the alert set (any cycle the
+  store fired or parked an incident event, #323), not the last poll;
+  `RestoreSensor`, `EntityCategory.DIAGNOSTIC`
 - **Alert entities** (`sensor.cap_alerts_<provider>_cap_alert_<slug>_<hash>`):
   one per active alert, dynamically created/removed each poll cycle, marked
   with the custom sensor device class `incident`. The

@@ -150,7 +150,7 @@ Every entry produces one device, named `CAP Alerts <PROVIDER>`, grouping:
 |---|---|---|
 | `sensor.cap_alerts_<provider>_cap_alert_<event>_<hash>` | `minor`, `moderate`, `severe`, `extreme` or `unknown` | One per active alert. Created and removed dynamically each poll. |
 | `sensor.cap_alerts_<provider>_alert_count` | number of alerts | Attributes `active` and `upcoming` split the total on whether `onset` has passed. Diagnostic. |
-| `sensor.cap_alerts_<provider>_last_updated` | ISO timestamp | Last successful poll. Diagnostic. |
+| `sensor.cap_alerts_<provider>_last_updated` | ISO timestamp | When the alert set last changed: an alert issued, updated or ended. Kept across a restart. Not the last poll: that is the count sensor's `last_reported`, and a failed poll makes the entry unavailable. Diagnostic. |
 | `button.cap_alerts_<provider>_refresh` | — | Fetch now, without waiting for the next poll. Diagnostic. |
 | `binary_sensor.cap_alerts_eccc_real_time_stream` | `on` / `off` | NAAD socket connected. ECCC with streaming on only. Diagnostic. |
 

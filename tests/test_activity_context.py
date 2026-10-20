@@ -140,21 +140,24 @@ async def test_one_cycle_one_context_across_the_entities(
     }
     assert len(at_boot) == 3
 
-    # A quiet poll: the count's state and attributes are unchanged, so it
-    # is not rewritten; the timestamp and the alert's ``last_confirmed`` are.
-    # Only the timestamp takes the cycle's context: Activity shows that row
-    # and no other, so it is the origin and reads as uncaused, the same as
-    # any polled sensor in core.
+    # A quiet poll: the set is unchanged, so neither the count nor the
+    # timestamp is rewritten (issue #323) and Activity gets no row. The poll
+    # still happened, which the count's ``last_reported`` says; and the
+    # alert's ``last_confirmed`` moved, so its hidden write carries a context
+    # of its own, never the cycle's.
+    reported = hass.states.get(count_id).last_reported
     await _poll(hass, freezer)
-    cycle = hass.states.get(last_updated_id).context.id
-    assert cycle not in at_boot
+    assert hass.states.get(last_updated_id).context.id in at_boot
     assert hass.states.get(count_id).context.id in at_boot
+    assert hass.states.get(count_id).last_reported > reported
+    cycle = entry.runtime_data.cycle_context.id
+    assert cycle not in at_boot
     alert_write = hass.states.get(alert_id).context.id
     assert alert_write not in at_boot and alert_write != cycle
 
     # The next poll is a new cycle, so a new context.
     await _poll(hass, freezer)
-    assert hass.states.get(last_updated_id).context.id != cycle
+    assert entry.runtime_data.cycle_context.id != cycle
 
 
 @pytest.mark.asyncio
@@ -325,9 +328,11 @@ async def test_refresh_button_lends_the_cycle_the_users_context(
     assert created[0].context.id != press.id
     assert created[0].context.parent_id == press.id
 
-    # The lent context is spent: the next poll is anonymous again.
+    # The lent context is spent: the next poll is anonymous again. It changes
+    # nothing, so the timestamp keeps the press's row.
     await _poll(hass, freezer)
-    assert hass.states.get(_entity_id(hass, entry, "last_updated")).context.id != (
+    assert entry.runtime_data.cycle_context.id != press.id
+    assert hass.states.get(_entity_id(hass, entry, "last_updated")).context.id == (
         press.id
     )
 

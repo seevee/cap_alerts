@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
@@ -175,8 +176,17 @@ class CountSensor(_CAPAlertsEntity):
         return {"active": active, "upcoming": upcoming}
 
 
-class LastUpdatedSensor(_CAPAlertsEntity):
-    """Sensor showing the last successful update time."""
+class LastUpdatedSensor(_CAPAlertsEntity, RestoreSensor):
+    """When the alert set last changed: an alert issued, updated or ended.
+
+    Not the last poll (issue #323). A poll that changes nothing is the absence
+    of a cause to Home Assistant, and a timestamp that moved on every one
+    wrote a recorder row and an Activity row per poll per entry, all saying
+    so. The poll time is on the count sensor's ``last_reported``, which
+    advances on an unchanged write, and in diagnostics; a failed poll makes
+    the entry unavailable. Restored across a restart, or a quiet entry would
+    read unknown until something happened.
+    """
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -190,9 +200,23 @@ class LastUpdatedSensor(_CAPAlertsEntity):
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_last_updated"
 
+    async def async_added_to_hass(self) -> None:
+        """Seed the coordinator from the saved state when it has none yet.
+
+        The store starts empty at boot, so a change before the restart is only
+        known here. A change the coordinator saw since boot is newer than
+        anything saved, and keeps.
+        """
+        await super().async_added_to_hass()
+        if self.coordinator.last_change_time is not None:
+            return
+        saved = await self.async_get_last_sensor_data()
+        if saved is not None and isinstance(saved.native_value, datetime):
+            self.coordinator.last_change_time = saved.native_value
+
     @property
     def native_value(self) -> datetime | None:
-        return self.coordinator.last_update_success_time
+        return self.coordinator.last_change_time
 
     @callback
     def _handle_coordinator_update(self) -> None:

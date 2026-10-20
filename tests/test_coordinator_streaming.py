@@ -338,14 +338,15 @@ async def test_non_actual_doc_referencing_a_tracked_alert_is_not_retained(
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_does_not_advance_last_updated(
+async def test_last_updated_follows_the_set_not_the_fetch(
     hass, aioclient_mock, enable_custom_integrations, monkeypatch, freezer
 ):
-    """ "Last updated" reports the last fetch, not the last local rebuild.
+    """ "Last updated" moves when an alert is issued or ended, on any path.
 
-    Heartbeats run the full pipeline every ~60 s with no network I/O; stamping
-    the timestamp there would show a fresh time while the authoritative GeoRSS
-    backfill was up to 30 minutes stale.
+    Heartbeats run the full pipeline every ~60 s with no network I/O and a
+    backfill is a real fetch; neither advances it unless the set changed
+    (issue #323). A streamed document that adds an alert does, so a streaming
+    entry reports the change when it arrived rather than at the next poll.
     """
     holder = _install_fake_stream(monkeypatch)
     cap_a = "https://cap.example/a.cap"
@@ -363,12 +364,18 @@ async def test_heartbeat_does_not_advance_last_updated(
     await hass.async_block_till_done()
     assert hass.states.get(last_updated_id).state == seeded
 
-    # A backfill — a real fetch — does advance it. Driven directly rather than
-    # through the resync timer, whose refresh runs as a background task that
+    # A backfill that finds the same set. Driven directly rather than through
+    # the resync timer, whose refresh runs as a background task that
     # ``async_block_till_done`` does not wait for.
     freezer.tick(timedelta(seconds=RESYNC_S))
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
+    assert hass.states.get(last_updated_id).state == seeded
+
+    freezer.tick(timedelta(seconds=60))
+    await holder["on_alert_doc"](_cap_xml("urn:oid:B", event="Rainfall Warning"))
+    await hass.async_block_till_done()
+    assert hass.states.get(_count_id(hass, entry)).state == "2"
     assert hass.states.get(last_updated_id).state != seeded
 
 

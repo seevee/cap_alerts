@@ -128,6 +128,10 @@ class AlertStore:
         # removal can carry.
         self._known_at_boot: dict[str, str] = dict(known_at_boot or {})
         self._reconciliations = 0
+        # Events this reconciliation fired or parked (issue #323): what the
+        # last-updated sensor stamps. Reset once the previous cycle's parked
+        # events have gone out, so a late release is not this cycle's news.
+        self._transitions = 0
         # True until the first fetch-backed reconciliation has run. The
         # tombstones above don't survive a restart, so until then a terminal
         # first sighting may be an ending already announced (issue #257).
@@ -182,6 +186,7 @@ class AlertStore:
         # Anything still parked from the last reconciliation goes out before
         # this one's events, so an alert's own events never reorder (#249).
         self._flush_deferred()
+        self._transitions = 0
 
         incoming = {a.id: a for a in alerts}
         active: dict[str, CAPAlert] = {}
@@ -405,6 +410,11 @@ class AlertStore:
         return result
 
     @property
+    def transitions(self) -> int:
+        """Events the last ``process`` fired or parked: the set changed iff > 0."""
+        return self._transitions
+
+    @property
     def boot_pending(self) -> frozenset[str]:
         """Pre-restart alert ids not yet seen or announced as ended.
 
@@ -481,6 +491,7 @@ class AlertStore:
         ``entry_id``, ``area_desc``, ``removal_reason`` and ``superseded_by``
         are project extensions not in the RFC.
         """
+        self._transitions += 1
         payload: dict[str, Any] = {
             "entry_id": self._entry_id,
             "incident_id": alert.id,
