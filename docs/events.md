@@ -333,7 +333,12 @@ know to be non-numeric, as *continuous* and shows no rows for it at all:
 that is the count sensor (state class `measurement`) and every alert entity
 (the custom `incident` device class) for as long as it exists. The
 last-updated sensor, a timestamp, is the one entity whose changes Activity
-lists. An alert entity can get a single row once it is gone and logbook can
+lists, and it moves only when the alert set changes (issue #323): a cycle on
+which an alert was issued, updated or ended. So every row it writes sits next
+to an event row, and a poll that changes nothing writes none. The poll time
+is the count sensor's `last_reported`, which advances on an unchanged write
+with no row in Activity or the recorder; a failed poll shows as
+`unavailable`. An alert entity can get a single row once it is gone and logbook can
 no longer tell what it was: an `unknown` it may write on the cycle that
 removes it, depending on which listener runs first, named by entity id since
 the registry no longer holds its name. It carries no context.
@@ -361,11 +366,10 @@ sensor's. So on a cycle that ended or revised an alert, the last-updated row
 reads "triggered by CAP Alerts NWS Wind Warning ended". A write Activity
 hides takes no context at all, the count sensor's and the alert entities':
 listeners run in no order Home Assistant promises, and a hidden write made
-first would be the origin a visible row is traced to. A quiet poll therefore
-leaves the timestamp's row as the origin, and it reads as uncaused, the same
-as every polled sensor in core. A failed refresh and a stream connect or
-disconnect begin cycles of their own, so an `unavailable` write never traces
-to the last good cycle's events.
+first would be the origin a visible row is traced to. A quiet poll writes no
+row at all, since the timestamp only moves when the set changes. A failed
+refresh and a stream connect or disconnect begin cycles of their own, so an
+`unavailable` write never traces to the last good cycle's events.
 
 **`incident_created` is the exception.** It fires after the entity it names
 has written (see *`entity_id` is always there*), which is after the

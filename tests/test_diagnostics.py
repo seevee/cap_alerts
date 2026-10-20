@@ -68,6 +68,7 @@ class _StubCoordinator:
         resolved_config=None,
         resolved_options=None,
         last_success=None,
+        last_change=None,
         last_failure=None,
         failure_error=None,
         success=True,
@@ -92,6 +93,7 @@ class _StubCoordinator:
         self._resolved_options = resolved_options
         self.last_update_success = success
         self.last_update_success_time = last_success
+        self.last_change_time = last_change
         self.last_update_failure_time = last_failure
         self.last_update_failure = failure_error
         self.update_interval = timedelta(seconds=interval_seconds)
@@ -150,6 +152,7 @@ async def test_reports_provider_scope_and_endpoint(hass):
     entry = _entry(
         {CONF_PROVIDER: "nws", CONF_ZONE_ID: "OHZ049"},
         last_success=datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc),
+        last_change=datetime(2026, 8, 12, 9, 30, tzinfo=timezone.utc),
     )
 
     payload = await _payload(hass, entry)
@@ -161,6 +164,7 @@ async def test_reports_provider_scope_and_endpoint(hass):
         "https://api.weather.gov/alerts?message_type=cancel&zone=OHZ049",
     ]
     assert payload["update"]["last_success"] == "2026-08-12T10:00:00+00:00"
+    assert payload["update"]["last_change"] == "2026-08-12T09:30:00+00:00"
     assert payload["update"]["interval_seconds"] == 300
 
 

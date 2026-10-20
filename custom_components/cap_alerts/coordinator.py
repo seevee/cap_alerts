@@ -263,6 +263,11 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # listener that a rebuild is required rather than an in-place tweak.
         self._entry_data = dict(entry.data)
         self.last_update_success_time: datetime | None = None
+        # When the alert set last changed: a reconciliation that fired or
+        # parked an incident event, from any path (issue #323). What the
+        # last-updated sensor reports; the sensor seeds it from its restored
+        # state at boot, since the store starts empty.
+        self.last_change_time: datetime | None = None
         # Last failed update, kept *after* a recovery rather than cleared: the
         # diagnostics dump is read after the fact, and "it broke at 04:12 and
         # has been fine since" is the answer a report needs. Compare against
@@ -695,11 +700,12 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         and geometry handling are identical.
 
         Deliberately does *not* stamp ``last_update_success_time``: a push
-        ingest runs this pipeline on every heartbeat with no network I/O, and the
-        "Last updated" sensor reports when data was last *fetched*, not when the
-        active set was last recomputed. Only the fetch-backed callers stamp it,
-        and only they set ``fetched``, which is what the store's boot grace
-        counts (issue #252).
+        ingest runs this pipeline on every heartbeat with no network I/O, and
+        diagnostics report when data was last *fetched*. Only the fetch-backed
+        callers stamp it, and only they set ``fetched``, which is what the
+        store's boot grace counts (issue #252). ``last_change_time`` is stamped
+        here instead, on any path: a heartbeat rebuild that issues or ends an
+        alert has changed the set as surely as a poll has (issue #323).
         """
         # Shared normalization. The full normalized list — including
         # cancelled/expired alerts — is handed to store.process so it can
@@ -743,6 +749,8 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             fetched=fetched,
         )
         self._scope_changed = False
+        if self._store.transitions:
+            self.last_change_time = datetime.now(timezone.utc)
         # Index by ID for O(1) lookup
         return {a.id: a for a in alerts}
 
