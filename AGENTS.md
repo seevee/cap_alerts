@@ -79,6 +79,8 @@ custom_components/cap_alerts/
   button.py         # RefreshButton: on-demand provider fetch (all providers); hands the press's context to the coordinator for that cycle
   logbook.py        # logbook platform (#310): describes the three incident events as Activity rows; discovered by filename, nothing in the manifest
   binary_sensor.py  # StreamConnectivitySensor: NAAD socket state (ECCC streaming only)
+  trigger.py        # automation triggers over the incident events (#280): incident_arrived / incident_updated / incident_escalated / incident_downgraded / incident_ended, a target plus a severity threshold; version-tolerant between the 2026.4.3 floor and current core
+  triggers.yaml     # the editor's description of each trigger (incident target, one select field); names and the select's options live under `triggers` and `selector` in strings.json
   model.py          # CAPAlert dataclass + to_attributes()
   conventions.py    # the convention *mechanism*: what a row may declare (SourceConventions: marine prefixes, terminal tokens, severity/identity/keep/icon hooks, language + country resolution, explode/merge pipeline stages), shared timestamp + episode_id helpers, and the rows in force (register_source / conventions_for); no provider named here
   normalize.py      # shared normalization: severity, phase, state truncation

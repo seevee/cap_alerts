@@ -24,6 +24,7 @@ Event names match the RFC §2.3 `incident_*` contract.
 | `area_desc` | `str` | extension | Human-readable area description, denormalized onto the event for convenience. Not in the RFC. |
 | `removal_reason` | `str` | extension | Why the alert went away: `superseded` or `ended`. Fires on `incident_removed` only, and **omitted** whenever the provider gave no recognized reason. See below. Not in the RFC. |
 | `superseded_by` | `str` | extension | The successor's CAP identifier, when `removal_reason` is `superseded` **and** the source published a parseable reference to it. Omitted otherwise — including most `superseded` removals today. See below. Not in the RFC. |
+| `previous_severity` | `str` | extension | The normalized severity before this update, on `incident_updated` only, whether or not it changed. Reading the entity's state instead works only while the event happens to fire before the entity's write, which nothing promises. Added for the escalation trigger (issue #280). Not in the RFC. |
 
 `previous_phase` is **not** on the event payload. Consumers can reconstruct
 it when `phase` appears in `changed_fields`: the previous phase was whatever
@@ -385,6 +386,23 @@ fires names it as `parent_id`. The dialog then reads "triggered by action
 button.press" with the user's name, on the last-updated change and on the
 alert's issue alike. The lent context is spent once used; the next poll is
 anonymous.
+
+## The triggers read these events (issue #280)
+
+The five automation triggers the integration ships (`incident_arrived`,
+`incident_updated`, `incident_escalated`, `incident_downgraded`, `incident_ended`) are listeners on these events with a
+target and a severity threshold in front, nothing more. Same signal, same
+timing, same payload on `trigger`. What they add is the Add trigger dialog,
+device / area / label targets that pick up alert entities as they register,
+and an ordinal threshold without a template condition. Core's entity-state
+trigger helper was not an option: it fires on a change from a previous state,
+and an alert that arrives severe has none, so it can never fire on arrival.
+
+Two consequences carry over from the events. A trigger only sees an alert
+whose event names an `entity_id` inside its target, so a first sighting that
+is already terminal, which never had an entity, fires nothing. And a removal
+announced from the registry after a restart carries `severity: unknown`, so it
+fires `incident_ended` only at the `any` threshold.
 
 ## Archival pattern (RFC §6.4)
 

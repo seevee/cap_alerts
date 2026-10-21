@@ -1,0 +1,27 @@
+# One shape for all three: alert sensors as the target, one severity select.
+# No `behavior` or `for`: core changed the behavior field between the 2026.4.3
+# floor and later releases, and one file can't describe both.
+.incident_common: &incident_common
+  target:
+    entity:
+      - domain: sensor
+        device_class: incident
+  fields:
+    threshold:
+      required: true
+      default: severe
+      selector:
+        select:
+          translation_key: trigger_threshold
+          options:
+            - any
+            - minor
+            - moderate
+            - severe
+            - extreme
+
+incident_arrived: *incident_common
+incident_updated: *incident_common
+incident_escalated: *incident_common
+incident_downgraded: *incident_common
+incident_ended: *incident_common

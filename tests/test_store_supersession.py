@@ -207,3 +207,36 @@ def test_supersession_previous_phase_carried(hass, alert_factory):
     assert len(result) == 1
     # previous_phase should be the phase of A (which was "new")
     assert result[0].previous_phase == "new"
+
+
+def test_supersession_carries_the_predecessors_severity(hass, alert_factory):
+    """The incident_updated for B names A's severity as previous (issue #280)."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+
+    store = _store(hass, "eccc")
+    alert_a = alert_factory(
+        id="K1",
+        identifier="id-A",
+        msg_type="Alert",
+        provider="eccc",
+        severity="Moderate",
+        expires="2099-01-01T00:00:00+00:00",
+    )
+    store.process(normalize_alerts([alert_a]))
+    hass.bus.async_fire.reset_mock()
+
+    alert_b = alert_factory(
+        id="K2",
+        identifier="id-B",
+        msg_type="Update",
+        provider="eccc",
+        severity="Extreme",
+        expires="2099-01-01T00:00:00+00:00",
+        references=("id-A",),
+    )
+    store.process(normalize_alerts([alert_b]))
+
+    ((event_type, payload),) = _fired(hass)
+    assert event_type == "incident_updated"
+    assert payload["severity"] == "extreme"
+    assert payload["previous_severity"] == "moderate"

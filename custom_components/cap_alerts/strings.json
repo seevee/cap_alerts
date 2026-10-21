@@ -618,5 +618,68 @@
         }
       }
     }
+  },
+  "triggers": {
+    "incident_arrived": {
+      "name": "Alert issued",
+      "description": "Triggers when a new alert at or above the chosen severity appears for the targeted location. An alert Home Assistant already knew at startup does not fire it.",
+      "fields": {
+        "threshold": {
+          "name": "Severity",
+          "description": "The lowest severity that fires. Any also covers alerts whose source publishes no severity."
+        }
+      }
+    },
+    "incident_updated": {
+      "name": "Alert updated",
+      "description": "Triggers when a known alert at or above the chosen severity is revised in any way: text, timing or severity. Use a condition on changed_fields to narrow it.",
+      "fields": {
+        "threshold": {
+          "name": "Severity",
+          "description": "The lowest severity that fires. Any also covers alerts whose source publishes no severity."
+        }
+      }
+    },
+    "incident_escalated": {
+      "name": "Alert escalated",
+      "description": "Triggers when a known alert's severity rises to the chosen level from below. With Severe chosen, severe to extreme stays quiet. Any fires on every rise.",
+      "fields": {
+        "threshold": {
+          "name": "Severity",
+          "description": "The severity the alert has to reach from below. Any fires on every rise."
+        }
+      }
+    },
+    "incident_downgraded": {
+      "name": "Alert downgraded",
+      "description": "Triggers when a known alert's severity falls below the chosen level from at or above it. With Severe chosen, extreme to severe stays quiet. Any fires on every fall.",
+      "fields": {
+        "threshold": {
+          "name": "Severity",
+          "description": "The severity the alert has to fall below. Any fires on every fall."
+        }
+      }
+    },
+    "incident_ended": {
+      "name": "Alert ended",
+      "description": "Triggers when an alert at or above the chosen severity is cancelled, expires or is superseded.",
+      "fields": {
+        "threshold": {
+          "name": "Severity",
+          "description": "The lowest severity that fires. Any also covers alerts whose source publishes no severity."
+        }
+      }
+    }
+  },
+  "selector": {
+    "trigger_threshold": {
+      "options": {
+        "any": "Any",
+        "minor": "Minor",
+        "moderate": "Moderate",
+        "severe": "Severe",
+        "extreme": "Extreme"
+      }
+    }
   }
 }

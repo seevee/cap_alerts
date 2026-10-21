@@ -226,6 +226,41 @@ authorities.
 
 Full payload schema and semantics: [`docs/events.md`](docs/events.md).
 
+### Triggers
+
+The automation editor lists five triggers of the integration's own, each
+reading one of the events above for the alerts of a chosen target. The
+target picker offers alert entities only, and a location's device covers
+alerts that don't exist yet. One field, the severity, sets the lowest rung
+that fires; it defaults to `severe`.
+
+| Trigger | Fires on | With the severity at `severe` |
+| :-- | :-- | :-- |
+| Alert issued (`cap_alerts.incident_arrived`) | `incident_created` | a new alert at severe or extreme |
+| Alert updated (`cap_alerts.incident_updated`) | `incident_updated`, any field | any revision of an alert at severe or extreme; `trigger.changed_fields` says what moved |
+| Alert escalated (`cap_alerts.incident_escalated`) | `incident_updated` with the severity changed | an alert that rose to severe or extreme from below, so severe to extreme stays quiet |
+| Alert downgraded (`cap_alerts.incident_downgraded`) | `incident_updated` with the severity changed | an alert that fell below severe from severe or extreme, so extreme to severe stays quiet |
+| Alert ended (`cap_alerts.incident_ended`) | `incident_removed` | an alert at severe or extreme ending |
+
+```yaml
+triggers:
+  - trigger: cap_alerts.incident_arrived
+    target:
+      device_id: <the location's device>
+    options:
+      threshold: severe
+```
+
+`any` sits under `minor`, so an authority that publishes no severity, which
+normalizes to `unknown`, can still fire. For escalated and downgraded, `any`
+means every rise or every fall. The event payload is on `trigger`, so
+`trigger.entity_id`, `trigger.severity` and, on a severity change,
+`trigger.previous_severity` are there for the action. Downgrades are about one
+severity change in five on the dev box: fire tiers stepping down, a cyclone
+bulletin easing, a flood advisory's final revision. An alert Home Assistant already knew at startup fires
+nothing on re-validation, and an escalation that happened while it was down
+is missed (#281).
+
 ### Keeping history
 
 Once an alert ends, its entity leaves the entity registry, so the History
