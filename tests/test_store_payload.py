@@ -697,3 +697,41 @@ def test_first_sight_terminal_alert_fires_removed_only(hass, alert_factory):
     event_type, payload = fired[0]
     assert event_type == "incident_removed"
     assert payload["phase"] == "cancel"
+
+
+def test_updated_carries_the_previous_severity(hass, alert_factory):
+    """``incident_updated`` says where the severity came from (issue #280)."""
+    from custom_components.cap_alerts.normalize import normalize_alerts
+
+    store = _store(hass, "nws")
+    store.process(normalize_alerts([alert_factory(id="a", severity="Moderate")]))
+    hass.bus.async_fire.reset_mock()
+
+    store.process(normalize_alerts([alert_factory(id="a", severity="Severe")]))
+
+    ((event_type, payload),) = _fired(hass)
+    assert event_type == "incident_updated"
+    assert payload["severity"] == "severe"
+    assert payload["previous_severity"] == "moderate"
+    assert "severity_normalized" in payload["changed_fields"]
+
+
+def test_previous_severity_rides_on_updated_only(hass, alert_factory):
+    from custom_components.cap_alerts.normalize import normalize_alerts
+
+    store = _store(hass, "nws")
+    store.process(normalize_alerts([alert_factory(id="a")]))
+    store.process(normalize_alerts([alert_factory(id="a", headline="revised")]))
+    store.process(normalize_alerts([alert_factory(id="a", msg_type="Cancel")]))
+
+    fired = _fired(hass)
+    assert [event_type for event_type, _ in fired] == [
+        "incident_created",
+        "incident_updated",
+        "incident_removed",
+    ]
+    # An unchanged severity is still reported, so a consumer never has to
+    # guess whether the key will be there.
+    assert fired[1][1]["previous_severity"] == "severe"
+    assert "previous_severity" not in fired[0][1]
+    assert "previous_severity" not in fired[2][1]

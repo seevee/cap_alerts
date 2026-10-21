@@ -287,6 +287,7 @@ class AlertStore:
                         updated,
                         phase_changed=phase_changed,
                         changed_fields=_diff_fields(superseded_prev, alert),
+                        previous=superseded_prev,
                     )
                 elif alert_id in self._known_at_boot and not terminal:
                     # Live before the restart and live now: a re-validation,
@@ -334,6 +335,7 @@ class AlertStore:
                         updated,
                         phase_changed=phase_changed,
                         changed_fields=changed,
+                        previous=prev,
                     )
             active[alert_id] = updated
             result.append(updated)
@@ -485,11 +487,18 @@ class AlertStore:
         *,
         phase_changed: bool,
         changed_fields: list[str],
+        previous: CAPAlert | None = None,
     ) -> None:
         """Fire an HA event matching RFC §2.3 (schema documented in docs/events.md).
 
-        ``entry_id``, ``area_desc``, ``removal_reason`` and ``superseded_by``
-        are project extensions not in the RFC.
+        ``entry_id``, ``area_desc``, ``removal_reason``, ``superseded_by`` and
+        ``previous_severity`` are project extensions not in the RFC.
+
+        ``previous`` is the record the alert is being compared against, passed
+        for ``incident_updated`` so the payload can say where the severity
+        came from (issue #280): the entity's state machine holds the old value
+        only for as long as the event happens to fire before the entity's
+        write, which nothing promises.
         """
         self._transitions += 1
         payload: dict[str, Any] = {
@@ -502,6 +511,8 @@ class AlertStore:
             "changed_fields": changed_fields,
             "area_desc": alert.area_desc,
         }
+        if event_type == EVENT_INCIDENT_UPDATED and previous is not None:
+            payload["previous_severity"] = previous.severity_normalized
         if event_type == EVENT_INCIDENT_REMOVED:
             reason = _removal_reason(alert)
             if reason:
