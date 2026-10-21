@@ -15,7 +15,6 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
-import voluptuous as vol
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
@@ -40,6 +39,7 @@ from .conventions import row_for
 from .flows import au, bbk, eccc, gdacs, meteoalarm, nws, wmo
 from .flows.common import OptionsSchema, _validate_geocode_prefixes
 from .providers import get_provider
+from .schema import vol
 
 # Providers that add fields to the options form, in the order the setup menu
 # offers them. A provider absent here (NWS) has nothing beyond the shared

@@ -8,7 +8,6 @@ from collections.abc import Mapping
 from typing import Any
 
 import aiohttp
-import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -36,6 +35,7 @@ from ..const import (
     WMO_SOURCE_NAMES,
 )
 from ..providers.wmo import async_authority_feed_available, fetch_wmo_sources
+from ..schema import vol
 from .common import (
     OptionsSchema,
     ScopedEntryFlowMixin,

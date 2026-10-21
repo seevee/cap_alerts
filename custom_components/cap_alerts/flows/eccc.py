@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 
 from ..const import (
@@ -18,6 +17,7 @@ from ..const import (
     DEFAULT_FEED_SOURCE,
     ECCC_PROVINCES,
 )
+from ..schema import vol
 from .common import (
     OptionsSchema,
     ScopedEntryFlowMixin,

@@ -84,6 +84,7 @@ custom_components/cap_alerts/
   model.py          # CAPAlert dataclass + to_attributes()
   conventions.py    # the convention *mechanism*: what a row may declare (SourceConventions: marine prefixes, terminal tokens, severity/identity/keep/icon hooks, language + country resolution, explode/merge pipeline stages), shared timestamp + episode_id helpers, and the rows in force (register_source / conventions_for); no provider named here
   normalize.py      # shared normalization: severity, phase, state truncation
+  schema.py         # the schema library under one name: probatio (core 2026.9+, and what mypy sees), voluptuous on the 2026.4.3 floor
   payload.py        # attribute-payload budget: measures what the recorder measures, trims long-form text then redundant keys in priority order (#150)
   store.py          # alert store: inter-poll diffing, transition detection, event firing (incl. removal_reason) through a fire callable; no hass
   icons.py          # event-type → mdi dispatch: the row's icon hook first, then the shared international + common hazard vocabularies

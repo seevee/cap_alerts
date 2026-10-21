@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from homeassistant.components.binary_sensor import (
+# Core re-exports the device class without listing it in __all__, which
+# strict mypy reads as private. Its own const module is newer than the floor.
+from homeassistant.components.binary_sensor import (  # type: ignore[attr-defined]
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )

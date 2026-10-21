@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import voluptuous as vol
 from homeassistant.components.repairs import ConfirmRepairFlow, RepairsFlow
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -28,6 +27,7 @@ from .const import (
     ISSUE_ECCC_FEED_SOURCE_PELMOREX,
     ISSUE_ECCC_STREAMING_OFF,
 )
+from .schema import vol
 
 if TYPE_CHECKING:
     # Annotation-only, and only exported since core 2026.6.0. Importing it at
