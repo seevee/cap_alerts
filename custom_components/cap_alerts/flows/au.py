@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 from homeassistant.helpers.selector import (
     SelectOptionDict,
@@ -21,6 +20,7 @@ from ..const import (
     CONF_PROVIDER,
     CONF_PROVINCE,
 )
+from ..schema import vol
 from .common import OptionsSchema, ScopedEntryFlowMixin
 
 

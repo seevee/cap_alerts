@@ -37,7 +37,6 @@ from datetime import datetime, timedelta
 from functools import partial
 from typing import Any, cast
 
-import voluptuous as vol
 from homeassistant.const import CONF_OFFSET, CONF_OPTIONS, CONF_TARGET
 from homeassistant.core import (
     CALLBACK_TYPE,
@@ -64,6 +63,7 @@ from .const import (
     EVENT_INCIDENT_UPDATED,
 )
 from .normalize import SEVERITY_RANK
+from .schema import vol
 
 CONF_THRESHOLD = "threshold"
 CONF_OFFSET_TYPE = "offset_type"

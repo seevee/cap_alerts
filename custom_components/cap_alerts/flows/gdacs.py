@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 from homeassistant.helpers.selector import (
     SelectOptionDict,
@@ -23,6 +22,7 @@ from ..const import (
     GDACS_DEFAULT_ALERT_LEVEL,
     GDACS_EVENT_TYPES,
 )
+from ..schema import vol
 from .common import (
     OptionsSchema,
     ScopedEntryFlowMixin,

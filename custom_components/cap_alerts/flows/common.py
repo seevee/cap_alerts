@@ -13,7 +13,6 @@ from collections.abc import Mapping
 from typing import Any
 
 import aiohttp
-import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import AbortFlow
@@ -40,6 +39,7 @@ from ..const import (
     WMO_SOURCE_NAMES,
 )
 from ..providers import get_provider
+from ..schema import vol
 
 _GPS_RE = re.compile(r"^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$")
 # One area-code prefix. Deliberately not numeric-only: the filter compares
