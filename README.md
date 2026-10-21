@@ -228,7 +228,7 @@ Full payload schema and semantics: [`docs/events.md`](docs/events.md).
 
 ### Triggers
 
-The automation editor lists five triggers of the integration's own, each
+The automation editor lists six triggers of the integration's own, each
 reading one of the events above for the alerts of a chosen target. The
 target picker offers alert entities only, and a location's device covers
 alerts that don't exist yet. One field, the severity, sets the lowest rung
@@ -241,6 +241,7 @@ that fires; it defaults to `severe`.
 | Alert escalated (`cap_alerts.incident_escalated`) | `incident_updated` with the severity changed | an alert that rose to severe or extreme from below, so severe to extreme stays quiet |
 | Alert downgraded (`cap_alerts.incident_downgraded`) | `incident_updated` with the severity changed | an alert that fell below severe from severe or extreme, so extreme to severe stays quiet |
 | Alert ended (`cap_alerts.incident_ended`) | `incident_removed` | an alert at severe or extreme ending |
+| Alert starts (`cap_alerts.incident_started`) | the alert's `onset`, offset before or after | an alert at severe or extreme coming into effect |
 
 ```yaml
 triggers:
@@ -257,7 +258,18 @@ means every rise or every fall. The event payload is on `trigger`, so
 `trigger.entity_id`, `trigger.severity` and, on a severity change,
 `trigger.previous_severity` are there for the action. Downgrades are about one
 severity change in five on the dev box: fire tiers stepping down, a cyclone
-bulletin easing, a flood advisory's final revision. An alert Home Assistant already knew at startup fires
+bulletin easing, a flood advisory's final revision.
+
+The last one is timed, not event-driven. Four in ten ECCC alerts and most
+NWS ones arrive before they are in effect, typically half a day early, so
+Alert issued is the planner's moment and Alert starts is the kiosk's. It
+keeps a timer per targeted alert on its `onset`, with an `offset` and
+`offset_type` (`before` / `after`) like the calendar triggers, re-arms when a
+revision moves the time, and fires once per value. An onset already past when
+the alert is first seen does not fire. Australian state and GDACS alerts
+publish no onset, so on those it never fires. There is no "about to expire"
+trigger on purpose: CAP `expires` is the message's validity, not the hazard's
+end, and ECCC and WMO extend it on nearly every revision. An alert Home Assistant already knew at startup fires
 nothing on re-validation, and an escalation that happened while it was down
 is missed (#281).
 

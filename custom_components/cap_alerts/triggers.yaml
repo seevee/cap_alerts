@@ -20,8 +20,51 @@
             - severe
             - extreme
 
+.threshold_field: &threshold_field
+  required: true
+  default: severe
+  selector:
+    select:
+      translation_key: trigger_threshold
+      options:
+        - any
+        - minor
+        - moderate
+        - severe
+        - extreme
+
+# The timed trigger (#326): a timer on the alert's onset, offset before or
+# after, the shape calendar's event_started uses.
+.timed_common: &timed_common
+  target:
+    entity:
+      - domain: sensor
+        device_class: incident
+  fields:
+    threshold: *threshold_field
+    offset:
+      required: true
+      default:
+        days: 0
+        hours: 0
+        minutes: 0
+        seconds: 0
+      selector:
+        duration:
+          enable_day: true
+    offset_type:
+      required: true
+      default: before
+      selector:
+        select:
+          translation_key: trigger_offset_type
+          options:
+            - before
+            - after
+
 incident_arrived: *incident_common
 incident_updated: *incident_common
 incident_escalated: *incident_common
 incident_downgraded: *incident_common
 incident_ended: *incident_common
+incident_started: *timed_common
