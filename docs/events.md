@@ -338,8 +338,12 @@ lists, and it moves only when the alert set changes (issue #323): a cycle on
 which an alert was issued, updated or ended. So every row it writes sits next
 to an event row, and a poll that changes nothing writes none. The poll time
 is the count sensor's `last_reported`, which advances on an unchanged write
-with no row in Activity or the recorder; a failed poll shows as
-`unavailable`. An alert entity can get a single row once it is gone and logbook can
+with no row in Activity or the recorder. Read it from a template or the
+`state_reported` event: core caches a state's JSON and an unchanged write
+updates `last_reported` in place without refreshing it, so the REST and
+websocket state, and so the frontend, keep the value from the last real
+change. The diagnostics download has the same time as `last_success`. A
+failed poll shows as `unavailable`. An alert entity can get a single row once it is gone and logbook can
 no longer tell what it was: an `unknown` it may write on the cycle that
 removes it, depending on which listener runs first, named by entity id since
 the registry no longer holds its name. It carries no context.
