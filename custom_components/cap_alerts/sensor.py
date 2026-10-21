@@ -183,8 +183,11 @@ class LastUpdatedSensor(_CAPAlertsEntity, RestoreSensor):
     of a cause to Home Assistant, and a timestamp that moved on every one
     wrote a recorder row and an Activity row per poll per entry, all saying
     so. The poll time is on the count sensor's ``last_reported``, which
-    advances on an unchanged write, and in diagnostics; a failed poll makes
-    the entry unavailable. Restored across a restart, or a quiet entry would
+    advances on an unchanged write (in templates and the recorder; the REST
+    and websocket state keep the last real change's value, since core's
+    cached state JSON is not refreshed by an unchanged write), and in
+    diagnostics as ``last_success``; a failed poll makes the entry
+    unavailable. Restored across a restart, or a quiet entry would
     read unknown until something happened.
     """
 
