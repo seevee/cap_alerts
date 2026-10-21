@@ -389,7 +389,7 @@ anonymous.
 
 ## The triggers read these events (issue #280)
 
-The five automation triggers the integration ships (`incident_arrived`,
+Five of the six automation triggers the integration ships (`incident_arrived`,
 `incident_updated`, `incident_escalated`, `incident_downgraded`, `incident_ended`) are listeners on these events with a
 target and a severity threshold in front, nothing more. Same signal, same
 timing, same payload on `trigger`. What they add is the Add trigger dialog,
@@ -403,6 +403,15 @@ whose event names an `entity_id` inside its target, so a first sighting that
 is already terminal, which never had an entity, fires nothing. And a removal
 announced from the registry after a restart carries `severity: unknown`, so it
 fires `incident_ended` only at the `any` threshold.
+
+The sixth, `incident_started` (issue #326), reads no event. It keeps a timer
+per targeted alert entity on its `onset` attribute, re-armed from the entity's
+state on every write, and fires once per attribute value when the time (plus
+the offset) arrives. It sees what the entity shows, so an alert whose onset
+passed while Home Assistant was down does not fire on restart, and a source
+that publishes no onset never fires it. No `expires` twin: on this box's
+recorder ECCC moved `expires` on 47 of 55 in-place revisions and WMO on 153
+of 156, so a "before it expires" trigger fired ahead of re-issues, not ends.
 
 ## Archival pattern (RFC §6.4)
 

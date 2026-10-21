@@ -1,4 +1,4 @@
-"""The five incident triggers (issue #280).
+"""The six incident triggers (issues #280, #326).
 
 ``tests/test_device_class_binding.py`` pins why core's entity-state helper was
 not the tool: it fires on a change, and an alert that arrives severe has no
@@ -602,3 +602,247 @@ def test_the_threshold_axis_is_the_severity_axis():
     assert THRESHOLD_RANK["any"] == 0
     assert THRESHOLD_RANK["any"] < THRESHOLD_RANK["minor"] < THRESHOLD_RANK["extreme"]
     assert "unknown" not in THRESHOLD_RANK
+
+
+# ---------------------------------------------------------------------------
+# The timed trigger (#326): a timer per alert on onset
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+from pytest_homeassistant_custom_component.common import (  # noqa: E402
+    async_fire_time_changed,
+)
+
+
+def _timed_xml(
+    identifier: str,
+    *,
+    onset: datetime | None,
+    expires: datetime,
+    severity: str = "Severe",
+    event: str = "Winter Storm Warning",
+) -> str:
+    """An ECCC alert with explicit onset and expires, same identity as the fixture."""
+    onset_tag = f"<onset>{onset.isoformat()}</onset>" if onset else ""
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">'
+        f"<identifier>{identifier}</identifier>"
+        f"<sender>CWTO</sender><sent>{SENT}</sent>"
+        "<status>Actual</status><msgType>Alert</msgType><scope>Public</scope>"
+        "<info><language>en-CA</language><category>Met</category>"
+        f"<event>{event}</event><urgency>Immediate</urgency>"
+        f"<severity>{severity}</severity><certainty>Likely</certainty>"
+        f"{onset_tag}<expires>{expires.isoformat()}</expires>"
+        f"<headline>{event} in effect</headline><description>desc</description>"
+        "<area><areaDesc>Ottawa</areaDesc>"
+        "<polygon>45.0,-76.0 45.0,-75.5 45.5,-75.5 45.5,-76.0 45.0,-76.0</polygon>"
+        "<geocode><valueName>profile:CAP-CP:Location:0.3</valueName>"
+        "<value>3506008</value></geocode>"
+        "</area></info></alert>"
+    )
+
+
+async def _setup_timed(hass, aioclient_mock, freezer, **xml) -> tuple:
+    """Freeze the clock, serve one timed alert, set the entry up."""
+    freezer.move_to("2026-10-20T12:00:00+00:00")
+    aioclient_mock.get(FEED, text=_atom(CAP_A))
+    aioclient_mock.get(CAP_A, text=_timed_xml("urn:oid:A", **xml))
+    entry = await _setup_entry(hass)
+    (entity_id,) = _alert_entity_ids(hass, entry)
+    return entry, entity_id
+
+
+async def _advance_to(hass, freezer, when: datetime) -> None:
+    freezer.move_to(when)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+
+async def _arm_timed(hass, entry, trigger: str, **options) -> list:
+    fired = async_capture_events(hass, FIRED)
+    assert await async_setup_component(
+        hass,
+        "automation",
+        {
+            "automation": {
+                "trigger": {
+                    "trigger": f"{DOMAIN}.{trigger}",
+                    "target": _device_target(hass, entry),
+                    "options": options,
+                },
+                "action": {
+                    "event": FIRED,
+                    "event_data": {
+                        "entity_id": "{{ trigger.entity_id }}",
+                        "event": "{{ trigger.event }}",
+                        "severity": "{{ trigger.severity }}",
+                        "onset": "{{ trigger.onset | default('') }}",
+                        "expires": "{{ trigger.expires | default('') }}",
+                    },
+                },
+            }
+        },
+    )
+    return fired
+
+
+NOW = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_starts_fires_once_when_the_onset_arrives(
+    hass, aioclient_mock, enable_custom_integrations, freezer
+):
+    onset = NOW + timedelta(hours=6)
+    entry, entity_id = await _setup_timed(
+        hass, aioclient_mock, freezer, onset=onset, expires=NOW + timedelta(days=1)
+    )
+    fired = await _arm_timed(hass, entry, "incident_started")
+
+    await _advance_to(hass, freezer, onset - timedelta(minutes=1))
+    assert fired == []
+    await _advance_to(hass, freezer, onset + timedelta(seconds=1))
+    # ``event`` is the entity's attribute, which the fixture's Atom title sets.
+    assert [e.data for e in fired] == [
+        {
+            "entity_id": entity_id,
+            "event": "Warning",
+            "severity": "severe",
+            "onset": onset.isoformat(),
+            "expires": "",
+        }
+    ]
+    # Later polls rewrite the state with the same onset: no second firing.
+    await _advance_to(hass, freezer, onset + timedelta(hours=2))
+    assert len(fired) == 1
+
+
+@pytest.mark.asyncio
+async def test_starts_does_not_fire_for_an_onset_already_past(
+    hass, aioclient_mock, enable_custom_integrations, freezer
+):
+    """The common case: 61% of ECCC arrivals. Alert issued covered it."""
+    entry, _ = await _setup_timed(
+        hass,
+        aioclient_mock,
+        freezer,
+        onset=NOW - timedelta(hours=2),
+        expires=NOW + timedelta(days=1),
+    )
+    fired = await _arm_timed(hass, entry, "incident_started", threshold="any")
+
+    await _advance_to(hass, freezer, NOW + timedelta(hours=12))
+    assert fired == []
+
+
+@pytest.mark.asyncio
+async def test_starts_honours_an_offset_before(
+    hass, aioclient_mock, enable_custom_integrations, freezer
+):
+    onset = NOW + timedelta(hours=6)
+    entry, _ = await _setup_timed(
+        hass, aioclient_mock, freezer, onset=onset, expires=NOW + timedelta(days=1)
+    )
+    fired = await _arm_timed(
+        hass, entry, "incident_started", offset={"hours": 1}, offset_type="before"
+    )
+
+    await _advance_to(hass, freezer, onset - timedelta(hours=1, minutes=1))
+    assert fired == []
+    await _advance_to(hass, freezer, onset - timedelta(minutes=59))
+    assert len(fired) == 1
+
+
+@pytest.mark.asyncio
+async def test_starts_rearms_when_a_revision_moves_the_onset(
+    hass, aioclient_mock, enable_custom_integrations, freezer
+):
+    onset = NOW + timedelta(hours=6)
+    entry, _ = await _setup_timed(
+        hass, aioclient_mock, freezer, onset=onset, expires=NOW + timedelta(days=1)
+    )
+    fired = await _arm_timed(hass, entry, "incident_started")
+
+    # A revision pushes the onset back two hours before it arrives.
+    moved = onset + timedelta(hours=2)
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(FEED, text=_atom(CAP_B))
+    aioclient_mock.get(
+        CAP_B,
+        text=_timed_xml("urn:oid:B", onset=moved, expires=NOW + timedelta(days=1)),
+    )
+    await _poll(hass, freezer)
+    assert hass.states.get(_alert_entity_ids(hass, entry)[0]).attributes["onset"] == (
+        moved.isoformat()
+    )
+
+    await _advance_to(hass, freezer, onset + timedelta(minutes=5))
+    assert fired == []
+    await _advance_to(hass, freezer, moved + timedelta(seconds=1))
+    assert len(fired) == 1
+    await _advance_to(hass, freezer, moved + timedelta(hours=1))
+    assert len(fired) == 1
+
+
+@pytest.mark.asyncio
+async def test_starts_reads_the_threshold_when_the_time_arrives(
+    hass, aioclient_mock, enable_custom_integrations, freezer
+):
+    onset = NOW + timedelta(hours=6)
+    entry, _ = await _setup_timed(
+        hass,
+        aioclient_mock,
+        freezer,
+        onset=onset,
+        expires=NOW + timedelta(days=1),
+        severity="Moderate",
+    )
+    fired = await _arm_timed(hass, entry, "incident_started")  # default: severe
+
+    await _advance_to(hass, freezer, onset + timedelta(seconds=1))
+    assert fired == []
+
+
+@pytest.mark.asyncio
+async def test_starts_is_cancelled_when_the_alert_ends_first(
+    hass, aioclient_mock, enable_custom_integrations, freezer
+):
+    onset = NOW + timedelta(hours=6)
+    entry, entity_id = await _setup_timed(
+        hass, aioclient_mock, freezer, onset=onset, expires=NOW + timedelta(days=1)
+    )
+    fired = await _arm_timed(hass, entry, "incident_started")
+
+    # Withdrawn before it starts: the feed goes terminal on the alert.
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(FEED, text=_atom(CAP_B))
+    aioclient_mock.get(
+        CAP_B,
+        text=_timed_xml(
+            "urn:oid:B", onset=onset, expires=NOW + timedelta(days=1)
+        ).replace("<msgType>Alert</msgType>", "<msgType>Cancel</msgType>"),
+    )
+    await _poll(hass, freezer)
+    assert hass.states.get(entity_id) is None
+
+    await _advance_to(hass, freezer, onset + timedelta(minutes=5))
+    assert fired == []
+
+
+@pytest.mark.asyncio
+async def test_the_timed_trigger_describes_its_offset_fields(
+    hass, aioclient_mock, enable_custom_integrations
+):
+    _, entity_id = await _setup(hass, aioclient_mock)
+    await _arm(hass, "incident_arrived", {"entity_id": entity_id})
+
+    descriptions = await trigger_helper.async_get_all_descriptions(hass)
+
+    fields = descriptions[f"{DOMAIN}.incident_started"]["fields"]
+    assert set(fields) == {"threshold", "offset", "offset_type"}
+    assert fields["offset_type"]["default"] == "before"
+    assert "duration" in fields["offset"]["selector"]
+    for key in ("incident_arrived", "incident_ended"):
+        assert set(descriptions[f"{DOMAIN}.{key}"]["fields"]) == {"threshold"}

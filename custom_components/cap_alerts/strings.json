@@ -669,6 +669,24 @@
           "description": "The lowest severity that fires. Any also covers alerts whose source publishes no severity."
         }
       }
+    },
+    "incident_started": {
+      "name": "Alert starts",
+      "description": "Triggers when a targeted alert's onset arrives, optionally offset before or after. An alert whose onset has already passed when it is first seen does not fire; Alert issued covers it. Sources that publish no onset (Australian states, GDACS) never fire it.",
+      "fields": {
+        "threshold": {
+          "name": "Severity",
+          "description": "The lowest severity that fires, read when the time arrives. Any also covers alerts whose source publishes no severity."
+        },
+        "offset": {
+          "name": "Offset",
+          "description": "How long before or after the alert's time to fire."
+        },
+        "offset_type": {
+          "name": "Offset type",
+          "description": "Whether to fire before or after the alert's time, if an offset is set."
+        }
+      }
     }
   },
   "selector": {
@@ -679,6 +697,12 @@
         "moderate": "Moderate",
         "severe": "Severe",
         "extreme": "Extreme"
+      }
+    },
+    "trigger_offset_type": {
+      "options": {
+        "before": "Before",
+        "after": "After"
       }
     }
   }

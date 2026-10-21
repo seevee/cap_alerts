@@ -5,6 +5,16 @@ downgraded, ended. Each listens for one of the ``incident_*`` bus events, keeps
 the target's alert entities current through core's registry tracker, and
 compares severity on the normalized rank with a threshold the user picks.
 
+One more is timed rather than listened for (issue #326): an alert starts.
+Arrival runs ahead of onset on four in ten ECCC alerts and most NWS ones, by
+half a day typically, so "issued" is the wrong moment for a kiosk. It
+schedules a timer per targeted alert on its ``onset`` attribute, with an
+offset before or after, re-armed whenever a revision moves the time and fired
+once per value. The listener takes the attribute as a parameter; ``expires``
+was tried and dropped, since CAP ``expires`` is the message's validity and
+ECCC and WMO extend it on nearly every revision, so "before it expires" fired
+ahead of re-issues.
+
 Built on the events rather than on core's entity-state helper: that helper
 compares a new state with a previous one, and an alert that arrives severe
 has no previous state. The store already tells a first sighting from an
@@ -20,24 +30,33 @@ one file runs on every release the integration supports.
 
 from __future__ import annotations
 
+import abc
 import inspect
 from collections.abc import Callable, Mapping
+from datetime import datetime, timedelta
+from functools import partial
 from typing import Any, cast
 
 import voluptuous as vol
-from homeassistant.const import CONF_OPTIONS, CONF_TARGET
+from homeassistant.const import CONF_OFFSET, CONF_OPTIONS, CONF_TARGET
 from homeassistant.core import (
     CALLBACK_TYPE,
     Event,
+    HassJob,
     HomeAssistant,
     callback,
     split_entity_id,
 )
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.event import (
+    async_track_point_in_time,
+    async_track_state_change_event,
+)
 from homeassistant.helpers.target import TargetEntityChangeTracker, TargetSelection
 from homeassistant.helpers.trigger import Trigger, TriggerActionRunner, TriggerConfig
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.util import dt as dt_util
 
 from .const import (
     EVENT_INCIDENT_CREATED,
@@ -47,6 +66,9 @@ from .const import (
 from .normalize import SEVERITY_RANK
 
 CONF_THRESHOLD = "threshold"
+CONF_OFFSET_TYPE = "offset_type"
+OFFSET_BEFORE = "before"
+OFFSET_AFTER = "after"
 THRESHOLD_ANY = "any"
 THRESHOLD_DEFAULT = "severe"
 _ANY_RANK = SEVERITY_RANK["unknown"]
@@ -59,12 +81,27 @@ THRESHOLD_RANK: Mapping[str, int] = {
     for severity, rank in SEVERITY_RANK.items()
 }
 
+_THRESHOLD_FIELD = {
+    vol.Required(CONF_THRESHOLD, default=THRESHOLD_DEFAULT): vol.In(
+        list(THRESHOLD_RANK)
+    ),
+}
+
 _TRIGGER_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_TARGET): cv.TARGET_FIELDS,
+        vol.Required(CONF_OPTIONS, default={}): _THRESHOLD_FIELD,
+    }
+)
+
+_TIMED_TRIGGER_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_TARGET): cv.TARGET_FIELDS,
         vol.Required(CONF_OPTIONS, default={}): {
-            vol.Required(CONF_THRESHOLD, default=THRESHOLD_DEFAULT): vol.In(
-                list(THRESHOLD_RANK)
+            **_THRESHOLD_FIELD,
+            vol.Required(CONF_OFFSET, default=timedelta(0)): cv.time_period,
+            vol.Required(CONF_OFFSET_TYPE, default=OFFSET_BEFORE): vol.In(
+                [OFFSET_BEFORE, OFFSET_AFTER]
             ),
         },
     }
@@ -132,7 +169,37 @@ def _alert_entities(entities: set[str]) -> set[str]:
     }
 
 
-class _IncidentEventListener(TargetEntityChangeTracker):
+class _AlertTracker(TargetEntityChangeTracker):
+    """Keep a target's alert entities current for a listener to act on.
+
+    The tracker's ``async_setup`` is a coroutine on current core and a plain
+    method on the 2026.4.3 floor, so it is awaited only when it needs to be.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        target_selection: TargetSelection,
+        run_action: TriggerActionRunner,
+    ) -> None:
+        super().__init__(hass, target_selection, _alert_entities)
+        self._run_action = run_action
+        self._tracked: set[str] = set()
+
+    async def async_setup(self) -> CALLBACK_TYPE:
+        """Track the target and subscribe; returns the unsubscribe."""
+        setup = super().async_setup()
+        if inspect.isawaitable(setup):
+            await setup
+        self._subscribe()
+        return self._unsubscribe
+
+    @callback
+    def _subscribe(self) -> None:
+        """Whatever the listener needs beyond the registry subscriptions."""
+
+
+class _IncidentEventListener(_AlertTracker):
     """Fire the runner for the target's alerts when their event passes the threshold."""
 
     def __init__(
@@ -144,23 +211,17 @@ class _IncidentEventListener(TargetEntityChangeTracker):
         threshold: int,
         run_action: TriggerActionRunner,
     ) -> None:
-        super().__init__(hass, target_selection, _alert_entities)
+        super().__init__(hass, target_selection, run_action)
         self._event_type = event_type
         self._threshold = threshold
         self._matches = matches
-        self._run_action = run_action
-        self._tracked: set[str] = set()
         self._bus_unsub: CALLBACK_TYPE | None = None
 
-    async def async_setup(self) -> CALLBACK_TYPE:
-        """Track the target and listen on the bus; returns the unsubscribe."""
-        setup = super().async_setup()
-        if inspect.isawaitable(setup):
-            await setup
+    @callback
+    def _subscribe(self) -> None:
         self._bus_unsub = self._hass.bus.async_listen(
             self._event_type, self._handle_event
         )
-        return self._unsubscribe
 
     @callback
     def _handle_entities_update(self, tracked_entities: set[str]) -> None:
@@ -184,27 +245,144 @@ class _IncidentEventListener(TargetEntityChangeTracker):
             self._bus_unsub = None
 
 
-class _IncidentTrigger(Trigger):
-    """A trigger bound to one incident event, with a target and a threshold.
+class _TimedListener(_AlertTracker):
+    """Fire the runner when a targeted alert's timestamp attribute arrives.
 
-    ``_matches`` reads the event's payload against the threshold's rank. Two
-    triggers share ``incident_updated``, one for each direction, so the matcher
-    is the class's and not the event's.
+    One timer per alert, keyed on the attribute's value: a revision that moves
+    the time re-arms, a revision that leaves it alone keeps the timer, and a
+    value that has already fired never fires again. A time already past when
+    the alert is first seen does not fire, "issued" covered that. The
+    threshold is read at firing, against the severity the alert has then.
     """
 
-    _event_type: str
-    _matches: _Matcher
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        target_selection: TargetSelection,
+        attribute: str,
+        threshold: int,
+        offset: timedelta,
+        run_action: TriggerActionRunner,
+    ) -> None:
+        super().__init__(hass, target_selection, run_action)
+        self._attribute = attribute
+        self._threshold = threshold
+        self._offset = offset
+        self._timers: dict[str, tuple[datetime, CALLBACK_TYPE]] = {}
+        self._fired: dict[str, str] = {}
+        self._state_unsub: CALLBACK_TYPE | None = None
+
+    @callback
+    def _handle_entities_update(self, tracked_entities: set[str]) -> None:
+        for entity_id in self._tracked - tracked_entities:
+            self._disarm(entity_id)
+            self._fired.pop(entity_id, None)
+        self._tracked = tracked_entities
+        if self._state_unsub is not None:
+            self._state_unsub()
+            self._state_unsub = None
+        if tracked_entities:
+            self._state_unsub = async_track_state_change_event(
+                self._hass, list(tracked_entities), self._handle_state_change
+            )
+        for entity_id in tracked_entities:
+            self._arm(entity_id)
+
+    @callback
+    def _handle_state_change(self, event: Event[Any]) -> None:
+        self._arm(event.data["entity_id"])
+
+    @callback
+    def _arm(self, entity_id: str) -> None:
+        state = self._hass.states.get(entity_id)
+        value = state.attributes.get(self._attribute) if state else None
+        if (
+            not isinstance(value, str)
+            or (when := _parse_time(value)) is None
+            or value == self._fired.get(entity_id)
+        ):
+            self._disarm(entity_id)
+            return
+        fire_at = when + self._offset
+        armed = self._timers.get(entity_id)
+        if armed is not None and armed[0] == fire_at:
+            return
+        self._disarm(entity_id)
+        if fire_at <= dt_util.utcnow():
+            return
+        unsub = async_track_point_in_time(
+            self._hass, HassJob(partial(self._fire, entity_id, value)), fire_at
+        )
+        self._timers[entity_id] = (fire_at, unsub)
+
+    @callback
+    def _disarm(self, entity_id: str) -> None:
+        armed = self._timers.pop(entity_id, None)
+        if armed is not None:
+            armed[1]()
+
+    @callback
+    def _fire(self, entity_id: str, value: str, _now: datetime) -> None:
+        self._timers.pop(entity_id, None)
+        state = self._hass.states.get(entity_id)
+        if state is None or state.attributes.get(self._attribute) != value:
+            return
+        self._fired[entity_id] = value
+        if _rank(state.state) < self._threshold:
+            return
+        attrs = state.attributes
+        payload = {
+            "entity_id": entity_id,
+            "incident_id": attrs.get("id"),
+            "event": attrs.get("event"),
+            "severity": state.state,
+            "area_desc": attrs.get("area_desc"),
+            self._attribute: value,
+            CONF_OFFSET: self._offset,
+        }
+        self._run_action(payload, f"alert {self._attribute} reached")
+
+    def _unsubscribe(self) -> None:
+        super()._unsubscribe()
+        if self._state_unsub is not None:
+            self._state_unsub()
+            self._state_unsub = None
+        for entity_id in list(self._timers):
+            self._disarm(entity_id)
+
+
+def _parse_time(value: str) -> datetime | None:
+    """A CAP timestamp attribute as an aware UTC datetime, or None."""
+    when = dt_util.parse_datetime(value) if value else None
+    return dt_util.as_utc(when) if when is not None else None
+
+
+class _TargetedTrigger(Trigger):
+    """A trigger on a target of alert entities, with a severity threshold.
+
+    Subclasses name their options schema and build the listener; the target
+    check and the attach are the same for all seven.
+    """
+
+    _schema: vol.Schema
 
     @classmethod
     async def async_validate_config(
         cls, hass: HomeAssistant, config: ConfigType
     ) -> ConfigType:
-        return cast(ConfigType, _TRIGGER_SCHEMA(config))
+        return cast(ConfigType, cls._schema(config))
 
     def __init__(self, hass: HomeAssistant, config: TriggerConfig) -> None:
         super().__init__(hass, config)
         self._target: dict[str, Any] = config.target or {}
-        self._threshold = THRESHOLD_RANK[(config.options or {})[CONF_THRESHOLD]]
+        self._options: dict[str, Any] = config.options or {}
+        self._threshold = THRESHOLD_RANK[self._options[CONF_THRESHOLD]]
+
+    @abc.abstractmethod
+    def _listener(
+        self, target_selection: TargetSelection, run_action: TriggerActionRunner
+    ) -> _AlertTracker:
+        """The tracker that fires ``run_action`` for this trigger."""
 
     async def async_attach_runner(
         self, run_action: TriggerActionRunner, did_not_trigger: Any = None
@@ -212,7 +390,25 @@ class _IncidentTrigger(Trigger):
         target_selection = TargetSelection(self._target)
         if not target_selection.has_any_target:
             raise HomeAssistantError(f"No target defined in {self._target}")
-        listener = _IncidentEventListener(
+        return await self._listener(target_selection, run_action).async_setup()
+
+
+class _IncidentTrigger(_TargetedTrigger):
+    """A trigger bound to one incident event.
+
+    ``_matches`` reads the event's payload against the threshold's rank. Two
+    triggers share ``incident_updated``, one for each direction, so the matcher
+    is the class's and not the event's.
+    """
+
+    _schema = _TRIGGER_SCHEMA
+    _event_type: str
+    _matches: _Matcher
+
+    def _listener(
+        self, target_selection: TargetSelection, run_action: TriggerActionRunner
+    ) -> _AlertTracker:
+        return _IncidentEventListener(
             self._hass,
             target_selection,
             self._event_type,
@@ -220,7 +416,31 @@ class _IncidentTrigger(Trigger):
             self._threshold,
             run_action,
         )
-        return await listener.async_setup()
+
+
+class _TimedIncidentTrigger(_TargetedTrigger):
+    """A trigger on a targeted alert's timestamp attribute, with an offset."""
+
+    _schema = _TIMED_TRIGGER_SCHEMA
+    _attribute: str
+
+    def __init__(self, hass: HomeAssistant, config: TriggerConfig) -> None:
+        super().__init__(hass, config)
+        offset: timedelta = self._options[CONF_OFFSET]
+        before = self._options[CONF_OFFSET_TYPE] == OFFSET_BEFORE
+        self._offset = -offset if before else offset
+
+    def _listener(
+        self, target_selection: TargetSelection, run_action: TriggerActionRunner
+    ) -> _AlertTracker:
+        return _TimedListener(
+            self._hass,
+            target_selection,
+            self._attribute,
+            self._threshold,
+            self._offset,
+            run_action,
+        )
 
 
 class IncidentArrivedTrigger(_IncidentTrigger):
@@ -262,12 +482,19 @@ class IncidentEndedTrigger(_IncidentTrigger):
     _matches = staticmethod(_at_or_above)
 
 
+class IncidentStartedTrigger(_TimedIncidentTrigger):
+    """A targeted alert's onset arrives, offset before or after."""
+
+    _attribute = "onset"
+
+
 TRIGGERS: dict[str, type[Trigger]] = {
     "incident_arrived": IncidentArrivedTrigger,
     "incident_updated": IncidentUpdatedTrigger,
     "incident_escalated": IncidentEscalatedTrigger,
     "incident_downgraded": IncidentDowngradedTrigger,
     "incident_ended": IncidentEndedTrigger,
+    "incident_started": IncidentStartedTrigger,
 }
 
 
