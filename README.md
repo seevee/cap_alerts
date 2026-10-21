@@ -155,8 +155,14 @@ Every entry produces one device, named `CAP Alerts <PROVIDER>`, grouping:
 | `binary_sensor.cap_alerts_eccc_real_time_stream` | `on` / `off` | NAAD socket connected. ECCC with streaming on only. Diagnostic. |
 
 The device name is stable across reconfigures, so entity IDs do not drift when
-you change GPS, zone or region. The entry title carries the location detail.
-With several entries of one provider, rename the devices to tell them apart.
+you change GPS, zone or region. The entry title carries the location detail,
+the device name does not: two entries of one provider, two NWS zone groups or
+two Australian states, show as two devices named alike in every device picker,
+the trigger target among them. Rename the device to tell them apart: Settings
+→ Devices & Services → CAP Alerts → the device → the pencil next to its name.
+The name you give it survives updates and reconfigures (#325). Alert entities
+created after the rename take it as their ID prefix, and the rename dialog
+offers to move the existing ones over too.
 
 ### Alert attributes
 
