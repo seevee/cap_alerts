@@ -66,50 +66,42 @@ WMO vocabulary is not probed: it's per-configured-source RSS with no bounded
 national endpoint. GDACS index structure is covered; its per-event GeoJSON is
 not.
 
-### WMO mirror lag
+### WMO mirror retirement
 
-The same probe watches WMO for a different failure. The integration polls the
-SWIC mirror, not the authority's own feed, and the mirror can silently stop
-following a source: three Timor-Leste alerts issued over 2024-2025 never
-reached it, and a user on `tl-dnmg-en` saw an empty feed, which looks exactly
-like no warnings in force (#210). About 120 of the registry's language feeds
-live on WMO's own `cap-sources` S3 bucket, one file per alert and publicly
-listable, so the probe compares each mirror's newest item with the newest
-`Actual` alert its bucket received at least a week ago and reports a mirror
-that still lacks it, provided the authority has published in the last 90
-days. The week is the mirror's grace: judged against the bucket's newest file
-instead, the probe paged an hour after Senegal's `sn-anacim-fr` published its
-first alert in four months (#238), before the mirror had any chance to catch
-up. A stall behind a dormant source costs no one anything and would only be
-noise; it files a week after the source publishes again, since the token was
-never accepted. Senegal's did exactly that (#248). On
-2026-09-19, the day it was written, 14 of the 93 mirrored feeds were behind
-and one of them, Egypt's `eg-ema-en`, had a live authority; that one is the
-seeded baseline, the rest are listed under the WMO section of
-`docs/architecture.md`. The `mirror_lag` token carries the
-date the mirror stopped (`tl-dnmg-en@2023-12-20`), so a mirror that recovers
-and stalls again is new drift, and the witness is the newest alert the mirror
-is missing. A mirror can also be lossy rather than stalled: `cm-meteo-fr` has
-skipped about a third of its bucket's files since 2022 and only paged (#240)
-once a skipped file was the newest settled one, so a token's date is where the
-mirror's feed ends, not necessarily where the loss began.
+The same probe watches WMO for a different thing. SWIC retired the per-source
+RSS feeds on its mirror on 2026-10-08 and confirmed it on 2026-10-22: 138 of
+140 ids answer 404, and only `cn-cma-xx` and `au-bom-en` still serve. The
+integration reads the authority's own feed first under `auto` and keeps the
+mirror in the union for those two (#333). The day SWIC retires one of them is
+the day the mirror leg and the `mirror` feed source can come out, so the
+probe asks both every run and reports a `mirror_retired` token once one
+answers 404. Any other failure is a probe failure, not a retirement.
 
-Responding to a mirror-lag token is different from vocabulary drift. Since
-#210 shipped the `auto` feed source, an entry on the default polls the bucket
-feed beside the mirror and already carries the alert the mirror lacks; only
-an entry pinned to `mirror` sees the lag. The token is still worth reporting
-upstream, because the mirror is the first feed read and its coverage is what
-SWIC maintains:
+Responding to a `mirror_retired` token:
 
-1. Confirm it against the witness: the alert exists in the bucket and the
-   mirror's feed for that source doesn't list it.
-2. Report the source to SWIC (their contact is on the registry page each
-   record links to). There is no formal channel; #210's reporter went
-   through the SWIC site.
-3. Add the source to the mirror-lag list under the WMO section of
-   `docs/architecture.md`, so a user who pinned `mirror` can find out why
-   it's empty.
-4. Accept the token with `--update` as for vocabulary, and close the issue.
+1. Confirm it stays down: fetch
+   `https://severeweather.wmo.int/v2/cap-alerts/<id>/rss.xml` again later.
+   A single 404 behind CloudFront has happened before during an origin outage.
+2. Do #333's last step: remove the mirror leg and the `mirror` feed source,
+   with a repairs issue for entries pinned to it.
+3. Accept the token with `--update` as for vocabulary, and close the issue.
+
+**History: mirror lag, 2026-09-19 to 2026-10-07.** Before the retirement the
+probe compared each mirror with its source's `cap-sources` bucket, because a
+mirror could silently stop following a source: three Timor-Leste alerts
+issued over 2024-2025 never reached it, and a user on `tl-dnmg-en` saw an
+empty feed, which looks exactly like no warnings in force (#210). About 120
+language feeds lived on the bucket, one file per alert and publicly
+listable, so the probe compared each mirror's newest item with the newest
+`Actual` alert its bucket received at least a week ago, and reported a mirror
+still missing it while the authority had published in the last 90 days. The
+week was the mirror's grace: judged against the bucket's newest file instead,
+the probe paged an hour after Senegal's `sn-anacim-fr` published its first
+alert in four months (#238). It filed Senegal's real stall a week later
+(#248), and lossy rather than stalled mirrors for Cameroon (#240), India
+(#282) and Nigeria (#290); the measurements are under the WMO section of
+`docs/architecture.md`. The lag tokens left the baseline when the check was
+retired, since there is no mirror left to fall behind.
 
 ## The human half: announcement channels
 
@@ -119,7 +111,7 @@ SWIC maintains:
 | NAAD (Pelmorex) | [NAAD governance council summaries](https://alerts.pelmorex.com/) | skim quarterly |
 | NWS | [Service Change Notices](https://www.weather.gov/notification/) and the [weather-gov/api](https://github.com/weather-gov/api) repo discussions | subscribe / GitHub watch |
 | MeteoAlarm | no formal channel; [meteoalarm.org](https://meteoalarm.org/) news | probe covers it |
-| WMO SWIC | no formal channel; the [registry record](https://severeweather.wmo.int/v2/json/sources.json) names each authority's contact | probe covers mirror lag on the cap-sources feeds; vocabulary is announcement-only |
+| WMO SWIC | no formal channel; the [registry record](https://severeweather.wmo.int/v2/json/sources.json) names each authority's contact | probe watches the two mirror feeds SWIC still serves; vocabulary is announcement-only |
 | GDACS | no formal channel; [gdacs.org](https://www.gdacs.org/) | probe covers the indexes |
 | Australia (NSW RFS, QFD, DFES, TasALERT) | no formal channel; each agency's own site, and the [CAP-AU profile page](https://www.bom.gov.au/metadata/CAP-AU/About.shtml) for the national standard | probe covers all four feeds: envelope and alert paths, `AlertLevel` values, event codes, geocode schemes, marker-circle radii (`IncidentType` is tracked as a key only, its values are dispatch dictionaries) |
 | BBK / NINA | no formal channel; [BBK NINA pages](https://www.bbk.bund.de/DE/Warnung-Vorsorge/Warn-App-NINA/warn-app-nina_node.html) and the [bund.dev API listing](https://bund.dev/apis) | probe covers the channel indexes, documents, `GROUP` codes, id prefixes |

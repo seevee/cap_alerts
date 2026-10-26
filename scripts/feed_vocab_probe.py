@@ -41,21 +41,16 @@ is also read over the last 48 h of alerts, not just the active instant,
 since the API answers historical queries; the other feeds show only what
 is live, and the daily schedule is what bounds the gap there.
 
-WMO is probed for a different failure (issue #210): the SWIC mirror the
-integration polls can silently stop following a source's own feed. Three
-Timor-Leste alerts issued over 2024-2025 never reached the mirror, and a
-user on ``tl-dnmg-en`` saw an empty feed, which looks exactly like no
-warnings in force. Vocabulary is not sampled there (per-configured-source
-RSS, no bounded national endpoint), but the ~120 sources whose registry
-``capAlertFeed`` lives on the cap-sources S3 bucket can be listed, so the
-probe compares each mirror's newest item with the newest ``Actual`` alert
-its bucket received at least a week ago and reports a mirror that still
-lacks it, provided the authority has published in the last 90 days: a stall
-costs nothing while the source is dormant, and it files a week after the
-source publishes again. The token carries the date the mirror stopped
-(``tl-dnmg-en@2023-12-20``), so a mirror that recovers and stalls again is
-new drift. On the day it was written 14 of 93 mirrored feeds were behind and
-one (Egypt) had a live authority behind it.
+WMO is probed for a different thing (issue #333). SWIC retired the
+per-source RSS feeds on its mirror on 2026-10-08; only ``cn-cma-xx`` and
+``au-bom-en`` still answer, and the integration keeps the mirror in the
+``auto`` union for them. The day SWIC retires one of those is the day the
+mirror leg and the ``mirror`` feed source can come out, so the probe asks
+both every run and reports a ``mirror_retired`` token once one answers 404.
+Vocabulary is not sampled there (per-configured-source feeds, no bounded
+national endpoint). Until the retirement the probe compared each mirror
+with its source's cap-sources bucket and reported a mirror that had stopped
+following it (#210); that history is in docs/provider-watch.md.
 
 Usage:
     scripts/feed_vocab_probe.py                    # probe all, diff vs baseline
@@ -96,7 +91,6 @@ import urllib.request
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -138,31 +132,12 @@ NWS_MAX_PAGES = 40  # 20k alerts; two days ran 2,771 in 7 pages on 2026-09-02
 # needs to hear about); a known product going live is weather.
 NWS_TYPES_URL = "https://api.weather.gov/alerts/types"
 METEOALARM_FEED_URL = "https://feeds.meteoalarm.org/api/v1/warnings/feeds-{country}"
-# providers/wmo.py::WMO_RSS_URL, the feed the integration actually polls.
+# providers/wmo.py::WMO_RSS_URL, the mirror feed the integration polls beside
+# the authority's own.
 WMO_MIRROR_RSS_URL = "https://severeweather.wmo.int/v2/cap-alerts/{source_id}/rss.xml"
-WMO_SOURCES_URL: str = _const.WMO_SOURCES_URL
-# Where the registry's ``capAlertFeed`` points for the authorities that
-# publish through WMO's hosted CAP editor: one folder per language feed,
-# one file per alert, publicly listable. The mirror is supposed to follow it.
-CAP_SOURCES_BUCKET = "https://cap-sources.s3.amazonaws.com/"
-# The grace the mirror gets to pick up a bucket file. A mirror still missing
-# an Actual alert this long after it reached the bucket has stopped
-# following it. Ingestion normally takes minutes (4 to 7 min across four
-# sources measured on 2026-09-24) and the worst lag measured before a mirror
-# stopped outright was 62 h; a week is comfortably past both, and short
-# against the few alerts a month these authorities issue. Files younger than
-# this are not judged at all: comparing against the bucket's newest file
-# paged one hour after Senegal published its first alert in four months
-# (#238), when the mirror had been given no chance to catch up.
-WMO_MIRROR_LAG = timedelta(days=7)
-# Bodies read back from the newest end of a lagging bucket to find its
-# newest Actual alert (Test and Exercise traffic is not the mirror's job).
-WMO_LAG_CONFIRM_BODIES = 5
-# A lagging mirror is reported only while its authority is publishing: a
-# source whose newest Actual alert is older than this is dormant, and a stall
-# behind it costs no user anything until it wakes, at which point the same
-# token files. Of the 14 mirrors behind on 2026-09-19, one passed this.
-WMO_SOURCE_ACTIVE = timedelta(days=90)
+# The mirror feeds SWIC still served after retiring the rest on 2026-10-08
+# (138 of 140 ids 404, swept 2026-10-22; both still 200 on 2026-10-26).
+WMO_MIRROR_SURVIVORS = ("au-bom-en", "cn-cma-xx")
 
 BASELINE_PATH = Path(__file__).resolve().parent / "feed_vocab_baseline.json"
 
@@ -974,10 +949,8 @@ def probe_bbk(timeout: float, max_bodies: int, workers: int) -> Sample:
 
 
 # ---------------------------------------------------------------------------
-# WMO: mirror lag (issue #210)
+# WMO: the surviving mirror feeds (issue #333)
 # ---------------------------------------------------------------------------
-
-S3_NS = "http://s3.amazonaws.com/doc/2006-03-01/"
 
 
 def _fetch_optional(url: str, *, timeout: float) -> str | None:
@@ -990,178 +963,24 @@ def _fetch_optional(url: str, *, timeout: float) -> str | None:
         raise
 
 
-def _s3_prefixes(registry: object) -> list[str]:
-    """The registry's language feeds hosted on the cap-sources bucket.
+def probe_wmo(timeout: float) -> Sample:
+    """The mirror feeds SWIC still serves, and whether they still answer.
 
-    A registry record lists one ``capAlertFeed`` URL per language, comma
-    separated. Only bucket-hosted feeds are listable; the ~70 on national
-    hosts are of no common shape and are left to the human half.
+    Not vocabulary: a ``mirror_retired`` token names a survivor that answered
+    404, the signal to remove the mirror leg (#333). Any other failure raises,
+    so an outage reads as a probe failure rather than a retirement. A feed
+    that answers adds nothing.
     """
-    sources = registry.get("sources") if isinstance(registry, dict) else None
-    prefixes: set[str] = set()
-    for entry in sources or []:
-        source = entry.get("source") if isinstance(entry, dict) else None
-        if not isinstance(source, dict):
-            continue
-        for url in str(source.get("capAlertFeed") or "").split(","):
-            match = re.match(rf"{re.escape(CAP_SOURCES_BUCKET)}([^/]+)/", url.strip())
-            if match:
-                prefixes.add(match.group(1))
-    return sorted(prefixes)
-
-
-def _mirror_newest(prefix: str, timeout: float) -> tuple[int, datetime | None] | None:
-    """Item count and newest ``pubDate`` on the mirror; ``None`` if it 404s."""
-    body = _fetch_optional(WMO_MIRROR_RSS_URL.format(source_id=prefix), timeout=timeout)
-    if body is None:
-        return None
-    items = list(ET.fromstring(body).iter("item"))
-    newest: datetime | None = None
-    for item in items:
-        text = (item.findtext("pubDate") or "").strip()
-        try:
-            published = parsedate_to_datetime(text)
-        except (TypeError, ValueError):
-            continue
-        if published.tzinfo is None:
-            published = published.replace(tzinfo=timezone.utc)
-        if newest is None or published > newest:
-            newest = published
-    return len(items), newest
-
-
-def _s3_alert_keys(prefix: str, timeout: float) -> list[tuple[datetime, str]]:
-    """Every alert file under the prefix as (last modified, key), oldest first.
-
-    The folder also holds the feed's own ``rss.xml`` and two stylesheets;
-    everything else is one CAP document per alert.
-    """
-    keys: list[tuple[datetime, str]] = []
-    token: str | None = None
-    while True:
-        url = f"{CAP_SOURCES_BUCKET}?list-type=2&prefix={prefix}/"
-        if token:
-            url += f"&continuation-token={urllib.parse.quote(token)}"
-        root = ET.fromstring(fetch(url, timeout=timeout))
-        for entry in root.iter(f"{{{S3_NS}}}Contents"):
-            key = entry.findtext(f"{{{S3_NS}}}Key") or ""
-            modified = entry.findtext(f"{{{S3_NS}}}LastModified") or ""
-            if not key.endswith(".xml") or key.endswith("/rss.xml"):
-                continue
-            keys.append((datetime.fromisoformat(modified.replace("Z", "+00:00")), key))
-        if root.findtext(f"{{{S3_NS}}}IsTruncated") != "true":
-            break
-        token = root.findtext(f"{{{S3_NS}}}NextContinuationToken")
-    keys.sort()
-    return keys
-
-
-def _newest_actual(
-    keys: list[tuple[datetime, str]], timeout: float
-) -> tuple[datetime, str] | None:
-    """The newest ``status=Actual`` document among the last few uploaded."""
-    for modified, key in reversed(keys[-WMO_LAG_CONFIRM_BODIES:]):
-        try:
-            root = ET.fromstring(fetch(CAP_SOURCES_BUCKET + key, timeout=timeout))
-        except ET.ParseError:
-            continue
-        if (root.findtext("{*}status") or "").strip() == "Actual":
-            return modified, key
-    return None
-
-
-def _check_mirror(
-    prefix: str, timeout: float
-) -> tuple[str, str, str | None, str | None]:
-    """Classify one feed: (prefix, verdict, token, witness URL).
-
-    Verdicts: ``unmirrored`` (the mirror 404s), ``quiet`` (no Actual alert
-    among the bucket's settled files), ``settling`` (every file is younger
-    than ``WMO_MIRROR_LAG``, so the mirror has not had its grace yet),
-    ``fresh``, ``dormant`` (behind, but the authority has not published
-    within ``WMO_SOURCE_ACTIVE``), or ``lag``.
-
-    Only files the mirror has had ``WMO_MIRROR_LAG`` to pick up are judged,
-    and the mirror is fresh when its newest item is no older than the newest
-    of them: the mirror stamps an item with its ingestion time, minutes
-    after the upload. The bucket's upload times gate the comparison so
-    bodies are only read back for a feed that already looks behind and
-    whose source is awake.
-    """
-    mirror = _mirror_newest(prefix, timeout)
-    if mirror is None:
-        return prefix, "unmirrored", None, None
-    _, mirror_newest = mirror
-    keys = _s3_alert_keys(prefix, timeout)
-    if not keys:
-        return prefix, "quiet", None, None
-    now = datetime.now(timezone.utc)
-    settled = [
-        (uploaded, key) for uploaded, key in keys if now - uploaded > WMO_MIRROR_LAG
-    ]
-    if not settled:
-        return prefix, "settling", None, None
-    if mirror_newest is not None and mirror_newest >= settled[-1][0]:
-        return prefix, "fresh", None, None
-    if now - settled[-1][0] > WMO_SOURCE_ACTIVE:
-        return prefix, "dormant", None, None
-    actual = _newest_actual(settled, timeout)
-    if actual is None:
-        return prefix, "quiet", None, None
-    uploaded, key = actual
-    if mirror_newest is not None and mirror_newest >= uploaded:
-        return prefix, "fresh", None, None
-    if now - uploaded > WMO_SOURCE_ACTIVE:
-        return prefix, "dormant", None, None
-    stopped = f"{mirror_newest:%Y-%m-%d}" if mirror_newest else "never"
-    return prefix, "lag", f"{prefix}@{stopped}", CAP_SOURCES_BUCKET + key
-
-
-def probe_wmo(timeout: float, workers: int) -> Sample:
-    """SWIC mirror feeds that have stopped following their cap-sources bucket.
-
-    Not vocabulary: a ``mirror_lag`` token names a feed and the date of the
-    mirror's newest item, witnessed by the newest Actual alert the source
-    has published since. Only feeds whose authority published within
-    ``WMO_SOURCE_ACTIVE`` are reported; the rest are tallied as dormant on
-    stdout. The baseline holds the acknowledged laggards; a mirror that
-    recovers and stalls again carries a new date and is drift.
-    """
-    registry = json.loads(fetch(WMO_SOURCES_URL, timeout=timeout))
-    prefixes = _s3_prefixes(registry)
-    if not prefixes:
-        raise RuntimeError("SWIC registry listed no cap-sources feeds")
-
-    def check(prefix: str) -> tuple[str, str, str | None, str | None]:
-        try:
-            return _check_mirror(prefix, timeout)
-        except Exception as err:  # noqa: BLE001 — one feed must not end the sweep
-            return prefix, "error", None, str(err)
-
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(check, prefixes))
-
-    errors = [
-        (prefix, detail) for prefix, verdict, _, detail in results if verdict == "error"
-    ]
-    if len(errors) > len(prefixes) // 10:
-        shown = "; ".join(f"{prefix}: {detail}" for prefix, detail in errors[:3])
-        raise RuntimeError(
-            f"{len(errors)} of {len(prefixes)} feeds unreachable ({shown})"
-        )
-
     sample = Sample()
-    tally: dict[str, int] = {}
-    for prefix, verdict, token, witness in results:
-        tally[verdict] = tally.get(verdict, 0) + 1
-        if verdict == "lag":
-            sample.add("mirror_lag", token, witness)
-        elif verdict == "error":
-            print(f"  wmo: skipped {prefix}: {witness}")
-    print(
-        f"  wmo: {len(prefixes)} cap-sources feeds: "
-        + ", ".join(f"{count} {verdict}" for verdict, count in sorted(tally.items()))
-    )
+    for source_id in WMO_MIRROR_SURVIVORS:
+        url = WMO_MIRROR_RSS_URL.format(source_id=source_id)
+        body = _fetch_optional(url, timeout=timeout)
+        if body is None:
+            sample.add("mirror_retired", source_id)
+            print(f"  wmo: {source_id}: mirror feed answers 404")
+            continue
+        items = len(list(ET.fromstring(body).iter("item")))
+        print(f"  wmo: {source_id}: mirror feed answers, {items} items")
     return sample
 
 
@@ -1244,13 +1063,11 @@ def build_report(
     if "wmo" in drift:
         lines.append("")
         lines.append(
-            "A `wmo` mirror_lag token is a SWIC mirror feed that has stopped "
-            "following its cap-sources bucket (#210): the date is the mirror's "
-            "newest item, the alert is the newest Actual one the source has "
-            "published since. Users of that source see an empty feed, not an "
-            "error. Report it to SWIC, note it under the WMO section of "
-            "docs/architecture.md, and accept the token the same way; a mirror "
-            "that recovers and stalls again gets a new date and a fresh token."
+            "A `wmo` mirror_retired token means one of the two mirror feeds "
+            "SWIC kept after retiring the rest (#333) now answers 404. Confirm "
+            "it stays down, then do #333's last step: remove the mirror leg and "
+            "the `mirror` feed source, with a repairs issue for entries pinned "
+            "to it. Accept the token with `--update` like any other."
         )
     return "\n".join(lines) + "\n"
 
@@ -1348,7 +1165,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Probe the live provider feeds: diff their vocabulary against the "
-            "baseline and check each WMO mirror against its source."
+            "baseline and check the WMO mirror feeds that survive."
         )
     )
     parser.add_argument(
@@ -1407,7 +1224,7 @@ def main() -> int:
             elif provider == "gdacs":
                 observed[provider] = probe_gdacs(args.timeout)
             elif provider == "wmo":
-                observed[provider] = probe_wmo(args.timeout, args.workers)
+                observed[provider] = probe_wmo(args.timeout)
             elif provider == "bbk":
                 observed[provider] = probe_bbk(
                     args.timeout, args.max_bodies, args.workers

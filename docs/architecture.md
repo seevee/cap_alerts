@@ -742,11 +742,9 @@ entries. Covers countries without a dedicated provider (Mexico, Brazil, Japan, �
 from the live SWIC registry at `https://severeweather.wmo.int/v2/json/sources.json`
 via `wmo.fetch_wmo_sources` (mirroring `meteoalarm.fetch_regions_for_country`).
 Nothing is filtered: since #210 every record resolves to a feed the provider
-can poll (the mirror, the authority's own, or both), and a source whose feeds
-are all dead is reported by the source step's validation rather than hidden.
-`const.py::WMO_UNMIRRORED_SOURCES`, the ~21 sources that 404'd on the mirror
-when verified on 2026-05-24, stays as a point-in-time record of mirror
-coverage and filters nothing. There is **no** cross-provider uniqueness
+can poll (the authority's own, plus the mirror for the two sources it still
+serves), and a source whose feeds are all dead is reported by the source
+step's validation rather than hidden. There is **no** cross-provider uniqueness
 filtering: feeds also served by MeteoAlarm or NWS are listed too, since
 `custom_value` would bypass any such filter anyway and the dedicated providers
 are merely *recommended*, not enforced (the field description points EU/US
@@ -767,28 +765,37 @@ parses each CAP file — the CAP body is the authoritative source for every
 `CAPAlert` field. WMO feeds ship one language per source, so there is no
 bilingual merge: `headline_alt` / `description_alt` stay empty.
 
-**Feed sources (issue #210)**: two feeds can carry a source. The SWIC mirror
-serves `…/cap-alerts/{source_id}/rss.xml` for every source it follows, and
-the registry record's `capAlertFeed` names the feed the authority publishes
+**Feed sources (issues #210, #333)**: two feeds can carry a source. The
+registry record's `capAlertFeed` names the feed the authority publishes
 itself: a folder on WMO's `cap-sources` S3 bucket for ~120 language feeds
 (~61 records), a national host for the ~42 others, and MeteoAlarm or NWS for
-the rest. The mirror is a copy that can lag, drop files, or go down with
-nothing in the feed to say so (the 2026-10 outage 404'd every mirrored source
-for days while the registry kept answering from CloudFront edge copies), and
-none of that is detectable inside one poll. So `feed_source` (`CONF_FEED_SOURCE`,
-WMO options flow, default `auto`) does not detect anything: `auto` polls the
-mirror **and** the authority feed and unions them by CAP `<identifier>`; an
-alert both carry keeps the mirror's copy, so the `url` attribute existing
-entries publish does not flip. `mirror` / `authority` pin one feed as an
-escape hatch; `authority` is validated on save (`flows/wmo.py::
-async_validate_options`, error `authority_feed_unavailable`) by resolving the
-record and fetching the feed once under the config-flow timeout. An absent
-option means `auto`, so existing entries get the union without reconfiguring.
-Per-feed failure is tolerated under `auto` (one warning per failure streak per
-feed, as ECCC does per NAAD host); only every feed failing raises
-`ProviderError` naming each. The cost of the second feed is one small GET plus
-bodies for *new* items only, since `CAPContentCache` keys by URL and CAP
-bodies are immutable.
+the rest. The SWIC mirror served `…/cap-alerts/{source_id}/rss.xml` beside it
+until SWIC retired those feeds on 2026-10-08 (confirmed 2026-10-22, no
+replacement); 138 of 140 ids answer 404 and only `cn-cma-xx` and `au-bom-en`
+still serve. Before that the mirror was the feed every entry polled, a copy
+that could lag or drop files with nothing in the feed to say so (*Mirror lag*
+below), which is why #210 added the authority feed as a union rather than a
+detected fallback.
+
+`feed_source` (`CONF_FEED_SOURCE`, WMO options flow, default `auto`): `auto`
+reads the authority feed first and the mirror second and unions them by CAP
+`<identifier>`, so an alert both carry keeps the authority's copy and its
+`url`. A mirror 404 beside another feed is not warned about: after
+`WMO_MIRROR_GONE_STREAK` (3) in a row the mirror is skipped and probed once
+per `WMO_HEAVY_INDEX_INTERVAL` (30 min) until it answers again. Three rather
+than one because for `cn-cma-xx` the mirror is the fresher feed and one
+CloudFront 404 should not cost that. A mirror read alone (pinned, or no
+authority resolving) is read every poll and fails as any feed does.
+`mirror` / `authority` pin one feed. A changed value is validated on save
+(`flows/wmo.py::async_validate_options`, error `authority_feed_unavailable`):
+`authority` needs the authority feed to answer, `auto` either feed, under
+the config-flow timeout. An unchanged value is not checked, so an entry
+whose feed is down can still edit its other options. An absent option means
+`auto`. Per-feed failure is tolerated under `auto` (one warning per failure
+streak per feed, as ECCC does per NAAD host); only every feed read failing
+raises `ProviderError` naming each. The cost of the second feed is one small
+GET plus bodies for *new* items only, since `CAPContentCache` keys by URL and
+CAP bodies are immutable.
 
 *Resolution* (`wmo.authority_feed_url`, pure over the registry payload,
 resolved once per provider instance on first need and retried next poll while
@@ -804,9 +811,10 @@ sharing the id's `{country}-{agency}` prefix, two or more being ambiguous;
 entry whose primary subtag equals the id's trailing tag, else the first, except
 that a record whose URLs are all bucket folders is unresolvable when none
 matched in (1): `gw-inm-en` lists `gw-inm-fr` and `gw-inm-pt`, neither its
-own, and stays mirror-only. `cn-cma-xx`'s record names a different bucket
-(`alert-feed-worldweather-org`); a record that names the mirror itself is read
-once.
+own, and stays mirror-only, which since the retirement means no feed at
+all. `cn-cma-xx`'s record names a different bucket
+(`alert-feed-worldweather-org`); a record that names the mirror itself is
+read once.
 
 *Body-level filters*: the bucket's `rss.xml` is a lazily-purged recent list
 (26 of 120 folders list anything, the largest 50; of 278 bodies read on
@@ -836,9 +844,10 @@ which is retried next poll, for up to `WMO_HEAVY_INDEX_STAND_IN_LIMIT` (three
 intervals) after the last read that succeeded; past that the failure
 propagates like any feed failure and the index's alerts go absent as they
 did before, so an index that went away for good cannot keep its last list in
-sight forever. The mirror is read every poll regardless: it is
-the fresher feed and carries the envelope pre-filter. Health-gated fallback
-(mirror alone while healthy) was measured and rejected: the mirror is a fixed
+sight forever. The mirror, where it still answers, is read every poll
+regardless: it is the fresher feed and carries the envelope pre-filter.
+Health-gated fallback (mirror alone while healthy) was measured on
+`cn-cma-xx` on 2026-10-13 and rejected: the mirror is a fixed
 500-item list that is always fresh, and 31% of its items are missing from the
 bucket while the bucket carries alerts the mirror evicted, so neither feed
 alone is complete and the union stays. The stand-in is what makes the slower
@@ -850,61 +859,66 @@ last read and the interval in effect under `source.authority_index`.
 *National hosts that fail today* (swept 2026-10-12, 41 records): 7 fail DNS
 or TLS, `id-inatews-id` is 403, `sa-ncm-en` is 404, and `ca-msc-xx`,
 `is-vedur-is`, `tt-ttms-en` answer something other than XML (a JSON broker,
-an API). They resolve, fail the source step with `cannot_connect` while the
-mirror is down, and poll the mirror alone under `auto` otherwise.
+an API). They resolve and fail the source step with `cannot_connect`. Until
+the mirror's retirement they polled the mirror alone under `auto`; since
+then they have no feed under any feed source.
 
-**Expiry pre-filter**: the mirror enriches each `<item>` with CAP-namespace
-extensions (`cap:expires`, `cap:severity`, `cap:areaDesc`, …). `_parse_feed_links`
-parses `cap:expires` (namespace-agnostic) and skips items already expired, so
-only currently-active alerts trigger a CAP-body fetch. This is essential for
-high-volume sources: PAGASA's feed lists ~500 items, nearly all expired —
-fetching every CAP file would blow the coordinator's per-poll timeout and mark
-the whole entry unavailable, whereas the ~9 live items fetch in seconds. Items
-without a parseable `cap:expires` are kept (fail-open), so feeds lacking the
-extension behave as before; the CAP body's own `<expires>` remains the final
-authority via normalization. Buddhist-Era years in the RFC-2822 `cap:expires`
-(Thai TMD feeds) are corrected to Gregorian before the comparison — sharing the
-`MIN_BUDDHIST_ERA_YEAR` threshold with the body-level `_gregorian` — so genuinely-expired Thai
-alerts are pre-dropped instead of read as ~543 years in the future.
+**Expiry pre-filter**: the mirror enriched each `<item>` with CAP-namespace
+extensions (`cap:expires`, `cap:severity`, `cap:areaDesc`, …).
+`_parse_feed_links` parses `cap:expires` (namespace-agnostic) and skips items
+already expired, so only currently-active alerts trigger a CAP-body fetch. This
+is essential for high-volume sources: PAGASA's mirror feed listed ~500 items,
+nearly all expired — fetching every CAP file would blow the coordinator's
+per-poll timeout and mark the whole entry unavailable, whereas the ~9 live
+items fetch in seconds. Items without a parseable `cap:expires` are kept
+(fail-open), so feeds lacking the extension behave as before; the CAP body's
+own `<expires>` remains the final authority via normalization. Buddhist-Era
+years in the RFC-2822 `cap:expires` (Thai TMD feeds) are corrected to Gregorian
+before the comparison — sharing the `MIN_BUDDHIST_ERA_YEAR` threshold with the
+body-level `_gregorian` — so genuinely-expired Thai alerts are pre-dropped
+instead of read as ~543 years in the future. Since the retirement the
+extensions come from the two surviving mirror feeds only: no authority feed
+measured carries them (PAGASA's own, read on 2026-10-26, is Atom with 51
+entries and no `cap:expires`), so elsewhere every listed item costs a body
+fetch on a cold cache and the body-level filter above does the work.
 
-**Mirror lag** (issue #210): the mirror is a copy, and it can stop following a
+**Mirror lag** (issue #210, history): measured 2026-09-19 to 2026-10-07, and
+moot since SWIC retired the mirror's feeds on 2026-10-08 (#333). Nothing below
+is live or reported upstream any more; the measurements stay as the record of
+why `auto` became a union. The mirror was a copy, and it could stop following a
 source without any signal in the feed itself. Three DNMG (Timor-Leste) alerts
 issued over 2024-2025 exist in the authority's own feed and never reached the
-mirror, whose newest `tl-dnmg-en` item is from December 2023; to a user of
-that source an empty feed looks exactly like no warnings in force. The bodies
-are byte-identical to the mirror's, so an alert's identity survives either
-path. A lagging mirror is indistinguishable from a quiet authority inside one
-poll, which is why the `auto` feed source above polls both rather than
-detecting anything: an entry on `auto` is unaffected by every mirror below,
-and only an entry pinned to `mirror` still sees the lag. The scheduled probe
-keeps measuring it (`docs/provider-watch.md`, *WMO mirror lag*), filing only
-while the authority is still publishing, because the mirror is still the
-first feed read and its coverage is still worth reporting upstream.
-Mirrors known to lag on 2026-09-19, with the date of their newest item:
-`tl-dnmg-en` (2023-12-20), `tl-dnmg-pt` (2023-09-21), `tl-dnmg-tet`
-(2022-11-10), `ci-sodexam-fr` (2024-10-04), `om-met-ar` (2023-10-24),
-`cg-anac-en` (2024-11-08), `ls-lms-st` (2025-05-21), `eg-ema-en`
-(2026-08-01), and five that have never carried an item their authority
-published: `af-andma-en`, `ao-inamet-pt`, `cf-dmn-fr`, `gw-inm-fr`,
+mirror, whose newest `tl-dnmg-en` item is from December 2023; to a user of that
+source an empty feed looks exactly like no warnings in force. The bodies are
+byte-identical to the mirror's, so an alert's identity survives either path. A
+lagging mirror is indistinguishable from a quiet authority inside one poll,
+which is why the `auto` feed source above polls both rather than detecting
+anything. The scheduled probe measured it until the retirement
+(`docs/provider-watch.md`, *WMO mirror retirement*), filing only while the
+authority was still publishing. Mirrors known to lag on 2026-09-19, with the
+date of their newest item: `tl-dnmg-en` (2023-12-20), `tl-dnmg-pt`
+(2023-09-21), `tl-dnmg-tet` (2022-11-10), `ci-sodexam-fr` (2024-10-04),
+`om-met-ar` (2023-10-24), `cg-anac-en` (2024-11-08), `ls-lms-st` (2025-05-21),
+`eg-ema-en` (2026-08-01), and five that have never carried an item their
+authority published: `af-andma-en`, `ao-inamet-pt`, `cf-dmn-fr`, `gw-inm-fr`,
 `sr-meteo-en`/`-nl`. Cameroon's `cm-meteo-fr` joined the list on 2026-09-29
-with a different shape: the mirror never stopped, it drops files. 37 of the
+with a different shape: the mirror never stopped, it dropped files. 37 of the
 107 alerts the bucket has held since 2022-12 are absent from the mirror,
-including the two newest, one of them a storm warning in force at the time.
-The probe only pages a lossy mirror while its newest skip is also the bucket's
-newest settled file, so the token reads as a stall (`cm-meteo-fr@2026-09-15`)
-and a later skip files again under a new date. Senegal's `sn-anacim-fr`
-(2026-05-16) followed on 2026-10-01: its first alert in four months, an
-Extreme rain warning in force 09-24 to 09-27, never reached the mirror.
-India's `in-imd-en` (2026-09-23) filed on 2026-10-04 and is lossy like
-Cameroon's: 13 of the 59 Actual alerts IMD has uploaded since 2025-09 are
-absent from the mirror, two of September's nine among them, each a Severe
-heavy-rainfall warning that was in force for a day. Nigeria's `ng-nimet-en`
-(2026-09-27) filed on 2026-10-06 and is the lossiest so far: of the 208 Actual
-alerts NiMet has uploaded since May 2024, the oldest month the mirror still
-lists, 95 are absent, 8 of September 2026's 18 and both of October's so far
-among them, each a Severe thunderstorm warning in force into that night. The
-files it does carry arrive in about six minutes. The probe's baseline is the
-maintained list; this one is a snapshot.
+including the two newest, one of them a storm warning in force at the time. The
+probe only paged a lossy mirror while its newest skip was also the bucket's
+newest settled file, so the token read as a stall (`cm-meteo-fr@2026-09-15`)
+and a later skip filed again under a new date. Senegal's `sn-anacim-fr`
+(2026-05-16) followed on 2026-10-01: its first alert in four months, an Extreme
+rain warning in force 09-24 to 09-27, never reached the mirror. India's
+`in-imd-en` (2026-09-23) filed on 2026-10-04 and was lossy like Cameroon's: 13
+of the 59 Actual alerts IMD has uploaded since 2025-09 are absent from the
+mirror, two of September's nine among them, each a Severe heavy-rainfall
+warning that was in force for a day. Nigeria's `ng-nimet-en` (2026-09-27) filed
+on 2026-10-06 and was the lossiest: of the 208 Actual alerts NiMet has uploaded
+since May 2024, the oldest month the mirror still listed, 95 are absent, 8 of
+September 2026's 18 and both of October's by then among them, each a Severe
+thunderstorm warning in force into that night. The files it did carry arrived
+in about six minutes.
 
 **Shared CAP parsing**: the CAP body parsing lives in the provider-neutral
 `providers/cap.py` module, used verbatim by both WMO and ECCC. `parse_cap_alert`
@@ -1264,7 +1278,7 @@ The flow used to check syntax and stop there. `OHZ999` matches `_ZONE_RE` and do
 | NWS | `/zones?id=A,B` returns a feature per zone it knows | one request for the whole list |
 | ECCC | province is in the SGC table | none — the feed is national |
 | MeteoAlarm | the country feed is not a 404 | one request |
-| WMO | the mirror serves `…/{source_id}/rss.xml`, else the registry resolves the source and its feed answers (`cannot_connect` for an outage, `unknown_wmo_source` only when the registry has no record) | one request, three during a mirror outage |
+| WMO | the mirror serves `…/{source_id}/rss.xml`, else the registry resolves the source and its feed answers (`cannot_connect` for an outage, `unknown_wmo_source` only when the registry has no record) | three requests since the mirror's retirement (mirror 404, registry, feed); one for the two sources it still serves |
 | GDACS | nothing; the scope is the planet | none |
 
 **Called from the step that collects the value, not from entry creation.** The issue proposed the latter, but several create paths are menu clicks — `wmo_country_wide`, `meteoalarm_country_only`, `gdacs_global` — with no field to attach an error to. Each of those inherits a value an earlier form already put through the check, so validating at the input covers them and keeps every failure renderable. It also halves the wiring: four input steps and their reconfigure twins, rather than all thirty-five create/update sites.

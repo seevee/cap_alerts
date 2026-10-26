@@ -383,7 +383,7 @@ Per-field mappings and the reasoning behind each provider are in
 | [`docs/rfc-summary.md`](docs/rfc-summary.md) | The RFC on one page: the two claims, the ten requirements, what runs today |
 | [`docs/evidence/`](docs/evidence/README.md) | Evidence behind the RFC, one page per finding: the measurement, the excerpt, how to reproduce it |
 | [`docs/roadmap.md`](docs/roadmap.md) | Planned work that has no issue yet |
-| [`docs/provider-watch.md`](docs/provider-watch.md) | Provider drift monitoring (feed vocabulary, WMO mirror lag) and the response playbook |
+| [`docs/provider-watch.md`](docs/provider-watch.md) | Provider drift monitoring (feed vocabulary, WMO mirror retirement) and the response playbook |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Dev setup, test gates, adding a provider, translations |
 | [`CHANGELOG.md`](CHANGELOG.md) | Generated release history |
 
