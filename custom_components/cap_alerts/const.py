@@ -277,15 +277,16 @@ METEOALARM_COUNTRY_NAME_ALIASES: dict[str, str] = {
 WMO_SOURCES_URL = "https://severeweather.wmo.int/v2/json/sources.json"
 
 # WMO feed source (WMO options flow). The integration historically polled only
-# the SWIC mirror, a copy that can lag, drop files, or go down with no signal
-# in the feed itself (issue #210; the 2026-10 outage 404'd every mirrored
-# source). "auto" polls the mirror AND the feed the registry record names as
-# the authority's own, and unions them by CAP identifier, so nothing has to
-# detect a lagging copy. "mirror" / "authority" pin one feed as an escape
-# hatch. An absent option means "auto", so existing entries get the union
-# without reconfiguring. For ~120 language feeds the authority feed is a
-# folder on WMO's cap-sources bucket; the rest are national hosts, most of
-# them RSS or Atom feeds of CAP links like the mirror's own.
+# the SWIC mirror (issue #210). SWIC retired the mirror's per-source RSS feeds
+# on 2026-10-08 with no replacement (issue #333): 138 of 140 ids answer 404,
+# and only ``cn-cma-xx`` and ``au-bom-en`` still serve. "auto" reads the feed
+# the registry record names as the authority's own first, so its copy of an
+# alert wins, and unions the mirror in by CAP identifier while it answers; a
+# mirror on a 404 streak is probed on the slow cadence below instead of every
+# poll. "mirror" / "authority" pin one feed. An absent option means "auto".
+# For ~120 language feeds the authority feed is a folder on WMO's cap-sources
+# bucket; the rest are national hosts, most of them RSS or Atom feeds of CAP
+# links.
 WMO_FEED_SOURCES: tuple[str, ...] = ("auto", "mirror", "authority")
 DEFAULT_WMO_FEED_SOURCE = "auto"
 WMO_CAP_SOURCES_BUCKET = "https://cap-sources.s3.amazonaws.com/"
@@ -306,11 +307,17 @@ WMO_HEAVY_INDEX_INTERVAL = timedelta(minutes=30)
 # went away for good would keep its last link list in sight forever.
 WMO_HEAVY_INDEX_STAND_IN_LIMIT = 3 * WMO_HEAVY_INDEX_INTERVAL
 
+# Consecutive mirror 404s under "auto" before the mirror is only probed once
+# per ``WMO_HEAVY_INDEX_INTERVAL`` (issue #333). More than one, because for
+# ``cn-cma-xx`` the mirror is the fresher feed (the authority index is heavy
+# and re-read every 30 min), and a single CloudFront 404 should not cost that
+# freshness; three wasted requests per restart elsewhere is noise.
+WMO_MIRROR_GONE_STREAK = 3
+
 # WMO-category SWIC sources that were registered but NOT reachable on the
-# severeweather.wmo.int mirror when verified on 2026-05-24. Since #210 every
-# registry record resolves to a feed the provider can poll, so this set no
-# longer filters the dropdown; it stays as a point-in-time record of mirror
-# coverage, the baseline a future mirror-coverage check would diff against.
+# severeweather.wmo.int mirror when verified on 2026-05-24. History only: the
+# mirror's per-source feeds were retired on 2026-10-08 (issue #333), so today
+# nearly every source is unmirrored. Filters nothing.
 WMO_UNMIRRORED_SOURCES: frozenset[str] = frozenset(
     {
         "bf-meteo-en",

@@ -4,15 +4,15 @@ Two-step fetch: pull a per-source feed of links, extract the per-item CAP XML
 URLs, fetch those via the shared ``CAPContentCache``, and parse standard CAP
 1.2 XML into ``CAPAlert`` objects.
 
-Two feeds carry a source (issue #210). The SWIC mirror serves
-``…/cap-alerts/{source_id}/rss.xml`` for every source it follows, and the
-registry record names the feed the authority itself publishes
-(``capAlertFeed``): a folder on WMO's cap-sources bucket for ~120 language
-feeds, a national host for the rest. The mirror is a copy that can lag, drop
-files, or go down with nothing in the feed to say so, and none of that is
-detectable inside one poll, so ``feed_source`` ``auto`` polls both and unions
-them by CAP identifier; ``mirror`` / ``authority`` pin one. Both feed shapes
-are an index of links, RSS 2.0 (``<item><link>`` text) or Atom
+Two feeds carry a source (issue #210). The registry record names the feed
+the authority itself publishes (``capAlertFeed``): a folder on WMO's
+cap-sources bucket for ~120 language feeds, a national host for the rest. The
+SWIC mirror served ``…/cap-alerts/{source_id}/rss.xml`` beside it until SWIC
+retired those feeds on 2026-10-08 (issue #333); only ``cn-cma-xx`` and
+``au-bom-en`` still answer. ``feed_source`` ``auto`` reads the authority feed
+first and unions the mirror in by CAP identifier, backing a mirror that keeps
+answering 404 off to a slow probe; ``mirror`` / ``authority`` pin one. Both
+feed shapes are an index of links, RSS 2.0 (``<item><link>`` text) or Atom
 (``<entry><link href>``), and the CAP body is the record either way.
 
 The CAP body parsing is shared with ECCC via the provider-neutral ``cap``
@@ -48,6 +48,7 @@ from ..const import (
     WMO_HEAVY_INDEX_BYTES,
     WMO_HEAVY_INDEX_INTERVAL,
     WMO_HEAVY_INDEX_STAND_IN_LIMIT,
+    WMO_MIRROR_GONE_STREAK,
     WMO_SOURCES_URL,
 )
 from ..conventions import SourceConventions, parse_instant
@@ -65,7 +66,7 @@ from .cap import (
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_shapes, points_from_circles
 from .gps import alert_polygons, parse_gps, point_in_polygon
-from .revalidate import FeedValidators, fetch_feed_text
+from .revalidate import FeedStatusError, FeedValidators, fetch_feed_text
 from .wmo_conventions import CONVENTIONS as _CONVENTIONS
 
 _LOGGER = logging.getLogger(__name__)
@@ -483,26 +484,44 @@ async def async_authority_feed_available(
     return await _feed_parses(session, url, user_agent=user_agent)
 
 
+async def async_any_feed_available(
+    session: aiohttp.ClientSession, source_id: str, *, user_agent: str | None = None
+) -> bool:
+    """Whether either feed ``auto`` reads answers for ``source_id``.
+
+    The check behind switching ``feed_source`` to ``auto`` in the options
+    flow, now that ``auto`` no longer always has the mirror (issue #333). The
+    authority feed is asked first, as ``auto`` reads it first; the mirror
+    settles it for the two sources it still serves.
+    """
+    if await async_authority_feed_available(session, source_id, user_agent=user_agent):
+        return True
+    mirror = WMO_RSS_URL.format(source_id=source_id)
+    return await _feed_parses(session, mirror, user_agent=user_agent)
+
+
 def wmo_feed_urls(
     options: Mapping[str, Any], source_id: str, authority_url: str | None
 ) -> list[tuple[str, str]]:
     """The ``(feed, url)`` pairs a poll reads, in union order.
 
     ``feed_source`` ``auto`` (the default, and any unrecognised value — fail
-    open) yields the mirror and then the authority feed when one is resolved;
-    ``mirror`` / ``authority`` pin one. The mirror comes first so that an alert
-    both feeds carry keeps the mirror's copy, and with it the ``url`` attribute
-    existing entries already publish. An authority URL that *is* the mirror
-    (``cn-cma-xx``'s record once pointed there) is read once. ``authority``
-    with nothing resolved yields ``[]``; the caller decides what that means.
+    open) yields the authority feed when one is resolved and then the mirror;
+    ``mirror`` / ``authority`` pin one. The authority comes first so that an
+    alert both feeds carry keeps the authority's copy, and with it a ``url``
+    that outlives the mirror SWIC is retiring (issue #333). An authority URL
+    that *is* the mirror (``cn-cma-xx``'s record once pointed there) is read
+    once. ``authority`` with nothing resolved yields ``[]``; the caller
+    decides what that means.
     """
     mirror = WMO_RSS_URL.format(source_id=source_id)
     source = options.get(CONF_FEED_SOURCE, DEFAULT_WMO_FEED_SOURCE)
     if source == FEED_AUTHORITY:
         return [(FEED_AUTHORITY, authority_url)] if authority_url else []
-    feeds = [(FEED_MIRROR, mirror)]
+    feeds: list[tuple[str, str]] = []
     if source != FEED_MIRROR and authority_url and authority_url != mirror:
         feeds.append((FEED_AUTHORITY, authority_url))
+    feeds.append((FEED_MIRROR, mirror))
     return feeds
 
 
@@ -713,6 +732,11 @@ class WMOProvider:
         # warned about. Separate from ``_feed_warned``: a stand-in counts as
         # the feed answering, which resets that one.
         self._stand_in_warned = False
+        # The mirror's current run of 404s under ``auto``, and once that
+        # reaches ``WMO_MIRROR_GONE_STREAK``, when it is next probed: SWIC
+        # retired its feeds (issue #333), so a 404 is no longer an outage.
+        self._mirror_404s = 0
+        self._mirror_probe_at: datetime | None = None
 
     @property
     def name(self) -> str:
@@ -764,8 +788,9 @@ class WMOProvider:
         its last read stand in on the polls between, and on a read that
         fails, which is retried next poll, for up to
         ``WMO_HEAVY_INDEX_STAND_IN_LIMIT`` after the read that succeeded
-        (issue #309). The mirror is the fresher feed and carries the
-        envelope pre-filter, so it is read every poll regardless of size.
+        (issue #309). The mirror, where it still answers, is the fresher
+        feed and carries the envelope pre-filter, so it is read every poll
+        regardless of size.
         """
         last = self._index_reads.get(url) if feed == FEED_AUTHORITY else None
         if last is not None and last.stands_in(now, WMO_HEAVY_INDEX_INTERVAL):
@@ -843,10 +868,11 @@ class WMOProvider:
         evidence that anything is published under it. Asking the feeds is.
         The mirror answering 200 settles it. Otherwise the registry decides:
         unreachable is ``cannot_connect``; no record resolving for the id is
-        ``unknown_wmo_source``; a record whose feed answers is fine (the
-        2026-10 mirror outage reaching #302's Thai source), and one whose
-        feed is dead is ``cannot_connect``. Before #210 a mirror 404 alone
-        read as "no such source", which blamed the id for an outage.
+        ``unknown_wmo_source``; a record whose feed answers is fine (every
+        source the retired mirror no longer serves, #302's Thai one first),
+        and one whose feed is dead is ``cannot_connect``. Before #210 a mirror
+        404 alone read as "no such source", which blamed the id for what
+        turned out to be the mirror's retirement (#302, #333).
         """
         source_id = str(config.get(CONF_SOURCE_ID, "") or "").strip()
         if not source_id:
@@ -890,8 +916,11 @@ class WMOProvider:
 
         Per-feed failure is tolerated under ``auto``: as long as one feed
         answers the union is returned, with one warning per failure streak
-        per feed. Only every feed failing raises ``ProviderError``, naming
-        each feed and its error.
+        per feed. Only every feed read failing raises ``ProviderError``,
+        naming each feed and its error. A mirror 404 beside another feed is
+        not warned about: after ``WMO_MIRROR_GONE_STREAK`` of them the mirror
+        is skipped and probed once per ``WMO_HEAVY_INDEX_INTERVAL`` until it
+        answers again (issue #333).
         """
         source_id = (config.get(CONF_SOURCE_ID) or "").strip()
         if not source_id:
@@ -915,7 +944,16 @@ class WMOProvider:
         now = _utcnow()
         cap_urls: list[str] = []
         failures: list[str] = []
+        attempted = 0
         for feed, url in feeds:
+            beside_another = feed == FEED_MIRROR and len(feeds) > 1
+            if (
+                beside_another
+                and self._mirror_probe_at is not None
+                and now < self._mirror_probe_at
+            ):
+                continue
+            attempted += 1
             try:
                 links = await self._feed_links(
                     session,
@@ -927,7 +965,13 @@ class WMOProvider:
                 )
             except ProviderError as err:
                 failures.append(f"{feed} feed ({url}): {err}")
-                if len(feeds) > 1 and not self._feed_warned.get(feed):
+                if (
+                    beside_another
+                    and isinstance(err, FeedStatusError)
+                    and err.status == 404
+                ):
+                    self._note_mirror_404(source_id, now)
+                elif len(feeds) > 1 and not self._feed_warned.get(feed):
                     _LOGGER.warning(
                         "WMO %s: %s feed failed (%s); continuing with the other feed",
                         source_id,
@@ -936,11 +980,14 @@ class WMOProvider:
                     )
                     self._feed_warned[feed] = True
                 continue
+            if feed == FEED_MIRROR:
+                self._mirror_404s = 0
+                self._mirror_probe_at = None
             self._feed_warned[feed] = False
             cap_urls.extend(link for link in links if link not in cap_urls)
 
-        if failures and len(failures) == len(feeds):
-            if len(feeds) == 1:
+        if failures and len(failures) == attempted:
+            if attempted == 1:
                 raise ProviderError(f"WMO {source_id}: {failures[0]}")
             raise ProviderError(
                 f"WMO {source_id}: every feed failed: " + "; ".join(failures)
@@ -966,7 +1013,7 @@ class WMOProvider:
         # (d) Parse CAP XML in the executor (CPU-bound). Drop CAP fetch
         # failures gracefully — a missing body means that one alert is skipped.
         # An alert reached through both feeds keeps its first copy, the
-        # mirror's, so the ``url`` attribute does not flip when ``auto`` lands.
+        # authority's, so ``url`` does not depend on the mirror (issue #333).
         loop = asyncio.get_running_loop()
         now = _utcnow()
         parsed: list[tuple[str, CAPDoc]] = []
@@ -1005,6 +1052,25 @@ class WMOProvider:
         if gps_loc:
             return self._filter_by_polygon(alerts, gps_loc, source_id)
         return alerts
+
+    def _note_mirror_404(self, source_id: str, now: datetime) -> None:
+        """Count a mirror 404 under ``auto``; past the streak, back it off."""
+        self._mirror_404s += 1
+        if self._mirror_404s < WMO_MIRROR_GONE_STREAK:
+            _LOGGER.debug(
+                "WMO %s: mirror feed answered 404 (%d in a row)",
+                source_id,
+                self._mirror_404s,
+            )
+            return
+        if self._mirror_probe_at is None:
+            _LOGGER.info(
+                "WMO %s: the SWIC mirror answers 404 (SWIC retired its feeds in "
+                "2026-10); probing it every %d min",
+                source_id,
+                int(WMO_HEAVY_INDEX_INTERVAL.total_seconds() // 60),
+            )
+        self._mirror_probe_at = now + WMO_HEAVY_INDEX_INTERVAL
 
     @staticmethod
     def _filter_by_polygon(

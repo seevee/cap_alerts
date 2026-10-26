@@ -34,7 +34,11 @@ from ..const import (
     WMO_LANGUAGES,
     WMO_SOURCE_NAMES,
 )
-from ..providers.wmo import async_authority_feed_available, fetch_wmo_sources
+from ..providers.wmo import (
+    async_any_feed_available,
+    async_authority_feed_available,
+    fetch_wmo_sources,
+)
 from ..schema import vol
 from .common import (
     OptionsSchema,
@@ -114,8 +118,8 @@ def options_schema(entry: ConfigEntry) -> OptionsSchema:
 
     The feed source is offered on every WMO entry rather than only where the
     registry record resolves: the options flow makes no network call to
-    render a form, and the one value that needs the network (``authority``)
-    is checked on save by ``async_validate_options`` instead.
+    render a form, and a changed value is checked on save by
+    ``async_validate_options`` instead.
     """
     return {
         vol.Optional(
@@ -132,21 +136,31 @@ def options_schema(entry: ConfigEntry) -> OptionsSchema:
 async def async_validate_options(
     hass: HomeAssistant, entry: ConfigEntry, user_input: Mapping[str, Any]
 ) -> str | None:
-    """Reject a feed source the entry could not poll (issue #210).
+    """Reject a switch to a feed source the entry could not poll (#210, #333).
 
-    Only ``authority`` can fail: ``auto`` always has the mirror and ``mirror``
-    is what every entry polled before. Resolving the registry record and
-    fetching the feed once here, under the config-flow timeout, is cheaper
-    for the user than an entry that goes unavailable with a reason to go and
-    find in the log. Returns a ``strings.json`` error key or ``None``.
+    Only a changed value is checked. The form submits every field, so checking
+    an unchanged one would lock an entry whose feed is down out of editing
+    its other options, scan interval included. ``authority`` needs the
+    authority feed; ``auto`` needs either feed, since SWIC retired the mirror
+    it could once fall back on; ``mirror`` is what every entry polled before.
+    Fetching once here, under the config-flow timeout, is cheaper for the
+    user than an entry that goes unavailable with a reason to go and find in
+    the log. Returns a ``strings.json`` error key or ``None``.
     """
-    if user_input.get(CONF_FEED_SOURCE) != "authority":
+    feed_source = user_input.get(CONF_FEED_SOURCE)
+    current = entry.options.get(CONF_FEED_SOURCE, DEFAULT_WMO_FEED_SOURCE)
+    if feed_source == current or feed_source not in ("auto", "authority"):
         return None
+    check = (
+        async_authority_feed_available
+        if feed_source == "authority"
+        else async_any_feed_available
+    )
     source_id = str(entry.data.get(CONF_SOURCE_ID, "") or "").strip()
     user_agent = USER_AGENT.format(await async_get_instance_id(hass))
     try:
         async with asyncio.timeout(CONFIG_FLOW_TIMEOUT):
-            available = await async_authority_feed_available(
+            available = await check(
                 async_get_clientsession(hass), source_id, user_agent=user_agent
             )
     except (TimeoutError, aiohttp.ClientError, ValueError):
