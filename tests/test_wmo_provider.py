@@ -2,8 +2,9 @@
 
 Two feeds can carry a source (issue #210): the SWIC mirror and the feed the
 registry record names as the authority's own. ``feed_source`` ``auto`` unions
-them; the tests below pin the union, the dedup, the per-feed failure
-tolerance, the body-level filters the authority feed needs, and the two pins.
+them, authority first; the tests below pin the union, the dedup, the per-feed
+failure tolerance, the retired mirror's backoff (issue #333), the body-level
+filters the authority feed needs, and the two pins.
 """
 
 from __future__ import annotations
@@ -21,6 +22,8 @@ from custom_components.cap_alerts.const import (
     CONF_GPS_LOC,
     CONF_LANGUAGE,
     CONF_SOURCE_ID,
+    WMO_HEAVY_INDEX_INTERVAL,
+    WMO_MIRROR_GONE_STREAK,
     WMO_SOURCES_URL,
 )
 from custom_components.cap_alerts.providers import ProviderError
@@ -835,12 +838,16 @@ async def test_auto_unions_mirror_and_bucket_dedup_by_identifier():
 
 
 @pytest.mark.asyncio
-async def test_auto_prefers_mirror_url():
-    """An alert both feeds carry keeps the mirror's copy, so ``url`` is stable."""
-    alerts = await _fetch(WMOProvider(), StubSession(_union_responses()), "tl-dnmg-en")
+async def test_auto_prefers_authority_url():
+    """An alert both feeds carry keeps the authority's copy (issue #333)."""
+    session = StubSession(_union_responses())
+    alerts = await _fetch(WMOProvider(), session, "tl-dnmg-en")
     by_id = {a.identifier: a for a in alerts}
-    assert by_id[_ID_1].url == _CAP_URL_1
-    assert by_id[_ID_3].url == _TL_BUCKET_CAP_3
+    assert by_id[_ID_1].url == _TL_BUCKET_CAP_1
+    assert by_id[_ID_2].url == _CAP_URL_2
+    assert session.requested.index(_TL_BUCKET_URL) < session.requested.index(
+        _TL_MIRROR_URL
+    )
 
 
 @pytest.mark.asyncio
@@ -876,21 +883,163 @@ def test_doc_is_live_fails_open_without_a_parseable_expiry():
 
 
 @pytest.mark.asyncio
-async def test_auto_mirror_down_serves_bucket_and_warns_once(caplog):
+async def test_auto_mirror_404_serves_bucket_without_warning(caplog):
+    """SWIC retired the mirror (issue #333): a 404 is not worth a warning."""
     responses = _union_responses()
     responses[_TL_MIRROR_URL] = (404, "")
+    provider = WMOProvider()
+
+    with caplog.at_level(logging.WARNING, logger=_wmo_mod.__name__):
+        alerts = await _fetch(provider, StubSession(responses), "tl-dnmg-en")
+
+    assert sorted(a.identifier for a in alerts) == [_ID_1, _ID_3]
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+@pytest.mark.asyncio
+async def test_auto_mirror_5xx_still_warns_once(caplog):
+    responses = _union_responses()
+    responses[_TL_MIRROR_URL] = (503, "")
     session = StubSession(responses)
     provider = WMOProvider()
 
     with caplog.at_level(logging.WARNING, logger=_wmo_mod.__name__):
-        alerts = await _fetch(provider, session, "tl-dnmg-en")
-        again = await _fetch(provider, session, "tl-dnmg-en")
+        await _fetch(provider, session, "tl-dnmg-en")
+        await _fetch(provider, session, "tl-dnmg-en")
 
-    assert sorted(a.identifier for a in alerts) == [_ID_1, _ID_3]
-    assert {a.identifier for a in again} == {a.identifier for a in alerts}
     warnings = [r for r in caplog.records if "mirror feed failed" in r.getMessage()]
     assert len(warnings) == 1
-    assert "HTTP 404" in warnings[0].getMessage()
+    assert "HTTP 503" in warnings[0].getMessage()
+
+
+def _gone_mirror_responses(mirror: Any = (404, "")) -> dict[str, Any]:
+    responses = _union_responses()
+    responses[_TL_MIRROR_URL] = mirror
+    return responses
+
+
+async def _poll_at(
+    monkeypatch: pytest.MonkeyPatch,
+    provider: WMOProvider,
+    session: StubSession,
+    when: datetime,
+) -> list[Any]:
+    _pin_clock(monkeypatch, when)
+    return await _fetch(provider, session, "tl-dnmg-en")
+
+
+@pytest.mark.asyncio
+async def test_mirror_backs_off_after_a_404_streak(monkeypatch):
+    provider = WMOProvider()
+    session = StubSession(_gone_mirror_responses())
+    for minute in range(WMO_MIRROR_GONE_STREAK + 2):
+        alerts = await _poll_at(
+            monkeypatch, provider, session, _T0 + timedelta(minutes=5 * minute)
+        )
+        assert sorted(a.identifier for a in alerts) == [_ID_1, _ID_3]
+    assert session.requested.count(_TL_MIRROR_URL) == WMO_MIRROR_GONE_STREAK
+    assert session.requested.count(_TL_BUCKET_URL) == WMO_MIRROR_GONE_STREAK + 2
+
+
+@pytest.mark.asyncio
+async def test_backed_off_mirror_is_probed_once_per_interval(monkeypatch):
+    provider = WMOProvider()
+    session = StubSession(_gone_mirror_responses())
+    for _ in range(WMO_MIRROR_GONE_STREAK):
+        await _poll_at(monkeypatch, provider, session, _T0)
+    probe_at = _T0 + WMO_HEAVY_INDEX_INTERVAL
+
+    await _poll_at(monkeypatch, provider, session, probe_at - timedelta(seconds=1))
+    assert session.requested.count(_TL_MIRROR_URL) == WMO_MIRROR_GONE_STREAK
+    await _poll_at(monkeypatch, provider, session, probe_at)
+    assert session.requested.count(_TL_MIRROR_URL) == WMO_MIRROR_GONE_STREAK + 1
+    # The probe 404'd too, so the next one is a full interval later.
+    await _poll_at(monkeypatch, provider, session, probe_at + timedelta(minutes=5))
+    assert session.requested.count(_TL_MIRROR_URL) == WMO_MIRROR_GONE_STREAK + 1
+
+
+@pytest.mark.asyncio
+async def test_a_mirror_that_answers_again_ends_the_backoff(monkeypatch):
+    mirror = [(404, "")] * WMO_MIRROR_GONE_STREAK + [_fixture("wmo_rss.xml")]
+    provider = WMOProvider()
+    session = StubSession(_gone_mirror_responses(mirror))
+    for _ in range(WMO_MIRROR_GONE_STREAK):
+        await _poll_at(monkeypatch, provider, session, _T0)
+
+    probe_at = _T0 + WMO_HEAVY_INDEX_INTERVAL
+    alerts = await _poll_at(monkeypatch, provider, session, probe_at)
+    assert sorted(a.identifier for a in alerts) == [_ID_1, _ID_2, _ID_3]
+    await _poll_at(monkeypatch, provider, session, probe_at + timedelta(minutes=5))
+    assert session.requested.count(_TL_MIRROR_URL) == WMO_MIRROR_GONE_STREAK + 2
+
+
+@pytest.mark.asyncio
+async def test_a_404_streak_broken_by_a_200_starts_over(monkeypatch):
+    streak = WMO_MIRROR_GONE_STREAK - 1
+    mirror = [(404, "")] * streak + [_fixture("wmo_rss.xml")] + [(404, "")] * streak
+    provider = WMOProvider()
+    session = StubSession(_gone_mirror_responses(mirror))
+    for _ in range(2 * streak + 2):
+        await _poll_at(monkeypatch, provider, session, _T0)
+    assert session.requested.count(_TL_MIRROR_URL) == 2 * streak + 2
+
+
+@pytest.mark.asyncio
+async def test_backoff_is_logged_once_at_info(monkeypatch, caplog):
+    provider = WMOProvider()
+    session = StubSession(_gone_mirror_responses())
+    with caplog.at_level(logging.INFO, logger=_wmo_mod.__name__):
+        for _ in range(WMO_MIRROR_GONE_STREAK):
+            await _poll_at(monkeypatch, provider, session, _T0)
+        await _poll_at(monkeypatch, provider, session, _T0 + WMO_HEAVY_INDEX_INTERVAL)
+    notes = [r for r in caplog.records if "probing it every 30 min" in r.getMessage()]
+    assert len(notes) == 1
+    assert notes[0].levelno == logging.INFO
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_id", "options"),
+    [
+        ("tl-dnmg-en", {CONF_FEED_SOURCE: "mirror"}),
+        ("gw-inm-en", {}),  # no authority resolves: the mirror is the only feed
+    ],
+)
+async def test_a_mirror_read_alone_is_never_backed_off(
+    monkeypatch, source_id: str, options: dict[str, Any]
+):
+    responses = _union_responses()
+    responses[f"https://severeweather.wmo.int/v2/cap-alerts/{source_id}/rss.xml"] = (
+        404,
+        "",
+    )
+    session = StubSession(responses)
+    provider = WMOProvider()
+    _pin_clock(monkeypatch, _T0)
+    for _ in range(WMO_MIRROR_GONE_STREAK + 1):
+        with pytest.raises(ProviderError, match="mirror feed .*HTTP 404"):
+            await _fetch(provider, session, source_id, options)
+    mirror_reads = [u for u in session.requested if "/v2/cap-alerts/" in u]
+    assert len(mirror_reads) == WMO_MIRROR_GONE_STREAK + 1
+
+
+@pytest.mark.asyncio
+async def test_authority_down_with_the_mirror_backed_off_names_the_authority(
+    monkeypatch,
+):
+    responses = _gone_mirror_responses()
+    responses[_TL_BUCKET_URL] = [_fixture("wmo_bucket_rss.xml")] * (
+        WMO_MIRROR_GONE_STREAK
+    ) + [(503, "")]
+    provider = WMOProvider()
+    session = StubSession(responses)
+    for _ in range(WMO_MIRROR_GONE_STREAK):
+        await _poll_at(monkeypatch, provider, session, _T0)
+    with pytest.raises(ProviderError) as excinfo:
+        await _poll_at(monkeypatch, provider, session, _T0 + timedelta(minutes=5))
+    message = str(excinfo.value)
+    assert message.startswith("WMO tl-dnmg-en: authority feed")
+    assert "HTTP 503" in message and "every feed failed" not in message
 
 
 @pytest.mark.asyncio
@@ -1132,6 +1281,36 @@ async def test_async_authority_feed_available(
         )
         is expected
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("responses", "expected"),
+    [
+        (
+            {WMO_SOURCES_URL: "wmo_sources.json", _TL_BUCKET_URL: "wmo_bucket_rss.xml"},
+            True,
+        ),
+        ({_TL_MIRROR_URL: "wmo_rss.xml"}, True),  # registry down, mirror up
+        ({WMO_SOURCES_URL: "wmo_sources.json", _TL_BUCKET_URL: (503, "")}, False),
+        ({}, False),
+    ],
+)
+async def test_async_any_feed_available(responses: dict[str, Any], expected: bool):
+    """The options-flow check behind switching to ``auto`` (#333)."""
+    stub = {
+        url: _fixture(body) if isinstance(body, str) else body
+        for url, body in responses.items()
+    }
+    session = StubSession(stub)
+    assert (
+        await _wmo_mod.async_any_feed_available(
+            session, "tl-dnmg-en", user_agent="test"
+        )
+        is expected
+    )
+    if expected and _TL_BUCKET_URL in stub:
+        assert _TL_MIRROR_URL not in session.requested
 
 
 # ---------------------------------------------------------------------------

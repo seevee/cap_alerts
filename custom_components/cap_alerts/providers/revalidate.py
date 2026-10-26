@@ -23,6 +23,19 @@ import aiohttp
 from . import ProviderError
 
 
+class FeedStatusError(ProviderError):
+    """A feed answered with a status other than ``200``; ``status`` says which.
+
+    For a caller that treats one status differently from the rest (WMO backs
+    a retired mirror off on ``404``, issue #333). Everything else sees the
+    plain ``ProviderError`` it always did, message included.
+    """
+
+    def __init__(self, status: int, message: str | None = None) -> None:
+        super().__init__(message or f"HTTP {status}")
+        self.status = status
+
+
 @dataclass(frozen=True)
 class _LastRead:
     """What the last ``200`` for a URL left behind."""
@@ -80,9 +93,9 @@ async def fetch_feed_text(
 ) -> str:
     """GET ``url`` and return its body, replaying the last one on a ``304``.
 
-    ``ProviderError`` on any status but ``200`` (or a ``304`` with nothing
-    remembered to replay, which a host should never send) and on a client
-    error. Without ``validators`` this is a plain GET.
+    ``FeedStatusError`` on any status but ``200`` (or a ``304`` with nothing
+    remembered to replay, which a host should never send), ``ProviderError``
+    on a client error. Without ``validators`` this is a plain GET.
     """
     headers: dict[str, str] = {}
     if user_agent:
@@ -94,10 +107,12 @@ async def fetch_feed_text(
             if resp.status == 304 and validators is not None:
                 body = validators.replay(url)
                 if body is None:
-                    raise ProviderError("HTTP 304 with no earlier body to replay")
+                    raise FeedStatusError(
+                        304, "HTTP 304 with no earlier body to replay"
+                    )
                 return body
             if resp.status != 200:
-                raise ProviderError(f"HTTP {resp.status}")
+                raise FeedStatusError(resp.status)
             text = await resp.text()
             response_headers = resp.headers
     except aiohttp.ClientError as err:

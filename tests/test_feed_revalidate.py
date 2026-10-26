@@ -12,6 +12,7 @@ import pytest
 
 from custom_components.cap_alerts.providers import ProviderError
 from custom_components.cap_alerts.providers.revalidate import (
+    FeedStatusError,
     FeedValidators,
     fetch_feed_text,
 )
@@ -107,3 +108,14 @@ async def test_non_200_and_client_errors_are_provider_errors():
         await fetch_feed_text(
             StubSession({URL: lambda: aiohttp.ClientConnectionError("down")}), URL
         )
+
+
+@pytest.mark.asyncio
+async def test_a_status_error_carries_the_status():
+    """WMO backs a retired mirror off on 404 (issue #333) and needs to tell."""
+    with pytest.raises(FeedStatusError, match="^HTTP 404$") as excinfo:
+        await fetch_feed_text(StubSession({URL: (404, "")}), URL)
+    assert excinfo.value.status == 404
+    with pytest.raises(FeedStatusError) as replay:
+        await fetch_feed_text(StubSession({URL: (304, "")}), URL, FeedValidators())
+    assert replay.value.status == 304

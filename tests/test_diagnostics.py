@@ -221,7 +221,7 @@ async def test_reports_wmo_feed_source_and_both_endpoints(hass):
     payload = await _payload(hass, entry)
 
     assert payload["source"]["feed_source"] == "auto"
-    assert payload["source"]["endpoints"] == [_WMO_MIRROR, _WMO_AUTHORITY]
+    assert payload["source"]["endpoints"] == [_WMO_AUTHORITY, _WMO_MIRROR]
 
 
 async def test_reports_how_the_wmo_authority_index_is_read(hass):

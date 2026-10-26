@@ -121,6 +121,7 @@ async def test_nws_options_flow_has_no_language(hass, enable_custom_integrations
 # ---------------------------------------------------------------------------
 
 _AVAILABLE = "custom_components.cap_alerts.flows.wmo.async_authority_feed_available"
+_ANY_AVAILABLE = "custom_components.cap_alerts.flows.wmo.async_any_feed_available"
 
 
 def _schema_key(result, name: str):
@@ -167,15 +168,78 @@ async def test_wmo_options_flow_keeps_configured_feed_source(
 
 
 @pytest.mark.asyncio
-async def test_wmo_options_flow_auto_saves_without_asking_the_network(
+async def test_wmo_options_flow_unchanged_auto_saves_without_asking_the_network(
     hass, enable_custom_integrations
 ):
+    """An entry whose feeds are down can still edit its other options (#333)."""
     entry = _entry(hass, "wmo", source_id="th-tmd-en")
-    with patch(_AVAILABLE, new_callable=AsyncMock) as available:
+    with (
+        patch(_AVAILABLE, new_callable=AsyncMock) as available,
+        patch(_ANY_AVAILABLE, new_callable=AsyncMock) as any_available,
+    ):
         result = await _submit(hass, entry, "auto")
     assert result["type"] == "create_entry"
     assert result["data"][CONF_FEED_SOURCE] == "auto"
     available.assert_not_awaited()
+    any_available.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_wmo_options_flow_switch_to_auto_on_dead_feeds_errors(
+    hass, enable_custom_integrations
+):
+    """``auto`` no longer always has the mirror to fall back on (#333)."""
+    entry = _entry(hass, "wmo", source_id="th-tmd-en")
+    hass.config_entries.async_update_entry(entry, options={CONF_FEED_SOURCE: "mirror"})
+    with patch(_ANY_AVAILABLE, new_callable=AsyncMock, return_value=False):
+        result = await _submit(hass, entry, "auto")
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "authority_feed_unavailable"}
+    assert entry.options[CONF_FEED_SOURCE] == "mirror"
+
+
+@pytest.mark.asyncio
+async def test_wmo_options_flow_switch_to_auto_on_a_live_feed_saves(
+    hass, enable_custom_integrations
+):
+    entry = _entry(hass, "wmo", source_id="tl-dnmg-en")
+    hass.config_entries.async_update_entry(
+        entry, options={CONF_FEED_SOURCE: "authority"}
+    )
+    with patch(_ANY_AVAILABLE, new_callable=AsyncMock, return_value=True) as available:
+        result = await _submit(hass, entry, "auto")
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_FEED_SOURCE] == "auto"
+    assert available.await_args.args[1] == "tl-dnmg-en"
+
+
+@pytest.mark.asyncio
+async def test_wmo_options_flow_unchanged_authority_skips_the_check(
+    hass, enable_custom_integrations
+):
+    entry = _entry(hass, "wmo", source_id="tl-dnmg-en")
+    hass.config_entries.async_update_entry(
+        entry, options={CONF_FEED_SOURCE: "authority"}
+    )
+    with patch(_AVAILABLE, new_callable=AsyncMock, return_value=False) as available:
+        result = await _submit(hass, entry, "authority")
+    assert result["type"] == "create_entry"
+    available.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_wmo_options_flow_switch_to_mirror_saves_without_asking(
+    hass, enable_custom_integrations
+):
+    entry = _entry(hass, "wmo", source_id="tl-dnmg-en")
+    with (
+        patch(_AVAILABLE, new_callable=AsyncMock) as available,
+        patch(_ANY_AVAILABLE, new_callable=AsyncMock) as any_available,
+    ):
+        result = await _submit(hass, entry, "mirror")
+    assert result["type"] == "create_entry"
+    available.assert_not_awaited()
+    any_available.assert_not_awaited()
 
 
 @pytest.mark.asyncio
