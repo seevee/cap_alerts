@@ -193,7 +193,7 @@ body-level filters.
 
 `scripts/feed_vocab_probe.py` (stdlib only) diffs each provider's live feed
 vocabulary against `scripts/feed_vocab_baseline.json`; a scheduled workflow
-runs it twice a week and files anything new as a `provider-drift` issue. See
+runs it daily and files anything new as a `provider-drift` issue. See
 `docs/provider-watch.md` for the response playbook and the per-provider
 announcement channels.
 
