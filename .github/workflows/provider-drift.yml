@@ -3,9 +3,9 @@
 # checks share the run. The feeds' vocabulary is diffed against the committed
 # baseline: born from issue #172, where ECCC's freeform threat-area polygons
 # were visible in the feed as new vocabulary for twelve days before a user
-# report landed. And each WMO mirror is checked against its source's own feed
-# (#210): a mirror that stops following its source shows a user an empty
-# feed, and that too files here while the source is publishing.
+# report landed. And the two WMO mirror feeds SWIC kept after retiring the
+# rest (#333) are asked whether they still answer: the day one 404s, the
+# mirror leg can come out of the integration, and that files here too.
 name: Provider drift
 
 on:
@@ -64,7 +64,7 @@ jobs:
         run: |
           gh label create provider-drift \
             --color D93F0B \
-            --description "A provider feed changed under us: new vocabulary, or a WMO mirror behind its source" \
+            --description "A provider feed changed under us: new vocabulary, or a WMO mirror feed retired" \
             || true
           existing=$(gh issue list --label provider-drift --state open \
             --json number --jq '.[0].number // empty')

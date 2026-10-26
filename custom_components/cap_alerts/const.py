@@ -314,36 +314,6 @@ WMO_HEAVY_INDEX_STAND_IN_LIMIT = 3 * WMO_HEAVY_INDEX_INTERVAL
 # freshness; three wasted requests per restart elsewhere is noise.
 WMO_MIRROR_GONE_STREAK = 3
 
-# WMO-category SWIC sources that were registered but NOT reachable on the
-# severeweather.wmo.int mirror when verified on 2026-05-24. History only: the
-# mirror's per-source feeds were retired on 2026-10-08 (issue #333), so today
-# nearly every source is unmirrored. Filters nothing.
-WMO_UNMIRRORED_SOURCES: frozenset[str] = frozenset(
-    {
-        "bf-meteo-en",
-        "bi-meteo-en",
-        "bj-meteo-en",
-        "cd-mettelsat-en",
-        "co-ungrd-es",
-        "dj-meteo-en",
-        "gn-dnm-en",
-        "gw-inm-en",
-        "ml-meteo-en",
-        "mm-dmh-en",
-        "mr-onm-en",
-        "mz-inam-en",
-        "ne-meteo-en",
-        "pg-ms-en",
-        "st-meteo-en",
-        "td-anam-en",
-        "tg-dgmn-en",
-        "to-tms-en",
-        "vu-vms-xx",
-        "ws-smd-en",
-        "ye-yms-en",
-    }
-)
-
 # WMO Severe Weather Information Centre (SWIC) source IDs, keyed
 # {country}-{agency}-{lang}. The per-source RSS feed lives at
 # https://severeweather.wmo.int/v2/cap-alerts/{source-id}/rss.xml.

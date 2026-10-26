@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from custom_components.cap_alerts.const import WMO_SOURCES_URL, WMO_UNMIRRORED_SOURCES
+from custom_components.cap_alerts.const import WMO_SOURCES_URL
 from custom_components.cap_alerts.providers import wmo as _wmo_mod
 from tests.conftest import StubSession
 
@@ -53,14 +53,13 @@ async def test_includes_overlapping_providers():
 async def test_unmirrored_source_is_listed():
     """Nothing is filtered since #210: every record resolves to some feed.
 
-    ``co-ungrd-es`` is in ``WMO_UNMIRRORED_SOURCES`` and its record names a
-    national host; the source step's validation decides whether that feed
-    answers, not a point-in-time list.
+    ``co-ungrd-es`` was never on the mirror and its record names a national
+    host; the source step's validation decides whether that feed answers,
+    not a point-in-time list.
     """
     session = StubSession(_responses(_fixture("wmo_sources.json")))
     sources = await fetch_wmo_sources(session)
     ids = {sid for sid, _label in sources}
-    assert "co-ungrd-es" in WMO_UNMIRRORED_SOURCES
     assert "co-ungrd-es" in ids
     assert "mz-inam-en" in ids
 
