@@ -81,7 +81,12 @@ class _StubCoordinator:
         geometry_store=None,
         authority_feed_url=None,
         authority_index=None,
+        seeded_at_boot=0,
+        last_saved=None,
     ) -> None:
+        # What the restart restore reports (issue #350).
+        self.seeded_at_boot = seeded_at_boot
+        self.last_saved = last_saved
         self.data = {a.id: a for a in (alerts or [])}
         # What the WMO provider exposes once its registry read succeeded; the
         # other providers have no such attribute and the payload reads None.
@@ -166,6 +171,8 @@ async def test_reports_provider_scope_and_endpoint(hass):
     assert payload["update"]["last_success"] == "2026-08-12T10:00:00+00:00"
     assert payload["update"]["last_change"] == "2026-08-12T09:30:00+00:00"
     assert payload["update"]["interval_seconds"] == 300
+    # A stub coordinator restored nothing and has written nothing.
+    assert payload["restore"] == {"seeded_at_boot": 0, "last_saved": None}
 
 
 async def test_reports_the_failure_that_a_recovery_did_not_erase(hass):
@@ -962,3 +969,18 @@ async def test_download_view_serves_a_live_entry(
     assert row["geocodes"]["SGC"] == ["3506008"]
     assert "description" not in row
     assert payload["conventions"]["rows_in_effect"][0]["key"] == "eccc"
+
+
+async def test_reports_what_the_restore_file_did(hass):
+    entry = _entry(
+        {CONF_PROVIDER: "nws", CONF_ZONE_ID: "OHZ049"},
+        seeded_at_boot=3,
+        last_saved="2026-08-12T10:05:00+00:00",
+    )
+
+    payload = await _payload(hass, entry)
+
+    assert payload["restore"] == {
+        "seeded_at_boot": 3,
+        "last_saved": "2026-08-12T10:05:00+00:00",
+    }

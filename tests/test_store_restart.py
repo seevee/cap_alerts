@@ -16,6 +16,7 @@ import pytest
 from custom_components.cap_alerts.const import (
     EVENT_INCIDENT_CREATED,
     EVENT_INCIDENT_REMOVED,
+    EVENT_INCIDENT_UPDATED,
 )
 from custom_components.cap_alerts.coordinator import known_alert_entities
 from custom_components.cap_alerts.store import AlertStore
@@ -243,3 +244,213 @@ def test_terminal_after_the_boot_fetch_is_announced(hass, registry, alert_factor
     store.process([alert_factory(id="a", phase="cancel")])
 
     assert _fired(hass) == [(EVENT_INCIDENT_REMOVED, "a")]
+
+
+# ---------------------------------------------------------------------------
+# Restored records (issue #350): the lifecycle fields saved before the restart
+# ---------------------------------------------------------------------------
+
+RECORD = {
+    "identifier": "urn:oid:A",
+    "sender": "",
+    "event": "Wind Warning",
+    "area_desc": "Ottawa",
+    "severity_normalized": "moderate",
+    "phase": "new",
+    "expires": "2099-01-01T00:00:00+00:00",
+}
+
+
+def _restored(hass, provider: str = "nws", **records) -> AlertStore:
+    """A store seeded from the restore file, no registry rows."""
+    store = _store(hass, provider)
+    store.restore(records, confirmed_at="2026-10-27T15:00:00+00:00")
+    return store
+
+
+def _live(alert_factory, **overrides):
+    """The live alert behind ``RECORD``, as a fetch returns it."""
+    fields = {
+        "id": "a",
+        "identifier": "urn:oid:A",
+        "area_desc": "Ottawa",
+        "severity_normalized": "moderate",
+        "phase": "new",
+        "headline": "Wind Warning in effect",
+        "description": "A description the record never held",
+    }
+    fields.update(overrides)
+    return alert_factory(**fields)
+
+
+def _payloads(hass, event_type: str) -> list[dict]:
+    return [
+        call.args[1]
+        for call in hass.bus.async_fire.call_args_list
+        if call.args[0] == event_type
+    ]
+
+
+def test_restore_seeds_and_counts(hass, registry):
+    store = _restored(hass, a=RECORD, b={**RECORD, "identifier": "urn:oid:B"})
+
+    assert store.seeded_at_boot == 2
+    assert store.boot_pending == frozenset()
+
+
+def test_restore_pops_only_its_ids_from_the_registry_grace(hass, registry):
+    _known(registry, "a", "r")
+    store = _store(hass, "nws")
+
+    store.restore({"a": RECORD}, confirmed_at="t")
+
+    assert store.boot_pending == frozenset({"r"})
+
+
+def test_restored_live_alert_with_only_content_differing_fires_nothing(
+    hass, registry, alert_factory
+):
+    store = _restored(hass, a=RECORD)
+
+    result = store.process([_live(alert_factory)])
+
+    assert _fired(hass) == []
+    (alert,) = result
+    assert alert.stale is False
+    assert alert.description == "A description the record never held"
+
+
+def test_restored_record_is_replaced_by_the_live_content(hass, registry, alert_factory):
+    """After one sighting the diff is the ordinary one: content changes count."""
+    store = _restored(hass, a=RECORD)
+    store.process([_live(alert_factory)])
+
+    store.process([_live(alert_factory, headline="Updated headline")])
+
+    (updated,) = _payloads(hass, EVENT_INCIDENT_UPDATED)
+    assert updated["changed_fields"] == ["headline"]
+
+
+def test_restored_severity_change_is_announced(hass, registry, alert_factory):
+    store = _restored(hass, a=RECORD)
+
+    store.process([_live(alert_factory, severity_normalized="severe")])
+
+    (updated,) = _payloads(hass, EVENT_INCIDENT_UPDATED)
+    assert updated["changed_fields"] == ["severity_normalized"]
+    assert updated["previous_severity"] == "moderate"
+    assert updated["severity"] == "severe"
+
+
+def test_restored_absent_alert_is_retained_to_its_expiry(hass, registry, alert_factory):
+    store = _restored(hass, a=RECORD)
+
+    result = store.process([])
+
+    assert _fired(hass) == []
+    (retained,) = result
+    assert retained.id == "a"
+    assert retained.stale is True
+    assert retained.last_confirmed == "2026-10-27T15:00:00+00:00"
+    assert retained.severity_normalized == "moderate"
+
+
+def test_restored_alert_expired_while_down_is_removed_with_its_fields(
+    hass, registry, alert_factory
+):
+    """On the first reconciliation, not the second: the record knows its expiry."""
+    store = _restored(hass, a={**RECORD, "expires": "2026-01-01T00:00:00+00:00"})
+
+    result = store.process([])
+
+    assert result == []
+    (removed,) = _payloads(hass, EVENT_INCIDENT_REMOVED)
+    assert removed["incident_id"] == "a"
+    assert removed["phase"] == "expired"
+    assert removed["severity"] == "moderate"
+    assert removed["area_desc"] == "Ottawa"
+    assert removed["event"] == "Wind Warning"
+
+
+def test_restored_alert_on_an_absence_ends_source_is_removed_with_its_fields(
+    hass, registry, alert_factory
+):
+    """GDACS ends on absence; no expiry, so the inferred phase is cancel."""
+    store = _restored(hass, "gdacs", a={**RECORD, "expires": ""})
+
+    result = store.process([])
+
+    assert result == []
+    (removed,) = _payloads(hass, EVENT_INCIDENT_REMOVED)
+    assert removed["phase"] == "cancel"
+    assert removed["severity"] == "moderate"
+    assert removed["area_desc"] == "Ottawa"
+
+
+def test_restored_alert_terminal_on_the_first_fetch_is_removed_once(
+    hass, registry, alert_factory
+):
+    store = _restored(hass, a=RECORD)
+    terminal = _live(alert_factory, phase="cancel")
+
+    store.process([terminal])
+    store.process([terminal])
+
+    assert _fired(hass) == [(EVENT_INCIDENT_REMOVED, "a")]
+    (removed,) = _payloads(hass, EVENT_INCIDENT_REMOVED)
+    assert removed["severity"] == "moderate"
+
+
+def test_a_successor_supersedes_a_restored_record(hass, registry, alert_factory):
+    """The record keeps ``identifier`` so a new revision updates, not duplicates."""
+    store = _restored(hass, a=RECORD)
+    successor = _live(
+        alert_factory,
+        id="a2",
+        identifier="urn:oid:A2",
+        references=("urn:oid:A",),
+        severity_normalized="severe",
+    )
+
+    result = store.process([successor])
+
+    assert [a.id for a in result] == ["a2"]
+    assert _fired(hass) == [(EVENT_INCIDENT_UPDATED, "a2")]
+    (updated,) = _payloads(hass, EVENT_INCIDENT_UPDATED)
+    assert updated["changed_fields"] == ["severity_normalized"]
+    assert updated["previous_severity"] == "moderate"
+
+
+def test_a_scope_change_removes_a_restored_absent_alert_with_its_fields(
+    hass, registry, alert_factory
+):
+    """Retention is suspended, so the alert is not stranded; the payload is full."""
+    store = _restored(hass, a=RECORD)
+
+    result = store.process([], scope_changed=True)
+
+    assert result == []
+    (removed,) = _payloads(hass, EVENT_INCIDENT_REMOVED)
+    assert removed["phase"] == "cancel"
+    assert removed["severity"] == "moderate"
+    assert removed["area_desc"] == "Ottawa"
+
+
+def test_registry_ids_without_a_record_keep_the_grace(hass, registry, alert_factory):
+    """Two paths side by side: the record decides at once, the registry waits."""
+    _known(registry, "r")
+    store = _store(hass, "nws")
+    store.restore(
+        {"a": {**RECORD, "expires": "2026-01-01T00:00:00+00:00"}}, confirmed_at="t"
+    )
+
+    store.process([])
+    assert _fired(hass) == [(EVENT_INCIDENT_REMOVED, "a")]
+    store.process([])
+
+    assert _fired(hass) == [
+        (EVENT_INCIDENT_REMOVED, "a"),
+        (EVENT_INCIDENT_REMOVED, "r"),
+    ]
+    removed_r = _payloads(hass, EVENT_INCIDENT_REMOVED)[1]
+    assert removed_r["severity"] == "unknown"

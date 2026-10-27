@@ -192,6 +192,13 @@ async def async_get_config_entry_diagnostics(
         # store (issue #197): has_geometry on an alert row is the ref, and a
         # ref outlives an eviction, so this is where a card's 404 shows up.
         "geometry": _geometry(coordinator, entry.entry_id, alerts),
+        # What the restart restore did (issue #350): records seeded at setup
+        # and when the file was last written or scheduled. The count is since
+        # setup; a first boot after the upgrade, or a quiet entry, reads 0.
+        "restore": {
+            "seeded_at_boot": coordinator.seeded_at_boot,
+            "last_saved": coordinator.last_saved,
+        },
         "update": {
             "success": coordinator.last_update_success,
             "last_success": _iso(coordinator.last_update_success_time),

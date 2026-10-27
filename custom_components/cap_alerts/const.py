@@ -670,3 +670,13 @@ TWC_REGIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "AS": ("American Samoa", ("PHEBWEZS40", "PHEBWEZS42")),
     "PR": ("Puerto Rico and the U.S. Virgin Islands", ("PHEBWECA40", "PHEBWECA42")),
 }
+
+# Restart restore of the lifecycle fields (issue #350): one
+# ``.storage/cap_alerts.<entry_id>`` file per config entry holding, per live
+# alert, the handful of fields the boot removal payload and the absence rule
+# read. Bump the version only with a migration: a file the Store cannot read
+# is a restore lost, not an error.
+RESTORE_STORAGE_VERSION = 1
+# Coalescing delay before a changed set is written, so a burst of updates in
+# one outbreak costs one write rather than one per reconciliation.
+RESTORE_SAVE_DELAY = 10  # seconds

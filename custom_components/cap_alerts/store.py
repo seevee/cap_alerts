@@ -46,6 +46,50 @@ CHANGED_FIELDS_ALLOWLIST: tuple[str, ...] = (
 # short re-fires a removal for an alert that already ended, which is the bug.
 TOMBSTONE_IDLE_TTL = timedelta(hours=48)
 
+# The fields a restart restore keeps per live alert (issue #350), and the only
+# ones. ``event``, ``severity_normalized``, ``area_desc`` and ``phase`` are
+# what a removal payload carries and what a first sighting may diff on;
+# ``expires`` and ``sender`` are what the absence rule reads, the policy
+# resolving per sender; ``identifier`` lets a successor revision supersede the
+# record through ``references`` instead of standing beside it. No content:
+# headline, description and geometry are refilled by the first fetch, and
+# persisting them is what RFC §2.5 argues against. The alert id is the key.
+RECORD_FIELDS: tuple[str, ...] = (
+    "identifier",
+    "sender",
+    "event",
+    "area_desc",
+    "severity_normalized",
+    "phase",
+    "expires",
+)
+
+# What a first sighting of a restored record is allowed to report as changed:
+# the allowlist, less the content the record never had. A headline we have
+# not seen since before the restart is not news; a severity that moved is.
+RESTORED_DIFF_FIELDS: tuple[str, ...] = tuple(
+    name for name in CHANGED_FIELDS_ALLOWLIST if name in RECORD_FIELDS
+)
+
+
+def record_from_alert(alert: CAPAlert) -> dict[str, str]:
+    """The persisted fields of a live alert, for the restore file."""
+    return {name: str(getattr(alert, name)) for name in RECORD_FIELDS}
+
+
+def alert_from_record(
+    alert_id: str, provider: str, record: Mapping[str, Any]
+) -> CAPAlert:
+    """A ``CAPAlert`` carrying only what the record kept.
+
+    Unknown keys are ignored and missing ones take the dataclass default, so
+    a file written by another version of the record still loads.
+    """
+    kwargs: dict[str, Any] = {
+        name: str(record[name]) for name in RECORD_FIELDS if name in record
+    }
+    return CAPAlert(id=alert_id, provider=provider, **kwargs)
+
 
 class AlertStore:
     """Tracks alert state across poll cycles for transition detection."""
@@ -127,6 +171,14 @@ class AlertStore:
         # that is all the registry keeps of the content, so it is all the
         # removal can carry.
         self._known_at_boot: dict[str, str] = dict(known_at_boot or {})
+        # Alert ids seeded from the restore file (issue #350) whose record in
+        # ``_previous`` still carries only the persisted fields. A sighting
+        # replaces the record with the live one and drops the id; until then a
+        # diff against it is limited to ``RESTORED_DIFF_FIELDS``. An absent
+        # record retained to its expiry stays restored for as long as it is
+        # retained.
+        self._restored: set[str] = set()
+        self._seeded_count = 0
         self._reconciliations = 0
         # Events this reconciliation fired or parked (issue #323): what the
         # last-updated sensor stamps. Reset once the previous cycle's parked
@@ -234,13 +286,19 @@ class AlertStore:
                     # the tombstone to this revision without re-announcing.
                     self._tombstone(alert_id, alert.identifier, now)
                     continue
-                if self._booting and alert_id not in self._known_at_boot:
+                if (
+                    self._booting
+                    and prev is None
+                    and alert_id not in self._known_at_boot
+                ):
                     # Terminal on the first fetch after a boot, and no entity
                     # from before it: either its ending was announced before
                     # the restart, or it began and ended while HA was down and
                     # was never announced as created. Neither owes a consumer a
                     # removal (issue #257). A known id still falls through, it
-                    # was live before the restart and this is its ending.
+                    # was live before the restart and this is its ending, and
+                    # so does a restored one (issue #350), whose record is in
+                    # ``_previous`` and whose id has left ``_known_at_boot``.
                     self._tombstone(alert_id, alert.identifier, now)
                     continue
             else:
@@ -286,7 +344,7 @@ class AlertStore:
                         EVENT_INCIDENT_UPDATED,
                         updated,
                         phase_changed=phase_changed,
-                        changed_fields=_diff_fields(superseded_prev, alert),
+                        changed_fields=self._changed_fields(superseded_prev, alert),
                         previous=superseded_prev,
                     )
                 elif alert_id in self._known_at_boot and not terminal:
@@ -313,7 +371,7 @@ class AlertStore:
                         changed_fields=[],
                     )
             else:
-                changed = _diff_fields(prev, alert)
+                changed = self._changed_fields(prev, alert)
                 phase_changed = prev.phase != alert.phase
                 updated = replace(
                     alert,
@@ -407,9 +465,64 @@ class AlertStore:
             for alert_id, seen in self._last_seen.items()
             if alert_id in active
         }
+        self._restored &= set(active)
 
         self._previous = active
         return result
+
+    def restore(
+        self, records: Mapping[str, Mapping[str, Any]], *, confirmed_at: str
+    ) -> None:
+        """Seed the store from the fields saved before the restart. Fires NOTHING.
+
+        A restored record stands in ``_previous`` for the alert Home Assistant
+        knew when it stopped, so the first reconciliation runs the steady-state
+        path on it (issue #350): silent while it is live, the absence rule if
+        it is missing, and either way the removal carries the severity and
+        area a registry-only id cannot. The record holds only
+        ``RECORD_FIELDS``, so a first sighting diffs on those alone: a severity
+        or expiry that moved while HA was down is news, content we never had
+        is not. It is marked ``stale`` until a reconciliation confirms it, with
+        ``last_confirmed`` at ``confirmed_at``, and its id leaves
+        ``_known_at_boot``, so the registry grace applies only to ids with no
+        record.
+
+        A record already past ``expires`` needs no path of its own. The first
+        ``process()`` finds it absent and expired, or still published and
+        terminal, and either branch removes it once with its fields and phase
+        ``expired``. Nothing fires here, so a setup whose first fetch fails
+        and retries, rebuilding the store each time, announces nothing twice.
+
+        ``seeded_at_boot`` reports how many were seeded, for diagnostics.
+        """
+        for alert_id, record in records.items():
+            self._known_at_boot.pop(alert_id, None)
+            seeded = replace(
+                alert_from_record(alert_id, self._provider, record),
+                stale=True,
+                last_confirmed=confirmed_at,
+            )
+            self._previous[alert_id] = seeded
+            self._last_seen[alert_id] = confirmed_at
+            self._restored.add(alert_id)
+        self._seeded_count = len(records)
+
+    @property
+    def seeded_at_boot(self) -> int:
+        """How many records ``restore`` seeded, for diagnostics."""
+        return self._seeded_count
+
+    def _changed_fields(self, prev: CAPAlert, curr: CAPAlert) -> list[str]:
+        """Allowlisted fields that differ, on the fields ``prev`` actually carries.
+
+        A restored record (issue #350) is compared on ``RESTORED_DIFF_FIELDS``
+        and stops being restored here: ``curr`` is the live content that
+        replaces it in ``_previous`` at the end of this reconciliation.
+        """
+        if prev.id in self._restored:
+            self._restored.discard(prev.id)
+            return _diff_fields(prev, curr, RESTORED_DIFF_FIELDS)
+        return _diff_fields(prev, curr)
 
     @property
     def transitions(self) -> int:
@@ -610,13 +723,13 @@ def _superseded_by(alert: CAPAlert) -> str | None:
     return conventions.superseded_by(alert)
 
 
-def _diff_fields(prev: CAPAlert, curr: CAPAlert) -> list[str]:
+def _diff_fields(
+    prev: CAPAlert,
+    curr: CAPAlert,
+    fields: tuple[str, ...] = CHANGED_FIELDS_ALLOWLIST,
+) -> list[str]:
     """Return allowlisted field names whose values differ between prev/curr."""
-    return [
-        name
-        for name in CHANGED_FIELDS_ALLOWLIST
-        if getattr(prev, name) != getattr(curr, name)
-    ]
+    return [name for name in fields if getattr(prev, name) != getattr(curr, name)]
 
 
 def _retain_on_absence(alert: CAPAlert, now: datetime) -> bool:

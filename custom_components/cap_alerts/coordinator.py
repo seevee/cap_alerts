@@ -49,7 +49,8 @@ from .providers import (
     StreamingProvider,
 )
 from .providers.cap_content_cache import CAPContentCache
-from .store import AlertStore
+from .restore import AlertRestoreStore, Records
+from .store import AlertStore, record_from_alert
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -182,6 +183,11 @@ def alert_entity_lookup(
     return lookup
 
 
+def _records(data: Mapping[str, CAPAlert] | None) -> Records:
+    """The restore file's view of an active set: id → persisted fields."""
+    return {alert_id: record_from_alert(a) for alert_id, a in (data or {}).items()}
+
+
 def _resolve_tracker_gps(state: Any) -> str | None:
     """Resolve a ``device_tracker`` state to a ``"lat,lon"`` string.
 
@@ -233,6 +239,8 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         user_agent: str,
         geometry_store: GeometryStore,
         cap_content_cache: CAPContentCache | None = None,
+        *,
+        restore_store: AlertRestoreStore | None = None,
     ) -> None:
         self._provider = provider
         # The source's declared rows go into force before anything normalizes
@@ -256,6 +264,13 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         self._geometry_store = geometry_store
         self._user_agent = user_agent
         self._cap_content_cache = cap_content_cache
+        # Per-entry persistence of the live set's lifecycle fields (issue
+        # #350). ``None`` means no persistence, which is what a coordinator
+        # built directly in a test gets.
+        self._restore_store = restore_store
+        # When the last reconciliation ran, from any path. Stamped as the
+        # restore file's ``confirmed_at``; ``None`` until one has run.
+        self._last_reconciled_at: datetime | None = None
         self._timeout: int = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
         # Snapshot of the entry data this coordinator was built from. The
         # reconfigure flow no longer reloads the entry itself (see
@@ -490,6 +505,56 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     def boot_pending_ids(self) -> frozenset[str]:
         """Alert ids known before the restart that no fetch has settled yet."""
         return self._store.boot_pending
+
+    @property
+    def seeded_at_boot(self) -> int:
+        """How many alerts the restore file seeded at setup (issue #350)."""
+        return self._store.seeded_at_boot
+
+    @property
+    def last_saved(self) -> str | None:
+        """When the restore file was last written or scheduled, ISO 8601."""
+        if self._restore_store is None:
+            return None
+        return self._restore_store.last_saved
+
+    async def async_restore(self) -> None:
+        """Seed the store from the fields the last run saved (issue #350).
+
+        Runs before the first refresh so that refresh reconciles against the
+        restored records: one the feed omits is retained to its expiry rather
+        than removed as a registry-only id, and one that ended while HA was
+        down is removed with its severity and area. The saved scope key goes
+        in with it, so a scope that changed across the restart (a reconfigure
+        reloads the entry, a tracker moves) still suspends retention on that
+        first cycle and the out-of-scope alerts are removed rather than
+        stranded.
+
+        Fires nothing, and safe to repeat: a failed first refresh makes HA
+        retry setup, which builds a new coordinator and calls this again.
+        """
+        if self._restore_store is None:
+            return
+        loaded = await self._restore_store.async_load()
+        if loaded is None:
+            return
+        self._scope_key = loaded.scope_key
+        self._store.restore(loaded.records, confirmed_at=loaded.confirmed_at)
+
+    async def async_save_restore_state(self) -> None:
+        """Write the live set now, for unload and HA stop.
+
+        Refreshes ``confirmed_at`` to the last reconciliation, which a
+        write-on-change file would otherwise leave at the last change. Skipped
+        when nothing has reconciled since setup: there is nothing newer to say.
+        """
+        if self._restore_store is None or self._last_reconciled_at is None:
+            return
+        await self._restore_store.async_save_now(
+            _records(self.data),
+            scope_key=self._scope_key,
+            confirmed_at=self._last_reconciled_at.isoformat(),
+        )
 
     @property
     def resolved_config(self) -> Mapping[str, Any]:
@@ -749,10 +814,24 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             fetched=fetched,
         )
         self._scope_changed = False
+        now = datetime.now(timezone.utc)
+        self._last_reconciled_at = now
+        active = {a.id: a for a in alerts}
         if self._store.transitions:
-            self.last_change_time = datetime.now(timezone.utc)
-        # Index by ID for O(1) lookup
-        return {a.id: a for a in alerts}
+            self.last_change_time = now
+            if self._restore_store is not None:
+                # Written on change only (RFC §1.4 requirement 5), and the
+                # store's transition count is the change signal: every field
+                # the record keeps is on the ``changed_fields`` allowlist, so
+                # a cycle that moved one fired an event. The file compares
+                # the records once more, so a content-only update costs no
+                # write either.
+                self._restore_store.async_save_if_changed(
+                    _records(active),
+                    scope_key=self._scope_key,
+                    confirmed_at=now.isoformat(),
+                )
+        return active
 
     def _warn_geocode_no_match(
         self,
