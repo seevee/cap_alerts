@@ -9,36 +9,16 @@ already shipped lives in [`architecture.md`](architecture.md).
 
 ---
 
-## Declared content identity (issue #116)
+## Declared content identity (issue #116, not planned)
 
-Tracked in full on [#116](https://github.com/seevee/cap_alerts/issues/116);
-kept here because it is the one open item that shapes the convention table.
+Closed without building. Each source's re-issue identity, and why it stays per
+source, is in [`architecture.md`](architecture.md#re-issue-identity-is-per-source-issue-116).
+The trigger to revisit is an out-of-tree provider under the hub split (#216)
+that needs identity declarable rather than copied.
 
-The original entry here proposed merge-on-content-match as a fallback for
-sources that replace a whole message without a stable identifier. That fallback
-has now shipped twice, both times as a bespoke per-sender rule: `#37`
-(MeteoFrance, `meteofrance_identity`) and `#115` (NWS non-VTEC, a re-issue
-collapse stage). Two instances is enough to say the general shape is a declared
-extractor triple — event key, region codes, optional window key — composed over
-the provider-neutral `episode_id()`.
-
-Two things block a straight table row, and both are worth remembering before
-anyone reaches for this:
-
-- The `identity` and `keep` hooks are consumed only by `providers/meteoalarm.py`.
-  NWS, ECCC and WMO never call them, which is why #115 had to ship as a stage.
-  Wiring them everywhere touches entity ids, so it renames entities in live
-  dashboards.
-- A per-alert hook can't discard. Collapsing N messages onto one id leaves the
-  store's id-keyed last-write-wins to pick the survivor, and NWS returns
-  newest-first, so the *oldest* message would win. Re-minting and discarding
-  have to happen together.
-
-**Deferred alternative:** a user-facing identity strategy (`stable_event` vs.
-`message_strict`) was considered and isn't wanted. Every shipped source now
-either has a supersession protocol we honor or a declared content key, so the
-choice belongs in the table per source rather than in a toggle the user has to
-reason about.
+A user-facing identity strategy (`stable_event` vs. `message_strict`) was also
+considered and isn't wanted: the choice belongs in the table per source, not in
+a toggle the user has to reason about.
 
 ---
 
