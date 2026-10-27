@@ -44,7 +44,7 @@ class _RecordingSession:
         self._status = status
         self.requested: list[str] = []
 
-    def get(self, url: str):
+    def get(self, url: str, **_kwargs: object):
         self.requested.append(url)
         return _FakeResponse(self._body, self._status)
 

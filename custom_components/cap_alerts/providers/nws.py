@@ -328,7 +328,7 @@ class NWSProvider:
         follows = 0
 
         while url and follows <= MAX_PAGINATION_FOLLOWS:
-            data = await self._fetch_page(session, url)
+            data = await self._fetch_page(session, url, user_agent=user_agent)
             for feature in data.get("features", []):
                 alerts.append(_parse_feature(feature))
 
@@ -344,7 +344,9 @@ class NWSProvider:
             alerts = run(alerts, ctx)
 
         active_ids = {a.id for a in alerts}
-        cancellations = await self._fetch_cancellations(session, config, active_ids)
+        cancellations = await self._fetch_cancellations(
+            session, config, active_ids, user_agent=user_agent
+        )
         cancelled_ids = {c.id for c in cancellations}
         now = datetime.now(timezone.utc)
         tracked = {a.id: a.expires for a in alerts}
@@ -368,6 +370,8 @@ class NWSProvider:
         session: aiohttp.ClientSession,
         config: Mapping[str, Any],
         active_ids: set[str],
+        *,
+        user_agent: str | None = None,
     ) -> list[CAPAlert]:
         """Cancellations for alerts this provider returned last time.
 
@@ -412,7 +416,7 @@ class NWSProvider:
         )
         url = f"{NWS_ALL_BASE}?message_type=cancel&{scope}&start={since}"
         try:
-            data = await self._fetch_page(session, url)
+            data = await self._fetch_page(session, url, user_agent=user_agent)
         except (ProviderError, aiohttp.ClientError, TimeoutError) as err:
             _LOGGER.debug("nws: cancellation lookup failed, retaining alerts: %s", err)
             return []
@@ -449,10 +453,16 @@ class NWSProvider:
         return ""
 
     async def _fetch_page(
-        self, session: aiohttp.ClientSession, url: str
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+        *,
+        user_agent: str | None = None,
     ) -> dict[str, Any]:
         """Fetch a single page from NWS API."""
         headers = {"Accept": "application/geo+json"}
+        if user_agent:
+            headers["User-Agent"] = user_agent
         async with session.get(url, headers=headers) as resp:
             if resp.status != 200:
                 # No URL in the message: in GPS and tracker modes it carries the

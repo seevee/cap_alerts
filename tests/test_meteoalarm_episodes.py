@@ -108,7 +108,7 @@ class _Session:
     def __init__(self, payload: dict):
         self._body = json.dumps(payload)
 
-    def get(self, url: str):
+    def get(self, url: str, **_kwargs: object):
         return _Resp(self._body)
 
 

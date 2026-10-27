@@ -55,7 +55,9 @@ class _Pages:
         self.cancel = cancel
         self.urls: list[str] = []
 
-    async def __call__(self, _session, url: str) -> dict[str, Any]:
+    async def __call__(
+        self, _session, url: str, *, user_agent: str | None = None
+    ) -> dict[str, Any]:
         self.urls.append(url)
         if "message_type=cancel" in url:
             if self.cancel is None:

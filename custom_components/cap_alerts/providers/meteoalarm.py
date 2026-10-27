@@ -589,8 +589,17 @@ def _warning_to_alert(
     return _apply_identity(parsed)
 
 
+def _headers(user_agent: str | None) -> dict[str, str] | None:
+    """Request headers for a MeteoAlarm GET: the User-Agent when one is set."""
+    return {"User-Agent": user_agent} if user_agent else None
+
+
 async def fetch_regions_for_country(
-    session: aiohttp.ClientSession, country_iso: str, *, language: str = ""
+    session: aiohttp.ClientSession,
+    country_iso: str,
+    *,
+    language: str = "",
+    user_agent: str | None = None,
 ) -> list[tuple[str, str]]:
     """Return ``[(region_code, label), ...]`` for the given country.
 
@@ -615,12 +624,18 @@ async def fetch_regions_for_country(
         raise ProviderError(f"MeteoAlarm: unsupported country {country}")
 
     preferred_prefix = _lang_prefix(language) or "en"
-    regions = await _fetch_regions_from_warnings(session, slug, preferred_prefix)
+    regions = await _fetch_regions_from_warnings(
+        session, slug, preferred_prefix, user_agent=user_agent
+    )
     return sorted(_merge_region_pairs(regions), key=lambda item: item[1].lower())
 
 
 async def _fetch_regions_from_warnings(
-    session: aiohttp.ClientSession, slug: str, preferred_prefix: str
+    session: aiohttp.ClientSession,
+    slug: str,
+    preferred_prefix: str,
+    *,
+    user_agent: str | None = None,
 ) -> list[tuple[str, str]]:
     """Derive the region list from the warnings feed.
 
@@ -635,7 +650,7 @@ async def _fetch_regions_from_warnings(
     """
     url = METEOALARM_FEED_URL.format(country=slug)
     try:
-        async with session.get(url) as resp:
+        async with session.get(url, headers=_headers(user_agent)) as resp:
             if resp.status != 200:
                 raise ProviderError(f"MeteoAlarm {slug}: HTTP {resp.status}")
             try:
@@ -696,7 +711,9 @@ class MeteoAlarmProvider:
         slug = METEOALARM_COUNTRY_SLUGS.get(country)
         if slug is None:
             return "invalid_country"
-        async with session.get(METEOALARM_FEED_URL.format(country=slug)) as resp:
+        async with session.get(
+            METEOALARM_FEED_URL.format(country=slug), headers=_headers(user_agent)
+        ) as resp:
             if resp.status == 404:
                 return "unknown_country_feed"
             return None if resp.status == 200 else "cannot_connect"
@@ -730,7 +747,7 @@ class MeteoAlarmProvider:
             raise ProviderError(f"MeteoAlarm: unsupported country {country}")
 
         url = METEOALARM_FEED_URL.format(country=slug)
-        async with session.get(url) as resp:
+        async with session.get(url, headers=_headers(user_agent)) as resp:
             if resp.status != 200:
                 raise ProviderError(f"MeteoAlarm {country}: HTTP {resp.status}")
             try:
