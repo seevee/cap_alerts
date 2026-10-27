@@ -25,6 +25,7 @@ PROVIDER_IDS: tuple[str, ...] = (
     "bbk",
     "au",
     "geosphere",
+    "twc",
 )
 
 
@@ -201,6 +202,7 @@ def get_provider(provider_id: str) -> AlertProvider:
     from .geosphere import GeoSphereProvider
     from .meteoalarm import MeteoAlarmProvider
     from .nws import NWSProvider
+    from .twc import TWCProvider
     from .wmo import WMOProvider
 
     providers: dict[str, Callable[[], AlertProvider]] = {
@@ -212,6 +214,7 @@ def get_provider(provider_id: str) -> AlertProvider:
         "bbk": BBKProvider,
         "au": AUProvider,
         "geosphere": GeoSphereProvider,
+        "twc": TWCProvider,
     }
     cls = providers.get(provider_id)
     if cls is None:

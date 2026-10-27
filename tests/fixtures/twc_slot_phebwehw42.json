@@ -1,0 +1,57 @@
+{
+  "eventDir" : "/events/PHEB/2026/10/24/26297050/1/WEHW42/",
+  "thisDocGenerated" : "Sun Oct 25 02:26:21 UTC 2026",
+  "thisDoc" : "/tsunami_ops_data/web/htdocs/events/json/PHEBWEHW42.json",
+  "TWCID" : "PHEB",
+  "WMOID" : "WEHW42",
+  "eventMagnitude" : 7.0,
+  "eventMagnitudeType" : "Mwp",
+  "eventDepth" : 473,
+  "eventDepthType" : "kilometers",
+  "eventLat" : 28.,
+  "eventLon" : 139.9,
+  "originTime" : "2026-10-24T02:09:00Z",
+  "bulletinIssueTime" : "2026-10-25T02:26:11Z",
+  "quakeLocation" : "BONIN ISLANDS  JAPAN REGION",
+  "issueYear" : "2026",
+  "issueMonth" : "10",
+  "issueDay" : "24",
+  "twcEventID" : "26297050",
+  "bulletinNr" : "1",
+  "rootURL" : "/events/",
+   "alerts" : {"areaList":[[]]},
+   "segments" : [ 
+  
+    {
+       "id" : 1, 
+       "category" : "Information", 
+       "NWSZones" : "HIZ001-003-006>007-009-016>018-023-026-029>035-037>050-051>054-250426-", 
+
+       "headline" : " &lt;![CDATA[ ...TSUNAMI INFORMATION STATEMENT... ]]&gt; ",
+
+
+       "bkp_start_location" : "","bkp_start_lat" : 0.0,
+
+          "bkp_start_lon" : 0.0,
+"bkp_end_location" : "","bkp_end_lat" : 0.0,
+
+          "bkp_end_lon" : 0.0,
+"recommendedActions" : " ",
+       "productDefinition" : "" } 
+   ], 
+  "actions" : [ 
+  
+    {
+       "otherCenterActions" : "N/A", 
+       "nextActions" : " N/A " } 
+   ], 
+  
+ "breakpointZones" : [ 
+ ], 
+ "breakpointLocations" : [ 
+ ] 
+ }
+
+  
+
+

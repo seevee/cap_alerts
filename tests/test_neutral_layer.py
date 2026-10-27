@@ -48,7 +48,7 @@ _PROVIDER_IDS = frozenset(PROVIDER_IDS)
 # to one source. An identifier starting with one of these is a source leaking
 # into shared code.
 _PROVIDER_PREFIX = re.compile(
-    r"^_?(nws|eccc|meteoalarm|meteofrance|fmi|wmo|gdacs|bbk|au|naad|dwd|tmd|buddhist)_",
+    r"^_?(nws|eccc|meteoalarm|meteofrance|fmi|wmo|gdacs|bbk|au|twc|naad|dwd|tmd|buddhist)_",
     re.IGNORECASE,
 )
 

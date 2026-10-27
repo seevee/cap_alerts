@@ -59,7 +59,17 @@ print(jwt.encode({"iss": tok["id"], "iat": now, "exp": now + timedelta(minutes=3
                  tok["jwt_key"], algorithm="HS256"))
 """
 
-PROVIDERS = ("nws", "eccc", "meteoalarm", "wmo", "gdacs", "bbk", "au", "geosphere")
+PROVIDERS = (
+    "nws",
+    "eccc",
+    "meteoalarm",
+    "wmo",
+    "gdacs",
+    "bbk",
+    "au",
+    "geosphere",
+    "twc",
+)
 
 # Steps that create or update an entry the moment they are selected. The walk
 # refuses to run if any row names one, which is what keeps "read-only" a
@@ -187,6 +197,10 @@ SETUP: dict[str, list[tuple[dict, Expect]]] = {
             menu("geosphere", "geosphere_gps_loc", "geosphere_gps_tracker", "user"),
         ),
         ({"next_step_id": "geosphere_gps_loc"}, form("geosphere_gps_loc", "gps_loc")),
+    ],
+    "twc": [
+        ({"next_step_id": "twc"}, menu("twc", "twc_region", "user")),
+        ({"next_step_id": "twc_region"}, form("twc_region", "province")),
     ],
 }
 
@@ -318,6 +332,16 @@ RECONFIGURE: dict[str, list[tuple[dict, Expect]]] = {
             form("reconfigure_geosphere_gps_loc", "gps_loc"),
         ),
     ],
+    "twc": [
+        (
+            {"next_step_id": "reconfigure_twc"},
+            menu("reconfigure_twc", "reconfigure_twc_region", "reconfigure"),
+        ),
+        (
+            {"next_step_id": "reconfigure_twc_region"},
+            form("reconfigure_twc_region", "province"),
+        ),
+    ],
 }
 
 # Field order is asserted, not just membership: the options form renders in
@@ -339,6 +363,7 @@ OPTIONS_SCHEMA: dict[str, list[str]] = {
     "bbk": ["scan_interval", "timeout", "language"],
     "au": ["scan_interval", "timeout", "alert_level"],
     "geosphere": ["scan_interval", "timeout", "language", "geocode_prefixes"],
+    "twc": ["scan_interval", "timeout"],
 }
 
 

@@ -35,6 +35,7 @@ cards work too, see [Cards and automations](#cards-and-automations).*
 | **BBK** | German federal civil protection (the NINA app backend) | Germany: MoWaS, KATWARN, BIWAPP, LHP flood warnings, DWD weather warnings of level 3 and up | District (Regionalschlüssel, `09564`), GPS, or `device_tracker` entity |
 | **AU** | Australian state fire and emergency services | NSW (RFS), Queensland (QFD), Western Australia (DFES), Tasmania (TasALERT): bushfires and incidents, plus SES weather warnings on TasALERT | State |
 | **GeoSphere** | GeoSphere Austria (the former ZAMG) Warn API | Austria, per municipality: wind, rain, snow, black ice, thunderstorm, heat and cold warnings | GPS, or `device_tracker` entity |
+| **TWC** | U.S. Tsunami Warning Centers (NTWC Palmer, PTWC Honolulu) | Tsunami warnings, advisories, watches and information statements for Alaska, BC and the U.S. West Coast; the U.S. East and Gulf coasts; Hawaii; Guam and the Northern Marianas; American Samoa; Puerto Rico and the U.S. Virgin Islands | Region |
 
 GPS and tracker modes keep only alerts whose affected area contains the point.
 GeoSphere resolves the point to its municipality itself, and the alert's
@@ -42,6 +43,8 @@ polygon is that municipality.
 The Australian feeds have no GPS mode: most of their alerts are a location
 marker with no polygon, so a point test would drop them. Filter by distance on
 the card instead, which reads the marker from `points`.
+TWC has no GPS mode either: the bulletins name the threatened coast in text and
+zone codes and carry no shape to test a point against.
 The MeteoAlarm region picker lists `EMMA_ID` codes for most countries, `NUTS`
 codes for some, and area names where a feed publishes no geocodes.
 
@@ -63,6 +66,8 @@ but it can't show an alert the feed never carried.
 
 Latency is the poll interval, 5 minutes by default, plus the feed's own delay
 behind the issuing office. ECCC streaming is the one path that is not polled.
+For a TWC entry, set the interval to 60 s: a tsunami bulletin can matter within
+minutes, and a quiet poll there is two requests answered `304 Not Modified`.
 
 Keep the official channel for your area as the primary warning. This is a
 second one, and a way to automate on it.
@@ -115,7 +120,7 @@ Per provider:
 | Event types | GDACS | Which hazards to track. All by default. Applied before any geometry is fetched, so narrowing it also cuts fetch cost. |
 | Minimum alert level | GDACS, AU | GDACS: `Green`, `Orange` (default) or `Red`, on GDACS's own impact scale. The entity state derives from it too: Green → `minor`, Orange → `severe`, Red → `extreme`. AU: `All` (default), `Advice`, `Watch and Act` or `Emergency Warning` on the Australian Warning System; `All` also keeps the informational tiers below the ladder (planned burns, incidents with no warning). |
 | Exclude marine alerts | NWS, ECCC | Drop alerts carrying a marine zone code. Default off. |
-| Area codes (prefix match) | All but GDACS, BBK and AU | Keep only alerts whose area codes start with one of the listed prefixes (`13,37`). See [Area-code narrowing](#area-code-narrowing). |
+| Area codes (prefix match) | All but GDACS, BBK, AU and TWC | Keep only alerts whose area codes start with one of the listed prefixes (`13,37`). See [Area-code narrowing](#area-code-narrowing). |
 
 #### ECCC streaming
 
@@ -381,6 +386,19 @@ policy.
   MeteoAlarm Austria entry: both carry the same warnings under unrelated
   identifiers, so every warning shows twice. A tracker outside Austria makes
   the entry unavailable rather than reporting all clear.
+- **TWC** reads the U.S. Tsunami Warning Centers' per-product slots on
+  tsunami.gov, which hold each product's latest bulletin. A region entry
+  follows two products, the warning product (Warning, Advisory, Watch,
+  ending in a Cancellation) and the information statement product.
+  Statements are issued for large earthquakes that pose no threat to the
+  region and come in at `minor`, so a trigger set to Moderate or above skips
+  them. Identity is the product plus the event, so a Watch upgraded to an
+  Advisory updates one entity. Warnings for U.S. zones also reach the NWS
+  provider, so an entry here next to an NWS entry for the same coast shows
+  each warning twice. A slot holds one bulletin, so if a second event takes
+  the slot before the first one ends, the first stays `stale` until its
+  `expires`, 1 to 2.5 hours. PTWC's international threat messages are not
+  covered yet.
 
 Per-field mappings and the reasoning behind each provider are in
 [`docs/architecture.md`](docs/architecture.md).

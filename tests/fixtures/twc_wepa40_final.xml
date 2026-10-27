@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>PHEB-2-26297000</identifier>
+  <sender>ntwc@noaa.gov</sender>
+  <sent>2026-10-24T03:30:54-00:00</sent>
+  <status>Actual</status>
+  <msgType>Update</msgType>
+  <source>PTWC</source>
+  <scope>Public</scope>
+  <code>IPAWSv1.0</code>
+  <references>ntwc@noaa.gov,PHEB-1-26297000,2026-10-24T02:39:44-00:00</references>
+  <incidents>26297000</incidents>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments"/><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#dsa-sha1"/><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/></Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/><DigestValue>wu1XBnzkPMokQ+sKK5TnurVioCQ=</DigestValue></Reference></SignedInfo><SignatureValue>WmGuhFD20kJySNdIygIfJKJiqWllawNvYyWIpT42VsqpIIwoFFXF3w==</SignatureValue><KeyInfo><KeyValue><DSAKeyValue><P>/X9TgR11EilS30qcLuzk5/YRt1I870QAwx4/gLZRJmlFXUAiUftZPY1Y+r/F9bow9subVWzXgTuA&#13;
+HTRv8mZgt2uZUKWkn5/oBHsQIsJPu6nX/rfGG/g7V+fGqKYVDwT7g/bTxR7DAjVUE1oWkTL2dfOu&#13;
+K2HXKu/yIgMZndFIAcc=</P><Q>l2BQjxUjC8yykrmCouuEC/BYHPU=</Q><G>9+GghdabPd7LvKtcNrhXuXmUr7v6OuqC+VdMCz0HgmdRWVeOutRZT+ZxBxCBgLRJFnEj6EwoFhO3&#13;
+zwkyjMim4TwWeotUfI0o4KOuHiuzpnWRbqN/C/ohNWLx+2J6ASQ7zKTxvqhRkImog9/hWuWfBpKL&#13;
+Zl6Ae1UlZAFMO/7PSSo=</G><Y>XonR3Yg1PO+Hpheh7NMm5UHT3amv+Z0OpCibPuHTwnyyfTUJQLaX249PGVvgM/CPS8MTN24lqbYx&#13;
+NI9dXJLAvIb16cW6eJx+kivl9ObemdndlUkM15quv7dN94sP5GF9RtppDXuq9BD/4lv3ya/TGxjX&#13;
+iMTf93pJwabei82X7Fs=</Y></DSAKeyValue></KeyValue></KeyInfo></Signature></alert>

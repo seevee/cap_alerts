@@ -82,6 +82,7 @@ async def test_user_step_lists_every_provider(hass, enable_custom_integrations):
         "bbk",
         "au",
         "geosphere",
+        "twc",
     ]
 
 
@@ -95,6 +96,7 @@ async def test_user_step_lists_every_provider(hass, enable_custom_integrations):
         ("bbk", ["bbk_region", "bbk_gps_loc", "bbk_gps_tracker", "user"]),
         ("au", ["au_state", "user"]),
         ("geosphere", ["geosphere_gps_loc", "geosphere_gps_tracker", "user"]),
+        ("twc", ["twc_region", "user"]),
     ],
 )
 @pytest.mark.asyncio

@@ -78,6 +78,8 @@ from .const import (
     GEOSPHERE_WARNINGS_URL,
     METEOALARM_COUNTRY_SLUGS,
     PLATFORM_VERSION,
+    TWC_REGIONS,
+    TWC_SLOT_URL,
 )
 from .conventions import CONVENTIONS, PipelineStage, SourceConventions, conventions_for
 from .model import CAPAlert
@@ -306,6 +308,9 @@ def _endpoints(
     if provider == "au":
         feed = AU_FEEDS.get((config.get(CONF_PROVINCE) or "").strip().upper())
         return [feed[1]] if feed else []
+    if provider == "twc":
+        region = TWC_REGIONS.get((config.get(CONF_PROVINCE) or "").strip().upper())
+        return [TWC_SLOT_URL.format(slot=slot) for slot in region[1]] if region else []
     if provider == "geosphere" and config.get(CONF_GPS_LOC):
         # The point is in the query, as for NWS, so it is replaced.
         return [f"{GEOSPHERE_WARNINGS_URL}?lon={REDACTED}&lat={REDACTED}"]

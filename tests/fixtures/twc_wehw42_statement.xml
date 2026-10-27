@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>PHEB-1-26297050</identifier>
+  <sender>ntwc@noaa.gov</sender>
+  <sent>2026-10-25T02:26:11-00:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <source>PTWC</source>
+  <scope>Public</scope>
+  <code>IPAWSv1.0</code>
+  <incidents>26297050</incidents>
+  <info>
+    <category>Geo</category>
+    <event>Tsunami Information</event>
+    <responseType>None</responseType>
+    <urgency>Unknown</urgency>
+    <severity>Minor</severity>
+    <certainty>Unlikely</certainty>
+    <onset>2026-10-25T02:26:11-00:00</onset>
+    <expires>2026-10-25T03:26:11-00:00</expires>
+    <senderName>NWS PACIFIC TSUNAMI WARNING CENTER HONOLULU HI</senderName>
+    <headline>TSUNAMI INFORMATION STATEMENT</headline>
+    <description>TSUNAMI INFORMATION STATEMENT - Event details: Preliminary magnitude 7.0 (Mwp) earthquake / Lat: 28.000, Lon: 139.900 at 2026-10-24T02:09:00Z </description>
+    <instruction>  N/A </instruction>
+    <web>http://www.tsunami.gov/events/PHEB/2026/10/24/26297050/1/WEHW42/WEHW42.txt</web>
+    <parameter>
+      <valueName>EventLocationName</valueName>
+      <value>BONIN ISLANDS  JAPAN REGION</value>
+    </parameter>
+    <parameter>
+      <valueName>EventPreliminaryMagnitude</valueName>
+      <value>7.0</value>
+    </parameter>
+    <parameter>
+      <valueName>EventPreliminaryMagnitudeType</valueName>
+      <value>Mwp</value>
+    </parameter>
+    <parameter>
+      <valueName>EventOriginTime</valueName>
+      <value>2026-10-24T02:09:00-00:00</value>
+    </parameter>
+    <parameter>
+      <valueName>EventDepth</valueName>
+      <value>473 kilometers</value>
+    </parameter>
+    <parameter>
+      <valueName>EventLatLon</valueName>
+      <value>28.000,139.900 0.000</value>
+    </parameter>
+    <parameter>
+      <valueName>NWSUGC</valueName>
+      <value>HIZ001-003-006&gt;007-009-016&gt;018-023-026-029&gt;035-037&gt;050-051&gt;054-250426-</value>
+    </parameter>
+    <parameter>
+      <valueName>ProductDefinition</valueName>
+      <value/>
+    </parameter>
+    <parameter>
+      <valueName>WEHW42</valueName>
+      <value>Tsunami Information Bulletin for large earthquakes in the Pacific Basin that are evaluated not to have destructive teletsunamigenic potential, or for large earthquakes with tsunamigenic potential located in the Pacific region but outside the Pacific Basin.</value>
+    </parameter>
+    <parameter>
+      <valueName>EAS-ORG</valueName>
+      <value>WXR</value>
+    </parameter>
+    <resource>
+      <resourceDesc>Energy Map</resourceDesc>
+      <mimeType>image/jpeg</mimeType>
+      <uri>http://www.tsunami.gov/events/PHEB/2026/10/24/26297050/1/WEHW42/ </uri>
+    </resource>
+    <resource>
+      <resourceDesc>Event Data as a JSON document</resourceDesc>
+      <mimeType>application/json</mimeType>
+      <uri>http://www.tsunami.gov/events/PHEB/2026/10/24/26297050/1/WEHW42/PHEB.json</uri>
+    </resource>
+    <area>
+      <areaDesc>BONIN ISLANDS  JAPAN REGION</areaDesc>
+      <circle>28.0,139.9 0.0</circle>
+    </area>
+  </info>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments"/><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#dsa-sha1"/><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/></Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/><DigestValue>l+x/7Qwa5tWgU2KUk/FjFovKCM4=</DigestValue></Reference></SignedInfo><SignatureValue>P6deDaYjYRKRAufOhrR75S4mLIVhPRNUh+U8Z1cjhDHFHNueEqJrkA==</SignatureValue><KeyInfo><KeyValue><DSAKeyValue><P>/X9TgR11EilS30qcLuzk5/YRt1I870QAwx4/gLZRJmlFXUAiUftZPY1Y+r/F9bow9subVWzXgTuA&#13;
+HTRv8mZgt2uZUKWkn5/oBHsQIsJPu6nX/rfGG/g7V+fGqKYVDwT7g/bTxR7DAjVUE1oWkTL2dfOu&#13;
+K2HXKu/yIgMZndFIAcc=</P><Q>l2BQjxUjC8yykrmCouuEC/BYHPU=</Q><G>9+GghdabPd7LvKtcNrhXuXmUr7v6OuqC+VdMCz0HgmdRWVeOutRZT+ZxBxCBgLRJFnEj6EwoFhO3&#13;
+zwkyjMim4TwWeotUfI0o4KOuHiuzpnWRbqN/C/ohNWLx+2J6ASQ7zKTxvqhRkImog9/hWuWfBpKL&#13;
+Zl6Ae1UlZAFMO/7PSSo=</G><Y>XonR3Yg1PO+Hpheh7NMm5UHT3amv+Z0OpCibPuHTwnyyfTUJQLaX249PGVvgM/CPS8MTN24lqbYx&#13;
+NI9dXJLAvIb16cW6eJx+kivl9ObemdndlUkM15quv7dN94sP5GF9RtppDXuq9BD/4lv3ya/TGxjX&#13;
+iMTf93pJwabei82X7Fs=</Y></DSAKeyValue></KeyValue></KeyInfo></Signature></alert>

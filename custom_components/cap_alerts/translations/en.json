@@ -11,7 +11,8 @@
           "gdacs": "GDACS Global Disasters",
           "bbk": "BBK / NINA (Germany)",
           "au": "Australia (state fire and emergency services)",
-          "geosphere": "GeoSphere Austria"
+          "geosphere": "GeoSphere Austria",
+          "twc": "U.S. Tsunami Warning Centers"
         }
       },
       "nws": {
@@ -278,6 +279,22 @@
           "tracker_entity": "Follows the tracker's municipality. The entry goes unavailable while the tracker is outside Austria."
         }
       },
+      "twc": {
+        "title": "Tsunami Location Scope",
+        "menu_options": {
+          "twc_region": "Region",
+          "user": "Back to provider list"
+        }
+      },
+      "twc_region": {
+        "title": "Tsunami Warning Region",
+        "data": {
+          "province": "Region"
+        },
+        "data_description": {
+          "province": "Which coast to follow. Each region has a warning product (Warning, Advisory, Watch, ending in a Cancellation) and an information statement product, and the entry follows both. Information statements are issued for large earthquakes that pose no threat to the region; they come in at Minor severity, so a trigger set to Moderate or above skips them. Warnings for U.S. zones also reach the National Weather Service provider, so an entry here next to an NWS entry for the same coast shows each warning twice."
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure CAP Alerts",
         "menu_options": {
@@ -288,7 +305,8 @@
           "reconfigure_gdacs": "GDACS Global Disasters",
           "reconfigure_bbk": "BBK / NINA (Germany)",
           "reconfigure_au": "Australia (state fire and emergency services)",
-          "reconfigure_geosphere": "GeoSphere Austria"
+          "reconfigure_geosphere": "GeoSphere Austria",
+          "reconfigure_twc": "U.S. Tsunami Warning Centers"
         }
       },
       "reconfigure_nws": {
@@ -562,6 +580,22 @@
         },
         "data_description": {
           "tracker_entity": "Follows the tracker's municipality. The entry goes unavailable while the tracker is outside Austria."
+        }
+      },
+      "reconfigure_twc": {
+        "title": "Tsunami Location Scope",
+        "menu_options": {
+          "reconfigure_twc_region": "Region",
+          "reconfigure": "Back to provider list"
+        }
+      },
+      "reconfigure_twc_region": {
+        "title": "Tsunami Warning Region",
+        "data": {
+          "province": "Region"
+        },
+        "data_description": {
+          "province": "Which coast to follow. Each region has a warning product (Warning, Advisory, Watch, ending in a Cancellation) and an information statement product, and the entry follows both. Information statements are issued for large earthquakes that pose no threat to the region; they come in at Minor severity, so a trigger set to Moderate or above skips them. Warnings for U.S. zones also reach the National Weather Service provider, so an entry here next to an NWS entry for the same coast shows each warning twice."
         }
       },
       "reconfigure_wmo_geocode": {

@@ -254,3 +254,12 @@ def test_geosphere_gps_title():
         _compute({CONF_PROVIDER: "geosphere", CONF_GPS_LOC: "48.2082,16.3738"})
         == "CAP Alerts GEOSPHERE (48.2082,16.3738)"
     )
+
+
+# --- TWC ---------------------------------------------------------------------
+
+
+def test_twc_region_title():
+    assert (
+        _compute({CONF_PROVIDER: "twc", CONF_PROVINCE: "HI"}) == "CAP Alerts TWC (HI)"
+    )

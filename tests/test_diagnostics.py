@@ -673,6 +673,18 @@ async def test_an_au_state_entry_reports_its_feed(hass):
     ]
 
 
+async def test_a_twc_entry_reports_both_slots(hass):
+    entry = _entry({CONF_PROVIDER: "twc", CONF_PROVINCE: "HI"})
+
+    payload = await _payload(hass, entry)
+
+    assert payload["entry"]["scope"] == {"mode": "province", "value": "HI"}
+    assert payload["source"]["endpoints"] == [
+        "https://www.tsunami.gov/events/json/PHEBWEHW40.json",
+        "https://www.tsunami.gov/events/json/PHEBWEHW42.json",
+    ]
+
+
 async def test_a_geosphere_entry_reports_its_endpoint_without_the_point(hass):
     """GeoSphere's poll URL carries the point as two query parameters (#300)."""
     entry = _entry(
