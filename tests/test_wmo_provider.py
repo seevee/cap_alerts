@@ -26,6 +26,7 @@ from custom_components.cap_alerts.const import (
     WMO_MIRROR_GONE_STREAK,
     WMO_SOURCES_URL,
 )
+from custom_components.cap_alerts.model import CAPAlert
 from custom_components.cap_alerts.providers import ProviderError
 from custom_components.cap_alerts.providers import cap as _cap_mod
 from custom_components.cap_alerts.providers import cap_content_cache as _cap_cache_mod
@@ -40,9 +41,9 @@ WMOProvider = _wmo_mod.WMOProvider
 _parse_feed_links = _wmo_mod._parse_feed_links
 _compute_wmo_id = _wmo_mod._compute_wmo_id
 _build_alert = _wmo_mod._build_alert
-_language_matches = _wmo_mod._language_matches
-_select_info = _wmo_mod._select_info
-_select_alt_info = _wmo_mod._select_alt_info
+_language_matches = _cap_mod.language_matches
+_select_info = _cap_mod.select_info
+_select_alt_info = _cap_mod.select_alt_info
 _parse_cap_alert = _cap_mod.parse_cap_alert
 
 
@@ -1501,3 +1502,11 @@ async def test_light_authority_index_failure_is_still_a_feed_failure(monkeypatch
 
 def test_authority_index_is_none_before_the_first_read():
     assert WMOProvider().authority_index is None
+
+
+def test_gps_filter_fails_loud_on_point_only_geometry():
+    """A point is not an area: the guard asks for polygons, which is what the
+    filter tests, so a point-only source fails loud instead of filtering to []."""
+    points = [CAPAlert(id="p", geometry={"type": "Point", "coordinates": [1.0, 2.0]})]
+    with pytest.raises(ProviderError, match="carry no polygons"):
+        WMOProvider._filter_by_polygon(points, "2.0,1.0", "xx-test-en")

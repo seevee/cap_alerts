@@ -87,9 +87,10 @@ def _async_ensure_scope_key(hass: HomeAssistant, entry: ConfigEntry) -> None:
 async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) -> bool:
     """Set up CAP Alerts from a config entry."""
     _async_ensure_scope_key(hass, entry)
-    # Before the first refresh: a feed source pinned to the retired NAAD host
-    # fails every first refresh, and the repair card is the only thing that
-    # will say why, so it must not wait on a successful setup (issue #163).
+    # Before the first refresh: once the legacy NAAD host retires, a feed
+    # source pinned to it fails every first refresh, and the repair card is
+    # the only thing that will say why, so it must not wait on a successful
+    # setup (issue #163).
     async_sync_issues(hass, entry)
     instance_id = await async_get_instance_id(hass)
     user_agent = USER_AGENT.format(instance_id)

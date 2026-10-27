@@ -32,6 +32,7 @@ from .cap import (
     CAPAreaDoc,
     CAPDoc,
     CAPInfoDoc,
+    language_matches,
     parse_cap_alert,
     resolve_chain_leaves,
     ring_from_lat_lon_pairs,
@@ -45,23 +46,25 @@ from .geometry import (
     geometry_from_shapes,
     points_from_circles,
 )
-from .gps import point_in_polygon
+from .gps import parse_gps, point_in_polygon
 
 _LOGGER = logging.getLogger(__name__)
 
 # NAAD public dissemination GeoRSS hosts. Migrated April 2026 from
 # rss.naad-adna.pelmorex.com to rss.alertready.ca per the NAAD System Governance
 # Council (March 2026 Public Summary): an intentional domain rebrand off the
-# Pelmorex name, with both feeds maintained concurrently for 6 months (legacy
-# host sunsets ~late Sept 2026).
+# Pelmorex name, with both feeds maintained concurrently. The legacy host was
+# announced to sunset ~late Sept 2026 and still served on 2026-10-27.
 #
-# Neither host alone is complete (issue #38). Measured 2026-07-23 from
-# simultaneous samples: rss.alertready.ca retains ~48 h of history but
-# persistently omits ~10 live status=Actual alerts at any moment that pelmorex
-# carries (one OID absent across 110 of 179 probe samples, ~11.5 h); pelmorex
-# retains only ~13.5 h, so it drops alerts older than that which alertready still
-# serves. "auto" fetches both and unions their entries deduplicated by CAP OID,
-# which is complete on both axes. The rss.alertready.ca Atom <id> authority is
+# The union exists because neither host alone was complete (issue #38).
+# Measured 2026-07-23 from simultaneous samples: rss.alertready.ca retained
+# ~48 h of history but persistently omitted ~10 live status=Actual alerts at
+# any moment that pelmorex carried (one OID absent across 110 of 179 probe
+# samples, ~11.5 h); pelmorex retains only ~13.5 h, so it drops alerts older
+# than that which alertready still serves. The alertready gap closed on
+# 2026-10-02 (const.py, CONF_FEED_SOURCE), so the union now guards against a
+# regression. "auto" fetches both and unions their entries deduplicated by
+# CAP OID. The rss.alertready.ca Atom <id> authority is
 # "rsstrainingdqs.alertready.ca" — that is the tag-URI authority of the feed
 # generator instance, *not* a per-alert test marker (all 1,254 entries carry it,
 # and the OIDs behind them are the same alerts pelmorex serves), so it is NOT
@@ -75,7 +78,7 @@ NAAD_FEED_HOSTS: dict[str, str] = {
 # Union / href tie-break priority: the first host to yield a surviving entry for
 # a given CAP OID wins, so its CAP href is the one fetched. alertready is first
 # because it serves CAP bodies over HTTPS (pelmorex serves them over plain HTTP)
-# and is the endpoint that survives the September 2026 sunset.
+# and is the endpoint that survives the announced sunset.
 NAAD_FEED_UNION_ORDER: tuple[str, ...] = ("alertready", "pelmorex")
 
 # The feed is a large (~6 MB) document served behind istio-envoy. Until
@@ -315,6 +318,15 @@ def _parse_georss_polygon(poly_el: Element[str]) -> list[list[float]] | None:
     )
 
 
+def config_gps(config: Mapping[str, Any]) -> tuple[float | None, float | None]:
+    """The configured GPS point as ``(lat, lon)``, or ``(None, None)`` outside GPS mode.
+
+    Shared with the streaming ingest, which resolves the same config.
+    """
+    gps = parse_gps(str(config.get(CONF_GPS_LOC, "") or ""))
+    return gps if gps is not None else (None, None)
+
+
 def _point_in_polygons(
     lat: float, lon: float, polygons: list[list[list[float]]]
 ) -> bool:
@@ -428,40 +440,6 @@ def _pick_cap_link(entry: Element) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _language_matches(info_lang: str, preferred: str) -> bool:
-    """Check language match with BCP 47 primary-subtag fallback.
-
-    Exact match wins (``en-CA`` == ``en-CA``). When that fails, the primary
-    subtag (the part before the first ``-``) is compared so that a bare
-    ``en`` info block matches a preferred ``en-CA`` and vice-versa. This
-    hardens against CAP documents that declare a bare primary subtag
-    instead of the full region-tagged form the ECCC feed normally carries.
-    """
-    if not info_lang or not preferred:
-        return False
-    if info_lang == preferred:
-        return True
-    return (
-        preferred.split("-", 1)[0].casefold() == info_lang.split("-", 1)[0].casefold()
-    )
-
-
-def _select_info(doc: CAPDoc, language: str) -> CAPInfoDoc:
-    """Pick the <info> block matching language; fall back to first.
-
-    Language-only selection, with no notion of area groups — correct for a
-    single-area-group document, and still the right helper wherever the caller
-    has already decided which area group it means. Region-aware callers want
-    ``_select_region_info``.
-    """
-    if not doc.infos:
-        return CAPInfoDoc()
-    for info in doc.infos:
-        if _language_matches(info.language, language):
-            return info
-    return doc.infos[0]
-
-
 def _location_status(info: CAPInfoDoc) -> str:
     """Return the ECCC ``Alert_Location_Status`` of an <info> block, or "".
 
@@ -514,14 +492,14 @@ def _select_region_info(
     province where the alert is still live would be the worse failure.
     """
     candidates = (
-        [info for info in doc.infos if _language_matches(info.language, language)]
+        [info for info in doc.infos if language_matches(info.language, language)]
         if language
         else []
     )
     if not candidates:
         # No block declares this language (single-language document, or a
-        # document with no <language> at all) — consider them all, preserving
-        # _select_info's fall-back-to-first behaviour.
+        # document with no <language> at all) — consider them all, falling
+        # back to the first block as ``cap.select_info`` does.
         candidates = list(doc.infos)
 
     matches = [
@@ -907,7 +885,7 @@ def _merge_languages(variants: list[CAPAlert], preferred_lang: str) -> CAPAlert:
     primary = None
     alt = None
     for v in variants:
-        if _language_matches(v.language, preferred_lang):
+        if language_matches(v.language, preferred_lang):
             primary = v
         else:
             alt = v
@@ -1237,7 +1215,7 @@ class ECCCProvider:
         """
         preferred_lang = options.get(CONF_LANGUAGE, "en-CA")
         province = config.get(CONF_PROVINCE, "")
-        gps_lat, gps_lon = self._parse_gps(config)
+        gps_lat, gps_lon = config_gps(config)
 
         results = await self._collect(
             session,
@@ -1386,7 +1364,7 @@ class ECCCProvider:
         entries = await self._fetch_feed_entries(session, options)
 
         province = config.get(CONF_PROVINCE, "")
-        gps_lat, gps_lon = self._parse_gps(config)
+        gps_lat, gps_lon = config_gps(config)
 
         if not province and gps_lat is None:
             return []
@@ -1591,17 +1569,3 @@ class ECCCProvider:
                 await asyncio.sleep(_FEED_RETRY_BACKOFF_S)
 
         raise ProviderError(f"ECCC: {last_error}")
-
-    @staticmethod
-    def _parse_gps(
-        config: Mapping[str, Any],
-    ) -> tuple[float | None, float | None]:
-        """Extract GPS coordinates from config."""
-        gps_loc = config.get(CONF_GPS_LOC, "")
-        if not gps_loc:
-            return None, None
-        try:
-            parts = gps_loc.split(",")
-            return float(parts[0].strip()), float(parts[1].strip())
-        except (ValueError, IndexError):
-            return None, None

@@ -95,9 +95,10 @@ DEFAULT_FEED_SOURCE = "auto"
 # TCP streaming feed — not the auxiliary GeoRSS feed — as the correct channel for
 # 24/7 automated systems. streaming.alertready.ca:8443 is the surviving-domain TLS
 # endpoint (the deprecated pelmorex streaming1/2:8080 hosts were announced to
-# sunset ~Sept 2026, still open on 2026-10-27, and drop unregistered clients). When streaming is enabled the GeoRSS feed is retained
-# only as the startup/reconnect backfill source; the coordinator's update_interval
-# is repurposed as the periodic safety-resync cadence.
+# sunset ~Sept 2026, still open on 2026-10-27, and drop unregistered clients).
+# When streaming is enabled the GeoRSS feed is retained only as the
+# startup/reconnect backfill source; the coordinator's update_interval is
+# repurposed as the periodic safety-resync cadence.
 NAAD_STREAM_HOST = "streaming.alertready.ca"
 NAAD_STREAM_PORT = 8443
 # A NAADS heartbeat is a CAP <alert> whose <sender> starts with this prefix and
@@ -317,8 +318,10 @@ WMO_HEAVY_INDEX_STAND_IN_LIMIT = 3 * WMO_HEAVY_INDEX_INTERVAL
 WMO_MIRROR_GONE_STREAK = 3
 
 # WMO Severe Weather Information Centre (SWIC) source IDs, keyed
-# {country}-{agency}-{lang}. The per-source RSS feed lives at
-# https://severeweather.wmo.int/v2/cap-alerts/{source-id}/rss.xml.
+# {country}-{agency}-{lang}. The per-source feed is the authority's own, from
+# its registry record; the SWIC mirror that used to serve each id at
+# https://severeweather.wmo.int/v2/cap-alerts/{source-id}/rss.xml was retired
+# in October 2026 (CONF_FEED_SOURCE above).
 # Offline fallback for the config-flow dropdown when the live registry
 # (WMO_SOURCES_URL) is unreachable; the flow accepts a custom value, so any
 # valid SWIC source ID still works. Every entry below was verified reachable
@@ -614,7 +617,6 @@ AU_ALERT_LEVEL_ALL = "All"
 # the config flow's scope check reads.
 GEOSPHERE_API_BASE = "https://warnungen.zamg.at/wsapp/api"
 GEOSPHERE_WARNINGS_URL = GEOSPHERE_API_BASE + "/getWarningsForCoords"
-GEOSPHERE_WARNSTATUS_URL = GEOSPHERE_API_BASE + "/getWarnstatus"
 # The public warning map framed on a bbox in native metres. The site's own
 # per-municipality page needs a state slug the API does not return, and
 # redirects to exactly this form anyway.

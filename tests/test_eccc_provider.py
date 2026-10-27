@@ -25,9 +25,8 @@ _pick_cap_link = _eccc_mod._pick_cap_link
 _parse_georss_polygons = _eccc_mod._parse_georss_polygons
 _point_in_polygons = _eccc_mod._point_in_polygons
 _parse_cap_alert = _cap_mod.parse_cap_alert
-_select_info = _eccc_mod._select_info
+_select_info = _cap_mod.select_info
 _select_region_info = _eccc_mod._select_region_info
-_language_matches = _eccc_mod._language_matches
 _location_status = _eccc_mod._location_status
 _is_terminal_info = _eccc_mod._is_terminal_info
 _resolve_chain_leaves = _cap_mod.resolve_chain_leaves
@@ -266,66 +265,6 @@ def test_parse_cap_alert_tolerates_newline_separated_references():
     assert len(doc.references) == 2
     assert doc.references[0][1] == "urn:oid:2.49.0.1.124.test.2026.NEW.EN"
     assert doc.references[1][1] == "urn:oid:2.49.0.1.124.test.2026.OLD.EN"
-
-
-# ---------------------------------------------------------------------------
-# _language_matches tests
-# ---------------------------------------------------------------------------
-
-
-def test_language_matches_exact_match():
-    assert _language_matches("en-CA", "en-CA") is True
-    assert _language_matches("fr-CA", "fr-CA") is True
-
-
-def test_language_matches_bare_primary_against_region():
-    """Bare 'en' info block should match preferred 'en-CA'."""
-    assert _language_matches("en", "en-CA") is True
-    assert _language_matches("en-CA", "en") is True
-
-
-def test_language_matches_different_primary_subtags():
-    """en-CA and fr-CA must not match each other."""
-    assert _language_matches("en-CA", "fr-CA") is False
-    assert _language_matches("fr-CA", "en-CA") is False
-
-
-def test_language_matches_empty_strings():
-    assert _language_matches("", "en-CA") is False
-    assert _language_matches("en-CA", "") is False
-    assert _language_matches("", "") is False
-
-
-def test_language_matches_case_insensitive():
-    assert _language_matches("EN-CA", "en-ca") is True
-    assert _language_matches("en-CA", "EN-ca") is True
-
-
-# ---------------------------------------------------------------------------
-# _select_info tests
-# ---------------------------------------------------------------------------
-
-
-def test_select_info_picks_matching_language():
-    doc = CAPDoc()
-    en_info = CAPInfoDoc(language="en-CA", event="Freeze")
-    fr_info = CAPInfoDoc(language="fr-CA", event="Gel")
-    doc.infos = [en_info, fr_info]
-
-    assert _select_info(doc, "en-CA") is en_info
-    assert _select_info(doc, "fr-CA") is fr_info
-
-
-def test_select_info_falls_back_to_first_when_no_match():
-    doc = CAPDoc()
-    doc.infos = [CAPInfoDoc(language="en-CA", event="Freeze")]
-    assert _select_info(doc, "de-DE").language == "en-CA"
-
-
-def test_select_info_returns_empty_on_no_infos():
-    doc = CAPDoc()
-    info = _select_info(doc, "en-CA")
-    assert info.event == ""
 
 
 # ---------------------------------------------------------------------------

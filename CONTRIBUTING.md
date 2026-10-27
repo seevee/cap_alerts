@@ -117,11 +117,13 @@ Use conventional-style prefixes: `feat(scope):`, `fix:`, `docs:`, `refactor:`, `
 
 `CHANGELOG.md` is **generated**, not hand-edited — do not edit it directly. It is
 produced from the conventional commit history by [git-cliff](https://git-cliff.org/)
-(config in `cliff.toml`, pinned in `requirements_test.txt`). Regenerate the whole
-file after tagging a release:
+(config in `cliff.toml`, pinned in `requirements_test.txt`). `scripts/release.sh`
+regenerates it on a GA release and leaves it untouched on a prerelease, since
+the file only ever lists GA versions. To regenerate by hand, keep the same tag
+filter or every past GA section splits into its alphas:
 
 ```bash
-git cliff --config cliff.toml --output CHANGELOG.md
+git cliff --config cliff.toml --tag-pattern '^v[0-9]+\.[0-9]+\.[0-9]+$' --output CHANGELOG.md
 ```
 
 Each entry is a commit subject, so a clean `type(scope): description` subject is

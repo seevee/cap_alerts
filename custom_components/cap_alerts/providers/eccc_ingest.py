@@ -37,6 +37,7 @@ from .cap import CAPDoc, parse_cap_alert
 from .eccc import (
     ECCCProvider,
     build_alerts_from_cap_docs,
+    config_gps,
     doc_matches_region,
     is_actual,
 )
@@ -164,7 +165,7 @@ class NAADIngest:
         self, config: Mapping[str, Any], options: Mapping[str, Any]
     ) -> dict[str, Any]:
         """Region/language kwargs for build_alerts_from_cap_docs from resolved config."""
-        gps_lat, gps_lon = self._provider._parse_gps(config)
+        gps_lat, gps_lon = config_gps(config)
         return {
             "province": config.get(CONF_PROVINCE, ""),
             "gps_lat": gps_lat,

@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from custom_components.cap_alerts.const import CONF_COUNTRY, METEOALARM_COUNTRY_SLUGS
 from custom_components.cap_alerts.providers import meteoalarm
+from tests.conftest import StubSession
 
 _FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -72,7 +74,7 @@ class _FakeSession:
         self._status = status
         self.last_url: str | None = None
 
-    def get(self, url: str):
+    def get(self, url: str, **_kwargs: object):
         self.last_url = url
         return _FakeResponse(self._body, self._status)
 
@@ -84,7 +86,7 @@ class _RoutedFakeSession:
         self._routes = routes
         self.requested: list[str] = []
 
-    def get(self, url: str):
+    def get(self, url: str, **_kwargs: object):
         self.requested.append(url)
         for needle, (body, status) in self._routes.items():
             if needle in url:
@@ -792,3 +794,30 @@ async def test_fetch_drops_green_markers_in_country_mode():
         "Vigilance jaune canicule",
         "Vigilance jaune orages",
     }
+
+
+# ── User-Agent ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_every_meteoalarm_request_carries_the_user_agent():
+    """The poll, the scope check and the region fetch all send the User-Agent
+    the coordinator or the flow hands over; none of them did before."""
+    url = meteoalarm.METEOALARM_FEED_URL.format(country=METEOALARM_COUNTRY_SLUGS["DE"])
+    body = (_FIXTURE_DIR / "meteoalarm_de.json").read_text(encoding="utf-8")
+    session = StubSession({url: body})
+    provider = meteoalarm.MeteoAlarmProvider()
+
+    await provider.async_fetch(session, {CONF_COUNTRY: "DE"}, {}, user_agent="ua/1")
+    await provider.async_validate_config(
+        session, {CONF_COUNTRY: "DE"}, user_agent="ua/1"
+    )
+    await meteoalarm.fetch_regions_for_country(session, "DE", user_agent="ua/1")
+
+    assert session.requested == [url] * 3
+    assert session.request_headers == [{"User-Agent": "ua/1"}] * 3
+
+    # No User-Agent means no header at all, not an empty one.
+    session = StubSession({url: body})
+    await provider.async_fetch(session, {CONF_COUNTRY: "DE"}, {})
+    assert session.request_headers == [None]

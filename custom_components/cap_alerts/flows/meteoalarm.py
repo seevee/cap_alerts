@@ -355,6 +355,7 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
                 async_get_clientsession(self.hass),
                 country,
                 language=_picker_language(self.hass),
+                user_agent=await self._async_user_agent(),
             )
         except ProviderError:
             return self.async_show_form(
@@ -546,6 +547,7 @@ class MeteoAlarmFlowMixin(ScopedEntryFlowMixin):
                 async_get_clientsession(self.hass),
                 country,
                 language=_picker_language(self.hass, entry),
+                user_agent=await self._async_user_agent(),
             )
         except ProviderError:
             return self.async_show_form(

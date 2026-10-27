@@ -6,7 +6,7 @@ serves a mean 84.6% of the ids rss.naad-adna.pelmorex.com carries (1422 samples,
 2026-07-30 onward, never 100%). The dropped alerts are retrievable from
 cap.alertready.ca by identifier, so the defect is the GeoRSS index generator
 rather than ingest — which leaves one question unanswered, and it is the one
-that decides whether the pelmorex sunset (~Sept 2026) costs users alerts:
+that decides whether the pelmorex sunset (announced for ~Sept 2026) costs users alerts:
 
     does streaming.alertready.ca:8443 deliver the alerts rss.alertready.ca
     omits, or does the socket share the same backing?

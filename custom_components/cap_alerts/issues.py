@@ -1,21 +1,22 @@
 """Repairs issues an entry owes because of its configuration (issue #163).
 
-The legacy NAAD GeoRSS host, ``rss.naad-adna.pelmorex.com``, retires around
-late September 2026, and two ECCC configurations depend on it without being
-told so today:
+Pelmorex announced that the legacy NAAD GeoRSS host,
+``rss.naad-adna.pelmorex.com``, would retire around late September 2026; it
+still served on 2026-10-27. Two ECCC configurations depend on it without
+being told so today:
 
 - **streaming off**: the entry polls the GeoRSS host union (#38), which
-  degrades to ``rss.alertready.ca`` alone at the sunset. That host has never
-  carried every live alert (SR #46534, abandoned upstream), and for a polling
-  entry an alert the index drops mid-lifetime is read by ``AlertStore`` as
-  ended — a false all-clear, the failure the feed guard exists to prevent.
+  degrades to ``rss.alertready.ca`` alone once the host goes. That host
+  omitted live alerts for months (SR #46534; the gap closed on 2026-10-02,
+  see ``const.CONF_FEED_SOURCE``), and a polling entry misses whatever its
+  feed leaves out: ``AlertStore`` keeps a dropped alert until its expiry, so
+  the updates and the all-clear the index withholds never reach it.
 - **feed source pinned to pelmorex**: every GeoRSS fetch fails. A polling
   entry goes unavailable; a streaming entry loses its backfill and resync.
 
 Both are raised from the configuration alone, whenever it matches, with no
-sunset detection: the union is already the only thing making the index
-complete, so each recommendation is correct today, and a detector would buy a
-few weeks of silence in exchange for a state machine. The lifecycle is
+sunset detection: each recommendation is correct today, and a detector would
+buy a few weeks of silence in exchange for a state machine. The lifecycle is
 idempotent and config-driven — re-evaluated at setup, on every entry update,
 and on removal.
 

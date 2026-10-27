@@ -128,7 +128,7 @@ class ScopedEntryFlowMixin(ConfigFlow):
         rather than blocking a scope that may be perfectly good.
         """
         provider = get_provider(str(data.get(CONF_PROVIDER, "")))
-        user_agent = USER_AGENT.format(await async_get_instance_id(self.hass))
+        user_agent = await self._async_user_agent()
         try:
             async with asyncio.timeout(CONFIG_FLOW_TIMEOUT):
                 return await provider.async_validate_config(
@@ -136,6 +136,10 @@ class ScopedEntryFlowMixin(ConfigFlow):
                 )
         except (TimeoutError, aiohttp.ClientError, ValueError):
             return "cannot_connect"
+
+    async def _async_user_agent(self) -> str:
+        """The User-Agent the coordinator sends, for requests made from a flow."""
+        return USER_AGENT.format(await async_get_instance_id(self.hass))
 
     @callback
     def _abort_if_scope_configured(self, key: str, allow: str | None = None) -> None:

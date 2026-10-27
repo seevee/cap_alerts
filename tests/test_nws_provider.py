@@ -220,3 +220,24 @@ async def test_a_non_200_answer_is_reported_without_the_url(hass, aioclient_mock
         await _nws_mod.NWSProvider()._fetch_page(async_get_clientsession(hass), url)
 
     assert str(excinfo.value) == "NWS API returned 503"
+
+
+async def test_the_user_agent_reaches_the_page_fetch(hass, aioclient_mock):
+    """Every NWS request carries the User-Agent the coordinator hands over.
+
+    The poll path used to send only ``Accept`` and rely on the shared
+    session's default; issue #317 changes what the string says, so it has to
+    reach every endpoint.
+    """
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+    url = f"{_nws_mod.NWS_API_BASE}?zone=OHZ001"
+    aioclient_mock.get(url, json={"type": "FeatureCollection", "features": []})
+
+    await _nws_mod.NWSProvider()._fetch_page(
+        async_get_clientsession(hass), url, user_agent="ua/1"
+    )
+
+    headers = aioclient_mock.mock_calls[0][3]
+    assert headers["User-Agent"] == "ua/1"
+    assert headers["Accept"] == "application/geo+json"

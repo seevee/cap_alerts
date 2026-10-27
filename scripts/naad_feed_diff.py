@@ -3,7 +3,7 @@
 
 Fetches rss.alertready.ca (the sanctioned endpoint, per the March 25 2026
 Governance Council summary) and rss.naad-adna.pelmorex.com (the legacy host,
-sunsetting ~Sept 2026) concurrently, then reports alerts present on one host
+announced to sunset ~Sept 2026) concurrently, then reports alerts present on one host
 and absent from the other.
 
 A 2026-07-22 sample found six status=Actual/scope=Public alerts on the legacy

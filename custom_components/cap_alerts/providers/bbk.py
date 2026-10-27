@@ -344,6 +344,11 @@ def _build_alert(
 class BBKProvider:
     """warnung.bund.de indexes → CAP-over-JSON documents → CAPAlert."""
 
+    def __init__(self) -> None:
+        # Per index URL: whether its current failure streak has been logged,
+        # so a dead channel costs one warning rather than one per poll.
+        self._index_warned: dict[str, bool] = {}
+
     @property
     def name(self) -> str:
         return "bbk"
@@ -411,22 +416,26 @@ class BBKProvider:
             return_exceptions=True,
         )
         entries: list[_IndexEntry] = []
-        failures: list[str] = []
+        failures: dict[str, str] = {}
         for url, payload in zip(urls, payloads):
             if isinstance(payload, BaseException):
-                failures.append(f"{url}: {payload}")
+                failures[url] = str(payload)
                 continue
+            self._index_warned[url] = False
             entries.extend(_parse_index(payload, expires_key=expires_key))
         # One channel index failing leaves the others authoritative for their
         # own alerts; all of them failing leaves nothing to tell an outage from
         # a quiet day, and the coordinator must not read that as every alert
         # ending.
         if len(failures) == len(urls):
-            raise ProviderError(f"BBK: no index available ({'; '.join(failures)})")
-        for failure in failures:
-            _LOGGER.warning(
-                "BBK: index unavailable, continuing without it: %s", failure
-            )
+            detail = "; ".join(f"{url}: {err}" for url, err in failures.items())
+            raise ProviderError(f"BBK: no index available ({detail})")
+        for url, err in failures.items():
+            if not self._index_warned.get(url):
+                _LOGGER.warning(
+                    "BBK: index unavailable, continuing without it: %s: %s", url, err
+                )
+                self._index_warned[url] = True
 
         live = _live_entries(entries)
         if not live:
@@ -545,7 +554,7 @@ class BBKProvider:
         """
         if not alerts:
             return []
-        if not any(a.geometry for a in alerts):
+        if not any(alert_polygons(a) for a in alerts):
             raise ProviderError(
                 f"BBK: GPS filter requested but {len(alerts)} alerts carry no "
                 "polygons; the geometry endpoint returned no usable shapes"

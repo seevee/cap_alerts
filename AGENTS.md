@@ -48,11 +48,11 @@ gitignored scratch for agent planning output — not reference material.
 
 ```
 Weather API → Provider.async_fetch() → list[CAPAlert]
-                ↑ (NWS: GeoJSON, ECCC: Atom XML, future: varies)
+                ↑ (GeoJSON, Atom/RSS index + CAP XML, CAP-over-JSON, EDXL-DE: per provider)
   Coordinator._async_update_data() calls provider
     normalize_alerts() → sets severity_normalized, phase
     store.process() → diffs vs previous, sets phase_changed, fires HA events
-    ├─ CountSensor (state = len)
+    ├─ CountSensor (state = len), LastUpdatedSensor (last set change)
     └─ coordinator listener → diffs alert IDs vs tracked entities
          → async_add_entities / registry remove
            └─ AlertEntity (finds own CAPAlert by ID in coordinator.data)
@@ -63,9 +63,10 @@ Weather API → Provider.async_fetch() → list[CAPAlert]
 ```
 custom_components/cap_alerts/
   __init__.py       # entry setup, coordinator wiring, platform forwarding; owns the shared GeometryStore and registers the REST view + WS command once per HA instance; syncs the ECCC sunset repairs on setup/update/remove
-  const.py          # domain, defaults, user-agent format
+  const.py          # domain, config keys, defaults, user-agent format, and every provider's endpoints, source tables and cadence constants, with the measurement behind each
   config_flow.py    # the composed flow handler (provider menus) + options flow; hassfest requires this exact filename
   flows/            # per-provider config flow steps, mixed into the handler above
+    __init__.py     # package marker only
     common.py       # validators, schema helpers, the entry-title rule, and the canonical scope key (entry unique_id) shared by providers
     nws.py          # NWS steps + zone validation
     eccc.py         # ECCC steps + province validation, language/streaming/feed options
@@ -100,7 +101,7 @@ custom_components/cap_alerts/
     __init__.py           # AlertProvider protocol (fetch + scope validation + declared conventions), ProviderError, the StreamingProvider / PushIngest / IngestHost protocols, PROVIDER_IDS + get_provider() factory
     cap.py                # shared, provider-neutral CAP 1.2 parsing: XML (parse_cap_alert) and JSON (cap_doc_from_json) into CAPDoc/CAPInfoDoc, resolve_chain_leaves, language-block selection (select_info)
     cap_content_cache.py  # LRU cache for fetched bodies: CAP XML, CAP JSON, GeoJSON (shared: eccc, wmo, gdacs, bbk)
-    revalidate.py         # conditional GET for index feeds (#304): per-URL ETag / Last-Modified validators, body replay on 304 (wmo today; AU next)
+    revalidate.py         # conditional GET for index feeds (#304): per-URL ETag / Last-Modified validators, body replay on 304 (wmo + twc today; AU next)
     geometry.py           # shared CAP shapes → GeoJSON; polygon/point selection, zero-radius circles
     gps.py                # shared GPS-mode helpers: lat,lon parsing, ray-cast point-in-polygon, rings off a CAPAlert geometry
     <name>_conventions.py # one per provider: its SourceConventions row(s), the helpers the row references, its icon classifier, exposed as the CONVENTIONS mapping the provider declares
@@ -109,7 +110,7 @@ custom_components/cap_alerts/
     eccc_ingest.py        # NAADIngest (PushIngest): the live document set, admission, heartbeat rebuilds, reconnect/resync backfill, repository recovery (#164)
     naad_stream.py        # NAAD TLS streaming transport: frame reassembly, heartbeats, watchdog, reconnect/backoff — no alert semantics
     meteoalarm.py         # MeteoAlarm (EUMETNET) per-country CAP JSON
-    wmo.py                # WMO: SWIC mirror + the authority's own feed (registry record) unioned by CAP identifier, RSS or Atom index → CAP XML; per-language <info> selection; Buddhist-Era year fix; a heavy authority index is re-read every 30 min with its last link list standing in (#309)
+    wmo.py                # WMO: the authority's own feed (registry record) first, the retired SWIC mirror merged in where it still answers (#333: backs off after 3 x 404), unioned by CAP identifier, RSS or Atom index → CAP XML; per-language <info> selection; Buddhist-Era year fix; a heavy authority index is re-read every 30 min with its last link list standing in (#309)
     gdacs.py              # GDACS: two global RSS indexes unioned → CAPAlert (no CAP body exists); per-episode GeoJSON geometry, RSS-stage filters, eventid-based identity
     bbk.py                # BBK / NINA (Germany): district dashboard or five channel indexes → CAP-over-JSON documents + per-warning GeoJSON; MoWaS/KATWARN/BIWAPP/LHP + DWD relay
     au.py                 # Australian state feeds (NSW RFS, QFD, WA DFES, TasALERT): one EDXL-DE document per state → CAP-AU alerts; AlertLevel tier drives severity, marker circles → points, expires dropped (regeneration TTL)
@@ -117,7 +118,9 @@ custom_components/cap_alerts/
     austria_lambert.py    # EPSG:31287 (MGI / Austria Lambert) → WGS84 without pyproj: LCC 2SP inverse + EPSG:1618 Helmert, nesting-preserving coordinate walker
     twc.py                # U.S. Tsunami Warning Centers: a region's two product slots on tsunami.gov (revalidated) → each one's latest CAP bulletin; identity is product + incident, identifier/references product-qualified (PTWC reuses them across products), Tsunami Cancellation ends
   manifest.json
+  strings.json      # every user-facing string: flow steps, options, errors, repairs, triggers; translations/en.json mirrors it exactly (test_translation_keys_in_sync)
   translations/
+  brand/            # icon + dark icon (png, @2x, svg), shipped in-tree since HA 2026.3
 ```
 
 ### Key Design Decisions
@@ -211,9 +214,11 @@ announcement channels.
 Coverage settings live in `.coveragerc`. Both floors are ratchets: raise them
 as gaps close, never lower one to make a PR pass.
 
-The changelog is generated by `git-cliff` (pinned in `requirements_test.txt`);
-regenerate with `git cliff --config cliff.toml --output CHANGELOG.md`. See
-`CONTRIBUTING.md`.
+The changelog is generated by `git-cliff` (pinned in `requirements_test.txt`)
+and only ever lists GA releases: `scripts/release.sh` regenerates it on a GA
+cut with a `--tag-pattern` that hides prerelease tags, and leaves it alone on
+a prerelease. Regenerating by hand without that pattern splits every past GA
+section into its alphas. See `CONTRIBUTING.md`.
 
 ## Agent Rules
 
