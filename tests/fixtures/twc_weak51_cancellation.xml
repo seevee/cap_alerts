@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>PAAQ-3-t2ssp5</identifier>
+  <sender>ntwc@noaa.gov</sender>
+  <sent>2025-09-18T21:06:01-00:00</sent>
+  <status>Actual</status>
+  <msgType>Update</msgType>
+  <source>NTWC</source>
+  <scope>Public</scope>
+  <code>IPAWSv1.0</code>
+  <references>ntwc@noaa.gov,PAAQ-1-t2ssp5,2025-09-18T19:07:03-00:00 ntwc@noaa.gov,PAAQ-2-t2ssp5,2025-09-18T20:08:47-00:00</references>
+  <incidents>t2ssp5</incidents>
+  <info>
+    <category>Geo</category>
+    <event>Tsunami Cancellation</event>
+    <responseType>None</responseType>
+    <urgency>Past</urgency>
+    <severity>Unknown</severity>
+    <certainty>Unlikely</certainty>
+    <onset>2025-09-18T21:06:01-00:00</onset>
+    <expires>2025-09-18T22:06:01-00:00</expires>
+    <senderName>NWS National Tsunami Warning Center Palmer AK</senderName>
+    <headline>The tsunami Advisory is canceled for the coastal areas of Alaska.</headline>
+    <description>The tsunami Advisory is canceled for the coastal areas of Alaska. - Event details: Preliminary magnitude 7.8 (Mwp) earthquake / Lat: 53.100, Lon: 160.500 at 2025-09-18T18:58:17 UTC Tsunami cancellations indicate the end of the damaging tsunami threat.  A cancellation is issued after an evaluation of sea level data confirms that a destructive tsunami will not impact the alerted region, or after tsunami levels have subsided to non-damaging levels. </description>
+    <instruction>  Do not re-occupy hazard zones until local emergency officials    indicate it is safe to do so. This will be the final U.S. National Tsunami Warning Center message issued for this event.  Refer to the internet site tsunami.gov for more information. </instruction>
+    <web>http://www.tsunami.gov/events/PAAQ/2025/09/18/t2ssp5/3/WEAK51/WEAK51.txt</web>
+    <parameter>
+      <valueName>EventLocationName</valueName>
+      <value>260 miles SW of Bering I., Komandorski</value>
+    </parameter>
+    <parameter>
+      <valueName>EventPreliminaryMagnitude</valueName>
+      <value>7.8</value>
+    </parameter>
+    <parameter>
+      <valueName>EventPreliminaryMagnitudeType</valueName>
+      <value>Mwp</value>
+    </parameter>
+    <parameter>
+      <valueName>EventOriginTime</valueName>
+      <value>2025-09-18T18:58:17-00:00</value>
+    </parameter>
+    <parameter>
+      <valueName>EventDepth</valueName>
+      <value>10 kilometers</value>
+    </parameter>
+    <parameter>
+      <valueName>EventLatLon</valueName>
+      <value>53.100,160.500 0.000</value>
+    </parameter>
+    <parameter>
+      <valueName>VTEC</valueName>
+      <value>/O.CAN.PAAQ.TS.Y.0019.000000T0000Z-000000T0000Z/</value>
+    </parameter>
+    <parameter>
+      <valueName>NWSUGC</valueName>
+      <value>AKZ791-182306-</value>
+    </parameter>
+    <parameter>
+      <valueName>ProductDefinition</valueName>
+      <value>Tsunami cancellations indicate the end of the damaging tsunami threat.  A cancellation is issued after an evaluation of sea level data confirms that a destructive tsunami will not impact the alerted region, or after tsunami levels have subsided to non-damaging levels. </value>
+    </parameter>
+    <parameter>
+      <valueName>WEAK51</valueName>
+      <value>Public Tsunami Warnings, Watches, and Advisories for AK, BC, and US West Coast</value>
+    </parameter>
+    <parameter>
+      <valueName>EAS-ORG</valueName>
+      <value>WXR</value>
+    </parameter>
+    <resource>
+      <resourceDesc>Event Data as a JSON document</resourceDesc>
+      <mimeType>application/json</mimeType>
+      <uri>http://www.tsunami.gov/events/PAAQ/2025/09/18/t2ssp5/3/WEAK51/PAAQ.json</uri>
+    </resource>
+    <area>
+      <areaDesc>260 miles SW of Bering I., Komandorski</areaDesc>
+      <circle>53.1,160.5 0.0</circle>
+    </area>
+  </info>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments"/><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#dsa-sha1"/><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/></Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/><DigestValue>Teq/1AsRpJcQybCfZMX7/bkFACQ=</DigestValue></Reference></SignedInfo><SignatureValue>jKI7Sh4IZzpIsTjAkJaC4PlDf9J+3UlFyERimVrC6Io+cOaVd+P61A==</SignatureValue><KeyInfo><KeyValue><DSAKeyValue><P>/X9TgR11EilS30qcLuzk5/YRt1I870QAwx4/gLZRJmlFXUAiUftZPY1Y+r/F9bow9subVWzXgTuA&#13;
+HTRv8mZgt2uZUKWkn5/oBHsQIsJPu6nX/rfGG/g7V+fGqKYVDwT7g/bTxR7DAjVUE1oWkTL2dfOu&#13;
+K2HXKu/yIgMZndFIAcc=</P><Q>l2BQjxUjC8yykrmCouuEC/BYHPU=</Q><G>9+GghdabPd7LvKtcNrhXuXmUr7v6OuqC+VdMCz0HgmdRWVeOutRZT+ZxBxCBgLRJFnEj6EwoFhO3&#13;
+zwkyjMim4TwWeotUfI0o4KOuHiuzpnWRbqN/C/ohNWLx+2J6ASQ7zKTxvqhRkImog9/hWuWfBpKL&#13;
+Zl6Ae1UlZAFMO/7PSSo=</G><Y>XonR3Yg1PO+Hpheh7NMm5UHT3amv+Z0OpCibPuHTwnyyfTUJQLaX249PGVvgM/CPS8MTN24lqbYx&#13;
+NI9dXJLAvIb16cW6eJx+kivl9ObemdndlUkM15quv7dN94sP5GF9RtppDXuq9BD/4lv3ya/TGxjX&#13;
+iMTf93pJwabei82X7Fs=</Y></DSAKeyValue></KeyValue></KeyInfo></Signature></alert>

@@ -158,14 +158,14 @@ Providers are decoupled from HA internals. The coordinator resolves these **befo
 
 - **Tracker mode** → resolves `device_tracker` entity to lat/lon; provider sees `CONF_GPS_LOC` only.
 - **Country-source mode** → resolves a country entity's value to the source's country code through the row's `country_code` hook (MeteoAlarm's reads codes, ISO aliases and geocoder names).
-- **Language `"auto"`** → through the row's `resolve_language` hook: ECCC resolves to `en-CA` or `fr-CA`, MeteoAlarm to the two-letter prefix, WMO and BBK pass `hass.config.language` through verbatim. NWS, GDACS and AU declare no hook, take no language, and leave `auto` in place. GeoSphere declares no hook either and offers no `auto`: its option is `de` or `en`, defaulting to `de`.
+- **Language `"auto"`** → through the row's `resolve_language` hook: ECCC resolves to `en-CA` or `fr-CA`, MeteoAlarm to the two-letter prefix, WMO and BBK pass `hass.config.language` through verbatim. NWS, GDACS, AU and TWC declare no hook, take no language, and leave `auto` in place. GeoSphere declares no hook either and offers no `auto`: its option is `de` or `en`, defaulting to `de`.
 
 Keeps providers testable without a running HA instance, and keeps the coordinator free of any provider's name: what a resolution means is declared on the row in `providers/<name>_conventions.py`.
 
 ### Why a separate layer
 
 1. **Batching varies.** NWS takes multi-zone queries (`?zone=OHC049,OHC035`). ECCC returns a national feed with no server-side filtering. BoM, DWD, MeteoAlarm each differ.
-2. **Parsing varies wildly.** GeoJSON features (NWS), Atom XML with CAP extensions (ECCC), CAP-over-JSON (MeteoAlarm, BBK), RSS indexes of CAP XML (WMO), RSS items with no CAP body (GDACS), EDXL-DE envelopes of CAP XML (AU), projected GeoJSON with no CAP at all (GeoSphere). One coordinator method can't sanely handle all of them.
+2. **Parsing varies wildly.** GeoJSON features (NWS), Atom XML with CAP extensions (ECCC), CAP-over-JSON (MeteoAlarm, BBK), RSS indexes of CAP XML (WMO), RSS items with no CAP body (GDACS), EDXL-DE envelopes of CAP XML (AU), projected GeoJSON with no CAP at all (GeoSphere), undocumented per-product JSON slots pointing at CAP XML (TWC). One coordinator method can't sanely handle all of them.
 3. **Testing.** Providers run against recorded API responses without a coordinator or HA.
 
 ### Shared CAP parsing (`cap.py`)
@@ -1251,6 +1251,96 @@ for a tracker entry. No marine toggle.
 
 ---
 
+## U.S. Tsunami Warning Centers — product slots (issue #298)
+
+NTWC (Palmer, `PAAQ`) and PTWC (Honolulu, `PHEB`) publish no feed. The
+documented `events/xml/{PAAQ,PHEB}CAP.xml` and Atom files hold one message
+each, the center's latest across every product, so an aftershock statement
+replaces a running warning sequence there. The undocumented per-product slot
+is what works: `events/json/{TWCID}{WMOID}.json` holds the product's latest
+bulletin, and its `eventDir` plus `{TWCID}CAP.xml` is that bulletin's CAP.
+NWS carries the Warning, Advisory and Watch for U.S. zones, but no
+information statements, nothing for BC, and nothing international.
+
+**Scope is a domestic region**, stored under `CONF_PROVINCE` like the AU
+state, and each region is two slots (`const.TWC_REGIONS`):
+
+| Region | Warnings | Information |
+| :-- | :-- | :-- |
+| `AK` Alaska, BC, U.S. West Coast | PAAQWEAK51 | PAAQWEAK53 |
+| `EC` U.S. East and Gulf coasts | PAAQWEXX30 (never issued, assumed) | PAAQWEXX32 |
+| `HI` Hawaii | PHEBWEHW40 | PHEBWEHW42 |
+| `GU` Guam, Northern Marianas | PHEBWEGM40 | PHEBWEGM42 |
+| `AS` American Samoa | PHEBWEZS40 | PHEBWEZS42 |
+| `PR` Puerto Rico, USVI | PHEBWECA40 | PHEBWECA42 |
+
+Slots can't be enumerated: a product's slot 404s until it is first issued, so
+the table came from brute-forcing the `WE{region}{nn}` space
+(`scripts/twc_slot_probe.py --discover`, 2026-10-27). A 404 reads as an empty
+slot. A slot keeps its last bulletin forever (PAAQWEAK51 still held a
+2025-09-18 cancellation), so liveness comes from the bulletin, never from the
+slot. PHEBWEHW42 is not valid JSON (`"eventLat" : 28.,`); `eventDir` is read
+with a pattern.
+
+**Transport.** Each slot through `revalidate.FeedValidators`: tsunami.gov
+answers `If-Modified-Since` with `304`, which matters because the AK slot is
+125 KB (8 KB gzipped) of tide-gauge observations. The CAP body is fetched
+only when `eventDir` moves, and memoized per slot on the provider, since a
+bulletin never changes at its own URL. A failed slot fails the poll; a failed
+bulletin skips its slot for the cycle and the store retains what it held.
+
+| Bulletin | CAPAlert |
+| :-- | :-- |
+| slot + `<incidents>` | `id` = `sha256("{slot}:{incidents}")[:12]` |
+| `<identifier>`, `<references>` | qualified with the product: `PHEB-1-26297050/WEHW42` |
+| `<event>` | `event`: Tsunami Warning / Advisory / Watch / Information / Cancellation |
+| `<severity>` etc. | as published: Advisory and Watch are Moderate, statements Minor |
+| `<expires>` | `expires`, 1 to 2.5 h after `sent` |
+| UGC `<geocode>` | `geocodes` (warning bulletins only) |
+| `<parameter>` | `parameters` verbatim: VTEC, `EventLatLon`, `EventPreliminaryMagnitude`, … |
+| `<area>` circle | not drawn (below) |
+
+**Identity is the product plus the incident.** `<incidents>` is the event id
+and holds across a product's bulletins (Watch → Advisory → Cancellation is
+one entity). It does not separate products: PTWC writes `PHEB-{n}-{eventid}`
+as the identifier of every product for one event, and both centers send as
+`ntwc@noaa.gov`. On 2026-10-25 HW42, GM42 and ZS42 were three different
+statements under `PHEB-1-26297050`, and the PR/USVI cancellation and the
+Caribbean international final shared `PHEB-3-26175001`. That breaks CAP's
+sender-plus-identifier uniqueness, and the store links revisions by
+identifier: one product's `<references>` would supersede another product's
+alert, which would then leave with no `incident_removed`. Qualifying both
+fields with the product restores uniqueness without reinterpreting anything.
+
+**Lifecycle.** A product ends on `Tsunami Cancellation`, sent as
+`msgType=Update` with urgency Past and a VTEC `CAN` action, which
+`normalize` alone would read as a live update. The provider writes
+`lifecycle_status = "cancelled"` for that event, a `.CAN.` VTEC, or a message
+with no `<info>` (how PTWC's international threat sequences end), and the
+row maps it to `ended`. Default retain policy: every bulletin carries an
+`expires`, so a slot taken over by a second event leaves the first `stale`
+for at most 2.5 hours.
+
+**Geometry: none.** Warning bulletins describe the threatened coast in text
+and UGC zones and carry no shape. Statements and cancellations carry one
+`<circle>`, at the epicenter; drawn as the alert's area it would pin a quake
+thousands of kilometres off onto the user's map. It stays in `EventLatLon`.
+
+**Options.** None beyond polling. No language (English only), and no
+geocode-prefix field (`publishes_geocodes=False`): statements and
+cancellations carry no geocodes, and on a quiet day every slot holds one, so
+the coordinator's filter would fail the entry as a source without geocodes.
+
+**Not yet covered.** PTWC's international threat messages (PHEBWEPA40/42 for
+the Pacific, PHEBWECA41/43 for the Caribbean) publish no `expires`, Unknown
+severity on every field, and country names instead of zones. Retention with
+no expiry and a terminal vocabulary never ends, so a threat sequence pushed
+out of its slot would stay forever. They need the provider to fetch bulletin
+N+1 at the event's directory (`discovers_terminations`), which is its own
+change.
+
+---
+
 ## Alert Store (`store.py`)
 
 Holds the previous poll's alerts in memory and diffs incoming alerts to detect new / phase-change / removed transitions. Only stateful component between polls — providers and the coordinator remain stateless. It takes no `hass`: events go out through a `fire` callable and entity ids come back through a `lookup_entity_id` callable, both supplied by the coordinator, so the store is bookkeeping over two functions.
@@ -1340,6 +1430,7 @@ The flow used to check syntax and stop there. `OHZ999` matches `_ZONE_RE` and do
 | WMO | the mirror serves `…/{source_id}/rss.xml`, else the registry resolves the source and its feed answers (`cannot_connect` for an outage, `unknown_wmo_source` only when the registry has no record) | three requests since the mirror's retirement (mirror 404, registry, feed); one for the two sources it still serves |
 | GDACS | nothing; the scope is the planet | none |
 | GeoSphere | `getWarningsForCoords` 404s outside Austria (`geosphere_outside_austria`) | one request, the same one a poll makes |
+| TWC | nothing; the region is a closed dropdown and its slots are fixed | none |
 
 **Called from the step that collects the value, not from entry creation.** The issue proposed the latter, but several create paths are menu clicks — `wmo_country_wide`, `meteoalarm_country_only`, `gdacs_global` — with no field to attach an error to. Each of those inherits a value an earlier form already put through the check, so validating at the input covers them and keeps every failure renderable. It also halves the wiring: four input steps and their reconfigure twins, rather than all thirty-five create/update sites.
 

@@ -97,6 +97,7 @@ async def test_reconfigure_lists_every_provider(hass, enable_custom_integrations
         "reconfigure_bbk",
         "reconfigure_au",
         "reconfigure_geosphere",
+        "reconfigure_twc",
     ]
 
 
@@ -156,6 +157,7 @@ async def test_reconfigure_lists_every_provider(hass, enable_custom_integrations
                 "reconfigure",
             ],
         ),
+        ("reconfigure_twc", ["reconfigure_twc_region", "reconfigure"]),
     ],
 )
 @pytest.mark.asyncio

@@ -9,7 +9,8 @@ per active weather alert**, solving the 16KB attribute limit in `nws_alerts`.
 Alert data is modeled using CAP (Common Alerting Protocol) field names via a
 `CAPAlert` frozen dataclass. Ships with NWS, ECCC (Environment Canada),
 MeteoAlarm, WMO, GDACS, BBK / NINA (Germany), Australian state (NSW RFS,
-QFD, DFES, TasALERT) and GeoSphere Austria providers; designed for further
+QFD, DFES, TasALERT), GeoSphere Austria and U.S. Tsunami Warning Center
+providers; designed for further
 providers (BoM, direct DWD, etc.). It lives in `custom_components/cap_alerts/` and follows
 [HA custom component conventions](https://developers.home-assistant.io/docs/creating_integration_manifest).
 
@@ -74,6 +75,7 @@ custom_components/cap_alerts/
     bbk.py          # BBK steps: Regionalschlüssel (district) form, GPS, tracker; language option
     au.py           # Australian steps: state picker; minimum alert level option
     geosphere.py    # GeoSphere Austria steps: GPS (checked against the API), tracker; language option
+    twc.py          # U.S. Tsunami Warning Centers steps: region picker; no provider options
   coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info; hosts a provider's PushIngest through IngestHost (no transport of its own); provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs; translates ProviderError → UpdateFailed once; mints the per-cycle Context the events and entity writes carry (#310)
   diagnostics.py    # config-entry diagnostics download: scope, endpoints, update health, filters, convention rows in effect; redacts location + credentials
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
@@ -113,6 +115,7 @@ custom_components/cap_alerts/
     au.py                 # Australian state feeds (NSW RFS, QFD, WA DFES, TasALERT): one EDXL-DE document per state → CAP-AU alerts; AlertLevel tier drives severity, marker circles → points, expires dropped (regeneration TTL)
     geosphere.py          # GeoSphere Austria Warn API: one getWarningsForCoords per poll → the municipality's warnings (GeoJSON, not CAP); identity is warnid; geometry reprojected
     austria_lambert.py    # EPSG:31287 (MGI / Austria Lambert) → WGS84 without pyproj: LCC 2SP inverse + EPSG:1618 Helmert, nesting-preserving coordinate walker
+    twc.py                # U.S. Tsunami Warning Centers: a region's two product slots on tsunami.gov (revalidated) → each one's latest CAP bulletin; identity is product + incident, identifier/references product-qualified (PTWC reuses them across products), Tsunami Cancellation ends
   manifest.json
   translations/
 ```
@@ -193,6 +196,11 @@ provider would see on the cap-sources bucket feeds behind the registry: item
 counts, `cap:` extensions, body status and expiry. It is the measurement
 behind the WMO feed-source design (#210); re-run it before changing the
 body-level filters.
+
+`scripts/twc_slot_probe.py` (stdlib only, read-only) walks every tsunami.gov
+product slot and reports the bulletin each holds, identifier collisions across
+slots, and conditional-GET support; `--discover` brute-forces the slot space,
+since a slot 404s until its product is first issued (#298).
 
 `scripts/feed_vocab_probe.py` (stdlib only) diffs each provider's live feed
 vocabulary against `scripts/feed_vocab_baseline.json`; a scheduled workflow

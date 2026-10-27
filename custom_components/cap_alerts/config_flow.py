@@ -36,7 +36,7 @@ from .const import (
     GDACS_EVENT_TYPES,
 )
 from .conventions import row_for
-from .flows import au, bbk, eccc, gdacs, geosphere, meteoalarm, nws, wmo
+from .flows import au, bbk, eccc, gdacs, geosphere, meteoalarm, nws, twc, wmo
 from .flows.common import OptionsSchema, _validate_geocode_prefixes
 from .providers import get_provider
 from .schema import vol
@@ -74,6 +74,7 @@ class CAPAlertsFlowHandler(
     bbk.BBKFlowMixin,
     au.AUFlowMixin,
     geosphere.GeoSphereFlowMixin,
+    twc.TWCFlowMixin,
     ConfigFlow,
     domain=DOMAIN,
 ):
@@ -103,6 +104,7 @@ class CAPAlertsFlowHandler(
                 "bbk",
                 "au",
                 "geosphere",
+                "twc",
             ],
         )
 
@@ -123,6 +125,7 @@ class CAPAlertsFlowHandler(
                 "reconfigure_bbk",
                 "reconfigure_au",
                 "reconfigure_geosphere",
+                "reconfigure_twc",
             ],
         )
 

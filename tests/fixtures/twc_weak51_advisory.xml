@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>PAAQ-1-t2ssp5</identifier>
+  <sender>ntwc@noaa.gov</sender>
+  <sent>2025-09-18T19:07:03-00:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <source>NTWC</source>
+  <scope>Public</scope>
+  <code>IPAWSv1.0</code>
+  <incidents>t2ssp5</incidents>
+  <info>
+    <category>Geo</category>
+    <event>Tsunami Advisory</event>
+    <responseType>Prepare</responseType>
+    <urgency>Immediate</urgency>
+    <severity>Moderate</severity>
+    <certainty>Likely</certainty>
+    <onset>2025-09-18T19:07:03-00:00</onset>
+    <expires>2025-09-18T21:37:03-00:00</expires>
+    <senderName>NWS National Tsunami Warning Center Palmer AK</senderName>
+    <headline>A tsunami Advisory is now in effect which includes the coastal areas of Alaska from Amchitka Pass, Alaska (125 miles W of Adak) to Attu, Alaska.</headline>
+    <description>A tsunami Advisory is now in effect which includes the coastal areas of Alaska from Amchitka Pass, Alaska (125 miles W of Adak) to Attu, Alaska. - Event details: Preliminary magnitude 7.8 (Mwp) earthquake / Lat: 53.000, Lon: 160.800 at 2025-09-18T18:58:17 UTC Tsunami advisories mean that a tsunami capable of producing strong currents or waves dangerous to people in or very near the water is expected.  Significant widespread inundation is not expected for areas under an advisory.  Currents may be hazardous to swimmers, boats, and coastal structures and may continue for several hours after the initial wave arrival. </description>
+    <instruction>Actions to protect human life and property willvary within tsunami advisory areas.If you are in a tsunami advisory area:  Move out of the water, off the beach, and away from harbors, marinas, bays, and inlets.  Be alert to and follow instructions from your local emergency officials because they may have more detailed or specific information for your location.  If you feel a strong earthquake or extended ground rolling take immediate protective actions such as moving inland and/or uphill preferably by foot.  Boat operators:    Where time and conditions permit, move your boat out to sea to a depth of at least 180 feet.    If at sea avoid entering shallow water, harbors, marinas, bays, and inlets to avoid floating and submerged debris, and strong currents.  Do not go to the shore to observe the tsunami.  Do not return to the coast until local emergency officials indicate it is safe to do so.Additional Information and Next Update:   The tsunami message will remain in effect until further notice.   Refer to the internet site tsunami.gov for more information.  This message will be updated in 60 minutes or sooner if the situation warrants. </instruction>
+    <web>http://www.tsunami.gov/events/PAAQ/2025/09/18/t2ssp5/1/WEAK51/WEAK51.txt</web>
+    <parameter>
+      <valueName>EventLocationName</valueName>
+      <value>255 miles SW of Bering I., Komandorski</value>
+    </parameter>
+    <parameter>
+      <valueName>EventPreliminaryMagnitude</valueName>
+      <value>7.8</value>
+    </parameter>
+    <parameter>
+      <valueName>EventPreliminaryMagnitudeType</valueName>
+      <value>Mwp</value>
+    </parameter>
+    <parameter>
+      <valueName>EventOriginTime</valueName>
+      <value>2025-09-18T18:58:17-00:00</value>
+    </parameter>
+    <parameter>
+      <valueName>EventDepth</valueName>
+      <value>10 kilometers</value>
+    </parameter>
+    <parameter>
+      <valueName>EventLatLon</valueName>
+      <value>53.000,160.800 0.000</value>
+    </parameter>
+    <parameter>
+      <valueName>VTEC</valueName>
+      <value>/O.NEW.PAAQ.TS.Y.0019.250918T1907Z-000000T0000Z/</value>
+    </parameter>
+    <parameter>
+      <valueName>NWSUGC</valueName>
+      <value>AKZ791-182037-</value>
+    </parameter>
+    <parameter>
+      <valueName>ProductDefinition</valueName>
+      <value>Tsunami advisories mean that a tsunami capable of producing strong currents or waves dangerous to people in or very near the water is expected.  Significant widespread inundation is not expected for areas under an advisory.  Currents may be hazardous to swimmers, boats, and coastal structures and may continue for several hours after the initial wave arrival. </value>
+    </parameter>
+    <parameter>
+      <valueName>WEAK51</valueName>
+      <value>Public Tsunami Warnings, Watches, and Advisories for AK, BC, and US West Coast</value>
+    </parameter>
+    <parameter>
+      <valueName>EAS-ORG</valueName>
+      <value>WXR</value>
+    </parameter>
+    <resource>
+      <resourceDesc>Energy Map</resourceDesc>
+      <mimeType>image/jpeg</mimeType>
+      <uri>http://www.tsunami.gov/events/PAAQ/2025/09/18/t2ssp5/1/WEAK51/energyt2ssp5.jpg</uri>
+    </resource>
+    <resource>
+      <resourceDesc>Tsunami Travel Time Map</resourceDesc>
+      <mimeType>image/jpeg</mimeType>
+      <uri>http://www.tsunami.gov/events/PAAQ/2025/09/18/t2ssp5/1/WEAK51/ttvut2ssp5-01.jpg</uri>
+    </resource>
+    <resource>
+      <resourceDesc>Event Data as a JSON document</resourceDesc>
+      <mimeType>application/json</mimeType>
+      <uri>http://www.tsunami.gov/events/PAAQ/2025/09/18/t2ssp5/1/WEAK51/PAAQ.json</uri>
+    </resource>
+    <area>
+      <areaDesc>Coastal areas between and including Amchitka Pass, Alaska (125 miles W of Adak) to Attu, Alaska</areaDesc>
+      <geocode>
+        <valueName>UGC</valueName>
+        <value>AKZ791</value>
+      </geocode>
+    </area>
+  </info>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments"/><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#dsa-sha1"/><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/></Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/><DigestValue>zwZ1BRQu7kU6xf+gjJM94SywxNs=</DigestValue></Reference></SignedInfo><SignatureValue>N0j9ZOI57V3ouJL10RY9y1vFgFuIPlbSMNSI4D4/XZzrRWQe2c4USA==</SignatureValue><KeyInfo><KeyValue><DSAKeyValue><P>/X9TgR11EilS30qcLuzk5/YRt1I870QAwx4/gLZRJmlFXUAiUftZPY1Y+r/F9bow9subVWzXgTuA&#13;
+HTRv8mZgt2uZUKWkn5/oBHsQIsJPu6nX/rfGG/g7V+fGqKYVDwT7g/bTxR7DAjVUE1oWkTL2dfOu&#13;
+K2HXKu/yIgMZndFIAcc=</P><Q>l2BQjxUjC8yykrmCouuEC/BYHPU=</Q><G>9+GghdabPd7LvKtcNrhXuXmUr7v6OuqC+VdMCz0HgmdRWVeOutRZT+ZxBxCBgLRJFnEj6EwoFhO3&#13;
+zwkyjMim4TwWeotUfI0o4KOuHiuzpnWRbqN/C/ohNWLx+2J6ASQ7zKTxvqhRkImog9/hWuWfBpKL&#13;
+Zl6Ae1UlZAFMO/7PSSo=</G><Y>XonR3Yg1PO+Hpheh7NMm5UHT3amv+Z0OpCibPuHTwnyyfTUJQLaX249PGVvgM/CPS8MTN24lqbYx&#13;
+NI9dXJLAvIb16cW6eJx+kivl9ObemdndlUkM15quv7dN94sP5GF9RtppDXuq9BD/4lv3ya/TGxjX&#13;
+iMTf93pJwabei82X7Fs=</Y></DSAKeyValue></KeyValue></KeyInfo></Signature></alert>

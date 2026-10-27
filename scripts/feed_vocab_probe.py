@@ -144,11 +144,46 @@ WMO_MIRROR_SURVIVORS = ("au-bom-en", "cn-cma-xx")
 # codes for every warning in the country with no location in the request.
 GEOSPHERE_WARNSTATUS_URL = "https://warnungen.zamg.at/wsapp/api/getWarnstatus"
 
+# The U.S. Tsunami Warning Centers' per-product slots (issue #298), the
+# domestic warning and information products the provider polls. A slot 404s
+# until its product is first issued, so ``slots_issued`` is vocabulary too:
+# PAAQWEXX30 (East and Gulf coast warnings) appearing is the first sample of
+# a product the provider only assumes exists.
+TWC_BASE_URL = "https://www.tsunami.gov"
+TWC_SLOTS = (
+    "PAAQWEAK51",
+    "PAAQWEAK53",
+    "PAAQWEXX30",
+    "PAAQWEXX32",
+    "PHEBWEHW40",
+    "PHEBWEHW42",
+    "PHEBWEGM40",
+    "PHEBWEGM42",
+    "PHEBWEZS40",
+    "PHEBWEZS42",
+    "PHEBWECA40",
+    "PHEBWECA42",
+)
+# Slots are not all valid JSON (``"eventLat" : 28.,`` on PHEBWEHW42).
+_TWC_EVENT_DIR_RE = re.compile(r'"eventDir"\s*:\s*"(/events/[^"]+/)"')
+# The action field of a P-VTEC string (``/O.CAN.PHEB.TS.Y.0002…/``).
+_VTEC_ACTION_RE = re.compile(r"/[OTEX]\.([A-Z]{3})\.")
+
 BASELINE_PATH = Path(__file__).resolve().parent / "feed_vocab_baseline.json"
 
 USER_AGENT = "cap-alerts-feed-vocab-probe/1.0 (+https://github.com/seevee/cap_alerts)"
 
-PROVIDERS = ("eccc", "nws", "meteoalarm", "gdacs", "wmo", "bbk", "au", "geosphere")
+PROVIDERS = (
+    "eccc",
+    "nws",
+    "meteoalarm",
+    "gdacs",
+    "wmo",
+    "bbk",
+    "au",
+    "geosphere",
+    "twc",
+)
 
 # ECCC vocabulary is read from this sender only; see module docstring.
 ECCC_SENDER = "cap-pac@canada.ca"
@@ -334,6 +369,42 @@ SPEC_VOCAB: dict[str, dict[str, list[str]]] = {
         # The seven hazard types GDACS publishes.
         "values.eventtype": ["DR", "EQ", "FL", "TC", "TS", "VO", "WF"],
         "values.iscurrent": ["true", "false"],
+    },
+    "twc": {
+        **_CAP_ENUMS,
+        # The domestic products' ladder. On a quiet day every slot holds an
+        # information statement or a cancellation, so a seed taken from the
+        # live slots alone would page on the first Advisory.
+        "values.event": [
+            "Tsunami Warning",
+            "Tsunami Advisory",
+            "Tsunami Watch",
+            "Tsunami Information",
+            "Tsunami Cancellation",
+        ],
+        # NWS Directive 10-1703 P-VTEC actions.
+        "values.vtec_action": [
+            "NEW",
+            "CON",
+            "EXT",
+            "EXA",
+            "EXB",
+            "UPG",
+            "CAN",
+            "EXP",
+            "COR",
+            "ROU",
+        ],
+        "geocode_schemes": ["UGC"],
+        # What the Watch and Advisory captures in tests/fixtures add.
+        "xml_paths": [
+            "alert/info/area/geocode",
+            "alert/info/area/geocode/value",
+            "alert/info/area/geocode/valueName",
+            "alert/info/eventCode",
+            "alert/info/eventCode/value",
+            "alert/info/eventCode/valueName",
+        ],
     },
     "geosphere": {
         # The Warn API spec's enums: 1 storm … 7 cold, 1 yellow … 3 red.
@@ -1215,6 +1286,63 @@ def probe_au(timeout: float) -> Sample:
     return sample
 
 
+def probe_twc(timeout: float) -> Sample:
+    """The latest bulletin in each domestic product slot (issue #298).
+
+    A slot holds one bulletin and keeps it until the product is issued again,
+    so a quiet month reads the same twelve documents every day; the run is
+    cheap and drift shows up the day a new bulletin lands. A 404 is a product
+    never issued, not a failure. Tracked beyond the CAP enums: the event names
+    (the provider ends an alert on ``Tsunami Cancellation``), the VTEC action
+    (``CAN`` ends one too), parameter keys and geocode schemes.
+    """
+    sample = Sample()
+    for slot in TWC_SLOTS:
+        text = _fetch_optional(
+            f"{TWC_BASE_URL}/events/json/{slot}.json", timeout=timeout
+        )
+        if text is None:
+            continue
+        sample.add("slots_issued", slot)
+        match = _TWC_EVENT_DIR_RE.search(text)
+        if match is None:
+            raise RuntimeError(f"TWC slot {slot} has no eventDir")
+        cap_url = f"{TWC_BASE_URL}{match.group(1)}{slot[:4]}CAP.xml"
+        alert = ET.fromstring(fetch(cap_url, timeout=timeout))
+        alert_id = f"{slot}:{(alert.findtext(f'{{{NS_CAP}}}identifier') or '').strip()}"
+        sample.add_all("xml_paths", xml_paths(alert), alert_id)
+        for tag in ("status", "msgType", "scope"):
+            sample.add(f"values.{tag}", alert.findtext(f"{{{NS_CAP}}}{tag}"), alert_id)
+        for info in alert.findall(f"{{{NS_CAP}}}info"):
+            for tag in (
+                "event",
+                "category",
+                "responseType",
+                "urgency",
+                "severity",
+                "certainty",
+            ):
+                for el in info.findall(f"{{{NS_CAP}}}{tag}"):
+                    sample.add(f"values.{tag}", el.text, alert_id)
+            for param in info.findall(f"{{{NS_CAP}}}parameter"):
+                name = (param.findtext(f"{{{NS_CAP}}}valueName", "") or "").strip()
+                sample.add("parameter_keys", name, alert_id)
+                if name == "VTEC":
+                    value = param.findtext(f"{{{NS_CAP}}}value") or ""
+                    for action in _VTEC_ACTION_RE.findall(value):
+                        sample.add("values.vtec_action", action, alert_id)
+            for area in info.findall(f"{{{NS_CAP}}}area"):
+                for gc in area.findall(f"{{{NS_CAP}}}geocode"):
+                    sample.add(
+                        "geocode_schemes",
+                        gc.findtext(f"{{{NS_CAP}}}valueName"),
+                        alert_id,
+                    )
+    issued = len(sample.vocab.get("slots_issued", ()))
+    print(f"  twc: {issued} of {len(TWC_SLOTS)} slots issued")
+    return sample
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -1287,6 +1415,8 @@ def main() -> int:
                 observed[provider] = probe_au(args.timeout)
             elif provider == "geosphere":
                 observed[provider] = probe_geosphere(args.timeout)
+            elif provider == "twc":
+                observed[provider] = probe_twc(args.timeout)
         except Exception as err:  # noqa: BLE001 — one provider down must not end the run
             failures[provider] = str(err)
             print(f"  FAILED: {err}")

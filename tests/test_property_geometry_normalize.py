@@ -339,7 +339,18 @@ def test_truncate_state_respects_the_ha_limit(value):
 
 
 providers = st.sampled_from(
-    ["nws", "eccc", "meteoalarm", "wmo", "gdacs", "bbk", "au", "geosphere", "unlisted"]
+    [
+        "nws",
+        "eccc",
+        "meteoalarm",
+        "wmo",
+        "gdacs",
+        "bbk",
+        "au",
+        "geosphere",
+        "twc",
+        "unlisted",
+    ]
 )
 severities = st.sampled_from(
     [

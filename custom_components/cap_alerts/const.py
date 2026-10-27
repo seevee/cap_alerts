@@ -638,3 +638,31 @@ GEOSPHERE_WARN_TYPES: dict[int, dict[str, str]] = {
 # ``warnstufeid`` (1 yellow, 2 orange, 3 red) → CAP severity, the same colour
 # ladder MeteoAlarm relays GeoSphere's warnings on.
 GEOSPHERE_LEVEL_SEVERITY: dict[int, str] = {1: "Moderate", 2: "Severe", 3: "Extreme"}
+
+# U.S. Tsunami Warning Centers (issue #298): NTWC Palmer (``PAAQ``) and PTWC
+# Honolulu (``PHEB``). tsunami.gov publishes no feed. Each product has one JSON
+# slot, ``events/json/{TWCID}{WMOID}.json``, holding its latest bulletin, and
+# that slot's ``eventDir`` plus ``{TWCID}CAP.xml`` is the bulletin's CAP. A
+# slot keeps its last bulletin forever (PAAQWEAK51 still held a 2025-09-18
+# cancellation on 2026-10-27) and 404s until the product is first issued.
+TWC_BASE_URL = "https://www.tsunami.gov"
+TWC_SLOT_URL = TWC_BASE_URL + "/events/json/{slot}.json"
+
+# Domestic regions → (label, slots). Each region has a warning product
+# (Warning / Advisory / Watch, ending in a Tsunami Cancellation) and an
+# information-statement product, and an entry polls both. Keyed by a short
+# region code stored under ``CONF_PROVINCE``, as the AU state is.
+#
+# PAAQWEXX30 has never been issued (its slot 404s) and is assumed by symmetry
+# with XX32; a 404 slot reads as empty, so the guess costs nothing until NTWC
+# issues an East or Gulf coast warning and proves it. The international threat
+# products (PHEBWEPA40/42, PHEBWECA41/43) are out: they publish no ``expires``
+# and need a termination lookup the provider does not have yet.
+TWC_REGIONS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "AK": ("Alaska, British Columbia, U.S. West Coast", ("PAAQWEAK51", "PAAQWEAK53")),
+    "EC": ("U.S. East and Gulf coasts", ("PAAQWEXX30", "PAAQWEXX32")),
+    "HI": ("Hawaii", ("PHEBWEHW40", "PHEBWEHW42")),
+    "GU": ("Guam and the Northern Mariana Islands", ("PHEBWEGM40", "PHEBWEGM42")),
+    "AS": ("American Samoa", ("PHEBWEZS40", "PHEBWEZS42")),
+    "PR": ("Puerto Rico and the U.S. Virgin Islands", ("PHEBWECA40", "PHEBWECA42")),
+}
