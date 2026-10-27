@@ -511,6 +511,9 @@ class GDACSProvider:
 
     def __init__(self) -> None:
         self._last_shapes: dict[tuple[str, str], _Shapes] = {}
+        # Per index URL: whether its current failure streak has been logged,
+        # so a dead index costs one warning rather than one per poll.
+        self._index_warned: dict[str, bool] = {}
 
     @property
     def name(self) -> str:
@@ -570,17 +573,19 @@ class GDACSProvider:
         # is the only GDACS option whose default narrows rather than widens.
         min_level = str(options.get(CONF_ALERT_LEVEL) or GDACS_DEFAULT_ALERT_LEVEL)
         batches: list[list[_IndexItem]] = []
-        failures: list[str] = []
+        failures: dict[str, str] = {}
         for url, body in zip((GDACS_RSS_CURRENT_URL, GDACS_RSS_24H_URL), bodies):
             if isinstance(body, BaseException):
-                failures.append(f"{url}: {body}")
+                failures[url] = str(body)
                 continue
             try:
                 batches.append(
                     _parse_index(body, event_types=event_types, min_level=min_level)
                 )
             except ET.ParseError as err:
-                failures.append(f"{url}: malformed XML: {err}")
+                failures[url] = f"malformed XML: {err}"
+            else:
+                self._index_warned[url] = False
 
         # One index failing is survivable and the union degrades to the other:
         # losing the current-events feed costs the long-lived events, losing
@@ -588,11 +593,16 @@ class GDACSProvider:
         # nothing to distinguish an outage from a world with no disasters in
         # it, and the coordinator must not read that as every alert ending.
         if not batches:
-            raise ProviderError(f"GDACS: no index available ({'; '.join(failures)})")
-        for failure in failures:
-            _LOGGER.warning(
-                "GDACS: index unavailable, continuing without it: %s", failure
-            )
+            detail = "; ".join(f"{u}: {why}" for u, why in failures.items())
+            raise ProviderError(f"GDACS: no index available ({detail})")
+        for url, why in failures.items():
+            if not self._index_warned.get(url):
+                _LOGGER.warning(
+                    "GDACS: index unavailable, continuing without it: %s: %s",
+                    url,
+                    why,
+                )
+                self._index_warned[url] = True
 
         items = _merge_indexes(*batches)
         if not items:
@@ -711,7 +721,7 @@ class GDACSProvider:
         """
         if not alerts:
             return []
-        if not any(a.geometry for a in alerts):
+        if not any(alert_polygons(a) for a in alerts):
             raise ProviderError(
                 f"GDACS: GPS filter requested but {len(alerts)} alerts carry no "
                 "polygons; this feed did not publish per-alert geometry"

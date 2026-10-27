@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from custom_components.cap_alerts.const import (
     GDACS_RSS_24H_URL,
     GDACS_RSS_CURRENT_URL,
 )
+from custom_components.cap_alerts.model import CAPAlert
 from custom_components.cap_alerts.normalize import _bbox_from_geometry
 from custom_components.cap_alerts.providers import ProviderError
 from custom_components.cap_alerts.providers import cap_content_cache as _cap_cache_mod
@@ -784,3 +786,42 @@ async def test_unset_alert_level_defaults_to_orange():
         session, {}, {}, cap_content_cache=CAPContentCache()
     )
     assert {a.id for a in alerts} == {_alert_id(_EQ_RED), _alert_id(_TC_ORANGE)}
+
+
+@pytest.mark.asyncio
+async def test_a_dead_index_is_warned_about_once_per_streak(caplog):
+    """One warning per failure streak, as ECCC and WMO do for their hosts,
+    rather than one per poll for as long as the index is down."""
+    responses = _full_responses()
+    responses[GDACS_RSS_24H_URL] = (503, "")
+    session = StubSession(responses)
+    provider = GDACSProvider()
+
+    async def fetch() -> None:
+        await provider.async_fetch(
+            session, {}, _ALL_LEVELS, cap_content_cache=CAPContentCache()
+        )
+
+    def unavailable() -> list[logging.LogRecord]:
+        return [r for r in caplog.records if "index unavailable" in r.message]
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.cap_alerts"):
+        for _ in range(3):
+            await fetch()
+        assert len(unavailable()) == 1
+
+        # The streak ends when the index answers; the next outage warns again.
+        responses[GDACS_RSS_24H_URL] = _fixture("gdacs_rss_24h.xml")
+        await fetch()
+        responses[GDACS_RSS_24H_URL] = (503, "")
+        await fetch()
+        assert len(unavailable()) == 2
+
+
+def test_gps_filter_fails_loud_on_point_only_geometry():
+    """A point is not an area. Guarding on ``geometry`` alone let a feed that
+    published only points pass the check and then filter every alert away in
+    silence; the guard asks for polygons, which is what the filter tests."""
+    points = [CAPAlert(id="p", geometry={"type": "Point", "coordinates": [1.0, 2.0]})]
+    with pytest.raises(ProviderError, match="carry no polygons"):
+        GDACSProvider._filter_by_polygon(points, "2.0,1.0")

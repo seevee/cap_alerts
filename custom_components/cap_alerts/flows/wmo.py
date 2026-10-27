@@ -54,7 +54,7 @@ from .common import (
 # us-noaa-nws-en-marine). The trailing segment is NOT a reliable language —
 # 17 registry IDs end in "-xx", one ends in "-marine", and 15 of the 110
 # sources sampled disagree with their CAP body's first <info> block. Body
-# language is selected at fetch time (providers/wmo.py:_select_info).
+# language is selected at fetch time (providers/cap.py:select_info).
 _WMO_SOURCE_RE = re.compile(r"^[a-z]{2}(-[a-z0-9]+){2,4}$")
 
 

@@ -57,7 +57,6 @@ from . import ProviderError
 from .cap import (
     CAPDoc,
     CAPInfoDoc,
-    language_matches,
     parse_cap_alert,
     resolve_chain_leaves,
     select_alt_info,
@@ -534,7 +533,7 @@ def _source_languages(source: Mapping[str, Any]) -> str:
     ``de-DE``, ``ch-meteoswiss-de`` leads with ``en``), 17 end in ``-xx``, and
     one ends in ``-marine``. ``byLanguage`` is itself only a hint — it
     over-claims for 35 of those 110 and under-claims for 20 — so it seeds the
-    display label only, never selection (see ``_select_info``). Registry order
+    display label only, never selection (see ``cap.select_info``). Registry order
     is preserved, duplicates collapsed. Returns ``""`` when absent or empty.
     """
     by_language = source.get("byLanguage")
@@ -642,13 +641,6 @@ def _compute_wmo_id(identifier: str, fallback_url: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-# Language selection is shared with the BBK provider (issue #66) and lives in
-# ``cap``; the private names are kept so this module reads as it always did.
-_language_matches = language_matches
-_select_info = select_info
-_select_alt_info = select_alt_info
-
-
 def _build_alert(
     doc: CAPDoc,
     info: CAPInfoDoc,
@@ -658,7 +650,7 @@ def _build_alert(
 ) -> CAPAlert:
     """Build a ``CAPAlert`` from a parsed WMO CAP document.
 
-    ``alt`` is the alternate ``<info>`` block ``_select_alt_info`` chose on a
+    ``alt`` is the alternate ``<info>`` block ``select_alt_info`` chose on a
     multilingual document; its text populates the ``*_alt`` fields, matching
     what ECCC and MeteoAlarm already publish. Every other field comes from
     ``info``.
@@ -1043,8 +1035,8 @@ class WMOProvider:
         for cap_url, doc in parsed:
             if doc.identifier and doc.identifier not in leaf_ids:
                 continue
-            info = _select_info(doc, language)
-            alt = _select_alt_info(doc, info)
+            info = select_info(doc, language)
+            alt = select_alt_info(doc, info)
             alert_id = _compute_wmo_id(doc.identifier, cap_url)
             alerts.append(_build_alert(doc, info, cap_url, alert_id, alt))
 
@@ -1084,8 +1076,7 @@ class WMOProvider:
         """
         if not alerts:
             return []
-        with_polygons = [a for a in alerts if a.geometry]
-        if not with_polygons:
+        if not any(alert_polygons(a) for a in alerts):
             raise ProviderError(
                 f"WMO {source_id}: GPS filter requested but {len(alerts)} alerts "
                 "carry no polygons; this source does not publish per-alert geometry"

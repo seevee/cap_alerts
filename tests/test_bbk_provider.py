@@ -28,6 +28,7 @@ from custom_components.cap_alerts.const import (
     CONF_LANGUAGE,
     CONF_ZONE_ID,
 )
+from custom_components.cap_alerts.model import CAPAlert
 from custom_components.cap_alerts.normalize import _bbox_from_geometry
 from custom_components.cap_alerts.providers import ProviderError
 from custom_components.cap_alerts.providers import bbk as _bbk_mod
@@ -767,3 +768,47 @@ async def test_fetch_without_a_shared_cache_still_works():
 
 def test_provider_name():
     assert BBKProvider().name == "bbk"
+
+
+@pytest.mark.asyncio
+async def test_a_dead_channel_index_is_warned_about_once_per_streak(caplog):
+    """One warning per failure streak, as ECCC and WMO do for their hosts,
+    rather than one per poll for as long as the channel is down."""
+    dead = _mapdata_url(BBK_CHANNELS[0])
+    responses = _gps_responses()
+    live = responses[dead]
+    responses[dead] = (503, "")
+    session = StubSession(responses)
+    provider = BBKProvider()
+
+    async def fetch() -> None:
+        await provider.async_fetch(
+            session,  # type: ignore[arg-type]
+            {CONF_GPS_LOC: _IN_MOWAS},
+            {},
+            cap_content_cache=CAPContentCache(),
+            user_agent="test",
+        )
+
+    def unavailable() -> list[logging.LogRecord]:
+        return [r for r in caplog.records if "index unavailable" in r.message]
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.cap_alerts"):
+        for _ in range(3):
+            await fetch()
+        assert len(unavailable()) == 1
+
+        # The streak ends when the channel answers; the next outage warns again.
+        responses[dead] = live
+        await fetch()
+        responses[dead] = (503, "")
+        await fetch()
+        assert len(unavailable()) == 2
+
+
+def test_gps_filter_fails_loud_on_point_only_geometry():
+    """A point is not an area: the guard asks for polygons, which is what the
+    filter tests, so a point-only set fails loud instead of filtering to []."""
+    points = [CAPAlert(id="p", geometry={"type": "Point", "coordinates": [1.0, 2.0]})]
+    with pytest.raises(ProviderError, match="carry no polygons"):
+        BBKProvider._filter_by_polygon(points, _IN_MOWAS)
