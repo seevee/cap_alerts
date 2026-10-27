@@ -9,6 +9,50 @@ already shipped lives in [`architecture.md`](architecture.md).
 
 ---
 
+## RFC submission waits on a soak beyond the custom-repository install base
+
+**When:** after a stable release has soaked, as defined below, on an install
+base wider than the custom-repository one. HACS default listing
+([hacs/default#11005](https://github.com/hacs/default/pull/11005), awaiting
+re-review) is the means; the install base is the gate.
+
+[`rfc.md`](../rfc.md) is the proposal and `cap_alerts` its reference
+implementation. The RFC's status line used to gate submission on "enough field
+testing", which named no condition. The custom-repository audience skews to
+people who read the docs and run the companion card, so what it has not shown
+is the ordinary configuration: a zone or GPS entry on weak hardware, several
+entries, a language the maintainer does not read. Default listing is the
+closest thing Home Assistant has to that population short of core itself, and
+the Architecture Working Group weighs field evidence under that distribution,
+not install counts.
+
+The soak, so it can be judged failed or passed:
+
+1. **Listed.** The integration is in the HACS default store, or an equivalent
+   default distribution path.
+2. **On a stable line that carries the lifecycle work.** The automation
+   triggers (#280, #326) and the lifecycle-field restore across a restart
+   (#350) are the two parts of the contract that no custom-repository user
+   had for long, so the soak runs on the first stable release that ships
+   both, not on the one listed today.
+3. **Six weeks**, counted from the listing. Core releases monthly, so that
+   spans at least one core update, and with it the restart and restore path
+   on every install.
+4. **No open bug on restore, triggers or privacy** at the end of it, and
+   anything the wider base turned up written to
+   [`evidence/`](evidence/README.md) as its own page.
+
+Not required: an install count, or a second Python integration consuming the
+neutral layer. §5 of the RFC describes a hub extraction with three consumers
+behind it as the path to stage 1. That is the path, not the gate: the hub
+stays unscheduled until an outside consumer commits (#216), and none has.
+
+If the listing stalls for reasons unrelated to the integration, submission
+goes ahead on the custom-repository evidence and says so. The gate exists to
+make the evidence better, not to hand the decision to the HACS queue.
+
+---
+
 ## Declared content identity (issue #116, not planned)
 
 Closed without building. Each source's re-issue identity, and why it stays per

@@ -1,6 +1,6 @@
 # RFC: The `incident` Integration for Home Assistant Core
 
-**Status:** Public working draft, not yet submitted. Please don't submit it to the Home Assistant Architecture repository; the maintainer will, once the reference implementation has gathered enough field testing.
+**Status:** Public working draft, not yet submitted. Please don't submit it to the Home Assistant Architecture repository. The maintainer will, after a stable release of the reference implementation has soaked on an install base beyond the custom-repository one it has today, which HACS default listing is meant to provide. The soak is defined in [`docs/roadmap.md`](docs/roadmap.md#rfc-submission-waits-on-a-soak-beyond-the-custom-repository-install-base).
 
 **Author:** @seevee (`cap_alerts` maintainer)
 

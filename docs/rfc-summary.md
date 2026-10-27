@@ -1,8 +1,11 @@
 # The `incident` RFC on one page
 
 A summary of [`rfc.md`](../rfc.md), a public working draft not yet submitted to
-the Home Assistant Architecture repository. The RFC is the source of truth, and
-the measurements stay there and in [`evidence/`](evidence/README.md).
+the Home Assistant Architecture repository. Submission waits on a stable
+release soaking on an install base beyond today's custom-repository one, the
+soak [`roadmap.md`](roadmap.md#rfc-submission-waits-on-a-soak-beyond-the-custom-repository-install-base)
+defines. The RFC is the source of truth, and the measurements stay there and in
+[`evidence/`](evidence/README.md).
 
 ## Packed alert sensors lose data as the situation gets worse
 
