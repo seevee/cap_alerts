@@ -78,22 +78,24 @@ DEFAULT_TIMEOUT = 30  # seconds
 CONFIG_FLOW_TIMEOUT = 10  # seconds
 
 # ECCC GeoRSS feed source (ECCC options flow only). "auto" fetches both NAAD
-# hosts and unions their entries deduplicated by CAP OID, because neither host
-# alone is complete: rss.alertready.ca persistently omits a handful of live
-# Actual alerts that rss.naad-adna.pelmorex.com carries (issue #38), while the
-# legacy pelmorex host retains a shorter (~13.5 h) window and drops older alerts
-# alertready still serves. The named values ("alertready" / "pelmorex") pin a
+# hosts and unions their entries deduplicated by CAP OID. It was added because
+# rss.alertready.ca persistently omitted live Actual alerts that
+# rss.naad-adna.pelmorex.com carried (issue #38), while the legacy pelmorex host
+# keeps a shorter (~13.5 h) window. The alertready gap closed on 2026-10-02: of
+# 2,447 samples from then to 2026-10-27, five alerts were missing from it, each
+# for one sample only. So the union now guards against a regression rather
+# than covering a known gap. The named values ("alertready" / "pelmorex") pin a
 # single host as an escape hatch. An absent option means "auto" so existing
-# entries get the fix without reconfiguring. The pelmorex host sunsets ~late
-# Sept 2026; removing it then is a cleanup task, not an outage (a failing host
-# is skipped as long as the other succeeds).
+# entries need no reconfiguring. Pelmorex announced its host's sunset for ~late
+# Sept 2026 and it still served on 2026-10-27; removing it is a cleanup task,
+# not an outage (a failing host is skipped as long as the other succeeds).
 DEFAULT_FEED_SOURCE = "auto"
 
 # ECCC/NAAD real-time streaming feed. The NAADS 2.0 LMD User Guide documents the
 # TCP streaming feed — not the auxiliary GeoRSS feed — as the correct channel for
 # 24/7 automated systems. streaming.alertready.ca:8443 is the surviving-domain TLS
-# endpoint (the deprecated pelmorex streaming1/2:8080 hosts sunset ~Sept 2026 and
-# drop unregistered clients). When streaming is enabled the GeoRSS feed is retained
+# endpoint (the deprecated pelmorex streaming1/2:8080 hosts were announced to
+# sunset ~Sept 2026, still open on 2026-10-27, and drop unregistered clients). When streaming is enabled the GeoRSS feed is retained
 # only as the startup/reconnect backfill source; the coordinator's update_interval
 # is repurposed as the periodic safety-resync cadence.
 NAAD_STREAM_HOST = "streaming.alertready.ca"
