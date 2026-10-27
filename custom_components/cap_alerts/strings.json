@@ -691,7 +691,7 @@
         "step": {
           "confirm": {
             "title": "Turn real-time streaming back on",
-            "description": "{title} polls the NAAD GeoRSS feed instead of streaming from it. The legacy host rss.naad-adna.pelmorex.com retires in late September 2026, and after that the GeoRSS feed alone omits some live alerts. A polling entry treats an alert missing from the feed as ended, so each omission becomes a false all-clear. Real-time streaming reads the NAAD socket directly and is unaffected.\n\nSubmit turns real-time streaming on for this entry (it reloads). If polling is deliberate, ignore this issue instead."
+            "description": "{title} polls the NAAD GeoRSS feed instead of streaming from it. Polling reads both NAAD hosts, rss.alertready.ca and the legacy rss.naad-adna.pelmorex.com, and Pelmorex has announced that the legacy host will retire. rss.alertready.ca alone has omitted live alerts before, and a polling entry misses whatever its feed leaves out, an all-clear included. Real-time streaming reads the NAAD socket directly and does not depend on either host.\n\nSubmit turns real-time streaming on for this entry (it reloads). If polling is deliberate, ignore this issue instead."
           }
         }
       }
@@ -702,7 +702,7 @@
         "step": {
           "confirm": {
             "title": "Switch the feed source to auto",
-            "description": "{title} is pinned to rss.naad-adna.pelmorex.com, which retires in late September 2026. After that every fetch from it fails: a polling entry goes unavailable, and a streaming entry loses its backfill and resync. The auto setting fetches both NAAD hosts and keeps working when one retires.\n\nSubmit sets the feed source to auto for this entry."
+            "description": "{title} is pinned to rss.naad-adna.pelmorex.com, which Pelmorex has announced will retire. When it does, every fetch from it fails: a polling entry goes unavailable, and a streaming entry loses its backfill and resync. The auto setting fetches both NAAD hosts and keeps working when one retires.\n\nSubmit sets the feed source to auto for this entry."
           }
         }
       }
