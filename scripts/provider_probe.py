@@ -15,6 +15,11 @@ Usage (needs the test venv, which has aiohttp + homeassistant):
     .venv/bin/python scripts/provider_probe.py meteoalarm --country CH --gps 46.2044,6.1432
     .venv/bin/python scripts/provider_probe.py eccc --province BC --language fr-CA
     .venv/bin/python scripts/provider_probe.py nws --zone MOC217
+    .venv/bin/python scripts/provider_probe.py au --province NSW
+    .venv/bin/python scripts/provider_probe.py bbk --zone 095640000000
+    .venv/bin/python scripts/provider_probe.py geosphere --gps 48.2082,16.3738 --language en
+    .venv/bin/python scripts/provider_probe.py twc --province HI --normalize
+    .venv/bin/python scripts/provider_probe.py gdacs
 
 Arbitrary keys for providers this script has no flag for:
 
@@ -55,12 +60,13 @@ import aiohttp
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from custom_components.cap_alerts.const import USER_AGENT
+from custom_components.cap_alerts.conventions import register_source
 from custom_components.cap_alerts.coordinator import (
     filter_by_geocode_prefixes,
 )
 from custom_components.cap_alerts.model import CAPAlert
 from custom_components.cap_alerts.normalize import normalize_alerts
-from custom_components.cap_alerts.providers import get_provider
+from custom_components.cap_alerts.providers import PROVIDER_IDS, get_provider
 from custom_components.cap_alerts.providers.cap_content_cache import (
     CAPContentCache,
 )
@@ -200,6 +206,10 @@ async def _run(args: argparse.Namespace) -> int:
     print(f"provider={args.provider} config={config} options={options}")
 
     provider = get_provider(args.provider)
+    # Put the provider's rows into force as the coordinator does when it builds
+    # one; without them ``--normalize`` runs on empty rows (no severity hook,
+    # no terminal vocabulary) and reports a phase HA would not.
+    register_source(provider.conventions)
     timeout = aiohttp.ClientTimeout(total=args.deadline)
     started = time.monotonic()
     async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -270,11 +280,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("provider", choices=["nws", "eccc", "meteoalarm", "wmo"])
+    parser.add_argument("provider", choices=PROVIDER_IDS)
     parser.add_argument("--source", help="WMO source_id, e.g. cn-cma-xx")
     parser.add_argument("--country", help="MeteoAlarm ISO-2 country, e.g. CH")
-    parser.add_argument("--province", help="ECCC province, e.g. BC")
-    parser.add_argument("--zone", help="NWS zone id(s), comma-separated")
+    parser.add_argument(
+        "--province", help="ECCC province (BC), AU state (NSW), TWC region (HI)"
+    )
+    parser.add_argument(
+        "--zone", help="NWS zone id(s), comma-separated; BBK Regionalschlüssel"
+    )
     parser.add_argument("--regions", help="MeteoAlarm region codes, comma-separated")
     parser.add_argument("--gps", help='"lat,lon" — enables the GPS polygon filter')
     parser.add_argument("--language", help="language option (provider-specific)")
