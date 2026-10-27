@@ -139,11 +139,16 @@ WMO_MIRROR_RSS_URL = "https://severeweather.wmo.int/v2/cap-alerts/{source_id}/rs
 # (138 of 140 ids 404, swept 2026-10-22; both still 200 on 2026-10-26).
 WMO_MIRROR_SURVIVORS = ("au-bom-en", "cn-cma-xx")
 
+# GeoSphere Austria's national warning index (issue #300). The provider polls
+# a per-point endpoint instead, but the index carries the same type and level
+# codes for every warning in the country with no location in the request.
+GEOSPHERE_WARNSTATUS_URL = "https://warnungen.zamg.at/wsapp/api/getWarnstatus"
+
 BASELINE_PATH = Path(__file__).resolve().parent / "feed_vocab_baseline.json"
 
 USER_AGENT = "cap-alerts-feed-vocab-probe/1.0 (+https://github.com/seevee/cap_alerts)"
 
-PROVIDERS = ("eccc", "nws", "meteoalarm", "gdacs", "wmo", "bbk", "au")
+PROVIDERS = ("eccc", "nws", "meteoalarm", "gdacs", "wmo", "bbk", "au", "geosphere")
 
 # ECCC vocabulary is read from this sender only; see module docstring.
 ECCC_SENDER = "cap-pac@canada.ca"
@@ -329,6 +334,31 @@ SPEC_VOCAB: dict[str, dict[str, list[str]]] = {
         # The seven hazard types GDACS publishes.
         "values.eventtype": ["DR", "EQ", "FL", "TC", "TS", "VO", "WF"],
         "values.iscurrent": ["true", "false"],
+    },
+    "geosphere": {
+        # The Warn API spec's enums: 1 storm … 7 cold, 1 yellow … 3 red.
+        "values.wtype": [str(n) for n in range(1, 8)],
+        "values.wlevel": ["1", "2", "3"],
+        # ``w4149c1v1``: warnid, chgid, verlaufid. The provider's identity is
+        # the first, so a change of shape is worth hearing about.
+        "values.warnid_shape": ["wNcNvN"],
+        # The spec's own index example, so the first live warning after a
+        # quiet spell is not reported as a dozen new paths.
+        "index_paths": [
+            "features",
+            "features[].geometry",
+            "features[].geometry.coordinates",
+            "features[].geometry.type",
+            "features[].properties",
+            "features[].properties.end",
+            "features[].properties.gemeinden",
+            "features[].properties.start",
+            "features[].properties.warnid",
+            "features[].properties.wlevel",
+            "features[].properties.wtype",
+            "features[].type",
+            "type",
+        ],
     },
 }
 
@@ -1077,6 +1107,30 @@ def build_report(
 # ---------------------------------------------------------------------------
 
 
+def probe_geosphere(timeout: float) -> Sample:
+    """The national ``getWarnstatus`` index, one feature per warned area (#300).
+
+    An empty collection is a normal day in Austria, not a failure: the index
+    lists live warnings only, and on 2026-10-27 there were none anywhere. Only
+    a body that is not a FeatureCollection fails the run.
+    """
+    sample = Sample()
+    doc = json.loads(fetch(GEOSPHERE_WARNSTATUS_URL, timeout=timeout))
+    if not isinstance(doc, dict) or doc.get("type") != "FeatureCollection":
+        raise RuntimeError("GeoSphere getWarnstatus is not a FeatureCollection")
+    sample.add_all("index_paths", json_paths(doc))
+    features = doc.get("features") or []
+    for feature in features:
+        props = feature.get("properties") or {}
+        warn_id = str(props.get("warnid", "")).strip()
+        sample.add_all("index_paths", json_paths(feature, "features[]"), warn_id)
+        sample.add("values.wtype", str(props.get("wtype", "")), warn_id)
+        sample.add("values.wlevel", str(props.get("wlevel", "")), warn_id)
+        sample.add("values.warnid_shape", re.sub(r"\d+", "N", warn_id), warn_id)
+    print(f"  geosphere: {len(features)} warned areas")
+    return sample
+
+
 def probe_au(timeout: float) -> Sample:
     """The four state feeds, every alert in each (issue #127).
 
@@ -1231,6 +1285,8 @@ def main() -> int:
                 )
             elif provider == "au":
                 observed[provider] = probe_au(args.timeout)
+            elif provider == "geosphere":
+                observed[provider] = probe_geosphere(args.timeout)
         except Exception as err:  # noqa: BLE001 — one provider down must not end the run
             failures[provider] = str(err)
             print(f"  FAILED: {err}")

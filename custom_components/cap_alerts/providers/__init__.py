@@ -24,6 +24,7 @@ PROVIDER_IDS: tuple[str, ...] = (
     "gdacs",
     "bbk",
     "au",
+    "geosphere",
 )
 
 
@@ -197,6 +198,7 @@ def get_provider(provider_id: str) -> AlertProvider:
     from .bbk import BBKProvider
     from .eccc import ECCCProvider
     from .gdacs import GDACSProvider
+    from .geosphere import GeoSphereProvider
     from .meteoalarm import MeteoAlarmProvider
     from .nws import NWSProvider
     from .wmo import WMOProvider
@@ -209,6 +211,7 @@ def get_provider(provider_id: str) -> AlertProvider:
         "gdacs": GDACSProvider,
         "bbk": BBKProvider,
         "au": AUProvider,
+        "geosphere": GeoSphereProvider,
     }
     cls = providers.get(provider_id)
     if cls is None:

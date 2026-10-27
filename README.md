@@ -34,8 +34,11 @@ cards work too, see [Cards and automations](#cards-and-automations).*
 | **GDACS** | Global Disaster Alert and Coordination System | Worldwide earthquakes, cyclones, floods, volcanoes, droughts, wildfires, tsunamis | Worldwide, GPS, or `device_tracker` entity |
 | **BBK** | German federal civil protection (the NINA app backend) | Germany: MoWaS, KATWARN, BIWAPP, LHP flood warnings, DWD weather warnings of level 3 and up | District (Regionalschlüssel, `09564`), GPS, or `device_tracker` entity |
 | **AU** | Australian state fire and emergency services | NSW (RFS), Queensland (QFD), Western Australia (DFES), Tasmania (TasALERT): bushfires and incidents, plus SES weather warnings on TasALERT | State |
+| **GeoSphere** | GeoSphere Austria (the former ZAMG) Warn API | Austria, per municipality: wind, rain, snow, black ice, thunderstorm, heat and cold warnings | GPS, or `device_tracker` entity |
 
 GPS and tracker modes keep only alerts whose affected area contains the point.
+GeoSphere resolves the point to its municipality itself, and the alert's
+polygon is that municipality.
 The Australian feeds have no GPS mode: most of their alerts are a location
 marker with no polygon, so a point test would drop them. Filter by distance on
 the card instead, which reads the marker from `points`.
@@ -106,7 +109,7 @@ Per provider:
 
 | Option | Providers | What it does |
 |---|---|---|
-| Language | ECCC, MeteoAlarm, WMO, BBK | Which `<info>` block to read. ECCC: `auto`, `en-CA` or `fr-CA`. MeteoAlarm: a two-letter prefix (`en`, `de`, `fr`). WMO: `auto` or any BCP 47 tag the source publishes (`zh-Hans`). BBK: `auto`, `de`, `de-LS` (easy-read German), `en` or one of the app's other translations. NWS is English only. |
+| Language | ECCC, MeteoAlarm, WMO, BBK, GeoSphere | Which `<info>` block to read. ECCC: `auto`, `en-CA` or `fr-CA`. MeteoAlarm: a two-letter prefix (`en`, `de`, `fr`). WMO: `auto` or any BCP 47 tag the source publishes (`zh-Hans`). BBK: `auto`, `de`, `de-LS` (easy-read German), `en` or one of the app's other translations. GeoSphere: `de` (default, the source text) or `en` (GeoSphere's translation). NWS is English only. |
 | Real-time streaming | ECCC | Ingest alerts the moment they are issued, over the NAAD socket. Default on. See [ECCC streaming](#eccc-streaming). |
 | Feed source | ECCC, WMO | ECCC: which NAAD GeoRSS host serves polling and backfill. `auto` (default) fetches both hosts and unions them. `alertready` or `pelmorex` pins one. WMO: `auto` (default) reads the feed the weather service publishes itself, and merges in the SWIC mirror where it still answers. SWIC retired the mirror for all but `cn-cma-xx` and `au-bom-en` in October 2026, so a mirror that keeps answering 404 is only re-checked every 30 minutes. `mirror` or `authority` reads one only. Both feeds are revalidated with conditional GETs, and an authority index over 256 KB (`cn-cma-xx`'s is ~950 KB) is re-read every 30 minutes with its last link list standing in between, so a country-wide entry no longer downloads a megabyte a poll. |
 | Event types | GDACS | Which hazards to track. All by default. Applied before any geometry is fetched, so narrowing it also cuts fetch cost. |
@@ -368,6 +371,16 @@ policy.
   `expires` is a regeneration TTL, so an incident ends when its feed withdraws
   it. Each alert's location marker is published in `points`, alongside the
   fire-ground polygon where there is one.
+- **GeoSphere** asks the Warn API for the configured point and gets back its
+  municipality, the municipality's outline and every warning on it, with the
+  impacts, recommendations and forecaster's synopsis that the MeteoAlarm relay
+  compresses. Coordinates arrive in Austria Lambert (EPSG:31287) and are
+  reprojected to WGS84 in-tree, to within a metre. Identity is GeoSphere's
+  `warnid`, so a revision updates the entity, and a tracker crossing into the
+  next municipality under the same warning keeps it. Don't run it next to a
+  MeteoAlarm Austria entry: both carry the same warnings under unrelated
+  identifiers, so every warning shows twice. A tracker outside Austria makes
+  the entry unavailable rather than reporting all clear.
 
 Per-field mappings and the reasoning behind each provider are in
 [`docs/architecture.md`](docs/architecture.md).

@@ -10,7 +10,8 @@
           "wmo": "WMO Severe Weather",
           "gdacs": "GDACS Global Disasters",
           "bbk": "BBK / NINA (Germany)",
-          "au": "Australia (state fire and emergency services)"
+          "au": "Australia (state fire and emergency services)",
+          "geosphere": "GeoSphere Austria"
         }
       },
       "nws": {
@@ -251,6 +252,32 @@
           "province": "Which state's feed to follow. Each state's fire or emergency service publishes its own CAP-AU feed: NSW RFS, Queensland Fire Department, DFES Emergency WA, TasALERT. Every incident in the feed becomes an entity, so narrow it with the minimum alert level option under Configure, or by distance on the card. Victoria, SA, NT and ACT publish no CAP feed."
         }
       },
+      "geosphere": {
+        "title": "GeoSphere Austria Location Scope",
+        "menu_options": {
+          "geosphere_gps_loc": "GPS Coordinates",
+          "geosphere_gps_tracker": "GPS Tracker Entity",
+          "user": "Back to provider list"
+        }
+      },
+      "geosphere_gps_loc": {
+        "title": "GeoSphere Austria GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 48.2082,16.3738). Must be in Austria: GeoSphere resolves the point to its municipality and returns that municipality's warnings, with its outline. Don't run this next to a MeteoAlarm Austria entry, the two publish the same warnings under unrelated identifiers, so every warning would show twice."
+        }
+      },
+      "geosphere_gps_tracker": {
+        "title": "GeoSphere Austria GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
+        },
+        "data_description": {
+          "tracker_entity": "Follows the tracker's municipality. The entry goes unavailable while the tracker is outside Austria."
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure CAP Alerts",
         "menu_options": {
@@ -260,7 +287,8 @@
           "reconfigure_wmo": "WMO Severe Weather",
           "reconfigure_gdacs": "GDACS Global Disasters",
           "reconfigure_bbk": "BBK / NINA (Germany)",
-          "reconfigure_au": "Australia (state fire and emergency services)"
+          "reconfigure_au": "Australia (state fire and emergency services)",
+          "reconfigure_geosphere": "GeoSphere Austria"
         }
       },
       "reconfigure_nws": {
@@ -510,6 +538,32 @@
           "province": "Which state's feed to follow. Each state's fire or emergency service publishes its own CAP-AU feed: NSW RFS, Queensland Fire Department, DFES Emergency WA, TasALERT. Every incident in the feed becomes an entity, so narrow it with the minimum alert level option under Configure, or by distance on the card. Victoria, SA, NT and ACT publish no CAP feed."
         }
       },
+      "reconfigure_geosphere": {
+        "title": "GeoSphere Austria Location Scope",
+        "menu_options": {
+          "reconfigure_geosphere_gps_loc": "GPS Coordinates",
+          "reconfigure_geosphere_gps_tracker": "GPS Tracker Entity",
+          "reconfigure": "Back to provider list"
+        }
+      },
+      "reconfigure_geosphere_gps_loc": {
+        "title": "GeoSphere Austria GPS Location",
+        "data": {
+          "gps_loc": "GPS Coordinates"
+        },
+        "data_description": {
+          "gps_loc": "Latitude,Longitude (e.g. 48.2082,16.3738). Must be in Austria: GeoSphere resolves the point to its municipality and returns that municipality's warnings, with its outline. Don't run this next to a MeteoAlarm Austria entry, the two publish the same warnings under unrelated identifiers, so every warning would show twice."
+        }
+      },
+      "reconfigure_geosphere_gps_tracker": {
+        "title": "GeoSphere Austria GPS Tracker",
+        "data": {
+          "tracker_entity": "Tracker Entity"
+        },
+        "data_description": {
+          "tracker_entity": "Follows the tracker's municipality. The entry goes unavailable while the tracker is outside Austria."
+        }
+      },
       "reconfigure_wmo_geocode": {
         "title": "WMO Area Codes",
         "data": {
@@ -523,6 +577,7 @@
     "error": {
       "cannot_connect": "Could not connect to the weather service.",
       "cannot_fetch_regions": "Could not load regions for this country. Try again or pick a different filter mode.",
+      "geosphere_outside_austria": "GeoSphere Austria has no municipality at this point. Enter coordinates inside Austria.",
       "invalid_bbk_region": "Invalid Regionalschlüssel. Enter 5 to 12 digits (e.g. 09564).",
       "invalid_country": "Invalid country code. Use a MeteoAlarm-supported ISO 3166-1 alpha-2 code.",
       "invalid_geocode_prefix": "Invalid area code prefix. Enter a comma-separated list of codes made up of letters, digits, and : _ . - (max 32 characters each).",
@@ -560,7 +615,7 @@
         "data_description": {
           "scan_interval": "How often to check for new alerts (60–3600). ECCC: applies only when real-time streaming is off.",
           "timeout": "Per-request API timeout (5–120)",
-          "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes. WMO: auto, or any BCP 47 tag the source publishes (e.g. zh-Hans); the source falls back to English when it does not carry your language. BBK: auto, de, de-LS (easy-read German), en or one of the app's other translations.",
+          "language": "Preferred alert language. ECCC: auto/en-CA/fr-CA. MeteoAlarm: auto plus 2-letter ISO codes. WMO: auto, or any BCP 47 tag the source publishes (e.g. zh-Hans); the source falls back to English when it does not carry your language. BBK: auto, de, de-LS (easy-read German), en or one of the app's other translations. GeoSphere Austria: de (the source text, default) or en (GeoSphere's translation).",
           "streaming": "Stream ECCC alerts over the NAAD real-time feed for near-instant updates (recommended). When off, alerts are polled from the GeoRSS feed on the polling interval. ECCC only.",
           "feed_source": "ECCC: which NAAD GeoRSS host(s) to fetch. 'auto' combines both feeds so no alert carried by only one is missed (recommended); the legacy host retires around September 2026, so pin a single host only to work around a specific feed issue. WMO: 'auto' reads the feed the weather service publishes itself and merges in the SWIC mirror where it still answers (recommended); SWIC retired the mirror for nearly every source in October 2026. 'mirror' or 'authority' reads one of them only. ECCC and WMO only.",
           "exclude_marine": "Hide alerts issued for marine/water zones (boating, open water). NWS and ECCC only.",

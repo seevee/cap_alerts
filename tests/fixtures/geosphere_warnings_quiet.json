@@ -1,0 +1,67 @@
+{
+ "type": "Feature",
+ "geometry": {
+  "type": "MultiPolygon",
+  "coordinates": [
+   [
+    [
+     [
+      625350,
+      482209
+     ],
+     [
+      625010,
+      482527
+     ],
+     [
+      624571,
+      482983
+     ],
+     [
+      624586,
+      483811
+     ],
+     [
+      625581,
+      484310
+     ],
+     [
+      626541,
+      483594
+     ],
+     [
+      626577,
+      483600
+     ],
+     [
+      626577,
+      483601
+     ],
+     [
+      626706,
+      483561
+     ],
+     [
+      626037,
+      482266
+     ],
+     [
+      625350,
+      482209
+     ]
+    ]
+   ]
+  ]
+ },
+ "properties": {
+  "location": {
+   "type": "Municipal",
+   "properties": {
+    "gemeindenr": 90101,
+    "name": "Wien-Innere Stadt",
+    "urlname": "wien_innere_stadt"
+   }
+  },
+  "warnings": []
+ }
+}

@@ -404,13 +404,15 @@ def test_every_retaining_source_has_a_way_out():
     # For GDACS that fallback *is* the lifecycle: no CAP body carries an
     # <expires>, so withdrawal from the 24-hour index is what ends an event.
     # BBK's MoWaS documents carry no <expires> either, and warnung.bund.de
-    # lists live warnings only, so withdrawal is the end there too.
+    # lists live warnings only, so withdrawal is the end there too. GeoSphere
+    # puts an end time on every warning, so time ends it before absence has to.
     assert without_exit == {
         "meteoalarm",
         "wmo",
         "gdacs",
         "bbk",
         "au",
+        "geosphere",
         f"meteoalarm/{METEOFRANCE_SENDER}",
         f"meteoalarm/{FMI_SENDER}",
     }

@@ -673,6 +673,31 @@ async def test_an_au_state_entry_reports_its_feed(hass):
     ]
 
 
+async def test_a_geosphere_entry_reports_its_endpoint_without_the_point(hass):
+    """GeoSphere's poll URL carries the point as two query parameters (#300)."""
+    entry = _entry(
+        {CONF_PROVIDER: "geosphere", CONF_GPS_LOC: "48.2082,16.3738"},
+        failure_error=(
+            "geosphere: HTTP 503, message='Service Unavailable', url='https://"
+            "warnungen.zamg.at/wsapp/api/getWarningsForCoords?lon=16.3738"
+            "&lat=48.2082&lang=de'"
+        ),
+    )
+
+    payload = await _payload(hass, entry)
+
+    assert payload["source"]["endpoints"] == [
+        (
+            "https://warnungen.zamg.at/wsapp/api/getWarningsForCoords"
+            f"?lon={REDACTED}&lat={REDACTED}"
+        )
+    ]
+    error = payload["update"]["last_failure_error"]
+    assert error.endswith(f"?lon={REDACTED}&lat={REDACTED}&lang=de'")
+    assert "16.3738" not in json.dumps(payload)
+    assert "48.2082" not in json.dumps(payload)
+
+
 async def test_a_worldwide_entry_reports_a_scope_rather_than_a_gap(hass):
     """GDACS with no GPS filter is fully configured, not half-configured."""
     entry = _entry({CONF_PROVIDER: "gdacs"})

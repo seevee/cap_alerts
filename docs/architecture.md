@@ -158,14 +158,14 @@ Providers are decoupled from HA internals. The coordinator resolves these **befo
 
 - **Tracker mode** → resolves `device_tracker` entity to lat/lon; provider sees `CONF_GPS_LOC` only.
 - **Country-source mode** → resolves a country entity's value to the source's country code through the row's `country_code` hook (MeteoAlarm's reads codes, ISO aliases and geocoder names).
-- **Language `"auto"`** → through the row's `resolve_language` hook: ECCC resolves to `en-CA` or `fr-CA`, MeteoAlarm to the two-letter prefix, WMO and BBK pass `hass.config.language` through verbatim. NWS, GDACS and AU declare no hook, take no language, and leave `auto` in place.
+- **Language `"auto"`** → through the row's `resolve_language` hook: ECCC resolves to `en-CA` or `fr-CA`, MeteoAlarm to the two-letter prefix, WMO and BBK pass `hass.config.language` through verbatim. NWS, GDACS and AU declare no hook, take no language, and leave `auto` in place. GeoSphere declares no hook either and offers no `auto`: its option is `de` or `en`, defaulting to `de`.
 
 Keeps providers testable without a running HA instance, and keeps the coordinator free of any provider's name: what a resolution means is declared on the row in `providers/<name>_conventions.py`.
 
 ### Why a separate layer
 
 1. **Batching varies.** NWS takes multi-zone queries (`?zone=OHC049,OHC035`). ECCC returns a national feed with no server-side filtering. BoM, DWD, MeteoAlarm each differ.
-2. **Parsing varies wildly.** GeoJSON features (NWS), Atom XML with CAP extensions (ECCC), CAP-over-JSON (MeteoAlarm, BBK), RSS indexes of CAP XML (WMO), RSS items with no CAP body (GDACS), EDXL-DE envelopes of CAP XML (AU). One coordinator method can't sanely handle all of them.
+2. **Parsing varies wildly.** GeoJSON features (NWS), Atom XML with CAP extensions (ECCC), CAP-over-JSON (MeteoAlarm, BBK), RSS indexes of CAP XML (WMO), RSS items with no CAP body (GDACS), EDXL-DE envelopes of CAP XML (AU), projected GeoJSON with no CAP at all (GeoSphere). One coordinator method can't sanely handle all of them.
 3. **Testing.** Providers run against recorded API responses without a coordinator or HA.
 
 ### Shared CAP parsing (`cap.py`)
@@ -1190,6 +1190,65 @@ gzip meanwhile, which takes NSW to 65 KB on the wire. Victoria (GeoJSON
 transport). A WMO-style per-state name lookup is unnecessary with four
 states.
 
+## GeoSphere Austria — Warn API mapping (issue #300)
+
+GeoSphere (the former ZAMG) issues the meteorologists' warnings per
+municipality. MeteoAlarm relays them at district level with the text
+compressed; this reads them one level finer. The two identifier sets are
+disjoint (MeteoAlarm's is a timestamp plus a district code, with no
+`warnid` anywhere), so an entry here next to a MeteoAlarm Austria entry
+shows every warning twice. The docs say pick one.
+
+**Transport.** One `getWarningsForCoords?lon&lat&lang` per entry per poll,
+coordinates rounded to four places. The answer is a GeoJSON Feature: the
+municipality's MultiPolygon, its number (`gemeindenr`) and name, and every
+warning on it with full text. The national `getWarnstatus` index is not
+used: it carries no text, and its HEAD `Last-Modified` is the time of the
+request, not of the data (two HEADs a second apart, 2026-10-27), so it is no
+change token. Outside Austria the endpoint answers 404, which is both the
+flow's scope check and, for a tracker that left the country, a
+`ProviderError`: an empty list would read as all clear for a place the
+source does not cover.
+
+| Field | CAPAlert |
+| :-- | :-- |
+| `warnid` | `id` = `sha256("geosphere:{warnid}")[:12]` |
+| `chgid` | `msg_type` Update when > 1, else Alert; in `identifier` and `parameters` |
+| `warntypid` (1–7) | `event` per language (`Windwarnung` / `Wind warning` …); the icon hook |
+| `warnstufeid` (1–3) | `severity` Moderate / Severe / Extreme |
+| `rawinfo.start` / `end` | `onset`, `effective` / `expires` (UTC epoch) |
+| `begin` / `end` | fallback only, Vienna local, dotted or ISO |
+| `create` | `sent` |
+| `text` | `headline` |
+| `auswirkungen`, `meteotext` | `description`, impacts first |
+| `empfehlungen` | `instruction`, None when empty |
+| `gemeindenr`, `name` | `geocodes` `{"GKZ": …}`, `area_desc` |
+
+**Identity is the warning id alone.** Entity unique ids are already
+namespaced by entry, so the municipality adds nothing, and it would re-mint
+the entity when a tracker crosses a boundary under the same warning.
+`verlaufid` ("the warning's manifestation") stays out until a live sample
+says what a new one means; erring that way keeps one entity.
+
+**Geometry.** EPSG:31287 metres, reprojected by `providers/austria_lambert`:
+the Lambert Conformal Conic 2SP inverse on Bessel 1841 (exact against pyproj)
+then the EPSG:1618 Helmert to WGS84 (0.74 m worst case over Austria, 121 m
+without it; `scripts/geosphere_projection_probe.py`). The published nesting
+is kept, so an enclave's hole stays a hole, which `geometry_from_polygons`
+would flatten into a second polygon. `web` and `url` are GeoSphere's warning
+map framed on the municipality's native bbox, never the request URL, which
+carries the entry's coordinates.
+
+**Lifecycle.** Default retain policy. Every warning has an end time, so
+time retires it. Whether a cancelled warning vanishes from the response or
+comes back with a shorter end was not observable when this shipped (no
+warnings anywhere in Austria on 2026-10-27).
+
+**Options.** Language `de` (default, the source text) or `en`, sent as
+`lang`; no second-language fetch. Geocode-prefix narrowing is offered: the
+municipality number's leading digit is the Bundesland, which means something
+for a tracker entry. No marine toggle.
+
 ---
 
 ## Alert Store (`store.py`)
@@ -1280,6 +1339,7 @@ The flow used to check syntax and stop there. `OHZ999` matches `_ZONE_RE` and do
 | MeteoAlarm | the country feed is not a 404 | one request |
 | WMO | the mirror serves `…/{source_id}/rss.xml`, else the registry resolves the source and its feed answers (`cannot_connect` for an outage, `unknown_wmo_source` only when the registry has no record) | three requests since the mirror's retirement (mirror 404, registry, feed); one for the two sources it still serves |
 | GDACS | nothing; the scope is the planet | none |
+| GeoSphere | `getWarningsForCoords` 404s outside Austria (`geosphere_outside_austria`) | one request, the same one a poll makes |
 
 **Called from the step that collects the value, not from entry creation.** The issue proposed the latter, but several create paths are menu clicks — `wmo_country_wide`, `meteoalarm_country_only`, `gdacs_global` — with no field to attach an error to. Each of those inherits a value an earlier form already put through the check, so validating at the input covers them and keeps every failure renderable. It also halves the wiring: four input steps and their reconfigure twins, rather than all thirty-five create/update sites.
 
