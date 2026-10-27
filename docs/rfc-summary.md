@@ -50,8 +50,9 @@ unchanged to each.
 
 The [`cap_alerts`](../README.md) custom integration implements everything in §2
 except restart content restore, across weather, civil-protection and disaster
-feeds (§4.1). Its entities don't inherit `RestoreEntity` yet, so that half of
-§2.5 is specified and not field-tested (§5).
+feeds (§4.1). It restores each incident's lifecycle fields from a per-entry
+file, so offline expiry and re-validation are field-tested; content restore is
+specified and not (§5).
 
 ## What I'm asking for
 
