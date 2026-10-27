@@ -9,8 +9,8 @@ sends them and replays that body on a ``304``, so a quiet feed costs one
 request and no transfer.
 
 ECCC revalidates its GeoRSS hosts the same way inside its own retry loop;
-this is the provider-neutral form, for WMO's two index feeds today and any
-single-document feed (the Australian state feeds) later.
+this is the provider-neutral form, for WMO's index feeds and the TWC product
+slots today and any single-document feed (the Australian state feeds) later.
 """
 
 from __future__ import annotations

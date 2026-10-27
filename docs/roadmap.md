@@ -148,8 +148,8 @@ ECCC streaming shipped in 0.2.0 and its design lives in
 (#164): every heartbeat lists the last ten alerts as `(sender, identifier,
 sent)` triples, the repository serves each by a URL built from that triple,
 and the coordinator fetches whatever it has not seen. That covers a reconnect
-window without depending on the GeoRSS index, which omits live alerts in every
-sample taken since 2026-07-30.
+window without depending on the GeoRSS index, which omitted live alerts in
+every sample taken from 2026-07-30 until the gap closed on 2026-10-02.
 
 What stays open is **cold start**. Setup and the periodic resync still go
 through the GeoRSS feed, so the `_fetch_one_feed` truncation guard and the
@@ -168,15 +168,15 @@ unpersisted over SD-card write amplification.
 
 ## Remove the pelmorex NAAD host (cleanup)
 
-**When:** after the legacy `rss.naad-adna.pelmorex.com` host retires (~late Sept
-2026), or sooner if Pelmorex closes SR #46534 and `rss.alertready.ca`'s omission
-set clears.
+**When:** after the legacy `rss.naad-adna.pelmorex.com` host retires. Pelmorex
+announced ~late Sept 2026; the host still served on 2026-10-27.
 
 The GeoRSS host union (#38) fetches both NAAD hosts and unions their entries
-because alertready persistently drops live alerts pelmorex carries, while
-pelmorex retains a shorter window. Continuous sampling since 2026-07-30 has
-found a gap in every sample, so as of this writing the union is still the only
-thing making the feed complete.
+because alertready persistently dropped live alerts pelmorex carried, while
+pelmorex retains a shorter window. Sampling from 2026-07-30 found a gap in
+every sample until 2026-10-02, when it closed (five one-sample blips in the
+2,447 samples since), so the union now guards against a regression rather
+than covering a known gap.
 
 Until then the sunset repairs (#163, `issues.py`) cover the two configurations
 that depend on the host: streaming off, and `feed_source: pelmorex`. Each gets
@@ -187,7 +187,7 @@ Removing it means: drop `NAAD_FEED_PELMOREX` and the `pelmorex` value from
 `NAAD_FEED_HOSTS` / `NAAD_FEED_UNION_ORDER` in `providers/eccc.py`, drop
 `pelmorex` from the `CONF_FEED_SOURCE` selector in `flows/eccc.py` (leaving
 `auto` = alertready-only), and update the `feed_source` strings. If alertready's
-omission set has not cleared by then, escalate before removing. Dropping the
+gap has reopened by then, escalate before removing. Dropping the
 `pelmorex` value retires `ISSUE_ECCC_FEED_SOURCE_PELMOREX` with it (the
 streaming-off repair stays, since the thin index is the reason it exists).
 
@@ -197,10 +197,12 @@ streaming-off repair stays, since the thin index is the reason it exists).
 
 The ECCC feed guard (`eccc.py::_fetch_one_feed`) is all-or-nothing: a body that
 doesn't arrive complete (non-empty, ending in `</feed>`) is discarded and the
-poll fails. This is deliberately **fail-closed**, because `AlertStore.process`
-treats any tracked alert *absent* from a poll as ended — so salvaging a
-truncated feed would fire false `incident_removed` events, i.e. a false
-"all-clear," the worst failure mode for a weather-alert system. Discarding
+poll fails. This is deliberately **fail-closed**: `AlertStore.process` keeps a
+tracked alert *absent* from a poll only until its published expiry, and ends
+one with no expiry on absence (*Absence handling* in `architecture.md`) — so
+salvaging a truncated feed would mark live alerts stale and fire false
+`incident_removed` events for the expiry-less ones, i.e. a false "all-clear,"
+the worst failure mode for a weather-alert system. Discarding
 instead keeps the last-known-good snapshot (the coordinator retains `data` on
 `UpdateFailed`; `_sync_alert_entities` computes an empty removal set, so no
 alert entities are deleted) at the cost of the poll going stale.
@@ -234,7 +236,8 @@ poll marks every entity `unavailable` (the #16 contract, pinned by
 (offline tracker / unresolvable country: we don't know where the user is, so we
 can't assert their alerts). A pure *transport* failure at a fixed location is
 different: the last-known alert set is still valid, so staying available with
-stale data — staleness surfaced by the last-updated sensor — is arguably safer
+stale data — staleness surfaced by the count sensor's `last_reported` — is
+arguably safer
 than graying out an active warning. Reconciling the two needs
 **failure-type-aware** availability, not a blanket override, which would reverse
 #16 for the mobile case.
@@ -247,7 +250,8 @@ fetched whole every cycle. NSW, QLD and TAS answer with an `ETag` and
 minute or two, so a 304 would only save the transfer on the quieter feeds, but
 QLD and TAS sit still for long stretches. The shared helper now exists:
 `providers/revalidate.py` (`FeedValidators` + `fetch_feed_text`, issue #304)
-revalidates WMO's two index feeds and replays the body on 304. AU would be
-its second caller; ECCC still carries its own copy inside its retry loop, and
+revalidates WMO's index feeds and the TWC product slots and replays the body
+on 304. AU would be its third caller; ECCC still carries its own copy inside
+its retry loop, and
 could move over once the truncation guard is folded in. Not urgent: aiohttp
 negotiates gzip, which takes NSW to 65 KB on the wire.

@@ -48,8 +48,8 @@ zone codes and carry no shape to test a point against.
 The MeteoAlarm region picker lists `EMMA_ID` codes for most countries, `NUTS`
 codes for some, and area names where a feed publishes no geocodes.
 
-GDACS and BBK are the non-weather sources, and the reason the model is a CAP
-model rather than a weather model. Further providers (BoM, a direct DWD feed, …)
+GDACS, BBK, TWC and the Australian state feeds carry non-weather hazards, and
+are the reason the model is a CAP model rather than a weather model. Further providers (BoM, a direct DWD feed, …)
 plug in behind the same provider protocol; see
 [Contributing](CONTRIBUTING.md#adding-a-provider).
 
@@ -134,8 +134,8 @@ Turning streaming off falls back to GeoRSS polling on the scan interval.
 
 **Deprecation.** The legacy NAAD GeoRSS host (`pelmorex`) was announced to
 retire in late September 2026, and still served on 2026-10-27. The surviving
-host used to omit some live alerts, which a polling entry reads as ended. That
-gap closed on 2026-10-02, but `auto` keeps reading both hosts while both
+host used to omit some live alerts, and a polling entry misses whatever its
+feed leaves out. That gap closed on 2026-10-02, but `auto` keeps reading both hosts while both
 answer, in case it returns. Two configurations raise a repair under
 Settings → Repairs:
 
@@ -237,8 +237,8 @@ refresh button press that asked for it. See
 An alert that merely disappears from the feed is not removed. Feeds have been
 measured dropping live alerts, so the alert is retained until its published
 expiry. An alert with no expiry, and no other way for its source to end it,
-ends on absence instead. That covers every GDACS alert and a few WMO
-authorities.
+ends on absence instead. That covers every GDACS and Australian alert, BBK
+MoWaS messages, and a few WMO authorities.
 
 Full payload schema and semantics: [`docs/events.md`](docs/events.md).
 

@@ -1,4 +1,4 @@
-"""Shared LRU cache for immutable CAP XML document bodies."""
+"""Shared LRU cache for immutable fetched bodies: CAP XML, CAP JSON, GeoJSON."""
 
 from __future__ import annotations
 

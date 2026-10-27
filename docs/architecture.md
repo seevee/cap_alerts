@@ -144,12 +144,24 @@ The `AlertProvider` protocol isolates API-specific logic behind a uniform interf
 class AlertProvider(Protocol):
     @property
     def name(self) -> str: ...
+    @property
+    def conventions(self) -> Mapping[str, SourceConventions]: ...
     async def async_fetch(
         self,
         session: aiohttp.ClientSession,
         config: Mapping[str, Any],
         options: Mapping[str, Any],
+        *,
+        cap_content_cache: CAPContentCache | None = None,
+        user_agent: str | None = None,
     ) -> list[CAPAlert]: ...
+    async def async_validate_config(
+        self,
+        session: aiohttp.ClientSession,
+        config: Mapping[str, Any],
+        *,
+        user_agent: str | None = None,
+    ) -> str | None: ...
 ```
 
 ### Coordinator-side resolution
@@ -394,7 +406,7 @@ The mapped `<info>` is the region-matching block, preferring a non-terminal one 
 
 **Default since 0.2.0.** The NAADS 2.0 LMD User Guide documents the TCP streaming feed — not the auxiliary GeoRSS feed — as the correct channel for 24/7 automated systems, and it removes the ~7 MB-per-poll GeoRSS transfer. ECCC streams by default; the `CONF_STREAMING` option (ECCC options flow, default on) is an operational escape hatch back to GeoRSS polling if the endpoint degrades. Toggling it reloads the entry.
 
-**Endpoint**: `streaming.alertready.ca:8443` (TLS 1.3, no client cert, no subscribe handshake). The deprecated pelmorex `streaming1/2:8080` plain-TCP hosts are gated to registered LMDs and sunset ~Sept 2026 — not targeted.
+**Endpoint**: `streaming.alertready.ca:8443` (TLS 1.3, no client cert, no subscribe handshake). The deprecated pelmorex `streaming1/2:8080` plain-TCP hosts are gated to registered LMDs and were announced to sunset ~Sept 2026 (still open on 2026-10-27) — not targeted.
 
 **Client** (`providers/naad_stream.py`, `NAADStreamClient`): a standalone TLS client owning only the transport. The wire is a continuous byte stream of concatenated CAP-CP documents (XML declaration + `<alert>…</alert>`); the client reassembles complete `<alert>…</alert>` frames (bounded buffer guards a missing close tag), classifies heartbeats (`<sender>` starts `NAADS-Heartbeat`, `<status>System</status>`, emitted ≥ every 60 s), and hands raw alert-doc strings to the ingest (`providers/eccc_ingest.py`) — it parses no alert semantics. A read that returns no bytes within the heartbeat timeout doubles as the liveness watchdog and forces a reconnect; reconnects use bounded exponential backoff with jitter. The TLS connection is created through an injectable `connect` callable so it is unit-testable with a scripted reader. On each *reconnect* (not the first connect) it requests a GeoRSS backfill to recover alerts issued while disconnected.
 
