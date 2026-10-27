@@ -173,14 +173,46 @@ first fetch after a boot covers that case, see below.
 
 ## A restart re-validates, it does not re-announce
 
-The store is in-memory, so a restart empties it. The entity registry is not, and
-the alert ids under an entry's unique_id prefix are exactly the set it knew
-before the boot. The store reads them at construction (issue #250) and treats
-the first reconciliation after a boot the way RFC §2.5 describes: as a
-re-validation of what was already known, not a cold start. The same applies to a
-reload, which a reconfigure or the ECCC streaming toggle triggers, since that
-rebuilds the store too. Cheap options such as the poll interval are applied in
-place and don't reach this path.
+The store is in-memory, so a restart empties it. Two things survive it. The
+entity registry holds the alert ids under an entry's unique_id prefix, which
+are exactly the set it knew before the boot (issue #250). And since 0.8.0 a
+restore file per entry (`.storage/cap_alerts.<entry_id>`, issue #350) holds,
+for each live alert, the handful of lifecycle fields a removal payload and the
+absence rule read: `event`, `severity`, `area_desc`, `phase`, `expires`,
+`identifier` and `sender`. Not the content: headline, description and geometry
+come back with the first fetch, and persisting them is what RFC §2.5 argues
+against. The file is written when the set changes, coalesced over ten seconds,
+and once at unload and at shutdown; a quiet entry never creates one.
+
+The store seeds itself from both at construction and treats the first
+reconciliation after a boot the way RFC §2.5 describes: as a re-validation of
+what was already known, not a cold start. The same applies to a reload, which
+a reconfigure or the ECCC streaming toggle triggers, since that rebuilds the
+store too. Cheap options such as the poll interval are applied in place and
+don't reach this path.
+
+**An alert with a record runs the steady-state rules at once.** Its record
+stands in for the alert HA knew when it stopped, so the first reconciliation
+treats it as a known alert, with the absence rule and the removal payload it
+would have had without the restart.
+
+| Record at boot | Upstream | Fires |
+| :-- | :-- | :-- |
+| Held | Live, same fields | Nothing. The entity picks up the fresh content |
+| Held | Live, a kept field moved | `incident_updated`, `changed_fields` limited to the kept fields (a severity that moved while HA was down is news; a headline is not, it was never compared) |
+| Held | Absent, before `expires` | Nothing. Retained `stale` to its expiry, as in steady state |
+| Held | Absent, past `expires` or on a source where absence ends | `incident_removed` on the first reconciliation, with the real `severity`, `area_desc` and `event`, phase `expired` or `cancel` |
+| Held | Terminal | `incident_removed` once, with its fields |
+| Held | A successor revision names its `identifier` in `references` | `incident_updated` for the successor, the record leaves silently |
+
+A reconfigure or a tracker move across the restart changes the scope, and the
+file carries the scope it was written under, so retention is suspended on that
+first cycle and an out-of-scope alert is removed with its fields rather than
+stranded to its expiry.
+
+**An id with no record keeps the registry path.** That is the first boot after
+upgrading to 0.8.0, an entry whose file was lost or unreadable, and any alert
+the file predates:
 
 | Id at boot | Upstream | Fires |
 | :-- | :-- | :-- |
@@ -193,10 +225,10 @@ place and don't reach this path.
 A core update therefore no longer re-announces every live alert, and an alert
 that ended while HA was down is announced as ended rather than dropped silently.
 
-**That removal carries almost no content.** The registry keeps the id and the
-name the entity was registered with, which is the alert's `event`, and nothing
-else. So the payload usually has `event`, always has `phase: cancel` and
-`severity: unknown`, and has `area_desc` empty and `removal_reason` omitted.
+**A registry-only removal carries almost no content.** The registry keeps the
+id and the name the entity was registered with, which is the alert's `event`,
+and nothing else. So the payload usually has `event`, always has `phase: cancel`
+and `severity: unknown`, and has `area_desc` empty and `removal_reason` omitted.
 `event` is empty when HA blanked the registered name, which it does if the
 entity was re-added while its alert was absent from the first reconciliation
 after an earlier boot and never re-registered since. `entity_id` is present,
@@ -207,10 +239,12 @@ The logbook reads this shape (`severity: unknown`, no `area_desc`, no
 `removal_reason`) as "removed" rather than "cancelled", since nobody saw a
 withdrawal (issue #321).
 
-**Absent twice means ended.** One missing reconciliation is the grace the sensor
-platform already grants a restored entity, so the store waits for the same
-second sighting before it announces. An alert that turns up live on either of
-those reconciliations fires nothing at all.
+**Absent twice means ended, for a registry-only id.** One missing
+reconciliation is the grace the sensor platform already grants a restored
+entity, so the store waits for the same second sighting before it announces. An
+alert that turns up live on either of those reconciliations fires nothing at
+all. An alert with a record needs no grace: its `expires` says whether absence
+is an ending.
 
 **Terminal and unknown on the first fetch is old news** (issue #257). An ended
 alert's entity is removed when it ends, so the registry can't say its ending was
@@ -405,8 +439,9 @@ and an alert that arrives severe has none, so it can never fire on arrival.
 Two consequences carry over from the events. A trigger only sees an alert
 whose event names an `entity_id` inside its target, so a first sighting that
 is already terminal, which never had an entity, fires nothing. And a removal
-announced from the registry after a restart carries `severity: unknown`, so it
-fires `incident_ended` only at the `any` threshold.
+announced from the registry alone after a restart carries `severity: unknown`,
+so it fires `incident_ended` only at the `any` threshold; one with a restore
+record (issue #350) carries the real severity and fires at its threshold.
 
 The sixth, `incident_started` (issue #326), reads no event. It keeps a timer
 per targeted alert entity on its `onset` attribute, re-armed from the entity's

@@ -90,7 +90,8 @@ custom_components/cap_alerts/
   normalize.py      # shared normalization: severity, phase, state truncation
   schema.py         # the schema library under one name: probatio (core 2026.9+, and what mypy sees), voluptuous on the 2026.4.3 floor
   payload.py        # attribute-payload budget: measures what the recorder measures, trims long-form text then redundant keys in priority order (#150)
-  store.py          # alert store: inter-poll diffing, transition detection, event firing (incl. removal_reason) through a fire callable; no hass
+  store.py          # alert store: inter-poll diffing, transition detection, event firing (incl. removal_reason) through a fire callable; no hass. Also the restart record codec (RECORD_FIELDS, record_from_alert / alert_from_record) and `restore()`, which seeds a saved record per live alert so the first reconciliation runs the steady-state rules on it (#350)
+  restore.py        # AlertRestoreStore: one `.storage/cap_alerts.<entry_id>` file per entry holding each live alert's lifecycle fields (not content), written on set change + at unload/stop, removed with the entry (#350)
   icons.py          # event-type → mdi dispatch: the row's icon hook first, then the shared international + common hazard vocabularies
   geometry_store.py # in-memory LRU cache of full GeoJSON polygons, keyed by geometry_ref (RFC §2.4); never persisted
   issues.py         # repairs issues owed by an entry's config (#163): ECCC streaming off / feed source pinned to the retiring NAAD host; issue-registry only, no repairs import
