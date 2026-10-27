@@ -40,7 +40,9 @@ The soak, so it can be judged failed or passed:
    on every install.
 4. **No open bug on restore, triggers or privacy** at the end of it, and
    anything the wider base turned up written to
-   [`evidence/`](evidence/README.md) as its own page.
+   [`evidence/`](evidence/README.md) as its own page. What no install
+   observed in the window (a tsunami product, a GeoSphere cancellation, a
+   power cut mid-storm) is listed there as unobserved, not counted as passed.
 
 Not required: an install count, or a second Python integration consuming the
 neutral layer. §5 of the RFC describes a hub extraction with three consumers
