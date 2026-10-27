@@ -725,6 +725,40 @@
    "rss/channel/webMaster"
   ]
  },
+ "geosphere": {
+  "index_paths": [
+   "features",
+   "features[].geometry",
+   "features[].geometry.coordinates",
+   "features[].geometry.type",
+   "features[].properties",
+   "features[].properties.end",
+   "features[].properties.gemeinden",
+   "features[].properties.start",
+   "features[].properties.warnid",
+   "features[].properties.wlevel",
+   "features[].properties.wtype",
+   "features[].type",
+   "type"
+  ],
+  "values.warnid_shape": [
+   "wNcNvN"
+  ],
+  "values.wlevel": [
+   "1",
+   "2",
+   "3"
+  ],
+  "values.wtype": [
+   "1",
+   "2",
+   "3",
+   "4",
+   "5",
+   "6",
+   "7"
+  ]
+ },
  "meteoalarm": {
   "geocode_schemes": [
    "CISORP",

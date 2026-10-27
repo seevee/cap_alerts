@@ -75,6 +75,7 @@ from .const import (
     DEFAULT_WMO_FEED_SOURCE,
     GDACS_RSS_24H_URL,
     GDACS_RSS_CURRENT_URL,
+    GEOSPHERE_WARNINGS_URL,
     METEOALARM_COUNTRY_SLUGS,
     PLATFORM_VERSION,
 )
@@ -276,8 +277,8 @@ def _endpoints(
     """The upstream URLs this entry's next fetch would use.
 
     Built from the *resolved* config so a tracker entry names the endpoint it
-    is actually polling. Only NWS puts the location into the URL, and there the
-    coordinates are replaced rather than reproduced. ``authority_url`` is the
+    is actually polling. NWS and GeoSphere put the location into the URL, and
+    there the coordinates are replaced rather than reproduced. ``authority_url`` is the
     WMO authority feed as the provider resolved it, ``None`` before its first
     successful registry read, when the list is the mirror alone.
     """
@@ -305,12 +306,18 @@ def _endpoints(
     if provider == "au":
         feed = AU_FEEDS.get((config.get(CONF_PROVINCE) or "").strip().upper())
         return [feed[1]] if feed else []
+    if provider == "geosphere" and config.get(CONF_GPS_LOC):
+        # The point is in the query, as for NWS, so it is replaced.
+        return [f"{GEOSPHERE_WARNINGS_URL}?lon={REDACTED}&lat={REDACTED}"]
     return []
 
 
 # A ``lat,lon`` pair as the providers and ``_resolve_tracker_gps`` write one:
 # signed decimals, an optional space after the comma.
 _COORDINATE_PAIR = re.compile(r"-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+")
+# The same position split across query parameters, as GeoSphere's poll URL
+# carries it (``lon=16.3738&lat=48.2082``); only the value is replaced.
+_COORDINATE_PARAM = re.compile(r"\b(lat|lon)=-?\d{1,3}(?:\.\d+)?")
 
 
 def _scrub_coordinates(text: str | None, config: Mapping[str, Any]) -> str | None:
@@ -327,7 +334,8 @@ def _scrub_coordinates(text: str | None, config: Mapping[str, Any]) -> str | Non
     for key in (CONF_GPS_LOC, CONF_LATITUDE, CONF_LONGITUDE):
         if value := config.get(key):
             text = text.replace(str(value), REDACTED)
-    return _COORDINATE_PAIR.sub(REDACTED, text)
+    text = _COORDINATE_PAIR.sub(REDACTED, text)
+    return _COORDINATE_PARAM.sub(lambda m: f"{m.group(1)}={REDACTED}", text)
 
 
 def _nws_endpoints(config: Mapping[str, Any]) -> list[str]:

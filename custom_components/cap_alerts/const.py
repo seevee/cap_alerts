@@ -600,3 +600,41 @@ AU_ALERT_LEVELS: tuple[str, ...] = ("Advice", "Watch and Act", "Emergency Warnin
 # is the default: a state feed is not a global one, and a planned burn is
 # something a user in that state may well want on the map.
 AU_ALERT_LEVEL_ALL = "All"
+
+# GeoSphere Austria, the former ZAMG (issue #300). The Warn API answers a point
+# with its municipality (number, name, MultiPolygon) and every warning on it,
+# full text included, so one request per entry per poll is the whole fetch. It
+# is GeoJSON, not CAP, and in EPSG:31287 metres; ``providers/austria_lambert``
+# reprojects. The national ``getWarnstatus`` index exists but buys a point
+# entry nothing: it carries no text, and its HEAD ``Last-Modified`` is the time
+# of the request rather than of the data (probed 2026-10-27), so it is no
+# change token either. Outside Austria the endpoint answers 404, which is what
+# the config flow's scope check reads.
+GEOSPHERE_API_BASE = "https://warnungen.zamg.at/wsapp/api"
+GEOSPHERE_WARNINGS_URL = GEOSPHERE_API_BASE + "/getWarningsForCoords"
+GEOSPHERE_WARNSTATUS_URL = GEOSPHERE_API_BASE + "/getWarnstatus"
+# The public warning map framed on a bbox in native metres. The site's own
+# per-municipality page needs a state slug the API does not return, and
+# redirects to exactly this form anyway.
+GEOSPHERE_MAP_URL = "https://warnungen.zamg.at/wsapp/{lang}/alle/heute/{bbox}"
+
+# The ``lang`` values the API takes, the default first. German is the source
+# text; English is GeoSphere's translation of it.
+GEOSPHERE_LANGUAGES: tuple[str, ...] = ("de", "en")
+
+# ``warntypid`` → the event name per language. The German names follow the
+# API's own headlines ("Gelbe Windwarnung von ..."); type 1 is "storm" in the
+# spec's enum and "Wind" in every headline, and the headline wins.
+GEOSPHERE_WARN_TYPES: dict[int, dict[str, str]] = {
+    1: {"de": "Windwarnung", "en": "Wind warning"},
+    2: {"de": "Regenwarnung", "en": "Rain warning"},
+    3: {"de": "Schneewarnung", "en": "Snow warning"},
+    4: {"de": "Glatteiswarnung", "en": "Black ice warning"},
+    5: {"de": "Gewitterwarnung", "en": "Thunderstorm warning"},
+    6: {"de": "Hitzewarnung", "en": "Heat warning"},
+    7: {"de": "Kältewarnung", "en": "Cold warning"},
+}
+
+# ``warnstufeid`` (1 yellow, 2 orange, 3 red) → CAP severity, the same colour
+# ladder MeteoAlarm relays GeoSphere's warnings on.
+GEOSPHERE_LEVEL_SEVERITY: dict[int, str] = {1: "Moderate", 2: "Severe", 3: "Extreme"}

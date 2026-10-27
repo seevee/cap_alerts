@@ -36,7 +36,7 @@ from .const import (
     GDACS_EVENT_TYPES,
 )
 from .conventions import row_for
-from .flows import au, bbk, eccc, gdacs, meteoalarm, nws, wmo
+from .flows import au, bbk, eccc, gdacs, geosphere, meteoalarm, nws, wmo
 from .flows.common import OptionsSchema, _validate_geocode_prefixes
 from .providers import get_provider
 from .schema import vol
@@ -51,6 +51,7 @@ _OPTIONS_SCHEMAS: dict[str, Callable[[ConfigEntry], OptionsSchema]] = {
     "gdacs": gdacs.options_schema,
     "bbk": bbk.options_schema,
     "au": au.options_schema,
+    "geosphere": geosphere.options_schema,
 }
 
 # Providers that check a submitted option against the network before it is
@@ -72,6 +73,7 @@ class CAPAlertsFlowHandler(
     gdacs.GDACSFlowMixin,
     bbk.BBKFlowMixin,
     au.AUFlowMixin,
+    geosphere.GeoSphereFlowMixin,
     ConfigFlow,
     domain=DOMAIN,
 ):
@@ -92,7 +94,16 @@ class CAPAlertsFlowHandler(
         """Provider selection menu."""
         return self.async_show_menu(
             step_id="user",
-            menu_options=["nws", "eccc", "meteoalarm", "wmo", "gdacs", "bbk", "au"],
+            menu_options=[
+                "nws",
+                "eccc",
+                "meteoalarm",
+                "wmo",
+                "gdacs",
+                "bbk",
+                "au",
+                "geosphere",
+            ],
         )
 
     # ── Reconfigure flow ──
@@ -111,6 +122,7 @@ class CAPAlertsFlowHandler(
                 "reconfigure_gdacs",
                 "reconfigure_bbk",
                 "reconfigure_au",
+                "reconfigure_geosphere",
             ],
         )
 

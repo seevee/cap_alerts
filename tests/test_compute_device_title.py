@@ -244,3 +244,13 @@ def test_unrecognized_data_falls_back_to_unknown():
     """No flow produces this today, but a provider added without a title case
     would, and the entry still needs a name it can be renamed from."""
     assert _compute({CONF_PROVIDER: "nws"}) == "CAP Alerts NWS (Unknown)"
+
+
+# --- GeoSphere ---------------------------------------------------------------
+
+
+def test_geosphere_gps_title():
+    assert (
+        _compute({CONF_PROVIDER: "geosphere", CONF_GPS_LOC: "48.2082,16.3738"})
+        == "CAP Alerts GEOSPHERE (48.2082,16.3738)"
+    )

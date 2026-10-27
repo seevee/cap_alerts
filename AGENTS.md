@@ -8,9 +8,9 @@ A Home Assistant custom integration (`cap_alerts`) that creates **one entity
 per active weather alert**, solving the 16KB attribute limit in `nws_alerts`.
 Alert data is modeled using CAP (Common Alerting Protocol) field names via a
 `CAPAlert` frozen dataclass. Ships with NWS, ECCC (Environment Canada),
-MeteoAlarm, WMO, GDACS, BBK / NINA (Germany) and Australian state (NSW RFS,
-QFD, DFES, TasALERT) providers; designed for further providers (BoM, direct
-DWD, etc.). It lives in `custom_components/cap_alerts/` and follows
+MeteoAlarm, WMO, GDACS, BBK / NINA (Germany), Australian state (NSW RFS,
+QFD, DFES, TasALERT) and GeoSphere Austria providers; designed for further
+providers (BoM, direct DWD, etc.). It lives in `custom_components/cap_alerts/` and follows
 [HA custom component conventions](https://developers.home-assistant.io/docs/creating_integration_manifest).
 
 Companion frontend: [weather_alerts_card](../weather_alerts_card) — the card's
@@ -73,6 +73,7 @@ custom_components/cap_alerts/
     gdacs.py        # GDACS steps + event-type/alert-level options
     bbk.py          # BBK steps: Regionalschlüssel (district) form, GPS, tracker; language option
     au.py           # Australian steps: state picker; minimum alert level option
+    geosphere.py    # GeoSphere Austria steps: GPS (checked against the API), tracker; language option
   coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info; hosts a provider's PushIngest through IngestHost (no transport of its own); provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs; translates ProviderError → UpdateFailed once; mints the per-cycle Context the events and entity writes carry (#310)
   diagnostics.py    # config-entry diagnostics download: scope, endpoints, update health, filters, convention rows in effect; redacts location + credentials
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
@@ -110,6 +111,8 @@ custom_components/cap_alerts/
     gdacs.py              # GDACS: two global RSS indexes unioned → CAPAlert (no CAP body exists); per-episode GeoJSON geometry, RSS-stage filters, eventid-based identity
     bbk.py                # BBK / NINA (Germany): district dashboard or five channel indexes → CAP-over-JSON documents + per-warning GeoJSON; MoWaS/KATWARN/BIWAPP/LHP + DWD relay
     au.py                 # Australian state feeds (NSW RFS, QFD, WA DFES, TasALERT): one EDXL-DE document per state → CAP-AU alerts; AlertLevel tier drives severity, marker circles → points, expires dropped (regeneration TTL)
+    geosphere.py          # GeoSphere Austria Warn API: one getWarningsForCoords per poll → the municipality's warnings (GeoJSON, not CAP); identity is warnid; geometry reprojected
+    austria_lambert.py    # EPSG:31287 (MGI / Austria Lambert) → WGS84 without pyproj: LCC 2SP inverse + EPSG:1618 Helmert, nesting-preserving coordinate walker
   manifest.json
   translations/
 ```
