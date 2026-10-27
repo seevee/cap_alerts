@@ -22,7 +22,7 @@ VTEC: /O.NEW.KILN.SV.W.0001.250412T1430Z-250412T1530Z/
 
 **NWS (non-VTEC alerts)** — Some alerts (Air Quality Alerts, Special Weather Statements, certain advisories) lack VTEC. `_compute_alert_id` still falls back to `sha256(url)[:12]`, but that message-level identity is *not* sufficient on its own: these products carry no supersession protocol at all, so NWS re-transmits them as a fresh `messageType: Alert` with a new `urn:oid:` identifier and an empty `<references>`, leaving the message they replace active until its own `expires`. One running advisory therefore spawns an entity per transmission. Measured on the national feed 2026-08-06: 23 of 65 active non-VTEC alerts were surplus re-issues (35%), the deepest cluster six messages of one Air Quality Alert, with `<references>` populated on none of the 65.
 
-`conventions.collapse_nws_reissues` — a `merge` stage on the `"nws"` table entry, run by the provider once pagination completes — collapses each group to its newest transmission and re-mints the id from a content key: `sha256("{sender}|{AWIPSidentifier}|{event}|{UGC set}")[:12]` via the shared `episode_id`. `AWIPSidentifier` names the product *and* the issuing office (`AQABOU` = Air Quality Alert out of Boulder), which is the slot a re-transmission supersedes; the UGC set keeps genuinely concurrent advisories apart. No window enters the key, which is what retires a finished-but-unexpired advisory — NWS stamps these with an `expires` well past the window they describe. VTEC-bearing alerts and degenerate keys (no product, no areas) are passed through untouched, so the collapse never fires on an unknown.
+`nws_conventions.collapse_nws_reissues` — a `merge` stage on the `"nws"` table entry, run by the provider once pagination completes — collapses each group to its newest transmission and re-mints the id from a content key: `sha256("{sender}|{AWIPSidentifier}|{event}|{UGC set}")[:12]` via the shared `episode_id`. `AWIPSidentifier` names the product *and* the issuing office (`AQABOU` = Air Quality Alert out of Boulder), which is the slot a re-transmission supersedes; the UGC set keeps genuinely concurrent advisories apart. No window enters the key, which is what retires a finished-but-unexpired advisory — NWS stamps these with an `expires` well past the window they describe. VTEC-bearing alerts and degenerate keys (no product, no areas) are passed through untouched, so the collapse never fires on an unknown.
 
 **ECCC** — Stable key is `sha256(sender + sent + primary_CAP-CP_eventCode + polygon_hash)[:12]`. Fields are language-independent: `<sender>` is the issuing office, `<sent>` is the second-precision issue timestamp, the CAP-CP `<eventCode>` value (e.g. `freezing-drizzle`) is a language-independent profile code, and `<area>/<polygon>` is geometric. Urgency is deliberately excluded — urgency shifts between revisions (`Likely` → `Observed`) and would produce different IDs on each update. Two language siblings of the same revision share identical values for all four inputs and therefore hash to the same ID, enabling bilingual merge. Revision chains (NEW → UPDATE → CANCEL) are resolved to the leaf via CAP `<references>` before the key is computed, so only the current revision's key is active.
 
@@ -33,6 +33,44 @@ Message-level identity, not event-level. NWS alerts go through `NEW → CON → 
 ### Scope of the problem
 
 The `/alerts/active` endpoint only returns current alerts. The failure mode is: entity `_abc123` disappears and entity `_def456` appears, and HA sees them as unrelated. State history for the warning splits across two entity IDs. Lifecycle-aware hashing prevents this.
+
+### Re-issue identity is per source (issue #116)
+
+Sources break identity in three different ways, and each needs a different fix:
+
+- **Episode chains.** One continuous warning published as a chain of messages over adjacent windows (MeteoFrance per day, FMI per window edge). Collapsing them needs a per-sender run rule, which is what `EpisodeDialect` is.
+- **Re-issue duplication.** The same warning re-transmitted under a fresh identifier while the superseded message stays live until its own `expires`. Nothing to merge, duplicates to discard. NWS non-VTEC (#115) and half of MeteoFrance (#37).
+- **Re-issue churn.** A fresh identifier per message, but the superseded message stops existing because the feed is regenerated whole. Nothing duplicates, yet a per-message key renames the entity every re-issue and costs its history. Every Australian state feed. The fix is reading a stable substring out of the message, not a shared mechanism.
+
+Reaching for `EpisodeDialect` on a re-issue case means inventing a run rule for messages that don't form a run.
+
+A source is safe with either a stable identifier or a supersession protocol we honor:
+
+| Source | Key | Safe because | Settled in |
+| :-- | :-- | :-- | :-- |
+| NWS, VTEC | VTEC event tuple (`_compute_alert_id`) | VTEC is a supersession protocol | #115 |
+| NWS, non-VTEC | content key (`collapse_nws_reissues`) | the stage discards the superseded transmissions | #115 |
+| ECCC | `sha256(sender + sent + eventCode + polygon_hash)` | `<references>` resolved to the leaf before the key is minted; would churn otherwise | |
+| WMO | `sha256(identifier)` (`_compute_wmo_id`) | identifiers stable across `Update`/`Cancel` | |
+| MeteoAlarm, most senders | `sha256(identifier)` | identifier collisions are distinct concurrent warnings | |
+| MeteoFrance | content key (`meteofrance_identity`) | nothing on the wire | #37 |
+| GDACS | `sha256(eventtype + eventid)` (`_compute_gdacs_id`) | the published id churns per episode but carries a stable event id | #124 |
+| BBK / NINA | `sha256(identifier)`, one per revision (`compute_bbk_id`) | every revision names its predecessor in `<references>` | #212 |
+| AU: NSW, TAS | `sha256(state + incidents + eventCode)` (`compute_au_id`) | `<incidents>` is stable per fire while `identifier` re-mints per update; TAS publishes more than one product per incident, hence the event code | #213, #221 |
+| AU: QLD warnings | `sha256(state + areaDesc + eventCode)` (`compute_au_id`) | `WARN-n` re-mints on most updates and names no predecessor (36 re-mints across 74 ids in 46 h, 2026-09-20 to 09-22); concurrent warnings on one fire differ by street set, so the area is the key | #233 |
+| AU: QLD incidents, WA | `sha256(state + identifier)` | `QF7-…` numbers and DFES ObjectIds hold across updates | #233 |
+| GeoSphere Austria | `warnid` | stable per warning | #300 |
+| U.S. Tsunami Warning Centers | product + incident | identifiers are reused across products, so the product qualifies them | #298 |
+
+**`<references>` is honored and is not a substitute.** Within a poll `cap.resolve_chain_leaves` drops every revision another document in the batch references, and ECCC, WMO and BBK run it before minting. Across polls the store matches incoming references against the previous poll's identifiers. But the sources that break identity are the ones that don't populate it: measured 2026-08-06, `<references>` was on 0 of 65 active non-VTEC NWS alerts, and none of the four Australian feeds publish it.
+
+**Why there is no declared identity mechanism.** Three content keys exist today (MeteoFrance, NWS non-VTEC, QLD), and each is a composition over the provider-neutral `episode_id()` or a few lines beside the provider's own key. A declared extractor on `SourceConventions` was the obvious generalization and was not built, for three reasons that still hold:
+
+- **Stages are the mechanism, `identity` is per-alert only.** A per-alert hook can't discard: collapsing N messages onto one id leaves the id-keyed store picking the survivor by list order, and NWS returns newest first. Re-minting and discarding happen together or the mechanism is a stage.
+- **Wiring the hook everywhere moves entity ids.** NWS, ECCC and WMO don't consume `identity`, and adding it renames entities in live dashboards for no gain.
+- **A content key is unsafe alone.** `episode_id` excludes severity so an escalation updates in place, which is what created the MeteoFrance green-marker collision `keep` patches. Per-source key, never one key applied blind.
+
+The case that would reopen this is an out-of-tree provider under the hub split (#216) that needs identity declarable rather than copied from a sibling provider.
 
 ---
 
