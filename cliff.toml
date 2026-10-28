@@ -13,7 +13,7 @@
 #
 # Each line is the commit subject plus the issues its `Closes #N` footers
 # name. Breaking commits (`feat!:` or a BREAKING CHANGE footer) lead the
-# section in a callout.
+# section in a "Backward-incompatible changes" callout, the heading core uses.
 #
 # The release surface also credits first-time contributors, the way GitHub's
 # own generated notes do. That needs the GitHub integration below; a token in
@@ -40,7 +40,7 @@ body = """
 {%- set breaking = commits | filter(attribute="breaking", value=true) -%}
 {%- if breaking | length > 0 %}
 > [!IMPORTANT]
-> **Breaking**
+> **Backward-incompatible changes**
 {%- for commit in breaking %}
 > - {{ commit.breaking_description | default(value=commit.message) | replace(from="\n", to=" ") | upper_first }}
 {%- endfor %}
@@ -51,7 +51,7 @@ body = """
 ### {{ name }}
 {% for commit in commits -%}
 - {{ commit.message | upper_first }}
-{%- for f in commit.footers | filter(attribute="token", value="Closes") %} (closes #{{ f.value }}){% endfor %}
+{%- for f in commit.footers | filter(attribute="token", value="Closes") %} (closes #{{ f.value | trim_end_matches(pat=".") }}){% endfor %}
 {% endfor %}
 {%- endif %}
 {%- endfor %}
