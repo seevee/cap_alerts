@@ -735,8 +735,21 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
 
     @callback
     def _async_release_held_events(self, _hass: HomeAssistant) -> None:
+        """Release the held events one loop turn after ``homeassistant_started``.
+
+        This runs inside that event's dispatch, where the bus queues every fire
+        until the dispatch ends while a waiting job's registry removal applies
+        at once: the held ``incident_removed`` would reach its listeners after
+        the entity it names was gone.
+        """
+        self.hass.loop.call_soon(self._async_fire_held_events)
+
+    @callback
+    def _async_fire_held_events(self) -> None:
         """Fire the events held through startup, in order, then the waiting jobs."""
-        held, self._held_events = self._held_events or [], None
+        if self._held_events is None:
+            return
+        held, self._held_events = self._held_events, None
         after, self._after_held = self._after_held or [], None
         for event_type, payload, context in held:
             self.hass.bus.async_fire(event_type, payload, context=context)

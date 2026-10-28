@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import CoreState, HomeAssistant
+from homeassistant.core import CoreState, Event, HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.cap_alerts.const import (
@@ -81,6 +81,19 @@ async def test_a_boot_removal_and_arrival_fire_after_start_in_order(
         .replace("2026-10-27T10:00:00", "2026-10-27T11:00:00"),
     )
 
+    # What a listener finds in the registry when the removal reaches it: a
+    # device, area or label trigger reads the same registry (#361). A release
+    # inside the started dispatch delivered it after the removal applied.
+    registered_on_delivery: list[bool] = []
+
+    def _check_registry(event: Event) -> None:
+        entity_id = event.data["entity_id"]
+        registered_on_delivery.append(
+            er.async_get(hass).async_get(entity_id) is not None
+        )
+
+    hass.bus.async_listen(EVENT_INCIDENT_REMOVED, _check_registry)
+
     await _boot(hass, entry)
 
     assert events == []
@@ -95,6 +108,7 @@ async def test_a_boot_removal_and_arrival_fire_after_start_in_order(
     assert removed["incident_id"] == alert_id
     assert removed["entity_id"] == old_entity_id
     assert removed["severity"] == "moderate"
+    assert registered_on_delivery == [True]
     assert created["incident_id"] != alert_id
     assert not entry.runtime_data.holding_events
     assert er.async_get(hass).async_get(old_entity_id) is None
@@ -173,7 +187,7 @@ def test_a_job_registered_twice_runs_once():
     coordinator.async_after_held_events(job)
     coordinator.hass.bus.async_fire.assert_not_called()
 
-    coordinator._async_release_held_events(coordinator.hass)
+    coordinator._async_fire_held_events()
 
     coordinator.hass.bus.async_fire.assert_called_once()
     assert runs == [1]
