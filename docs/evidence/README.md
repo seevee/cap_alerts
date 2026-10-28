@@ -15,7 +15,7 @@ table at its top says which figure is which.
 
 | RFC | Finding | Observed | Reproduces from |
 | :-- | :-- | :-- | :-- |
-| §1.1 | [The recorder keeps the state and drops every attribute on overflow](the-recorder-keeps-the-state-and-drops-the-attributes.md) | 2026-10-03 (first checked against 2026.7.3 on 2026-08-07) | script |
+| §1.1 | [The recorder keeps the state and drops every attribute on overflow](the-recorder-keeps-the-state-and-drops-the-attributes.md) | 2026-10-03 (first checked against 2026.7.3 on 2026-08-07); origin PR and Discord reports 2026-10-27 | script, one-time capture |
 | §1.2 | [Identity is a per-sender property, not a per-provider one](identity-is-a-per-sender-property.md) | 2026-08-06 (NWS, FMI), 2026-08-08 (GDACS), 2026-09-19 to 09-24 (BBK, AU) | fixture, one-time capture |
 | §1.5 | [Core accepts a custom incident device class on a sensor and triggers on it](core-accepts-a-custom-incident-device-class.md) | 2026-10-03 | test, one-time capture |
 | §1.5, §1.6, §6.1 | [Core review calls one entity per item bad practice when the count follows the data](core-review-calls-dynamic-entities-bad-practice.md) | 2026-10-27 (transcripts and a search pasted from the Home Assistant Discord, two message times from their ids) | one-time capture |
