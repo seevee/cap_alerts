@@ -21,7 +21,7 @@ import pytest
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
 from homeassistant.components.button import SERVICE_PRESS
 from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
-from homeassistant.core import Context
+from homeassistant.core import Context, CoreState
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -364,6 +364,7 @@ async def test_a_failed_refresh_is_its_own_cycle(
 def _bare_coordinator() -> AlertsDataUpdateCoordinator:
     coordinator = object.__new__(AlertsDataUpdateCoordinator)
     coordinator.hass = MagicMock()
+    coordinator.hass.state = CoreState.running
     coordinator._listeners = {}
     coordinator._cycle_context = Context()
     return coordinator
