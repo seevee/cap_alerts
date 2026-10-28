@@ -1,4 +1,4 @@
-# Core review calls one entity per item bad practice when the count follows the data
+# A core reviewer calls one entity per item bad practice when the count follows the data
 
 | | |
 | :-- | :-- |
@@ -77,10 +77,11 @@ times are converted from the reader's display zone.
 nothing in the evidence set showed that anyone in core holds that position.
 The Mealie thread is the first recorded statement of it, from the reviewer
 whose single review closed the ECCC attribute PR
-([evidence](core-review-moved-alert-bodies-into-actions.md)). The form is
-the GeoSphere code owner's: "I think that's a bad practice", with no ADR or
-quality-scale rule behind it. That is the §1.6 point, applied to the binding
-rather than the payload.
+([evidence](core-review-moved-alert-bodies-into-actions.md)). It is one
+reviewer's practice on two threads, not a ruling. The form is the GeoSphere
+code owner's: "I think that's a bad practice", with no ADR or quality-scale
+rule behind it. That is the §1.6 point, applied to the binding rather than
+the payload.
 
 The thread also draws the line. Mealie already creates entities per shopping
 list and per meal-plan calendar, and the reviewer who named them was not

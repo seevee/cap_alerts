@@ -57,8 +57,15 @@ entity of their own rather than a list on a count sensor. The unwritten one,
 attributes to actions, is the newer layer that
 [core review applies to alert bodies](core-review-moved-alert-bodies-into-actions.md),
 and it is the only one of the two that gives a dashboard nothing to
-subscribe to. The RFC's position is the documented rule followed through;
-the objection it meets is the undocumented one.
+subscribe to. The §2 binding is on the side of the documented rule; the
+objection it meets is the undocumented one.
+
+Read with the [dynamic-entities page](core-review-calls-dynamic-entities-bad-practice.md),
+the two pull against each other. The docs say shed attributes into
+entities; review says do not mint entities by content count. A set whose
+size the content decides cannot satisfy both, and neither statement was
+written with that set in mind. That is the inconsistency the RFC asks the
+AWG to resolve, not a rule it can claim to be following.
 
 Two developers on Discord, in 2022 and 2024, read the warning as a rule to
 follow and asked where its line falls. Nobody answered either of them in
