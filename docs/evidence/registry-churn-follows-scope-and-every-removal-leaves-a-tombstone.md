@@ -3,9 +3,9 @@
 | | |
 | :-- | :-- |
 | Supports | RFC §2.5, §1.5, §5 |
-| Source | the dev instance's recorder database and `.storage/core.entity_registry`, Home Assistant 2026.9.3, `helpers/entity_registry.py` |
+| Source | the dev instance's recorder database and `.storage/core.entity_registry`, Home Assistant 2026.9.3, `helpers/entity_registry.py`; [home-assistant/core#77710](https://github.com/home-assistant/core/pull/77710), which introduced the record |
 | Sample | 23 config entries, each read as one household's install. Recorder window 2026-09-22 02:36 to 2026-10-03 21:27, ten whole days. Registry tombstones back to 2026-05-08 |
-| Observed | 2026-10-03 |
+| Observed | 2026-10-03; #77710 read 2026-10-27 |
 | Reproduce | `scripts/registry_churn.py --db <recorder db> --storage <.storage>` on any instance running the integration. The figures here are a one-time capture |
 
 A registry write is one alert entity created or removed. Per-day and per-hour
@@ -66,6 +66,21 @@ for key, deleted_entity in list(self.deleted_entities.items()):
         continue
 ```
 
+The record was introduced by @emontnemery in
+[core#77710](https://github.com/home-assistant/core/pull/77710), merged
+2023-06-26, and the PR states what it is for:
+
+> A deleted entity will be stored in the device registry in a
+> `deleted_entities` list. When adding a new entity, a lookup will be done
+> in the `deleted_entities` before issuing a new entity registry id.
+> Entity registry data is not restored, only entity registry id is
+> preserved. This means even the `entity_id` is not guaranteed to be stable.
+
+> It's a fairly common pattern that users delete and then re-add a config
+> entry when things don't work. Without the changes in this PR, any device
+> automation referencing entities belonging to the re-added config entry
+> will break.
+
 Tombstones per entry, by the month the entity was removed. This reaches back
 past the recorder's ten days:
 
@@ -91,6 +106,16 @@ national entries run to about a hundred writes a day with 90 to 180 entities
 registered at once, and the quietest stay in single digits. The Australian
 feeds have no narrower scope to offer, so that row is what an NSW household
 gets.
+
+The record has one stated purpose: to hand the same registry id back when a
+unique id returns, so that a device automation written against it survives
+the entry being deleted and re-added. §2.5 removes an alert entity only
+once its incident has ended, and an ended incident's unique id is never
+issued again, so the tombstone it leaves answers no lookup (the exceptions
+are the feed-gap returns in the caveats). A live alert across an entry
+re-add is not removed by §2.5 at all. The ask is to drop the record when
+the platform declares the entity transient, which withholds nothing the PR
+set out to keep.
 
 The cost that does not scale down is the tombstone. §2.5 removes the live
 registry entry with the incident, and core keeps a deleted record anyway and
