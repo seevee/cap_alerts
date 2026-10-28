@@ -398,7 +398,7 @@ Core test suites for this platform must cover:
 
 ### 6.1 Fallback: Static Entity Pool
 
-If the AWG rejects dynamic creation, each config entry pre-allocates N slots (`incident.<slug>_slot_1` … `_N`). Slots fill and drain, assignment is sticky for the incident's life, `unique_id` is the slot and the lifecycle hash moves to an `incident_id` attribute. It buys a static registry and stable History names, and costs 30 to 50 permanent entities per entry showing `unknown` on quiet days, an empty-slot filter in every card and automation, and history keyed by attribute rather than entity. @pyspilf's fixed-slot MeteoAlarm implementation is the prior art ([forum thread](https://community.home-assistant.io/t/getting-all-active-meteoalarm-alerts-weather-alerts-card-integration/1006597)).
+If the AWG rejects dynamic creation ([evidence](docs/evidence/core-review-calls-dynamic-entities-bad-practice.md)), each config entry pre-allocates N slots (`incident.<slug>_slot_1` … `_N`). Slots fill and drain, assignment is sticky for the incident's life, `unique_id` is the slot and the lifecycle hash moves to an `incident_id` attribute. It buys a static registry and stable History names, and costs 30 to 50 permanent entities per entry showing `unknown` on quiet days, an empty-slot filter in every card and automation, and history keyed by attribute rather than entity. @pyspilf's fixed-slot MeteoAlarm implementation is the prior art ([forum thread](https://community.home-assistant.io/t/getting-all-active-meteoalarm-alerts-weather-alerts-card-integration/1006597)).
 
 ### 6.2 Cross-integration Geometry Store
 
