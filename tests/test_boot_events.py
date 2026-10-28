@@ -193,3 +193,15 @@ def test_a_job_registered_twice_runs_once():
     assert runs == [1]
     coordinator.async_after_held_events(job)
     assert runs == [1, 1]
+
+
+def test_an_event_while_stopping_fires_at_once():
+    """``started`` never follows ``stopping``, so nothing waits for it."""
+    coordinator = _bare_coordinator()
+    coordinator.hass.state = CoreState.stopping
+    coordinator.config_entry = MagicMock()
+
+    coordinator._async_fire_event("incident_removed", {"incident_id": "a"})
+
+    coordinator.hass.bus.async_fire.assert_called_once()
+    assert not coordinator.holding_events

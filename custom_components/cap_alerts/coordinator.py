@@ -55,6 +55,10 @@ from .store import AlertStore, record_from_alert
 
 _LOGGER = logging.getLogger(__name__)
 
+# The core states in which ``homeassistant_started`` is still to come, so an
+# event fired now is held until it has (issue #361).
+_BEFORE_STARTED = frozenset({CoreState.not_running, CoreState.starting})
+
 
 def exclude_marine_alerts(alerts: list[CAPAlert], enabled: bool) -> list[CAPAlert]:
     """Drop marine/water-zone alerts when the exclude-marine option is on.
@@ -698,14 +702,16 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         if self._cycle_settled:
             origin = self._cycle_origin
             context = Context(parent_id=origin.id if origin is not None else None)
-        if self._held_events is None and self.hass.state is CoreState.running:
+        if self._held_events is None and self.hass.state not in _BEFORE_STARTED:
             self.hass.bus.async_fire(event_type, payload, context=context)
             return
         # Core arms automation triggers just before ``homeassistant_started``,
         # and the first refresh runs inside setup, well before that: an event
         # fired now reaches a bus nothing is listening on (issue #361). Held
         # with the context it would have had, and released in order. Once
-        # anything is held, everything queues behind it until the drain.
+        # anything is held, everything queues behind it until the drain. Only
+        # the states before the start are held for: ``started`` never comes
+        # after ``stopping``, and an event fired then goes out as it always has.
         if self._held_events is None:
             self._held_events = []
             self._after_held = []
