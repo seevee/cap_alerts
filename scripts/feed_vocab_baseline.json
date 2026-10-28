@@ -468,6 +468,7 @@
    "layer:EC-MSC-SMC:1.1:Motion_Description",
    "layer:EC-MSC-SMC:1.1:Newly_Active_Areas",
    "layer:EC-MSC-SMC:1.1:Parent_URI",
+   "layer:EC-MSC-SMC:1.1:Previous_Colour",
    "layer:EC-MSC-SMC:1.1:Storm_Direction",
    "layer:EC-MSC-SMC:1.1:Storm_Geometry_Type",
    "layer:EC-MSC-SMC:1.1:Storm_Point",
@@ -742,6 +743,7 @@
    "type"
   ],
   "values.warnid_shape": [
+   "gwaN",
    "wNcNvN"
   ],
   "values.wlevel": [
