@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import CoreState, Event, HomeAssistant
+from homeassistant.core import CoreState, Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.cap_alerts.const import (
@@ -83,9 +83,12 @@ async def test_a_boot_removal_and_arrival_fire_after_start_in_order(
 
     # What a listener finds in the registry when the removal reaches it: a
     # device, area or label trigger reads the same registry (#361). A release
-    # inside the started dispatch delivered it after the removal applied.
+    # inside the started dispatch delivered it after the removal applied. A
+    # ``@callback`` like the trigger's own handler: a plain function is run
+    # off the loop and races the removal, which the floor release loses.
     registered_on_delivery: list[bool] = []
 
+    @callback
     def _check_registry(event: Event) -> None:
         entity_id = event.data["entity_id"]
         registered_on_delivery.append(
