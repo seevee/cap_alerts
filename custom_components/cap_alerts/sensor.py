@@ -111,6 +111,14 @@ async def async_setup_entry(
                 new_entities.append(entity)
             async_add_entities(new_entities)
 
+        # Removals wait while the coordinator holds events through startup:
+        # a held ``incident_removed`` names this entity, and a device, area or
+        # label trigger only matches it while it is still registered (#361).
+        # The re-sync after the drain removes whatever is still gone by then.
+        if to_remove and coordinator.holding_events:
+            coordinator.async_after_held_events(_sync_alert_entities)
+            return
+
         # Removals: idempotent — check the registry before calling async_remove
         for alert_id in to_remove:
             removed: AlertEntity | None = tracked.pop(alert_id, None)

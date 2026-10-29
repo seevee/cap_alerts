@@ -12,10 +12,11 @@ from typing import Any
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_LATITUDE, ATTR_LONGITUDE
-from homeassistant.core import Context, HomeAssistant, callback
+from homeassistant.core import Context, CoreState, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
@@ -53,6 +54,10 @@ from .restore import AlertRestoreStore, Records
 from .store import AlertStore, record_from_alert
 
 _LOGGER = logging.getLogger(__name__)
+
+# The core states in which ``homeassistant_started`` is still to come, so an
+# event fired now is held until it has (issue #361).
+_BEFORE_STARTED = frozenset({CoreState.not_running, CoreState.starting})
 
 
 def exclude_marine_alerts(alerts: list[CAPAlert], enabled: bool) -> list[CAPAlert]:
@@ -230,6 +235,12 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
     _pending_context: Context | None = None
     _cycle_origin: Context | None = None
     _cycle_settled: bool = False
+
+    # Events held until Home Assistant has started (issue #361), and what runs
+    # once they have fired. ``None`` while nothing is held. Class-level for
+    # the same reason as the bookkeeping above.
+    _held_events: list[tuple[str, dict[str, Any], Context]] | None = None
+    _after_held: list[Callable[[], None]] | None = None
 
     def __init__(
         self,
@@ -691,7 +702,65 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         if self._cycle_settled:
             origin = self._cycle_origin
             context = Context(parent_id=origin.id if origin is not None else None)
-        self.hass.bus.async_fire(event_type, payload, context=context)
+        if self._held_events is None and self.hass.state not in _BEFORE_STARTED:
+            self.hass.bus.async_fire(event_type, payload, context=context)
+            return
+        # Core arms automation triggers just before ``homeassistant_started``,
+        # and the first refresh runs inside setup, well before that: an event
+        # fired now reaches a bus nothing is listening on (issue #361). Held
+        # with the context it would have had, and released in order. Once
+        # anything is held, everything queues behind it until the drain. Only
+        # the states before the start are held for: ``started`` never comes
+        # after ``stopping``, and an event fired then goes out as it always has.
+        if self._held_events is None:
+            self._held_events = []
+            self._after_held = []
+            self.config_entry.async_on_unload(
+                async_at_started(self.hass, self._async_release_held_events)
+            )
+        self._held_events.append((event_type, payload, context))
+
+    @property
+    def holding_events(self) -> bool:
+        """Whether events are waiting for Home Assistant to start (issue #361)."""
+        return self._held_events is not None
+
+    @callback
+    def async_after_held_events(self, job: Callable[[], None]) -> None:
+        """Run ``job`` once the held events have fired, or now if none are held.
+
+        For the sensor platform's registry removals: a device, area or label
+        trigger tracks its alert entities through the registry, so the entity a
+        held ``incident_removed`` names has to outlive the event. The same
+        ``job`` registered twice runs once.
+        """
+        if self._after_held is None:
+            job()
+        elif job not in self._after_held:
+            self._after_held.append(job)
+
+    @callback
+    def _async_release_held_events(self, _hass: HomeAssistant) -> None:
+        """Release the held events one loop turn after ``homeassistant_started``.
+
+        This runs inside that event's dispatch, where the bus queues every fire
+        until the dispatch ends while a waiting job's registry removal applies
+        at once: the held ``incident_removed`` would reach its listeners after
+        the entity it names was gone.
+        """
+        self.hass.loop.call_soon(self._async_fire_held_events)
+
+    @callback
+    def _async_fire_held_events(self) -> None:
+        """Fire the events held through startup, in order, then the waiting jobs."""
+        if self._held_events is None:
+            return
+        held, self._held_events = self._held_events, None
+        after, self._after_held = self._after_held or [], None
+        for event_type, payload, context in held:
+            self.hass.bus.async_fire(event_type, payload, context=context)
+        for job in after:
+            job()
 
     async def _async_update_data(self) -> dict[str, CAPAlert]:
         try:

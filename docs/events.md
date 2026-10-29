@@ -443,6 +443,16 @@ announced from the registry alone after a restart carries `severity: unknown`,
 so it fires `incident_ended` only at the `any` threshold; one with a restore
 record (issue #350) carries the real severity and fires at its threshold.
 
+**Events from a boot fire once Home Assistant has started** (issue #361). Core
+arms automation triggers just before `homeassistant_started`, and the first
+fetch runs during setup, well before that. So the coordinator holds what the
+store fires until then and releases it in order, each event with the context it
+would have had. A removal's entity stays registered until its event has fired,
+since a device, area or label target only matches an entity it still tracks. An
+alert that changed while HA was down is therefore announced a few seconds after
+start rather than into a bus nobody was listening on. A reload, or an entry
+added later, fires at once.
+
 The sixth, `incident_started` (issue #326), reads no event. It keeps a timer
 per targeted alert entity on its `onset` attribute, re-armed from the entity's
 state on every write, and fires once per attribute value when the time (plus

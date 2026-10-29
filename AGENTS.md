@@ -77,7 +77,7 @@ custom_components/cap_alerts/
     au.py           # Australian steps: state picker; minimum alert level option
     geosphere.py    # GeoSphere Austria steps: GPS (checked against the API), tracker; language option
     twc.py          # U.S. Tsunami Warning Centers steps: region picker; no provider options
-  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info; hosts a provider's PushIngest through IngestHost (no transport of its own); provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs; translates ProviderError → UpdateFailed once; mints the per-cycle Context the events and entity writes carry (#310)
+  coordinator.py    # orchestrates provider, feeds list[CAPAlert] to entities; owns device_info; hosts a provider's PushIngest through IngestHost (no transport of its own); provider-neutral post-fetch filters (marine, geocode-prefix); writes/purges geometry refs; translates ProviderError → UpdateFailed once; mints the per-cycle Context the events and entity writes carry (#310); holds events fired before Home Assistant has started and releases them in order once it has (#361)
   diagnostics.py    # config-entry diagnostics download: scope, endpoints, update health, filters, convention rows in effect; redacts location + credentials
   sensor.py         # CountSensor, LastUpdatedSensor, AlertEntity, dynamic lifecycle
   button.py         # RefreshButton: on-demand provider fetch (all providers); hands the press's context to the coordinator for that cycle
