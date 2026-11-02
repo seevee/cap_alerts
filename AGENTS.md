@@ -213,6 +213,12 @@ and lists any that would raise `UnicodeDecodeError`. Its first run, on
 2026-11-02, found none, which is why #371 is containment rather than
 a decoder rework; re-run it before changing how bodies are decoded.
 
+`scripts/startup_sample.py` (stdlib only) reads one boot's
+`home-assistant.log` and prints each entry's first-fetch time and attempts; the
+startup evidence page (#358) is built from it. It needs
+`homeassistant.setup: info` and `custom_components.cap_alerts.coordinator:
+debug` in the logger config for that boot.
+
 `scripts/feed_vocab_probe.py` (stdlib only) diffs each provider's live feed
 vocabulary against `scripts/feed_vocab_baseline.json`; a scheduled workflow
 runs it daily and files anything new as a `provider-drift` issue. See
