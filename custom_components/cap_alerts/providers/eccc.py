@@ -1125,6 +1125,82 @@ def _select_region_infos(
 # ---------------------------------------------------------------------------
 
 
+def _parse_feed(text: str) -> Element:
+    """Parse a NAAD Atom feed; run in the executor (#373, a 6 MB feed on a Pi)."""
+    return ET.fromstring(text)
+
+
+def _prefilter_entries(
+    entries: Sequence[Element],
+    province: str,
+    gps_lat: float | None,
+    gps_lon: float | None,
+) -> list[tuple[str, dict[str, Any], str]]:
+    """The envelope pre-filter: ``(cap_url, atom_metadata, web_url)`` per survivor.
+
+    Pure and CPU-bound, so ``_collect`` runs it in the executor (#373). The
+    cost is the GeoRSS polygons: a busy national feed carries ~12,600 of them,
+    ~310,000 vertices, parsed to floats for every entry. Measured 2026-11-02
+    on a Raspberry Pi CM4: ~0.95 s per host for this loop and ~0.27 s for the
+    feed parse, ~2.4 s per poll on the event loop for the default two-host
+    union, before it moved off the loop.
+    """
+    survivors: list[tuple[str, dict[str, Any], str]] = []
+    seen: set[str] = set()
+    for entry in entries:
+        cats = _parse_categories(entry)
+
+        if cats.get("status", "") != "Actual":
+            continue
+
+        area_desc = cats.get("areaDesc", "")
+        summary = entry.findtext(f"{{{NS_ATOM}}}summary", "")
+        if not area_desc and summary and summary.startswith("Area:"):
+            area_desc = summary[5:].strip()
+
+        geocode = cats.get("geocode", "")
+        language = cats.get("language", "en-CA")
+
+        polygons = _parse_georss_polygons(entry)
+        if province:
+            # The alertready.ca envelope no longer carries a "geocode"
+            # category, so province can only be confirmed from the CAP body
+            # (SGC code) after fetch. To avoid fetching every national Actual
+            # entry, coarsely reject entries whose georss-polygon bbox does
+            # not intersect the province box here; survivors are still
+            # confirmed by SGC. Fail open: a polygonless entry is kept.
+            if polygons and not _province_bbox_intersects(polygons, province):
+                continue
+        elif not _point_in_polygons(gps_lat, gps_lon, polygons):  # type: ignore[arg-type]
+            continue
+
+        cap_url, web_url = _pick_cap_link(entry)
+        atom_id = entry.findtext(f"{{{NS_ATOM}}}id", "")
+        atom_title = entry.findtext(f"{{{NS_ATOM}}}title", "")
+
+        atom_metadata: dict[str, Any] = {
+            "atom_id": atom_id,
+            "language": language,
+            "area_desc": area_desc,
+            "geocode": geocode,
+            "event": cats.get("event", ""),
+            "title": atom_title,
+            "severity": cats.get("severity", ""),
+            "urgency": cats.get("urgency", ""),
+            "certainty": cats.get("certainty", ""),
+            "msg_type": cats.get("msgType", ""),
+            "status": cats.get("status", ""),
+            "polygon": _parse_georss_polygon(entry),
+        }
+        # (b') Cross-host dedup on survivors: first host in union order wins.
+        oid = _entry_oid(entry)
+        if oid in seen:
+            continue
+        seen.add(oid)
+        survivors.append((cap_url, atom_metadata, web_url))
+    return survivors
+
+
 class ECCCProvider:
     """Environment Canada NAAD Atom feed provider."""
 
@@ -1369,64 +1445,11 @@ class ECCCProvider:
         if not province and gps_lat is None:
             return []
 
-        # (b) Pre-filter entries using the Atom envelope
-        SurvivorTuple = tuple[str, dict[str, Any], str]
-        survivors: list[SurvivorTuple] = []
-        seen: set[str] = set()
-
-        for entry in entries:
-            cats = _parse_categories(entry)
-
-            if cats.get("status", "") != "Actual":
-                continue
-
-            area_desc = cats.get("areaDesc", "")
-            summary = entry.findtext(f"{{{NS_ATOM}}}summary", "")
-            if not area_desc and summary and summary.startswith("Area:"):
-                area_desc = summary[5:].strip()
-
-            geocode = cats.get("geocode", "")
-            language = cats.get("language", "en-CA")
-
-            if province:
-                # The alertready.ca envelope no longer carries a "geocode"
-                # category, so province can only be confirmed from the CAP body
-                # (SGC code) after fetch. To avoid fetching every national Actual
-                # entry, coarsely reject entries whose georss-polygon bbox does
-                # not intersect the province box here; survivors are still
-                # confirmed by SGC. Fail open: a polygonless entry is kept.
-                polygons = _parse_georss_polygons(entry)
-                if polygons and not _province_bbox_intersects(polygons, province):
-                    continue
-            else:
-                polygons = _parse_georss_polygons(entry)
-                if not _point_in_polygons(gps_lat, gps_lon, polygons):  # type: ignore[arg-type]
-                    continue
-
-            cap_url, web_url = _pick_cap_link(entry)
-            atom_id = entry.findtext(f"{{{NS_ATOM}}}id", "")
-            atom_title = entry.findtext(f"{{{NS_ATOM}}}title", "")
-
-            atom_metadata: dict[str, Any] = {
-                "atom_id": atom_id,
-                "language": language,
-                "area_desc": area_desc,
-                "geocode": geocode,
-                "event": cats.get("event", ""),
-                "title": atom_title,
-                "severity": cats.get("severity", ""),
-                "urgency": cats.get("urgency", ""),
-                "certainty": cats.get("certainty", ""),
-                "msg_type": cats.get("msgType", ""),
-                "status": cats.get("status", ""),
-                "polygon": _parse_georss_polygon(entry),
-            }
-            # (b') Cross-host dedup on survivors: first host in union order wins.
-            oid = _entry_oid(entry)
-            if oid in seen:
-                continue
-            seen.add(oid)
-            survivors.append((cap_url, atom_metadata, web_url))
+        # (b) Pre-filter entries using the Atom envelope, off the loop (#373).
+        loop = asyncio.get_running_loop()
+        survivors = await loop.run_in_executor(
+            None, _prefilter_entries, entries, province, gps_lat, gps_lon
+        )
 
         if not survivors:
             return []
@@ -1448,7 +1471,6 @@ class ECCCProvider:
         )
 
         # (d) Parse CAP XML in executor (CPU-bound)
-        loop = asyncio.get_running_loop()
         results: list[tuple[dict[str, Any], str, CAPDoc | None]] = []
         for (_, atom_metadata, web_url), body in zip(survivors, bodies):
             if body is None:
@@ -1546,7 +1568,9 @@ class ECCCProvider:
 
             if text.rstrip().endswith("</feed>"):
                 try:
-                    root = ET.fromstring(text)
+                    root = await asyncio.get_running_loop().run_in_executor(
+                        None, _parse_feed, text
+                    )
                 except ET.ParseError as err:
                     last_error = f"failed to parse Atom feed: {err}"
                 else:

@@ -2993,3 +2993,34 @@ def test_pre_cam_document_keeps_the_union_geometry():
     en_info = next(i for i in doc.infos if i.language == "en-CA")
     assert en_info.polygons
     assert alert.geometry == geometry_from_shapes(en_info.polygons, [])
+
+
+@pytest.mark.asyncio
+async def test_feed_parse_and_envelope_prefilter_run_off_the_event_loop(monkeypatch):
+    """A busy national feed is ~6 MB with ~310,000 polygon vertices; on a Pi
+    CM4 the parse and pre-filter held the loop ~2.4 s per poll (#373)."""
+    import threading
+
+    loop_thread = threading.get_ident()
+    threads: dict[str, int] = {}
+    real_parse, real_prefilter = _eccc_mod._parse_feed, _eccc_mod._prefilter_entries
+
+    def parse(text):
+        threads["parse"] = threading.get_ident()
+        return real_parse(text)
+
+    def prefilter(*args):
+        threads["prefilter"] = threading.get_ident()
+        return real_prefilter(*args)
+
+    monkeypatch.setattr(_eccc_mod, "_parse_feed", parse)
+    monkeypatch.setattr(_eccc_mod, "_prefilter_entries", prefilter)
+    session = StubSession(
+        {"https://rss.alertready.ca/": _atom_xml(), **_cap_responses()}
+    )
+    alerts = await ECCCProvider().async_fetch(
+        session, {"province": "ON"}, {"language": "en-CA", "feed_source": "alertready"}
+    )
+    assert alerts  # the pipeline still produces alerts end to end
+    assert set(threads) == {"parse", "prefilter"}
+    assert loop_thread not in threads.values()
