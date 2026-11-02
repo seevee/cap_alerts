@@ -493,9 +493,19 @@ class AlertStore:
         ``expired``. Nothing fires here, so a setup whose first fetch fails
         and retries, rebuilding the store each time, announces nothing twice.
 
+        A record with no ``identifier`` is not seeded. Every provider's alerts
+        carry one, so a record without one is a stand-in no feed will ever
+        confirm: ECCC's metadata-only fallback before #370, which had no expiry
+        either and so was retained indefinitely. Left out, it takes the
+        registry path like an id with no record: one removal after the grace,
+        and its entity goes.
+
         ``seeded_at_boot`` reports how many were seeded, for diagnostics.
         """
+        self._seeded_count = 0
         for alert_id, record in records.items():
+            if not record.get("identifier"):
+                continue
             self._known_at_boot.pop(alert_id, None)
             seeded = replace(
                 alert_from_record(alert_id, self._provider, record),
@@ -505,7 +515,7 @@ class AlertStore:
             self._previous[alert_id] = seeded
             self._last_seen[alert_id] = confirmed_at
             self._restored.add(alert_id)
-        self._seeded_count = len(records)
+            self._seeded_count += 1
 
     @property
     def seeded_at_boot(self) -> int:

@@ -31,7 +31,6 @@ _location_status = _eccc_mod._location_status
 _is_terminal_info = _eccc_mod._is_terminal_info
 _resolve_chain_leaves = _cap_mod.resolve_chain_leaves
 _bilingual_key = _eccc_mod._bilingual_key
-_fallback_id = _eccc_mod._fallback_id
 _build_alert_from_cap = _eccc_mod._build_alert_from_cap
 _is_marine_eccc = _eccc_mod._is_marine_eccc
 _matches_province_sgc = _eccc_mod._matches_province_sgc
@@ -381,23 +380,6 @@ def test_bilingual_key_distinct_for_different_event_code():
     doc_a, info_a = _make_key_doc_info(event_code="freezing-drizzle", polygon=polygon)
     doc_b, info_b = _make_key_doc_info(event_code="blizzard", polygon=polygon)
     assert _bilingual_key(doc_a, info_a) != _bilingual_key(doc_b, info_b)
-
-
-# ---------------------------------------------------------------------------
-# _fallback_id tests
-# ---------------------------------------------------------------------------
-
-
-def test_fallback_id_distinct_per_language():
-    atom_id = "https://www.naad-adna.pelmorex.com/uuid-1"
-    id_en = _fallback_id(atom_id, "en-CA")
-    id_fr = _fallback_id(atom_id, "fr-CA")
-    assert id_en != id_fr
-
-
-def test_fallback_id_is_deterministic():
-    atom_id = "https://www.naad-adna.pelmorex.com/uuid-1"
-    assert _fallback_id(atom_id, "en-CA") == _fallback_id(atom_id, "en-CA")
 
 
 # ---------------------------------------------------------------------------
@@ -819,43 +801,30 @@ async def test_eccc_provider_filters_expired_alert():
 
 
 @pytest.mark.asyncio
-async def test_eccc_provider_metadata_only_fallback_on_fetch_failure():
-    """CAP fetch returns 404 → alert surfaces with Atom-only fields, empty long-form text.
+async def test_eccc_provider_skips_an_entry_whose_body_fails(caplog):
+    """CAP fetch 404s → the entry is skipped for the poll in GPS mode too (#370).
 
-    Uses GPS mode: the entry passed the envelope polygon filter, so its location
-    is verified and a metadata-only fallback is safe. Province mode instead fails
-    closed on CAP failure (it cannot verify the province without the CAP body).
+    GPS mode used to surface a metadata-only alert built from the Atom envelope.
+    It needed its own id, so the real alert arrived beside it on the next good
+    poll and the stand-in, with no expiry, was retained indefinitely.
     """
     responses: dict[str, Any] = {
         "https://rss.alertready.ca/": _atom_xml(),
-        # All CAP files return 404
         "https://cap.naad-adna.pelmorex.com/alerts/en_new_1.cap": (404, ""),
         "https://cap.naad-adna.pelmorex.com/alerts/fr_new_1.cap": (404, ""),
         "https://cap.naad-adna.pelmorex.com/alerts/en_update_1.cap": (404, ""),
         "https://cap.naad-adna.pelmorex.com/alerts/fr_update_1.cap": (404, ""),
     }
     session = StubSession(responses)
-    provider = ECCCProvider()
     # GPS point inside the Ottawa entries' envelope polygon (lat 45–45.5, lon -76 to -75.5)
-    alerts = await provider.async_fetch(
-        session,
-        {"gps_loc": "45.2,-75.7"},
-        {"language": "en-CA", "feed_source": "alertready"},
-    )
-
-    # Should surface 4 metadata-only alerts (one per Atom entry, no bilingual merge)
-    assert len(alerts) > 0
-    for alert in alerts:
-        assert alert.headline == ""
-        assert alert.description == ""
-        assert alert.instruction is None
-        assert alert.provider == "eccc"
-        # Atom-derived fields present
-        assert alert.event != "" or alert.area_desc != ""
-
-    # Atom entry <title> gives properly-cased event names even in the fallback path
-    en_events = {a.event for a in alerts if a.language == "en-CA"}
-    assert en_events == {"Freezing Drizzle Advisory"}
+    with caplog.at_level(logging.WARNING):
+        alerts = await ECCCProvider().async_fetch(
+            session,
+            {"gps_loc": "45.2,-75.7"},
+            {"language": "en-CA", "feed_source": "alertready"},
+        )
+    assert alerts == []
+    assert "skipped this poll" in caplog.text
 
 
 @pytest.mark.asyncio

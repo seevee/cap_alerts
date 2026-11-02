@@ -454,3 +454,22 @@ def test_registry_ids_without_a_record_keep_the_grace(hass, registry, alert_fact
     ]
     removed_r = _payloads(hass, EVENT_INCIDENT_REMOVED)[1]
     assert removed_r["severity"] == "unknown"
+
+
+def test_a_record_without_an_identifier_is_not_seeded(hass, registry):
+    """Before #370, ECCC's metadata-only stand-in had no identifier and no
+    expiry, so its saved record would bring it back, retained, on every boot.
+    Unseeded, it takes the registry path: one removal after the grace."""
+    _known(registry, "ghost")
+    hass.entity_registry.async_get_entity_id.return_value = "sensor.cap_alert_ghost"
+    store = _store(hass, "nws")
+    store.restore(
+        {"ghost": {"identifier": "", "event": "Wind Warning", "expires": ""}},
+        confirmed_at="2026-11-02T16:00:00+00:00",
+    )
+    assert store.seeded_at_boot == 0
+
+    store.process([])
+    assert _fired(hass) == []
+    store.process([])
+    assert _fired(hass) == [(EVENT_INCIDENT_REMOVED, "ghost")]
