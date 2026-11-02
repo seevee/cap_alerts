@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from homeassistant.core import Event, HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
@@ -85,7 +85,9 @@ def _alert_entities(hass: HomeAssistant, entry: MockConfigEntry) -> list[str]:
 def _events(hass: HomeAssistant) -> list[str]:
     seen: list[str] = []
     for event_type in (EVENT_INCIDENT_CREATED, EVENT_INCIDENT_REMOVED):
-
+        # On the loop, so the list keeps the bus's order (see _record_events
+        # in test_coordinator_restore.py for what a plain function does).
+        @callback
         def _note(event: Event, event_type: str = event_type) -> None:
             seen.append(event_type)
 
