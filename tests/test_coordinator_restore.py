@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
-from homeassistant.core import Event, HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -113,9 +113,17 @@ def _key(entry: MockConfigEntry) -> str:
 
 
 def _record_events(hass: HomeAssistant) -> list[tuple[str, dict[str, Any]]]:
+    """Every incident event, in the order the bus delivered them.
+
+    The listener is a ``@callback`` so it runs on the loop at dispatch. A plain
+    function is scheduled as an executor job, one thread per event, and two
+    events fired back to back can then append in either order: the cause of
+    an intermittent order failure in ``test_boot_events.py`` under load.
+    """
     seen: list[tuple[str, dict[str, Any]]] = []
     for event_type in INCIDENT_EVENTS:
 
+        @callback
         def _note(event: Event, event_type: str = event_type) -> None:
             seen.append((event_type, dict(event.data)))
 
