@@ -1143,6 +1143,7 @@ async def test_cache_serves_cached_url():
         def get(self, url: str, **kw: Any) -> Any:
             class Resp:
                 status = 200
+                headers: ClassVar[dict[str, str]] = {}
 
                 async def text(self) -> str:
                     nonlocal fetch_count
@@ -1181,6 +1182,7 @@ async def test_cache_evicts_when_over_capacity():
 
             class Resp:
                 status = 200
+                headers: ClassVar[dict[str, str]] = {}
 
                 async def text(self) -> str:
                     return body
@@ -1388,6 +1390,7 @@ async def test_cache_coalesces_concurrent_requests_for_same_url():
         def get(self, url: str, **kw: Any) -> Any:
             class SlowResp:
                 status = 200
+                headers: ClassVar[dict[str, str]] = {}
 
                 async def text(self) -> str:
                     nonlocal fetch_count
@@ -1418,6 +1421,203 @@ async def test_cache_coalesces_concurrent_requests_for_same_url():
     assert r1 == "slow-body"
     assert r2 == "slow-body"
     assert fetch_count == 1
+
+
+class _GatedSession:
+    """Holds every response until ``gate`` resolves, so callers can pile up
+    on one in-flight fetch."""
+
+    def __init__(self, status: int, headers: dict[str, str] | None = None) -> None:
+        self.gate: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self.status = status
+        self.headers = headers or {}
+        self.calls = 0
+
+    def get(self, url: str, **kw: Any) -> Any:
+        self.calls += 1
+        session = self
+
+        class Resp:
+            status = session.status
+            headers = session.headers
+
+            async def __aenter__(self) -> Self:
+                await session.gate
+                return self
+
+            async def __aexit__(self, *a: object) -> None:
+                pass
+
+            async def text(self) -> str:
+                return "body"
+
+        return Resp()
+
+
+async def _pile_up(
+    cache: CAPContentCache, session: _GatedSession, waiters: int, **kw: Any
+) -> list[asyncio.Task[str | None]]:
+    """The owner of one fetch plus ``waiters`` coalesced callers, all parked."""
+    url = "http://test/shared.json"
+    tasks = [asyncio.create_task(cache.get_or_fetch(session, url, **kw))]  # type: ignore[arg-type]
+    await asyncio.sleep(0)
+    tasks += [
+        asyncio.create_task(cache.get_or_fetch(session, url, **kw))  # type: ignore[arg-type]
+        for _ in range(waiters)
+    ]
+    await asyncio.sleep(0)
+    return tasks
+
+
+@pytest.mark.asyncio
+async def test_cache_cancelled_waiter_does_not_cancel_siblings():
+    """A waiter cancelled by an unload or its own timeout leaves the shared
+    fetch running for everyone else; unshielded, the cancellation reached a
+    caller that never asked for it and could end the NAAD stream task."""
+    cache = CAPContentCache()
+    session = _GatedSession(200)
+    owner, cancelled, sibling = await _pile_up(cache, session, 2)
+    cancelled.cancel()
+    await asyncio.sleep(0)
+    session.gate.set_result(None)
+    results = await asyncio.gather(owner, cancelled, sibling, return_exceptions=True)
+    assert results[0] == "body"
+    assert isinstance(results[1], asyncio.CancelledError)
+    assert results[2] == "body"
+    assert session.calls == 1
+    assert cache._inflight == {}
+
+
+@pytest.mark.asyncio
+async def test_cache_redirect_after_a_cancelled_waiter_reaches_the_owner():
+    """Once a waiter could cancel the shared future, a later redirect made
+    the owner's ``set_exception`` raise ``InvalidStateError`` instead."""
+    cache = CAPContentCache()
+    session = _GatedSession(302, {"Location": "http://test/archive/x"})
+    owner, cancelled, sibling = await _pile_up(
+        cache, session, 2, follow_redirects=False
+    )
+    cancelled.cancel()
+    await asyncio.sleep(0)
+    session.gate.set_result(None)
+    results = await asyncio.gather(owner, cancelled, sibling, return_exceptions=True)
+    assert isinstance(results[0], _cap_cache_mod.Redirected)
+    assert isinstance(results[1], asyncio.CancelledError)
+    assert isinstance(results[2], _cap_cache_mod.Redirected)
+
+
+_REVALIDATED = "http://test/warnings/mow.X-000.json"
+
+
+async def _cached_then(
+    second: Any, first_headers: dict[str, str] | None = None
+) -> tuple[CAPContentCache, StubSession, str | None]:
+    """Fetch once (200 with validators), then revalidate against ``second``."""
+    first = (
+        200,
+        "live",
+        {"ETag": '"7"', "Last-Modified": "Mon, 02 Nov 2026 04:04:34 GMT"}
+        if first_headers is None
+        else first_headers,
+    )
+    session = StubSession({_REVALIDATED: [first, second]})
+    cache = CAPContentCache()
+    kw: dict[str, Any] = {"follow_redirects": False, "revalidate": True}
+    assert await cache.get_or_fetch(session, _REVALIDATED, **kw) == "live"
+    return cache, session, await cache.get_or_fetch(session, _REVALIDATED, **kw)
+
+
+@pytest.mark.asyncio
+async def test_cache_revalidate_serves_cached_body_on_304():
+    cache, session, body = await _cached_then((304, ""))
+    assert body == "live"
+    assert session.request_headers[0].get("If-None-Match") is None
+    assert session.request_headers[1]["If-None-Match"] == '"7"'
+    assert session.request_headers[1]["If-Modified-Since"] == (
+        "Mon, 02 Nov 2026 04:04:34 GMT"
+    )
+    assert len(cache) == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_revalidate_replaces_a_changed_body():
+    cache, _session, body = await _cached_then((200, "changed", {"ETag": '"8"'}))
+    assert body == "changed"
+    assert cache._validators[_REVALIDATED] == {"If-None-Match": '"8"'}
+
+
+@pytest.mark.asyncio
+async def test_cache_revalidate_without_validators_sends_a_plain_get():
+    """A host that sent no validators is simply asked again."""
+    cache, session, body = await _cached_then((200, "again"), first_headers={})
+    assert body == "again"
+    assert session.request_headers[1] == {}
+    assert _REVALIDATED not in cache._validators
+
+
+@pytest.mark.asyncio
+async def test_cache_revalidate_redirect_evicts_and_raises():
+    session = StubSession(
+        {
+            _REVALIDATED: [
+                (200, "live", {"ETag": '"7"'}),
+                (302, "", {"Location": "http://test/archive/x"}),
+            ]
+        }
+    )
+    cache = CAPContentCache()
+    kw: dict[str, Any] = {"follow_redirects": False, "revalidate": True}
+    await cache.get_or_fetch(session, _REVALIDATED, **kw)
+    with pytest.raises(_cap_cache_mod.Redirected):
+        await cache.get_or_fetch(session, _REVALIDATED, **kw)
+    assert len(cache) == 0
+    assert cache.total_bytes == 0
+    assert cache._validators == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [404, 410])
+async def test_cache_revalidate_gone_evicts(status: int):
+    cache, _session, body = await _cached_then((status, ""))
+    assert body is None
+    assert len(cache) == 0
+    assert cache._validators == {}
+
+
+@pytest.mark.asyncio
+async def test_cache_revalidate_failure_serves_cached_body():
+    """A 5xx or a dropped request says nothing about the document, and a
+    source that ends alerts on absence would otherwise lose a live one."""
+    for second in ((503, ""), lambda: aiohttp.ClientConnectionError("reset")):
+        cache, _session, body = await _cached_then(second)
+        assert body == "live"
+        assert len(cache) == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_without_revalidate_sends_nothing_on_hit():
+    session = StubSession({_REVALIDATED: (200, "live", {"ETag": '"7"'})})
+    cache = CAPContentCache()
+    await cache.get_or_fetch(session, _REVALIDATED)
+    assert await cache.get_or_fetch(session, _REVALIDATED) == "live"
+    assert session.requested == [_REVALIDATED]
+
+
+@pytest.mark.asyncio
+async def test_cache_oversized_replacement_drops_the_old_body():
+    """A revalidated body too large to keep must not leave the old one, and
+    its validators, standing in for it."""
+    session = StubSession(
+        {_REVALIDATED: [(200, "x", {"ETag": '"1"'}), (200, "y" * 4096)]}
+    )
+    cache = CAPContentCache(max_bytes=1024)
+    await cache.get_or_fetch(session, _REVALIDATED, revalidate=True)
+    assert len(cache) == 1
+    assert await cache.get_or_fetch(session, _REVALIDATED, revalidate=True) == (
+        "y" * 4096
+    )
+    assert len(cache) == 0
+    assert cache._validators == {}
 
 
 @pytest.mark.asyncio
