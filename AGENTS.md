@@ -206,6 +206,13 @@ product slot and reports the bulletin each holds, identifier collisions across
 slots, and conditional-GET support; `--discover` brute-forces the slot space,
 since a slot 404s until its product is first issued (#298).
 
+`scripts/charset_probe.py` (stdlib only, read-only) decodes every feed and a
+sample of CAP bodies the way aiohttp's `resp.text()` does (header charset, else
+strict UTF-8) across the WMO registry, the live SWIC mirror feeds, AU and ECCC,
+and lists any that would raise `UnicodeDecodeError`. Its first run, on
+2026-11-02, found none, which is why #371 is containment rather than
+a decoder rework; re-run it before changing how bodies are decoded.
+
 `scripts/feed_vocab_probe.py` (stdlib only) diffs each provider's live feed
 vocabulary against `scripts/feed_vocab_baseline.json`; a scheduled workflow
 runs it daily and files anything new as a `provider-drift` issue. See
