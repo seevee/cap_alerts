@@ -2,7 +2,10 @@
 
 One page per finding. The heading states the finding, the table under it says
 what was measured and when, and the body is the artifact: a results table, a
-copied excerpt, a transcript. Prose is a caption. [`rfc.md`](../../rfc.md)
+copied excerpt, a public thread quoted and linked. Chat is paraphrased and
+linked, with people named by role; it is quoted only with the speaker's
+permission. The heading names the design question, never the person. Prose
+is a caption. [`rfc.md`](../../rfc.md)
 states the contract and links here.
 
 The last column is the one to read first. **script** means the figure
@@ -18,8 +21,8 @@ table at its top says which figure is which.
 | §1.1 | [The recorder keeps the state and drops every attribute on overflow](the-recorder-keeps-the-state-and-drops-the-attributes.md) | 2026-10-03 (first checked against 2026.7.3 on 2026-08-07); origin PR and Discord reports 2026-10-27 | script, one-time capture |
 | §1.2 | [Identity is a per-sender property, not a per-provider one](identity-is-a-per-sender-property.md) | 2026-08-06 (NWS, FMI), 2026-08-08 (GDACS), 2026-09-19 to 09-24 (BBK, AU) | fixture, one-time capture |
 | §1.5 | [Core accepts a custom incident device class on a sensor and triggers on it](core-accepts-a-custom-incident-device-class.md) | 2026-10-03 | test, one-time capture |
-| §1.5, §1.6, §6.1 | [A core reviewer calls one entity per item bad practice when the count follows the data](core-review-calls-dynamic-entities-bad-practice.md) | 2026-10-27 (transcripts and a search pasted from the Home Assistant Discord, two message times from their ids) | one-time capture |
-| §1.6, §1.5, §8.1 | [The written guidance on attributes points at entities, not actions](the-written-attribute-guidance-points-at-entities.md) | 2026-10-27 (docs read from `master`, threads fetched with `gh api`, three Discord rows pasted) | script, one-time capture |
+| §1.5, §1.6, §6.1 | [An entity count that follows the data is the contested case, a fixed shape is not](an-entity-count-that-follows-the-data-is-the-contested-case.md) | 2026-10-27 (two Home Assistant Discord threads and a search, paraphrased) | one-time capture |
+| §1.6, §1.5, §8.1 | [The written guidance on attributes points at entities, not actions](the-written-attribute-guidance-points-at-entities.md) | 2026-10-27 (docs read from `master`, threads fetched with `gh api`, three Discord messages paraphrased) | script, one-time capture |
 | §1.6, §8.1 | [Core review moved alert bodies out of attributes and into actions](core-review-moved-alert-bodies-into-actions.md) | 2026-10-02 and 2026-10-11 (threads fetched with `gh api`, thread dates as GitHub records them) | script |
 | §1.6 | [The frontend has no way to read an action result](the-frontend-has-no-way-to-read-an-action-result.md) | 2026-10-02 (discussions fetched with `gh api graphql`, file read from `.venv`) | script |
 | §2.2, §6.3 | [The Australian feeds stamp expires as a regeneration TTL, not an end time](australian-feeds-publish-no-end-time.md) | 2026-09-19 (NSW, QLD, WA), 2026-09-20 (TAS), 2026-09-21 (TAS two products) | fixture |
