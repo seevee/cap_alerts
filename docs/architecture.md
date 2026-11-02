@@ -399,7 +399,7 @@ The tokens are not interchangeable either, and `phase` cannot express the differ
 - GPS / device-tracker mode — **pre-fetch gate + post-fetch confirmation**. Point-in-polygon against `<georss:polygon>` using a pure-Python ray-caster (no `shapely`; not in HA core) decides which CAP bodies are fetched; the CAP body's own `<area>` polygons are then the authoritative test (`_info_matches_region`). Fetch failures fall back to a metadata-only alert (location already verified by the envelope polygon).
   - **CAM threat areas (issue #172)**. Since ECCC's Convective Alert Modernization (2026-08-11), severe thunderstorm and tornado warnings carry a forecaster-drawn threat polygon *alongside* the legacy zone polygons for every zone it touches, so the zone polygons are a superset of the threat. The threat `<area>` is the one whose geocode `valueName` starts with `layer:EC-MSC-SMC:DLC:`; `cap.py` keeps the per-`<area>` polygon ↔ geocode pairing in `CAPInfoDoc.areas` because the flat fields cannot express it. When a block carries threat areas with usable polygons, *they* are the point test and the zone polygons are ignored; a block with none (the pre-CAM shape, or a DLC area whose polygon failed to parse) stays on the all-polygons path, fail-open. The DLC geocode *value* is a per-area lifecycle token in the same vocabulary as `Alert_Location_Status` (`issued`, `continued`, `ended`, `cancelled`); a point covered only by a terminal threat area still matches, so the retiring document is admitted, and `build_alerts_from_cap_docs` writes that token into `lifecycle_status` (a non-terminal covering area wins over a terminal one). Province mode ignores threat areas: they are sub-province, and the zone areas' SGC codes remain the truth at that granularity. Since issue #178 the threat rings are also the published `geometry` (so `bbox` and `geometry_ref` follow): the flat union drew the storm as covering every zone it touches on a map card, and the zone rings remain reconstructible from the CLC/SGC geocodes while the freeform threat ring exists nowhere else. That selection applies in province mode too — the SGC rule decides the *match*, the threat rings decide the *shape* — and a block with no usable threat polygon keeps the all-polygons union. `_bilingual_key` stays on the flat polygon set, so CAM ids and the en/fr pairing are unchanged.
 
-**Concurrency**: CAP XML is fetched with `asyncio.Semaphore(5)` for bounded concurrency. A shared `CAPContentCache` (LRU-256, Future-based in-flight coalescing) lives on `hass.data[DOMAIN]` and is reused across polls. Since CAP files are immutable per URL (each revision gets a new URL), cached bodies need no TTL. XML parsing is offloaded to `loop.run_in_executor` so a Canada-wide storm with dozens of CAP files doesn't block the event loop.
+**Concurrency**: CAP XML is fetched with `asyncio.Semaphore(5)` for bounded concurrency. A shared `CAPContentCache` (LRU against a 64 MiB byte budget, Future-based in-flight coalescing, each waiter shielded so one caller's cancellation cannot cancel the shared fetch) lives on `hass.data[DOMAIN]` and is reused across polls. Since CAP files are immutable per URL (each revision gets a new URL), cached bodies need no TTL. Whether the host still serves one is another matter: a caller that has to see a withdrawal passes `revalidate=True` and a hit costs one conditional GET (BBK, below). XML parsing is offloaded to `loop.run_in_executor` so a Canada-wide storm with dozens of CAP files doesn't block the event loop.
 
 **XML parsing**: `defusedxml.ElementTree` — already an HA core dependency.
 
@@ -1124,6 +1124,16 @@ still runs within a poll as insurance. MoWaS documents publish **no
 `expires`** (and no `onset`), so under the default absence policy they end
 when the index withdraws them, which is the feed's contract. DWD documents
 carry `expires` and are retained until it when the index blinks.
+
+**Withdrawal before the index catches up.** A withdrawn MoWaS warning stays
+listed for hours while its document URL 302s into `archive/` (#295), so the
+document fetch refuses redirects and drops one into the archive. That flip
+happens under a URL the shared cache already holds, so documents are fetched
+with `revalidate=True`: each poll sends the stored `ETag`, a live document
+answers `304` with no body, and a withdrawn one still answers the redirect
+(8 live and 4 withdrawn ids, 2026-11-02). A failed revalidation serves the
+cached body rather than end a live warning on a dropped request. Geometry is
+fetched only for documents that pass, so it stays a plain cache hit.
 
 **Pre-fetch filtering.** Dashboard rows carry `expires` and DWD mapData rows
 `expiresDate`; rows already past are dropped before any document is fetched

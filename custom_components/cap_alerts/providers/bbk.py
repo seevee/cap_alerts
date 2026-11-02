@@ -49,7 +49,11 @@ to ``archive/alerts/{id}``, a copy of a different shape: headline prefixed
 ``resource`` lists, still no ``expires``. It parses as a live alert. MoWaS
 index rows carry no ``expiresDate`` either, so the expiry filter cannot drop
 them; the document fetch refuses redirects instead and treats one into the
-archive as the withdrawal it is.
+archive as the withdrawal it is. The flip happens under a URL already fetched,
+so a cached body would hide it: documents are revalidated each poll with the
+host's ``ETag``, which a live one answers ``304`` with no body and a withdrawn
+one still answers with the redirect (all 8 live and 4 withdrawn MoWaS ids,
+2026-11-02).
 
 A MoWaS all-clear ("Entwarnung") is a ``Cancel`` revision of the warning,
 ``responseType`` ``AllClear``, with ``expires`` set six hours after ``sent``;
@@ -458,11 +462,17 @@ class BBKProvider:
             warning is withdrawn while the index still lists it (see the
             module docstring): dropped at debug, since it is routine. Any
             other redirect is the host changing under us and is worth a line.
+            Revalidated on every poll, since a cached body says nothing
+            about whether the host still serves it.
             """
             async with semaphore:
                 try:
                     body = await cache.get_or_fetch(
-                        session, url, user_agent=user_agent, follow_redirects=False
+                        session,
+                        url,
+                        user_agent=user_agent,
+                        follow_redirects=False,
+                        revalidate=True,
                     )
                 except Redirected as redirect:
                     if "/archive/" in redirect.location:

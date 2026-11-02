@@ -737,10 +737,18 @@ async def test_a_mowas_all_clear_arrives_terminal(freezer):
 
 
 async def test_the_shared_cache_is_used_for_documents_and_geometry():
+    """Geometry is a plain hit on the second poll. The document is asked for
+    again, conditionally, and a ``304`` serves the cached body (#295)."""
     cache = CAPContentCache()
-    session = StubSession(_region_responses())
+    responses = _region_responses()
+    doc_url = _warning_url(_DWD_DASH_ID)
+    responses[doc_url] = [
+        (200, _fixture("bbk_warning_dwd_dashboard.json"), {"ETag": '"17"'}),
+        (304, ""),
+    ]
+    session = StubSession(responses)
     provider = BBKProvider()
-    for _ in range(2):
+    polls = [
         await provider.async_fetch(
             session,  # type: ignore[arg-type]
             {CONF_ZONE_ID: _ARS},
@@ -748,11 +756,47 @@ async def test_the_shared_cache_is_used_for_documents_and_geometry():
             cap_content_cache=cache,
             user_agent="test",
         )
-    # Two polls: two index fetches, but one document and one geometry fetch.
+        for _ in range(2)
+    ]
+    assert [len(alerts) for alerts in polls] == [1, 1]
+    assert polls[0][0] == polls[1][0]
     assert session.requested.count(BBK_DASHBOARD_URL.format(ars=_ARS)) == 2
-    assert session.requested.count(_warning_url(_DWD_DASH_ID)) == 1
+    assert session.requested.count(doc_url) == 2
     assert session.requested.count(_geojson_url(_DWD_DASH_ID)) == 1
+    doc_headers = [
+        h for u, h in zip(session.requested, session.request_headers) if u == doc_url
+    ]
+    assert [h.get("If-None-Match") for h in doc_headers] == [None, '"17"']
     assert len(cache) == 2
+
+
+async def test_a_warning_withdrawn_between_polls_is_dropped():
+    """The withdrawal lands under a URL the shared cache already holds: poll
+    one reads the live document, poll two gets the 302 into ``archive/`` on
+    revalidation and drops it (#295 only ever saw the cold-cache case)."""
+    archive = (
+        "https://warnung.bund.de/api31/archive/alerts/" + _MOW_ID + "?contentType=json"
+    )
+    responses = _gps_responses()
+    responses[_warning_url(_MOW_ID)] = [
+        (200, _fixture("bbk_warning_mowas.json"), {"ETag": '"1"'}),
+        (302, "", {"Location": archive}),
+    ]
+    cache = CAPContentCache()
+    session = StubSession(responses)
+    provider = BBKProvider()
+    polls = [
+        await provider.async_fetch(
+            session,  # type: ignore[arg-type]
+            {CONF_GPS_LOC: _IN_MOWAS},
+            {},
+            cap_content_cache=cache,
+            user_agent="test",
+        )
+        for _ in range(2)
+    ]
+    assert [[a.identifier for a in alerts] for alerts in polls] == [[_MOW_ID], []]
+    assert _warning_url(_MOW_ID) not in cache._cache
 
 
 async def test_fetch_without_a_shared_cache_still_works():

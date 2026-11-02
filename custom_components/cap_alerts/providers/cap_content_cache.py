@@ -6,6 +6,7 @@ import asyncio
 import logging
 import sys
 from collections import OrderedDict
+from collections.abc import Mapping
 
 import aiohttp
 
@@ -44,6 +45,16 @@ DEFAULT_FETCH_TIMEOUT = 10  # seconds
 _MAX_WARNED_URLS = 256
 
 
+def _validators_from(response_headers: Mapping[str, str]) -> dict[str, str]:
+    """The conditional-request headers a ``200``'s validators allow."""
+    headers: dict[str, str] = {}
+    if etag := response_headers.get("ETag"):
+        headers["If-None-Match"] = etag
+    if modified := response_headers.get("Last-Modified"):
+        headers["If-Modified-Since"] = modified
+    return headers
+
+
 class Redirected(Exception):
     """A fetch made with ``follow_redirects=False`` was answered with a 3xx.
 
@@ -66,6 +77,12 @@ class CAPContentCache:
     pressure. Two concurrent callers for the same URL share one HTTP GET via
     the ``_inflight`` dict.
 
+    A body never changes under its URL, but whether the host still serves it
+    can: BBK withdraws a warning by redirecting its document URL into an
+    archive (#295). A caller that has to see that asks for ``revalidate``,
+    and a hit then costs one conditional GET with the validators the body
+    arrived under, which a live document answers with ``304`` and no body.
+
     Eviction is LRU against a **byte budget** (``max_bytes``), measured with
     ``sys.getsizeof`` so the bound tracks real memory rather than a character
     count — CAP bodies are largely non-ASCII for several sources, where a
@@ -76,6 +93,9 @@ class CAPContentCache:
         self._max_bytes = max_bytes
         self._cache: OrderedDict[str, str] = OrderedDict()
         self._sizes: dict[str, int] = {}
+        # Conditional-request headers per cached URL, from the 200 that
+        # stored the body; evicted with it. Empty when the host sent none.
+        self._validators: dict[str, dict[str, str]] = {}
         self._total_bytes = 0
         self._inflight: dict[str, asyncio.Future[str | None]] = {}
         # URLs whose last fetch failed and has been warned about, oldest first.
@@ -99,13 +119,23 @@ class CAPContentCache:
     def __len__(self) -> int:
         return len(self._cache)
 
-    def _store(self, url: str, body: str) -> None:
+    def _evict(self, url: str) -> None:
+        """Drop ``url``'s body and validators, if held."""
+        if self._cache.pop(url, None) is not None:
+            self._total_bytes -= self._sizes.pop(url, 0)
+        self._validators.pop(url, None)
+
+    def _store(
+        self, url: str, body: str, validators: dict[str, str] | None = None
+    ) -> None:
         """Insert ``body`` and evict least-recently-used entries over budget.
 
         A body larger than the whole budget is not cached at all — storing it
         would evict everything else and then be evicted itself on the next
-        insert, which is strictly worse than a miss.
+        insert, which is strictly worse than a miss. Whatever was held under
+        the URL is dropped either way: it is no longer what the host serves.
         """
+        self._evict(url)
         size = sys.getsizeof(body)
         if size > self._max_bytes:
             _LOGGER.debug(
@@ -115,15 +145,15 @@ class CAPContentCache:
                 self._max_bytes,
             )
             return
-        if url in self._cache:
-            self._total_bytes -= self._sizes.pop(url, 0)
         self._cache[url] = body
         self._sizes[url] = size
+        if validators:
+            self._validators[url] = validators
         self._total_bytes += size
-        self._cache.move_to_end(url)
         while self._total_bytes > self._max_bytes and self._cache:
             oldest, _ = self._cache.popitem(last=False)
             self._total_bytes -= self._sizes.pop(oldest, 0)
+            self._validators.pop(oldest, None)
 
     async def get_or_fetch(
         self,
@@ -133,6 +163,7 @@ class CAPContentCache:
         user_agent: str | None = None,
         timeout: float = DEFAULT_FETCH_TIMEOUT,
         follow_redirects: bool = True,
+        revalidate: bool = False,
     ) -> str | None:
         """Return cached body for URL, fetching on miss.
 
@@ -147,16 +178,27 @@ class CAPContentCache:
         caller decides what the Location means; the body behind it is never
         fetched.
 
+        ``revalidate=True`` asks the host again on a hit, conditionally, for a
+        caller that must see a URL stop being served. ``304`` serves the cached
+        body; a redirect (under ``follow_redirects=False``), ``404`` or ``410``
+        is the host's answer and evicts it. A network error, timeout or other
+        status is not an answer about the document, so the cached body is
+        served: for a source whose alerts end on absence, a dropped request
+        would otherwise end a live warning.
+
         Returns None on HTTP error, network error, or timeout. Logs a
         warning the first time a URL fails and at debug on later failures,
         until a fetch of it succeeds (``_warn_once``).
         """
-        if url in self._cache:
+        cached = self._cache.get(url)
+        if cached is not None and not revalidate:
             self._cache.move_to_end(url)
-            return self._cache[url]
+            return cached
 
         if url in self._inflight:
-            return await self._inflight[url]
+            # Shielded: a waiter cancelled here (an unload, or its own timeout)
+            # must not cancel the fetch every other caller is sharing.
+            return await asyncio.shield(self._inflight[url])
 
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[str | None] = loop.create_future()
@@ -167,6 +209,8 @@ class CAPContentCache:
             headers: dict[str, str] = {}
             if user_agent:
                 headers["User-Agent"] = user_agent
+            if cached is not None:
+                headers.update(self._validators.get(url, {}))
             client_timeout = aiohttp.ClientTimeout(total=timeout)
             async with session.get(
                 url,
@@ -174,16 +218,27 @@ class CAPContentCache:
                 timeout=client_timeout,
                 allow_redirects=follow_redirects,
             ) as resp:
-                if not follow_redirects and 300 <= resp.status < 400:
+                if resp.status == 304 and cached is not None:
+                    result = cached
+                    self._cache.move_to_end(url)
+                elif not follow_redirects and 300 <= resp.status < 400:
                     raise Redirected(url, resp.headers.get("Location", ""))
-                if resp.status != 200:
-                    self._warn_once(url, "CAP fetch HTTP %s for %s", resp.status, url)
-                else:
+                elif resp.status == 200:
                     result = await resp.text()
-            if result is not None:
-                self._warned.pop(url, None)
-                self._store(url, result)
+                    self._warned.pop(url, None)
+                    self._store(url, result, _validators_from(resp.headers))
+                elif cached is not None and resp.status not in (404, 410):
+                    _LOGGER.debug(
+                        "CAP revalidation HTTP %s for %s; serving the cached body",
+                        resp.status,
+                        url,
+                    )
+                    result = cached
+                else:
+                    self._evict(url)
+                    self._warn_once(url, "CAP fetch HTTP %s for %s", resp.status, url)
         except Redirected as exc:
+            self._evict(url)
             fut.set_exception(exc)
             # Coalesced waiters re-raise it on await; mark it retrieved so a
             # fetch nobody else was waiting on does not log "exception was
@@ -191,7 +246,15 @@ class CAPContentCache:
             fut.exception()
             raise
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            self._warn_once(url, "CAP fetch failed for %s: %s", url, exc)
+            if cached is not None:
+                _LOGGER.debug(
+                    "CAP revalidation failed for %s: %s; serving the cached body",
+                    url,
+                    exc,
+                )
+                result = cached
+            else:
+                self._warn_once(url, "CAP fetch failed for %s: %s", url, exc)
         finally:
             if not fut.done():
                 fut.set_result(result)
