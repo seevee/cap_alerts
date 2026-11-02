@@ -67,7 +67,7 @@ same source it is one row with a count:
 | `watchman_missing_entities` | 2 | 2023-03-29 | 2024-03-30 | a list of entity ids |
 | Octopus Energy `*_current_rate` | 2 | 2023-08-06 | 2023-08-10 | a tariff's rate table |
 | `fedex_delivery` | 1 | 2023-04-28 | | package tracking |
-| a REST dump, "the results of an REST call" | 1 | 2023-07-17 | | an upstream response |
+| a REST dump | 1 | 2023-07-17 | | an upstream response |
 | `camera.xiaomi_cloud_map_extractor` | 1 | 2023-08-06 | | a vacuum map |
 | `sensor.1_bundesliga` | 1 | 2024-01-10 | | a league table |
 | `select.zigbee2mqtt_bridge_log_level` | 1 | 2024-03-06 | | a bridge log |
@@ -76,8 +76,7 @@ same source it is one row with a count:
 | ESPN sensors | 1 | 2026-06-11 | | fixtures |
 
 The only remedy offered in the results, by a core member on 2024-01-10, was
-"reducing the amount of data included in the state of the sensor below 16384
-bytes". The EPEX report shows the two paths side by side: the
+to shrink what the sensor's state carries below 16,384 bytes. The EPEX report shows the two paths side by side: the
 integration's own sensor carried the same 20,160 characters without a
 warning, the template sensor copying them was dropped. An integration can
 exclude attributes from recording (`unrecorded_attributes` in the Measure
@@ -106,7 +105,7 @@ unrecorded and take them out of the bound (§7.2).
   been stable from 2026.7.3 to 2026.9.3.
 - The PostgreSQL dialect strips nulls before measuring, so the same state can
   measure a few bytes smaller there.
-- The Discord rows were copied by hand from a client search on 2026-10-27,
+- The Discord rows were tallied by hand from a client search on 2026-10-27,
   with no permalinks. Dates are UTC, converted from the reader's display
   zone. The 49 hits not listed are other uses of the number: context
   windows, kernel logs, bit flags, a Thread partition limit.
