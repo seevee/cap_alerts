@@ -35,6 +35,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 import aiohttp
+from defusedxml import DefusedXmlException
 from defusedxml import ElementTree as ET
 
 from ..const import (
@@ -421,7 +422,7 @@ def _links_from_feed(text: str, geocode_prefixes: Sequence[str] | None) -> list[
     """``_parse_feed_links`` in the provider layer's exception."""
     try:
         return _parse_feed_links(text, geocode_prefixes=geocode_prefixes)
-    except ET.ParseError as err:
+    except (ET.ParseError, DefusedXmlException) as err:
         raise ProviderError(f"failed to parse feed: {err}") from err
 
 

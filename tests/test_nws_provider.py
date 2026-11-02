@@ -222,6 +222,24 @@ async def test_a_non_200_answer_is_reported_without_the_url(hass, aioclient_mock
     assert str(excinfo.value) == "NWS API returned 503"
 
 
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ('{"type": "FeatureColl', "malformed JSON"),  # truncated mid-stream
+        ("[]", "not an object"),
+    ],
+)
+async def test_a_bad_json_body_is_a_provider_error(hass, aioclient_mock, body, message):
+    """Both callers, the poll and the best-effort cancellation lookup, handle
+    ProviderError; a raw JSONDecodeError or AttributeError escaped them (#372)."""
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+    url = f"{_nws_mod.NWS_API_BASE}?zone=OHZ001"
+    aioclient_mock.get(url, text=body, headers={"Content-Type": "application/geo+json"})
+    with pytest.raises(_nws_mod.ProviderError, match=message):
+        await _nws_mod.NWSProvider()._fetch_page(async_get_clientsession(hass), url)
+
+
 async def test_the_user_agent_reaches_the_page_fetch(hass, aioclient_mock):
     """Every NWS request carries the User-Agent the coordinator hands over.
 

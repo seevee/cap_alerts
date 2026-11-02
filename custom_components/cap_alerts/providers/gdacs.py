@@ -55,6 +55,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 import aiohttp
+from defusedxml import DefusedXmlException
 from defusedxml import ElementTree as ET
 
 from ..const import (
@@ -582,7 +583,7 @@ class GDACSProvider:
                 batches.append(
                     _parse_index(body, event_types=event_types, min_level=min_level)
                 )
-            except ET.ParseError as err:
+            except (ET.ParseError, DefusedXmlException) as err:
                 failures[url] = f"malformed XML: {err}"
             else:
                 self._index_warned[url] = False

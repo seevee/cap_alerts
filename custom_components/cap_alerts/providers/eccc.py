@@ -14,6 +14,7 @@ from typing import Any
 from xml.etree.ElementTree import Element
 
 import aiohttp
+from defusedxml import DefusedXmlException
 from defusedxml import ElementTree as ET
 
 from ..const import (
@@ -1547,7 +1548,7 @@ class ECCCProvider:
             if text.rstrip().endswith("</feed>"):
                 try:
                     root = ET.fromstring(text)
-                except ET.ParseError as err:
+                except (ET.ParseError, DefusedXmlException) as err:
                     last_error = f"failed to parse Atom feed: {err}"
                 else:
                     if etag:

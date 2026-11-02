@@ -340,6 +340,40 @@ async def test_rss_parse_error():
         )
 
 
+# An internal entity: defusedxml raises EntitiesForbidden, a DefusedXmlException
+# (a ValueError), not ET.ParseError, so a handler for the latter misses it (#372).
+_ENTITY_DOC = (
+    '<?xml version="1.0"?><!DOCTYPE feed [<!ENTITY e "x">]>'
+    '<feed xmlns="http://www.w3.org/2005/Atom">&e;</feed>'
+)
+
+
+@pytest.mark.asyncio
+async def test_rss_with_an_internal_entity_is_a_provider_error():
+    session = StubSession({_RSS_URL: _ENTITY_DOC})
+    with pytest.raises(ProviderError, match="failed to parse feed"):
+        await WMOProvider().async_fetch(
+            session,
+            {CONF_SOURCE_ID: "mx-smn-es"},
+            {},
+            cap_content_cache=CAPContentCache(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_auto_union_survives_an_entity_bearing_authority_feed():
+    """The per-source handler catches ProviderError; before #372 the
+    defusedxml exception escaped it and took the mirror's alerts down too."""
+    responses = _union_responses()
+    responses[_TL_MIRROR_URL] = (503, "")
+    responses[_TL_BUCKET_URL] = _ENTITY_DOC
+    with pytest.raises(ProviderError) as excinfo:
+        await _fetch(WMOProvider(), StubSession(responses), "tl-dnmg-en")
+    assert "mirror feed" in str(excinfo.value) and "authority feed" in str(
+        excinfo.value
+    )
+
+
 @pytest.mark.asyncio
 async def test_rss_non_200():
     session = StubSession({_RSS_URL: (503, "")})
