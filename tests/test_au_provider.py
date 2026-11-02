@@ -659,3 +659,15 @@ async def test_alert_without_identifier_is_skipped():
 async def test_user_agent_is_sent():
     _, session = await _fetch("WA")
     assert session.request_headers == [{"User-Agent": "test"}]
+
+
+async def test_an_undecodable_feed_raises_a_provider_error():
+    """Decoded strictly, so a body in another encoding fails the read (#371)."""
+    with pytest.raises(ProviderError, match="not decodable text"):
+        await _fetch(
+            "TAS",
+            body=(
+                200,
+                b'<?xml version="1.0" encoding="ISO-8859-1"?><alert>Montr\xe9al</alert>',
+            ),
+        )

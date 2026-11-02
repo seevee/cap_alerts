@@ -350,7 +350,13 @@ class AUProvider:
         async with session.get(url, headers=headers) as resp:
             if resp.status != 200:
                 raise ProviderError(f"AU {state}: feed HTTP {resp.status}")
-            text = await resp.text()
+            try:
+                text = await resp.text()
+            except UnicodeDecodeError as err:
+                # Decoded strictly, so a body in another encoding fails here (#371).
+                raise ProviderError(
+                    f"AU {state}: feed is not decodable text: {err}"
+                ) from err
 
         elements = edxl_alert_elements(text)
         if elements is None:
