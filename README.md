@@ -76,16 +76,15 @@ second one, and a way to automate on it.
 
 Requires Home Assistant 2026.4.3 or newer.
 
-**HACS.** CAP Alerts is not in the HACS default store yet, so it is installed
-as a custom repository. This badge adds the repository and opens it in HACS:
+**HACS or the Marketplace.** CAP Alerts is in the HACS default store. From
+Home Assistant 2026.11 that store is built in as the Marketplace, so on
+either one search for **CAP Alerts**, install it, and restart Home Assistant.
+The badge opens it directly:
 
 [![Open CAP Alerts in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=seevee&repository=cap_alerts&category=integration)
 
-Or add it by hand: HACS → ⋮ → **Custom repositories**, repository
-`https://github.com/seevee/cap_alerts`, type *Integration*. Then install
-**CAP Alerts** and restart Home Assistant. Once it lands in the default store
-the custom repository can stay in place; HACS treats the two the same for
-updates.
+Added it earlier as a custom repository? Nothing to change. Both pick up the
+store listing on their own and update it like any other store entry.
 
 **Manual.** Copy `custom_components/cap_alerts/` into your configuration's
 `custom_components/` directory and restart.
