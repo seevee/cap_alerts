@@ -439,7 +439,10 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
                         "%s: tracker %s has no location", provider, entity_id
                     )
                     self._tracker_resolve_warned = True
-                raise UpdateFailed(f"{provider}: tracker {entity_id} has no location")
+                # The entity id stays in the local log only: this message is
+                # kept as last_update_failure and lands in diagnostics, and a
+                # tracker id often carries a person's name (#386).
+                raise UpdateFailed(f"{provider}: tracker has no location")
             self._tracker_resolve_warned = False
             config[CONF_GPS_LOC] = gps
 
