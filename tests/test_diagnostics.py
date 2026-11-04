@@ -574,6 +574,29 @@ async def test_the_failure_scrub_leaves_an_ordinary_message_alone(hass):
     ] == "nws: timeout after 30s"
 
 
+@pytest.mark.parametrize(
+    ("key", "entity_id"),
+    [
+        (CONF_TRACKER_ENTITY, "device_tracker.janes_phone"),
+        (CONF_COUNTRY_ENTITY, "sensor.janes_phone_geocoded_location"),
+    ],
+)
+async def test_the_failure_scrub_takes_out_a_location_entity(hass, key, entity_id):
+    """A tracker or country-source id often carries a person's name, and a
+    message that names one still cannot carry it into an issue (#386)."""
+    entry = _entry(
+        {CONF_PROVIDER: "meteoalarm", key: entity_id},
+        failure_error=f"meteoalarm: could not resolve {entity_id}",
+    )
+
+    payload = await _payload(hass, entry)
+
+    assert payload["update"]["last_failure_error"] == (
+        f"meteoalarm: could not resolve {REDACTED}"
+    )
+    assert "janes_phone" not in json.dumps(payload)
+
+
 async def test_tracker_and_the_location_it_resolved_to_are_both_redacted(hass):
     entry = _entry(
         {CONF_PROVIDER: "nws", CONF_TRACKER_ENTITY: "device_tracker.pixel"},

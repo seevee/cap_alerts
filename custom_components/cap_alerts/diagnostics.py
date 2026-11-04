@@ -204,7 +204,7 @@ async def async_get_config_entry_diagnostics(
             "last_success": _iso(coordinator.last_update_success_time),
             "last_change": _iso(coordinator.last_change_time),
             "last_failure": _iso(coordinator.last_update_failure_time),
-            "last_failure_error": _scrub_coordinates(
+            "last_failure_error": _scrub_location(
                 coordinator.last_update_failure, resolved_config
             ),
             "interval_seconds": (
@@ -332,18 +332,26 @@ _COORDINATE_PAIR = re.compile(r"-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+")
 _COORDINATE_PARAM = re.compile(r"\b(lat|lon)=-?\d{1,3}(?:\.\d+)?")
 
 
-def _scrub_coordinates(text: str | None, config: Mapping[str, Any]) -> str | None:
-    """The last failure message with any coordinates taken out.
+def _scrub_location(text: str | None, config: Mapping[str, Any]) -> str | None:
+    """The last failure message with any coordinates or location entity taken out.
 
     The providers keep coordinates out of their messages, but the field holds
     whatever the last failure said, and an upstream library's ``str(err)`` can
     quote a request URL. Both the entry's own location values and anything
     shaped like a coordinate pair are replaced, so a message that slips through
-    the first layer still cannot carry the user's position into an issue.
+    the first layer still cannot carry the user's position into an issue. The
+    tracker and country-source entity ids go too: an id often carries a
+    person's name (#386).
     """
     if not text:
         return text
-    for key in (CONF_GPS_LOC, CONF_LATITUDE, CONF_LONGITUDE):
+    for key in (
+        CONF_GPS_LOC,
+        CONF_LATITUDE,
+        CONF_LONGITUDE,
+        CONF_TRACKER_ENTITY,
+        CONF_COUNTRY_ENTITY,
+    ):
         if value := config.get(key):
             text = text.replace(str(value), REDACTED)
     text = _COORDINATE_PAIR.sub(REDACTED, text)

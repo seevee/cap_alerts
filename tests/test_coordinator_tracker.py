@@ -125,6 +125,19 @@ def test_resolve_config_raises_when_tracker_has_no_location():
         coord._resolve_config()
 
 
+def test_unresolvable_tracker_failure_does_not_name_the_entity(caplog):
+    # The failure message is kept as last_update_failure and lands in the
+    # diagnostics download; the entity id belongs in the local log only (#386).
+    coord = _make_coord(
+        {CONF_PROVIDER: "nws", CONF_TRACKER_ENTITY: "device_tracker.janes_phone"},
+        {},
+    )
+    with caplog.at_level("WARNING"), pytest.raises(UpdateFailed) as err:
+        coord._resolve_config()
+    assert str(err.value) == "nws: tracker has no location"
+    assert "device_tracker.janes_phone" in caplog.text
+
+
 def test_unresolvable_tracker_warns_once_per_failure_streak(caplog):
     # A day-long outage at a short poll interval must not emit one warning
     # per poll; the guard resets once the tracker resolves again.
