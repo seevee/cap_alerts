@@ -134,6 +134,7 @@
   "values.eventCode": [
    "Bushfire",
    "Chemical",
+   "Extreme Heat",
    "Facility Closure",
    "OtherUrgent",
    "Pollution",
