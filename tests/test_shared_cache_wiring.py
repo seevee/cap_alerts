@@ -272,18 +272,13 @@ async def test_cancelled_entry_does_not_cancel_a_shared_fetch(hass, aioclient_mo
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#370: the metadata-only fallback keeps its own id and is retained",
-)
 async def test_failed_body_then_real_body_is_one_incident(hass, aioclient_mock):
     """A GPS entry with streaming off, one 503 on the body, then a good poll.
 
-    Expected: one entity and one ``incident_created``. Today the fallback mints
-    ``sha256(atom_id|language)``, the real alert arrives under its bilingual
-    key, and the fallback, with no expiry and ECCC's terminal vocabulary
-    declared, is retained as stale indefinitely. Strict, so fixing #370 flips
-    it and the marker has to come off.
+    One entity and one ``incident_created``. Before #370 the failed body
+    surfaced a metadata-only stand-in under ``sha256(atom_id|language)``, the
+    real alert arrived under its bilingual key, and the stand-in, with no
+    expiry and ECCC's terminal vocabulary declared, was retained indefinitely.
     """
     seen = _events(hass)
     cap_url = "https://cap.example/flaky.cap"
