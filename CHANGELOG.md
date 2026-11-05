@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.8.0 (2026-11-05)
+
+> [!IMPORTANT]
+> **Backward-incompatible changes**
+> - Stamp the last change to the alert set, not every poll (#324)
+
+### Added
+- Describe the incident events and carry a context per cycle (#318)
+- Revalidate the index feeds and read a heavy authority index less often (#319)
+- Stamp the last change to the alert set, not every poll (#324) (closes #323)
+- Ship the incident triggers for the automation editor (#327) (closes #280)
+- Fire when an alert starts (#328) (closes #326)
+- Read the authority feed first, back off the retired mirror (#333) (#338)
+- Add a GeoSphere Austria provider (#300) (#340)
+- Add a U.S. Tsunami Warning Centers provider (#298) (#343)
+- Restore each live alert's lifecycle fields across a restart (#350) (#351)
+
+### Fixed
+- Give only the last-updated write the cycle's context (#320)
+- Read a registry-path removal as removed, not cancelled (#322) (closes #321)
+- Stop dating the NAAD repairs to a sunset that passed (#347)
+- Hold boot events until Home Assistant has started (#365) (closes #361)
+- Revalidate BBK documents and shield coalesced waiters (#367)
+- Keep the tracker entity id out of the last failure (#387) (closes #386)
+
+### Documentation
+- Say where the poll time can actually be read (#329)
+- Say how to tell two devices of one provider apart (#325) (#331)
+- The drift probe runs daily (#336)
+- Say the alertready gap closed and pelmorex outlived its sunset (#345)
+- Say the reference implementation restores lifecycle fields, not content (#352)
+- Record per-source re-issue identity, close out #116 (#353)
+- Name the submission gate, a six-week soak past the custom-repo base (#354)
+- Name the hybrid, state consumer invariants, stage the purge rule (#356)
+- The entity binding, from core review, the docs and two origin PRs (#360)
+- Paraphrase Discord sources and title pages by the question (#368)
+- Startup time per entry across three boots (#382) (closes #358)
+- Four answers outside review asked for, word count flat (#383) (closes #359)
+
+### Internal
+- Test against Home Assistant 2026.10.2 (#332)
+- Accept TAS flood eventCode (#334) (#335)
+- Watch the two surviving WMO mirror feeds, retire the lag check (#333) (#339)
+- Test against Home Assistant 2026.10.4 (#342)
+- Let provider_probe run every provider, with its rows (#346)
+- Pre-alpha.3 cleanup, the ECCC sunset prose and four provider-layer nits (#348)
+- Accept ECCC Previous_Colour and the live GeoSphere warnid (#363) (#364)
+- Run providers through the shared caches across polls (#375) (closes #374)
+- Record incident events on the loop, in bus order (#377)
+- Add a charset probe for feed and CAP body decoding (#378)
+- Accept WA Extreme Heat eventCode (#384) (#385)
+
 ## 0.7.1 (2026-10-19)
 
 ### Fixed
@@ -14,7 +66,7 @@
 ## 0.7.0 (2026-10-13)
 
 > [!IMPORTANT]
-> **Breaking**
+> **Backward-incompatible changes**
 > - The vtec, vtec_office, vtec_phenomena, vtec_significance, vtec_action, vtec_tracking, event_code_nws, event_code_same, affected_zones, affected_zone_uris, replaced_by and replaced_at attributes are gone from alert entities. Read parameters, geocodes and references instead; incident_platform_version is "2.0".
 
 ### Added
@@ -42,7 +94,7 @@
 ## 0.6.1 (2026-10-05)
 
 ### Fixed
-- Stop recording geocodes, cut the area list before the text (#246) (closes #245.)
+- Stop recording geocodes, cut the area list before the text (#246) (closes #245)
 - Read every value of a multi-value eventCode (#247)
 - Re-validate known alerts after a restart instead of re-firing (#251) (closes #250)
 - Fire incident_created once the alert's entity is registered (#253) (closes #249)
@@ -218,7 +270,7 @@ rename fails loudly instead of scanning nothing and passing.
 
 CI's config-flow coverage gate takes both paths in its `--include`, and
 the file-structure trees, the add-a-provider steps, and the
-`config_flow.py` references in docs/ follow the new layout.)
+`config_flow.py` references in docs/ follow the new layout)
 
 ### Documentation
 - Reconcile the docs with the shipped tree (#118)
