@@ -595,6 +595,12 @@ def test_every_trigger_is_described_and_named():
             assert field["name"] and field["description"], f"{path.name}: {key}"
         options = data["selector"]["trigger_threshold"]["options"]
         assert set(options) == set(THRESHOLD_RANK), path.name
+    # The editor draws a trigger row's icon from icons.json (#394); a row
+    # without one renders an empty slot beside its name.
+    icons = json.loads((_PKG / "icons.json").read_text(encoding="utf-8"))["triggers"]
+    assert set(icons) == set(TRIGGERS)
+    for key, value in icons.items():
+        assert value["trigger"].startswith("mdi:"), key
 
 
 def test_the_threshold_axis_is_the_severity_axis():

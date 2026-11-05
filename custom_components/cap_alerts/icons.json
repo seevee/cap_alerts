@@ -1,0 +1,22 @@
+{
+  "triggers": {
+    "incident_arrived": {
+      "trigger": "mdi:alert-plus"
+    },
+    "incident_updated": {
+      "trigger": "mdi:update"
+    },
+    "incident_escalated": {
+      "trigger": "mdi:arrow-up-bold"
+    },
+    "incident_downgraded": {
+      "trigger": "mdi:arrow-down-bold"
+    },
+    "incident_ended": {
+      "trigger": "mdi:alert-minus"
+    },
+    "incident_started": {
+      "trigger": "mdi:calendar-start"
+    }
+  }
+}
