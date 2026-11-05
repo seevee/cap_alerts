@@ -342,9 +342,10 @@ paste into a public issue.
 2. Uninstall via HACS, or delete `custom_components/cap_alerts/`.
 3. Restart Home Assistant.
 
-The integration writes nothing to `.storage/`, so nothing is left behind.
-Recorder history for past alert entities ages out under your `recorder` purge
-policy.
+The only file the integration writes is `.storage/cap_alerts.<entry_id>`, the
+per-entry restart record (lifecycle fields, no alert text), and deleting the
+entry removes it. Recorder history for past alert entities ages out under your
+`recorder` purge policy.
 
 ## Provider notes
 
