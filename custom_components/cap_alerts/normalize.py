@@ -60,12 +60,18 @@ def count_by_onset(alerts: Sequence[CAPAlert], now: datetime) -> tuple[int, int]
 
 
 def _geometry_ref(alert: CAPAlert, entry_id: str) -> str:
-    """Build the externalized-geometry handle, or "" when no geometry.
+    """Build the base of the externalized-geometry handle, or "" when no geometry.
 
     Namespaced by config entry: the geometry store is a process-wide
     singleton shared across entries, so two entries on the same provider
     would otherwise mint identical ``{provider}:{id}`` refs and each entry's
     purge would evict the other's polygons (RFC §2.4).
+
+    This is the base only. The ref an entity publishes carries one more
+    segment, a hash of the shape, which the coordinator takes from
+    ``GeometryStore.put_content`` when it stores the polygon (issue #357):
+    the store serializes the geometry once to measure it, and the hash comes
+    from that same pass.
     """
     if not alert.geometry:
         return ""

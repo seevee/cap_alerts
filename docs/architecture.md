@@ -1760,8 +1760,9 @@ expiry-bounded retention, which is safe but lingers.
 
 Full GeoJSON polygons are **not** entity attributes. The coordinator writes them
 to a process-wide in-memory `GeometryStore` (LRU-bounded by serialized bytes,
-5 MB per config entry, keyed by `geometry_ref = "{entry_id}:{provider}:{alert_id}"`)
-and entities expose only the opaque `geometry_ref` handle. An entry evicts only
+5 MB per config entry, keyed by
+`geometry_ref = "{entry_id}:{provider}:{alert_id}:{shape_hash}"`) and entities
+expose only the opaque `geometry_ref` handle. An entry evicts only
 its own refs (issue #197): a worldwide GDACS scope once held 4.3 MB of what was
 a 5 MB global cap, and the first sign that it had pushed a WMO entry's polygons
 out was a card drawing an empty frame off a 404. The first eviction on an entry
@@ -1777,6 +1778,21 @@ singleton shared across config entries, so a `{provider}:{alert_id}` key would
 collide whenever two entries on the same provider both see an alert — the
 overlapping-NWS-zones case — and the second write would win. The same prefix is
 what lets `purge_missing()` scope a sweep to one entry's refs.
+
+The trailing segment is a short hash of the serialized geometry (issue #357),
+so the ref is content-addressed: a polygon that changes under a stable alert id
+(an NWS warning trimmed by an SVS update, a fire perimeter that grew) mints a
+new ref, the old one falls out of the active set and is purged the same cycle.
+A consumer may cache a ref as immutable, and the attribute changing is its
+signal to refetch. ECCC was already safe because the polygon hash is inside its
+identity; every other source keeps its id across a shape change. `normalize`
+mints only the `{entry_id}:{provider}:{alert_id}` base; the store's
+`put_content` appends the hash and hands the full ref back to the coordinator,
+which writes it onto the alert. The hash is taken from the same serialization
+that measures the polygon for the byte budget, so content addressing adds no
+second pass over the geometry: a worldwide GDACS entry's 1.65 MB would
+otherwise have cost about 100 ms more per poll on the event loop, three times
+that on a Pi.
 
 Consumers fetch polygons out-of-band:
 

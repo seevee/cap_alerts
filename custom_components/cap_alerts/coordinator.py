@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -864,13 +865,19 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             alerts = kept
         # Externalize geometry for alerts that will remain active. Skipping
         # terminal-phase alerts avoids caching polygons we're about to drop.
+        # The ref the alert publishes is the store's content-addressed one
+        # (issue #357): a polygon that changes under a stable id gets a new
+        # ref, so a consumer caching by ref sees the change, and the old ref
+        # leaves ``active_refs`` to be purged below.
         active_refs: set[str] = set()
+        externalized: list[CAPAlert] = []
         for a in alerts:
-            if a.phase in ("cancel", "expired"):
-                continue
-            if a.geometry_ref and a.geometry:
-                await self._geometry_store.put(a.geometry_ref, a.geometry)
-                active_refs.add(a.geometry_ref)
+            if a.geometry_ref and a.geometry and a.phase not in ("cancel", "expired"):
+                ref = await self._geometry_store.put_content(a.geometry_ref, a.geometry)
+                active_refs.add(ref)
+                a = replace(a, geometry_ref=ref)
+            externalized.append(a)
+        alerts = externalized
         # Purge only this entry's refs (geometry_ref is entry-namespaced), so a
         # sibling entry on the same provider keeps its geometry.
         await self._geometry_store.purge_missing(active_refs, prefix=f"{entry_id}:")

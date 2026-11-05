@@ -13,10 +13,17 @@ global LRU let one heavy entry — a worldwide GDACS scope stored 4.3 MB of
 the old 5 MB total on 2026-09-06 — push a sibling entry's polygons out, and
 the first sign was a card drawing an empty frame off a 404. The owner of a
 ref is its first ``:``-separated segment.
+
+The ref a consumer sees is content-addressed (issue #357): ``put_content``
+appends a short hash of the serialized geometry, so a polygon that changes
+under a stable alert id mints a new ref and the old one falls out of the
+active set. The hash comes from the same serialization that measures the
+entry's size, so content addressing costs no second pass over the polygon.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections import OrderedDict
@@ -37,6 +44,15 @@ def _owner(ref: str) -> str:
     return ref.split(":", 1)[0]
 
 
+def _serialize(geometry: dict[str, Any]) -> str:
+    """The one serialization both the size and the content hash are taken from.
+
+    Keys sorted so equal shapes agree whatever order a provider built the
+    dict in; the length is the same either way.
+    """
+    return json.dumps(geometry, sort_keys=True, separators=(",", ":"))
+
+
 class GeometryStore:
     """In-memory, LRU-bounded keyed geometry store."""
 
@@ -55,11 +71,34 @@ class GeometryStore:
         return self._max_bytes
 
     async def put(self, ref: str, geometry: dict[str, Any]) -> None:
-        """Insert or update a geometry, enforcing the owner's LRU byte cap."""
+        """Insert or update a geometry under ``ref`` as given, enforcing the
+        owner's LRU byte cap."""
+        self._put(ref, geometry, _serialize(geometry))
+
+    async def put_content(self, base_ref: str, geometry: dict[str, Any]) -> str:
+        """Store ``geometry`` under a content-addressed ref and return it.
+
+        The ref is ``base_ref`` plus a hash segment of the serialized shape
+        (issue #357). A caller holding the returned ref may treat it as
+        immutable: the same base with a different shape stores beside it
+        under a different ref, never over it, and a purge of the active set
+        drops whichever the feed stopped publishing.
+        """
+        serialized = _serialize(geometry)
+        digest = hashlib.sha256(serialized.encode()).hexdigest()[:8]
+        ref = f"{base_ref}:{digest}"
+        self._put(ref, geometry, serialized)
+        return ref
+
+    def _put(self, ref: str, geometry: dict[str, Any], serialized: str) -> None:
         if ref in self._entries:
             self._drop(ref)
-        self._insert(ref, geometry)
-        self._evict_owner_to_cap(_owner(ref), keep=ref)
+        self._entries[ref] = geometry
+        size = len(serialized)
+        self._sizes[ref] = size
+        owner = _owner(ref)
+        self._owner_bytes[owner] = self._owner_bytes.get(owner, 0) + size
+        self._evict_owner_to_cap(owner, keep=ref)
 
     async def get(self, ref: str) -> dict[str, Any] | None:
         """Return the geometry for ``ref`` or None. Promotes on read."""
@@ -97,13 +136,6 @@ class GeometryStore:
             self._drop(ref)
 
     # -- internals --
-
-    def _insert(self, ref: str, geometry: dict[str, Any]) -> None:
-        self._entries[ref] = geometry
-        size = len(json.dumps(geometry, separators=(",", ":")))
-        self._sizes[ref] = size
-        owner = _owner(ref)
-        self._owner_bytes[owner] = self._owner_bytes.get(owner, 0) + size
 
     def _drop(self, ref: str) -> None:
         self._entries.pop(ref, None)
