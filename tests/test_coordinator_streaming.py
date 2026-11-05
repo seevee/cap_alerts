@@ -453,8 +453,12 @@ async def test_heartbeats_do_not_end_a_restored_alert_the_seed_missed(
     assert ent_reg.async_get(restored.entity_id) is not None
     assert removed == []
 
+    # The resync backfill, awaited directly. The interval schedules it as a
+    # background task that async_block_till_done does not wait for, and since
+    # the feed parse and envelope pre-filter moved into the executor (#373)
+    # it no longer finishes inside the loop turns block_till_done spins.
     freezer.tick(timedelta(seconds=RESYNC_S))
-    async_fire_time_changed(hass)
+    await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert ent_reg.async_get(restored.entity_id) is None
     assert [e.data["incident_id"] for e in removed] == ["missed"]
