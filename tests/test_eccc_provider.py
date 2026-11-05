@@ -929,6 +929,57 @@ async def test_eccc_provider_raises_on_persistently_truncated_feed(monkeypatch):
     assert not any(".cap" in url for url in session.requested)
 
 
+# An internal entity: defusedxml raises EntitiesForbidden, a DefusedXmlException
+# (a ValueError), not ET.ParseError, so a handler for the latter misses it (#372).
+_ENTITY_DOC = (
+    '<?xml version="1.0"?><!DOCTYPE feed [<!ENTITY e "x">]>'
+    '<feed xmlns="http://www.w3.org/2005/Atom">&e;</feed>'
+)
+
+
+@pytest.mark.asyncio
+async def test_eccc_feed_with_an_internal_entity_is_retried_then_a_provider_error(
+    monkeypatch,
+):
+    """Ends in </feed>, so it passes the truncation guard and reaches the parser."""
+    monkeypatch.setattr(_eccc_mod, "_FEED_RETRY_BACKOFF_S", 0)
+    session = StubSession({"https://rss.alertready.ca/": _ENTITY_DOC})
+    with pytest.raises(_eccc_mod.ProviderError, match="failed to parse Atom feed"):
+        await ECCCProvider().async_fetch(
+            session,
+            {"province": "ON"},
+            {"language": "en-CA", "feed_source": "alertready"},
+        )
+    assert (
+        session.requested.count("https://rss.alertready.ca/")
+        == _eccc_mod._FEED_FETCH_ATTEMPTS
+    )
+
+
+@pytest.mark.asyncio
+async def test_eccc_feed_retries_an_undecodable_body(monkeypatch):
+    """A stream cut mid-character fails resp.text() before the truncation guard
+    sees it; it is retried like a truncation, then succeeds (#371)."""
+    monkeypatch.setattr(_eccc_mod, "_FEED_RETRY_BACKOFF_S", 0)
+    feed = "https://rss.alertready.ca/"
+    session = StubSession(
+        {feed: [(200, _atom_xml().encode()[:-3] + b"\xe9"), _atom_xml()]}
+    )
+    root = await ECCCProvider()._fetch_one_feed(session, "alertready", feed)  # type: ignore[arg-type]
+    assert root is not None
+    assert session.requested.count(feed) == 2
+
+
+@pytest.mark.asyncio
+async def test_eccc_feed_persistently_undecodable_is_a_provider_error(monkeypatch):
+    monkeypatch.setattr(_eccc_mod, "_FEED_RETRY_BACKOFF_S", 0)
+    feed = "https://rss.alertready.ca/"
+    session = StubSession({feed: (200, _LATIN1)})
+    with pytest.raises(_eccc_mod.ProviderError, match="undecodable feed body"):
+        await ECCCProvider()._fetch_one_feed(session, "alertready", feed)  # type: ignore[arg-type]
+    assert session.requested.count(feed) == _eccc_mod._FEED_FETCH_ATTEMPTS
+
+
 @pytest.mark.asyncio
 async def test_eccc_provider_retries_then_succeeds_on_truncated_feed(monkeypatch):
     """A single truncated feed response recovers on retry within the same poll."""
@@ -1352,6 +1403,30 @@ async def test_cache_coalesced_waiter_sees_the_redirect_too():
     results = await asyncio.gather(first, second, return_exceptions=True)
     assert all(isinstance(r, _cap_cache_mod.Redirected) for r in results)
     assert cache._inflight == {}
+
+
+_LATIN1 = b'<?xml version="1.0" encoding="ISO-8859-1"?><alert>Montr\xe9al</alert>'
+
+
+@pytest.mark.asyncio
+async def test_cache_treats_an_undecodable_body_as_a_failed_fetch(caplog):
+    """One body in an encoding resp.text() cannot decode costs that alert, not
+    the poll: before #371 the UnicodeDecodeError escaped get_or_fetch."""
+    url = "http://test/latin1.cap"
+    cache = CAPContentCache()
+    with caplog.at_level(logging.WARNING):
+        assert await cache.get_or_fetch(StubSession({url: (200, _LATIN1)}), url) is None
+    assert f"CAP fetch failed for {url}" in caplog.text
+    assert len(cache) == 0
+
+
+@pytest.mark.asyncio
+async def test_cache_revalidation_serves_the_cached_body_on_an_undecodable_one():
+    url = "http://test/doc.json"
+    session = StubSession({url: [(200, "live", {"ETag": '"1"'}), (200, _LATIN1)]})
+    cache = CAPContentCache()
+    await cache.get_or_fetch(session, url, revalidate=True)
+    assert await cache.get_or_fetch(session, url, revalidate=True) == "live"
 
 
 @pytest.mark.asyncio

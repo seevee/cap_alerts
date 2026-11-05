@@ -14,10 +14,15 @@ mountains (country source unavailable), recover.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.components.diagnostics import (
+    get_diagnostics_for_config_entry,
+)
 
 DOMAIN = "cap_alerts"
 SI_FEED = "https://feeds.meteoalarm.org/api/v1/warnings/feeds-slovenia"
@@ -207,3 +212,32 @@ async def test_tracker_loss_goes_unavailable_and_recovers(
 
     assert hass.states.get(count_id).state == "1"
     assert hass.states.get(alert_id).state != STATE_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+async def test_a_lost_tracker_fix_reaches_diagnostics_without_its_entity_ids(
+    hass, hass_client, aioclient_mock, enable_custom_integrations
+):
+    """The failure a lost fix leaves behind outlives the outage and ends up in
+    the diagnostics download, which is meant to be pasted into a public issue.
+    Neither entity id may appear there (#386): through a real coordinator and
+    HA's own download view, both layers at once."""
+    aioclient_mock.get(SI_FEED, json=SI_PAYLOAD)
+
+    hass.states.async_set(TRACKER, "not_home", LJUBLJANA)
+    hass.states.async_set(COUNTRY, "Slovenia")
+    entry = await _setup_entry(hass)
+
+    hass.states.async_set(TRACKER, "not_home", {})
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    payload = await get_diagnostics_for_config_entry(hass, hass_client, entry)
+
+    assert payload["update"]["success"] is False
+    assert payload["update"]["last_failure_error"] == (
+        "meteoalarm: tracker has no location"
+    )
+    serialized = json.dumps(payload)
+    assert TRACKER not in serialized
+    assert COUNTRY not in serialized

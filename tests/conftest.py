@@ -89,13 +89,18 @@ class _StubResponse:
     """Minimal aiohttp-compatible response for testing."""
 
     def __init__(
-        self, status: int, body: str, headers: dict[str, str] | None = None
+        self, status: int, body: str | bytes, headers: dict[str, str] | None = None
     ) -> None:
         self.status = status
         self._body = body
         self.headers = headers or {}
 
     async def text(self) -> str:
+        # A bytes body decodes strictly as UTF-8, what aiohttp does for a
+        # response with no charset in Content-Type, so a test can serve a body
+        # in another encoding and see the real UnicodeDecodeError (#371).
+        if isinstance(self._body, bytes):
+            return self._body.decode("utf-8")
         return self._body
 
     async def json(self, **kwargs: Any) -> Any:
