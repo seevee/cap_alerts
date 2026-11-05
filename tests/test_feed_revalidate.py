@@ -119,3 +119,19 @@ async def test_a_status_error_carries_the_status():
     with pytest.raises(FeedStatusError) as replay:
         await fetch_feed_text(StubSession({URL: (304, "")}), URL, FeedValidators())
     assert replay.value.status == 304
+
+
+async def test_an_undecodable_feed_is_a_provider_error():
+    """A Latin-1 feed served without a charset fails resp.text()'s strict UTF-8
+    decode. As a ProviderError one source fails, not the whole entry (#371)."""
+    url = "https://feed.example/rss.xml"
+    session = StubSession(
+        {
+            url: (
+                200,
+                b'<?xml version="1.0" encoding="ISO-8859-1"?><alert>Montr\xe9al</alert>',
+            )
+        }
+    )
+    with pytest.raises(ProviderError, match="UnicodeDecodeError"):
+        await fetch_feed_text(session, url)  # type: ignore[arg-type]

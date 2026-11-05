@@ -245,7 +245,10 @@ class CAPContentCache:
             # never retrieved" when the future is collected.
             fut.exception()
             raise
-        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        except (aiohttp.ClientError, asyncio.TimeoutError, UnicodeDecodeError) as exc:
+            # UnicodeDecodeError: resp.text() decodes strictly, with the header
+            # charset or UTF-8, so a body in another encoding fails here. It is
+            # one document, so it costs one alert rather than the poll (#371).
             if cached is not None:
                 _LOGGER.debug(
                     "CAP revalidation failed for %s: %s; serving the cached body",

@@ -115,7 +115,10 @@ async def fetch_feed_text(
                 raise FeedStatusError(resp.status)
             text = await resp.text()
             response_headers = resp.headers
-    except aiohttp.ClientError as err:
+    except (aiohttp.ClientError, UnicodeDecodeError) as err:
+        # UnicodeDecodeError: a feed in an encoding resp.text() cannot decode
+        # strictly. A ProviderError, so one source failing is not an
+        # unexpected error for the whole entry (#371).
         raise ProviderError(f"{type(err).__name__}: {err}") from err
     if validators is not None:
         validators.remember(url, response_headers, text)

@@ -1543,9 +1543,18 @@ class ECCCProvider:
                     )
                 else:
                     etag = resp.headers.get("ETag", "")
-                    text = await resp.text()
+                    try:
+                        text = await resp.text()
+                    except UnicodeDecodeError as err:
+                        # A stream cut mid-character fails here, before the
+                        # truncation guard below can see it, so it is retried
+                        # the same way. So is a body in another encoding (#371).
+                        text = None
+                        last_error = f"undecodable feed body: {err}"
 
-            if text.rstrip().endswith("</feed>"):
+            if text is None:
+                pass  # last_error says why; retried below like a truncation
+            elif text.rstrip().endswith("</feed>"):
                 try:
                     root = ET.fromstring(text)
                 except (ET.ParseError, DefusedXmlException) as err:
