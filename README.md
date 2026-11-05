@@ -89,6 +89,13 @@ The badge opens it directly:
 Added it earlier as a custom repository? Nothing to change. Both pick up the
 store listing on their own and update it like any other store entry.
 
+One other repository, [twcau/CAP-au-for-home-assistant](https://github.com/twcau/CAP-au-for-home-assistant),
+ships the same `custom_components/cap_alerts/` folder. It is an unreleased
+scaffold from January 2026, and Home Assistant keys an integration on that
+folder name, so the two cannot coexist. Remove one before installing the
+other. Logs that mention `xmltodict` or `parser.py` come from that tree, not
+this one.
+
 **Manual.** Copy `custom_components/cap_alerts/` into your configuration's
 `custom_components/` directory and restart.
 
