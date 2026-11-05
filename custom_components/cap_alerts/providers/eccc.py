@@ -777,11 +777,6 @@ def _bilingual_key(doc: CAPDoc, info: CAPInfoDoc) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
-def _fallback_id(atom_id: str, language: str) -> str:
-    """Fallback ID for metadata-only alerts when CAP fetch fails."""
-    return hashlib.sha256(f"{atom_id}|{language}".encode()).hexdigest()[:12]
-
-
 # ---------------------------------------------------------------------------
 # CAPAlert construction
 # ---------------------------------------------------------------------------
@@ -841,34 +836,6 @@ def _build_alert_from_cap(
         parameters=merged_params if merged_params else None,
         language=info.language or atom_metadata.get("language", ""),
         lifecycle_status=_location_status(info),
-        provider="eccc",
-    )
-
-
-def _build_fallback_alert(
-    atom_metadata: dict[str, Any],
-    fallback_web: str,
-    alert_id: str,
-) -> CAPAlert:
-    """Build a metadata-only CAPAlert from Atom envelope on CAP fetch failure."""
-    polygon = atom_metadata.get("polygon")
-    geometry = geometry_from_polygons([polygon] if polygon else [])
-    event_raw = atom_metadata.get("event", "")
-    title_raw = atom_metadata.get("title", "")
-    event = _best_event_name(event_raw, "", title_raw)
-    return CAPAlert(
-        id=alert_id,
-        url=atom_metadata.get("atom_id", ""),
-        event=event,
-        msg_type=atom_metadata.get("msg_type", ""),
-        status=atom_metadata.get("status", ""),
-        severity=atom_metadata.get("severity", ""),
-        urgency=atom_metadata.get("urgency", ""),
-        certainty=atom_metadata.get("certainty", ""),
-        area_desc=atom_metadata.get("area_desc", ""),
-        geometry=geometry,
-        web=fallback_web,
-        language=atom_metadata.get("language", ""),
         provider="eccc",
     )
 
@@ -1276,11 +1243,8 @@ class ECCCProvider:
 
         Runs the envelope pre-filter + CAP-body fetch/parse (``_collect``), builds
         merged bilingual alerts from the successfully-parsed docs via the shared
-        ``build_alerts_from_cap_docs``, and — for survivors whose CAP body could
-        not be fetched — applies the Atom-envelope fallback: province mode fails
-        closed (drops, cannot verify location), GPS/tracker mode surfaces a
-        metadata-only alert (its location was already verified by the envelope
-        polygon).
+        ``build_alerts_from_cap_docs``. A survivor whose CAP body could not be
+        fetched is skipped for the poll in every mode (#370).
 
         ``_collect`` returns one result per surviving *Atom entry*, and the feed
         emits an entry per (language × area group) while all of them link to one
@@ -1318,27 +1282,20 @@ class ECCCProvider:
             web_by_id=web_by_id,
         )
 
-        # Fallback for survivors whose CAP body could not be fetched/parsed.
-        for atom_metadata, web_url, doc in results:
-            if doc is not None:
-                continue
-            atom_id = atom_metadata["atom_id"]
-            if province:
-                # No CAP body → no SGC code → province can't be verified.
-                # Fail closed: showing a province user an alert from elsewhere in
-                # the country is worse than transiently missing one.
+        # A survivor whose CAP body could not be fetched or parsed is skipped
+        # for this poll in every mode, and read when a later poll can. Province
+        # mode can't verify the location without the body. GPS mode once
+        # surfaced a metadata-only alert from the Atom envelope instead, but
+        # it had to mint its own id, so the real alert arrived beside it next
+        # poll, and with no expiry and ECCC's terminal vocabulary declared the
+        # stand-in was retained indefinitely (#370). A five-minute miss on one
+        # alert beats a duplicate that never ends.
+        for atom_metadata, _web_url, doc in results:
+            if doc is None:
                 _LOGGER.warning(
-                    "ECCC: CAP fetch failed for atom id %s; dropping "
-                    "(province mode cannot verify location without CAP body)",
-                    atom_id,
+                    "ECCC: CAP fetch failed for atom id %s; skipped this poll",
+                    atom_metadata["atom_id"],
                 )
-                continue
-            alert_id = _fallback_id(atom_id, atom_metadata.get("language", "en-CA"))
-            alerts.append(_build_fallback_alert(atom_metadata, web_url, alert_id))
-            _LOGGER.warning(
-                "ECCC: CAP fetch failed for atom id %s; surfacing metadata-only alert",
-                atom_id,
-            )
 
         return alerts
 
@@ -1355,9 +1312,9 @@ class ECCCProvider:
 
         The streaming backfill source: runs the same envelope pre-filter and
         CAP-body fetch/parse as ``async_fetch`` but returns the parsed ``CAPDoc``s
-        directly, for the coordinator's live-doc set to merge. Unlike
-        ``async_fetch`` there is no metadata-only fallback — a body that could not
-        be fetched is simply omitted and recovered on a later backfill.
+        directly, for the coordinator's live-doc set to merge. As in
+        ``async_fetch``, a body that could not be fetched is omitted and
+        recovered on a later backfill.
         """
         results = await self._collect(
             session,
