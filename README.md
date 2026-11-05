@@ -6,22 +6,25 @@ Single-entity alert integrations pack every alert into one attribute blob and
 run into Home Assistant's 16 KB attribute limit. CAP Alerts gives each alert
 its own sensor. The state is a normalized severity, the attributes are the
 alert's [CAP 1.2](https://docs.oasis-open.org/emergency/cap/v1.2/CAP-v1.2.html)
-fields, and an event fires when an alert is created, updated or removed.
+fields. An automation picks a location and a severity in the editor and fires
+when an alert is issued, escalates, ends or comes into effect. The events
+underneath are on the bus for anything else. Home Assistant 2026.4.3 or newer.
+
+[![One entry's alert entities on its device page, the six CAP Alerts triggers in the automation editor, and one of them configured with a device as target and a severity floor](https://raw.githubusercontent.com/seevee/cap_alerts/main/docs/img/hero-adaptive.svg)](https://raw.githubusercontent.com/seevee/cap_alerts/main/docs/img/hero-light.webp)
+
+*An entry's alert entities, the integration's triggers in the automation
+editor, and one configured: a location as target, a severity as the floor. Home
+Assistant's own pages, live alerts. For a card, see
+[Cards and automations](#cards-and-automations).*
 
 The providers are the visible part. The point of the project is the model
 underneath them: one identity per incident across re-issues, a lifecycle that
-does not trust feed presence, bounded attributes, and lifecycle events.
-[`docs/rfc-summary.md`](docs/rfc-summary.md) is the one-page version of the
-proposal: that model as an `incident` integration for Home Assistant Core, with
-this integration as its reference implementation. [`rfc.md`](rfc.md) argues it
-in full, and [`docs/evidence/`](docs/evidence/README.md) holds the field
-evidence behind it, one page per finding.
-
-[![Alerts rendered by the companion Weather Alerts Card](https://raw.githubusercontent.com/seevee/weather_alerts_card/main/img/hero-adaptive.svg)](https://github.com/seevee/weather_alerts_card)
-
-*Shown with the companion
-[Weather Alerts Card](https://github.com/seevee/weather_alerts_card). Generic
-cards work too, see [Cards and automations](#cards-and-automations).*
+does not trust feed presence, bounded attributes, and triggers that read that
+lifecycle. [`docs/rfc-summary.md`](docs/rfc-summary.md) is the one-page
+version of the proposal: that model as an `incident` integration for Home
+Assistant Core, with this integration as its reference implementation.
+[`rfc.md`](rfc.md) argues it in full, and [`docs/evidence/`](docs/evidence/README.md)
+holds the field evidence behind it, one page per finding.
 
 ## Providers
 
@@ -158,10 +161,13 @@ Every entry produces one device, named `CAP Alerts <PROVIDER>`, grouping:
 | Entity | State | Notes |
 |---|---|---|
 | `sensor.cap_alerts_<provider>_cap_alert_<event>_<hash>` | `minor`, `moderate`, `severe`, `extreme` or `unknown` | One per active alert. Created and removed dynamically each poll. |
-| `sensor.cap_alerts_<provider>_alert_count` | number of alerts | Attributes `active` and `upcoming` split the total on whether `onset` has passed. Diagnostic. |
-| `sensor.cap_alerts_<provider>_last_updated` | ISO timestamp | When the alert set last changed: an alert issued, updated or ended. Kept across a restart. Not the last poll: that is the count sensor's `last_reported` in templates and the recorder (the REST and websocket state keep the value from its last real change), or `last_success` in the diagnostics download; a failed poll makes the entry unavailable. Diagnostic. |
-| `button.cap_alerts_<provider>_refresh` | — | Fetch now, without waiting for the next poll. Diagnostic. |
-| `binary_sensor.cap_alerts_eccc_real_time_stream` | `on` / `off` | NAAD socket connected. ECCC with streaming on only. Diagnostic. |
+| `sensor.cap_alerts_<provider>_alert_count` | number of alerts | Attributes `active` and `upcoming` split the total on whether `onset` has passed. |
+| `sensor.cap_alerts_<provider>_last_updated` | ISO timestamp | When the alert set last changed: an alert issued, updated or ended. Kept across a restart. Not the last poll: that is the count sensor's `last_reported` in templates and the recorder (the REST and websocket state keep the value from its last real change), or `last_success` in the diagnostics download; a failed poll makes the entry unavailable. |
+| `button.cap_alerts_<provider>_refresh` | — | Fetch now, without waiting for the next poll. |
+| `binary_sensor.cap_alerts_eccc_real_time_stream` | `on` / `off` | NAAD socket connected. ECCC with streaming on only. |
+
+Everything but the alert entities is in the diagnostic category: the device
+page lists it apart, and the auto-generated Overview leaves it out.
 
 The device name is stable across reconfigures, so entity IDs do not drift when
 you change GPS, zone or region. The entry title carries the location detail,
@@ -209,45 +215,13 @@ slug follows the alert language. Discover alert entities by device, or by the
 `incident_platform_version` attribute, which the diagnostic sensors don't
 carry.
 
-## Events
-
-Three event types fire on the Home Assistant bus:
-
-| Event | When |
-|---|---|
-| `incident_created` | A new alert ID appears. |
-| `incident_updated` | An alert's phase or another tracked field changed. |
-| `incident_removed` | An alert reached a terminal phase, `cancel` or `expired`. |
-
-`incident_removed` carries the terminal `phase`, so an automation can tell an
-upstream cancel from a natural expiry. When the provider says why, it also
-carries `removal_reason` (`superseded` or `ended`). An automation with a
-message budget can skip `superseded`, since the replacement fires its own
-`incident_created`.
-
-The same three events show in Activity, which otherwise lists nothing of the
-integration's but the last-updated sensor: logbook never keeps an entity's
-first state or its removal, and treats the count and alert sensors as
-continuous. Each event row names the alert and links to its entity, and the
-last-updated change on the same cycle names the event as its cause, or the
-refresh button press that asked for it. See
-[`docs/events.md`](docs/events.md#activity-and-the-logbook-issue-310).
-
-An alert that merely disappears from the feed is not removed. Feeds have been
-measured dropping live alerts, so the alert is retained until its published
-expiry. An alert with no expiry, and no other way for its source to end it,
-ends on absence instead. That covers every GDACS and Australian alert, BBK
-MoWaS messages, and a few WMO authorities.
-
-Full payload schema and semantics: [`docs/events.md`](docs/events.md).
-
-### Triggers
+## Triggers
 
 The automation editor lists six triggers of the integration's own, each
-reading one of the events above for the alerts of a chosen target. The
-target picker offers alert entities only, and a location's device covers
-alerts that don't exist yet. One field, the severity, sets the lowest rung
-that fires; it defaults to `severe`.
+reading one of the [events](#events) below for the alerts of a chosen
+target. The target picker offers alert entities only, and a location's device
+covers alerts that don't exist yet. One field, the severity, sets the lowest
+rung that fires; it defaults to `severe`.
 
 | Trigger | Fires on | With the severity at `severe` |
 | :-- | :-- | :-- |
@@ -288,6 +262,38 @@ end, and ECCC and WMO extend it on nearly every revision. An alert Home Assistan
 nothing on re-validation, and an escalation that happened while it was down
 is missed (#281).
 
+## Events
+
+Three event types fire on the Home Assistant bus:
+
+| Event | When |
+|---|---|
+| `incident_created` | A new alert ID appears. |
+| `incident_updated` | An alert's phase or another tracked field changed. |
+| `incident_removed` | An alert reached a terminal phase, `cancel` or `expired`. |
+
+`incident_removed` carries the terminal `phase`, so an automation can tell an
+upstream cancel from a natural expiry. When the provider says why, it also
+carries `removal_reason` (`superseded` or `ended`). An automation with a
+message budget can skip `superseded`, since the replacement fires its own
+`incident_created`.
+
+The same three events show in Activity, which otherwise lists nothing of the
+integration's but the last-updated sensor: logbook never keeps an entity's
+first state or its removal, and treats the count and alert sensors as
+continuous. Each event row names the alert and links to its entity, and the
+last-updated change on the same cycle names the event as its cause, or the
+refresh button press that asked for it. See
+[`docs/events.md`](docs/events.md#activity-and-the-logbook-issue-310).
+
+An alert that merely disappears from the feed is not removed. Feeds have been
+measured dropping live alerts, so the alert is retained until its published
+expiry. An alert with no expiry, and no other way for its source to end it,
+ends on absence instead. That covers every GDACS and Australian alert, BBK
+MoWaS messages, and a few WMO authorities.
+
+Full payload schema and semantics: [`docs/events.md`](docs/events.md).
+
 ### Keeping history
 
 Once an alert ends, its entity leaves the entity registry, so the History
@@ -306,6 +312,8 @@ finding alert entities, reading severity, and fetching geometry.
 The companion
 [Weather Alerts Card](https://github.com/seevee/weather_alerts_card) renders
 severity, progress bars, expandable details and an affected-area map.
+
+[![Alerts rendered by the companion Weather Alerts Card](https://raw.githubusercontent.com/seevee/weather_alerts_card/main/img/hero-adaptive.svg)](https://github.com/seevee/weather_alerts_card)
 
 [HA Alert Card](https://github.com/DTekNO/ha-alert-card) is a compact list
 alternative. Its `device:` source follows the alert entities as they come and
@@ -411,6 +419,7 @@ Per-field mappings and the reasoning behind each provider are in
 |---|---|
 | [`docs/frontend_hints.md`](docs/frontend_hints.md) | Consumer contract: attributes, discovering entities, fetching geometry |
 | [`docs/events.md`](docs/events.md) | Event payload schema and lifecycle semantics |
+| [`docs/events.md`, the triggers section](docs/events.md#the-triggers-read-these-events-issue-280) | What the six triggers add over the events, and what carries over from them |
 | [`docs/architecture.md`](docs/architecture.md) | Alert identity, provider mappings, normalization, design rationale |
 | [`rfc.md`](rfc.md) | The incident model as a proposed Home Assistant Core integration; this integration is its reference implementation |
 | [`docs/rfc-summary.md`](docs/rfc-summary.md) | The RFC on one page: the two claims, the ten requirements, what runs today |
