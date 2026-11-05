@@ -1,6 +1,9 @@
 {
   "domain": "cap_alerts",
   "name": "CAP Alerts",
+  "categories": [
+    "weather_alerts.public_warnings"
+  ],
   "codeowners": [
     "@seevee"
   ],
