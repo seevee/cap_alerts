@@ -13,8 +13,8 @@ already shipped lives in [`architecture.md`](architecture.md).
 
 **When:** after a stable release has soaked, as defined below, on an install
 base wider than the custom-repository one. HACS default listing
-([hacs/default#11005](https://github.com/hacs/default/pull/11005), awaiting
-re-review) is the means; the install base is the gate.
+([hacs/default#11005](https://github.com/hacs/default/pull/11005), merged
+2026-11-04) is the means; the install base is the gate.
 
 [`rfc.md`](../rfc.md) is the proposal and `cap_alerts` its reference
 implementation. The RFC's status line used to gate submission on "enough field
