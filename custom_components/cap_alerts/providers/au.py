@@ -78,6 +78,7 @@ from typing import Any
 from xml.etree.ElementTree import Element
 
 import aiohttp
+from defusedxml import DefusedXmlException
 from defusedxml import ElementTree as ET
 
 from ..const import (
@@ -152,7 +153,7 @@ def edxl_alert_elements(xml_text: str) -> list[Element] | None:
     """
     try:
         root = ET.fromstring(xml_text)
-    except ET.ParseError as exc:
+    except (ET.ParseError, DefusedXmlException) as exc:
         _LOGGER.debug("AU: EDXL parse error: %s", exc)
         return None
     return list(root.iter(f"{{{_CAP_NS}}}alert"))

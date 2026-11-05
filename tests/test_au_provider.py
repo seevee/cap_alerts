@@ -111,6 +111,18 @@ def test_edxl_malformed_xml_is_none():
     assert edxl_alert_elements("<EDXLDistribution><contentObject>") is None
 
 
+# An internal entity: defusedxml raises EntitiesForbidden, a DefusedXmlException
+# (a ValueError), not ET.ParseError, so a handler for the latter misses it (#372).
+_ENTITY_DOC = (
+    '<?xml version="1.0"?><!DOCTYPE feed [<!ENTITY e "x">]>'
+    '<feed xmlns="http://www.w3.org/2005/Atom">&e;</feed>'
+)
+
+
+def test_edxl_with_an_internal_entity_is_none():
+    assert edxl_alert_elements(_ENTITY_DOC) is None
+
+
 def test_edxl_accepts_a_bare_cap_document():
     """The CAP namespace is what is matched, not the envelope."""
     elements = edxl_alert_elements(

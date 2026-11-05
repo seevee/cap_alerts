@@ -468,8 +468,16 @@ class NWSProvider:
                 # No URL in the message: in GPS and tracker modes it carries the
                 # coordinates, and the message is kept for diagnostics.
                 raise ProviderError(f"NWS API returned {resp.status}")
-            data: dict[str, Any] = await resp.json()
+            try:
+                data: Any = await resp.json()
+            except ValueError as err:
+                # A truncated or non-JSON body. Raised as ProviderError so the
+                # cancellation lookup's best-effort handler and the coordinator
+                # both see a provider failure rather than an unexpected error.
+                raise ProviderError(f"NWS API returned malformed JSON: {err}") from err
 
+        if not isinstance(data, dict):
+            raise ProviderError("NWS API returned JSON that is not an object")
         # NWS sometimes returns error objects with 200 status
         if data.get("type") != "FeatureCollection":
             problem_type = data.get("type", "unknown")

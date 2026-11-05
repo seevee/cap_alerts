@@ -929,6 +929,33 @@ async def test_eccc_provider_raises_on_persistently_truncated_feed(monkeypatch):
     assert not any(".cap" in url for url in session.requested)
 
 
+# An internal entity: defusedxml raises EntitiesForbidden, a DefusedXmlException
+# (a ValueError), not ET.ParseError, so a handler for the latter misses it (#372).
+_ENTITY_DOC = (
+    '<?xml version="1.0"?><!DOCTYPE feed [<!ENTITY e "x">]>'
+    '<feed xmlns="http://www.w3.org/2005/Atom">&e;</feed>'
+)
+
+
+@pytest.mark.asyncio
+async def test_eccc_feed_with_an_internal_entity_is_retried_then_a_provider_error(
+    monkeypatch,
+):
+    """Ends in </feed>, so it passes the truncation guard and reaches the parser."""
+    monkeypatch.setattr(_eccc_mod, "_FEED_RETRY_BACKOFF_S", 0)
+    session = StubSession({"https://rss.alertready.ca/": _ENTITY_DOC})
+    with pytest.raises(_eccc_mod.ProviderError, match="failed to parse Atom feed"):
+        await ECCCProvider().async_fetch(
+            session,
+            {"province": "ON"},
+            {"language": "en-CA", "feed_source": "alertready"},
+        )
+    assert (
+        session.requested.count("https://rss.alertready.ca/")
+        == _eccc_mod._FEED_FETCH_ATTEMPTS
+    )
+
+
 @pytest.mark.asyncio
 async def test_eccc_provider_retries_then_succeeds_on_truncated_feed(monkeypatch):
     """A single truncated feed response recovers on retry within the same poll."""
