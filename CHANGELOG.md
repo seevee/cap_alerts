@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.8.1 (2026-11-11)
+
+### Fixed
+- Catch defusedxml's own exceptions and bad NWS JSON (#376)
+- Contain a body resp.text() cannot decode (#379)
+- Skip a failed CAP body instead of surfacing a stand-in (#380) (closes #370)
+- Parse the Atom feed and pre-filter its envelope off the loop (#381) (closes #373)
+- Content-address geometry_ref so a changed polygon is a changed handle (#399) (closes #357)
+- Give each trigger row its icon in the automation editor (#400) (closes #394)
+
+### Documentation
+- Install from the HACS default store (#390)
+- Name the restart record the removal leaves behind (#393)
+- Lead with the triggers and show the integration's own pages (#396)
+- Name the other repository that ships the cap_alerts folder (#398)
+
+### Internal
+- Add the Marketplace category (#389)
+- Accept WA Riverine Flood eventCode (#402) (#403)
+- Wait for each poll to reach the cache, not a yield count (#406)
+
 ## 0.8.0 (2026-11-05)
 
 > [!IMPORTANT]
