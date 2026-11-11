@@ -64,7 +64,11 @@ from ..const import (
 from ..conventions import RegionEntry, SourceConventions, StageContext, row_for
 from ..model import CAPAlert, geocodes_from
 from . import ProviderError
-from .cap import alternate_info_index, parse_cap_polygon_text
+from .cap import (
+    alternate_info_index,
+    parse_cap_polygon_text,
+    reference_identifiers,
+)
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_polygons
 from .gps import alert_polygons, parse_gps, point_in_polygon
@@ -565,6 +569,9 @@ def _warning_to_alert(
         certainty=_info_text(primary, "certainty"),
         response_type=_first(primary.get("responseType")),
         sent=sent,
+        # Without the chain the store can't tell an Update replaced the message
+        # it names, and retains that one as stale until its own expiry.
+        references=reference_identifiers(alert.get("references")),
         effective="",
         onset=onset,
         expires=_info_text(primary, "expires"),

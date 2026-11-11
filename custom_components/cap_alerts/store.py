@@ -262,9 +262,15 @@ class AlertStore:
 
         # Build a lookup of previous-poll alerts by CAP <identifier> so that
         # cross-revision supersession can be detected via alert.references.
-        prev_by_identifier: dict[str, CAPAlert] = {
-            prev.identifier: prev for prev in self._previous.values() if prev.identifier
-        }
+        # A list, not one alert: a provider that splits a message per region
+        # tracks several entities under one identifier.
+        prev_by_identifier: dict[str, list[CAPAlert]] = {}
+        for tracked in self._previous.values():
+            if tracked.identifier:
+                prev_by_identifier.setdefault(tracked.identifier, []).append(tracked)
+        # Predecessors a first sighting took over, announcing the change as
+        # its own ``incident_updated`` (or removal).
+        claimed: set[str] = set()
 
         for alert_id, alert in incoming.items():
             prev = self._previous.get(alert_id)
@@ -316,15 +322,11 @@ class AlertStore:
                 # Check for cross-poll supersession: this alert's <references>
                 # may contain the CAP identifier of a previous-poll alert whose
                 # bilingual key differed (e.g. polygon expanded between revisions).
-                superseded_prev = next(
-                    (
-                        prev_by_identifier[ref_id]
-                        for ref_id in (alert.references or ())
-                        if ref_id in prev_by_identifier
-                    ),
-                    None,
+                superseded_prev = _predecessor_of(
+                    alert, prev_by_identifier, claimed, incoming
                 )
                 if superseded_prev is not None:
+                    claimed.add(superseded_prev.id)
                     phase_changed = superseded_prev.phase != alert.phase
                     updated = replace(
                         alert,
@@ -400,9 +402,11 @@ class AlertStore:
 
         # Set of all CAP identifiers referenced by incoming alerts. Used to
         # detect cross-poll supersession in the silent-disappearance loop.
-        referenced_identifiers: set[str] = {
-            ref_id for alert in incoming.values() for ref_id in (alert.references or ())
-        }
+        successors_by_ref: dict[str, list[CAPAlert]] = {}
+        for alert in incoming.values():
+            for ref_id in alert.references or ():
+                successors_by_ref.setdefault(ref_id, []).append(alert)
+        referenced_identifiers = set(successors_by_ref)
         # Supersession the caller can see but this list cannot. A revision whose
         # geometry moved off the user is dropped by the region filter before it
         # reaches here, so its ``references`` never appear in ``incoming`` — yet
@@ -417,12 +421,24 @@ class AlertStore:
         for alert_id, prev in self._previous.items():
             if alert_id in incoming:
                 continue
-            # If this alert's identifier appears in a current-poll alert's
-            # references, it was superseded — skip incident_removed since
-            # incident_updated was already fired for the superseding alert.
-            if prev.identifier and prev.identifier in referenced_identifiers:
+            # Superseded: a current-poll alert names this one in its
+            # references. It leaves silently only when its hazard carries on,
+            # either taken over by a first sighting that announced the change,
+            # or covered by a successor over the same area. A sibling whose
+            # region the revision dropped, or a revision that moved off the
+            # user entirely, has ended here: announce it, never retain it.
+            superseded = (
+                bool(prev.identifier) and prev.identifier in referenced_identifiers
+            )
+            if superseded and (
+                alert_id in claimed
+                or any(
+                    _covers(successor, prev)
+                    for successor in successors_by_ref.get(prev.identifier, ())
+                )
+            ):
                 continue
-            if not scope_changed and _retain_on_absence(prev, now):
+            if not superseded and not scope_changed and _retain_on_absence(prev, now):
                 retained = replace(
                     prev,
                     stale=True,
@@ -795,6 +811,47 @@ def _retain_on_absence(alert: CAPAlert, now: datetime) -> bool:
         return now < expires_at
     return bool(conventions.lifecycle_removal_reasons) or (
         conventions.discovers_terminations
+    )
+
+
+def _covers(successor: CAPAlert, prev: CAPAlert) -> bool:
+    """Whether ``successor`` carries on ``prev``'s area: same text or a shared code."""
+    if prev.area_desc and successor.area_desc == prev.area_desc:
+        return True
+    prev_codes = {(s, c) for s, codes in prev.geocodes.items() for c in codes}
+    return any(
+        (scheme, code) in prev_codes
+        for scheme, codes in successor.geocodes.items()
+        for code in codes
+    )
+
+
+def _predecessor_of(
+    alert: CAPAlert,
+    prev_by_identifier: Mapping[str, list[CAPAlert]],
+    claimed: set[str],
+    incoming: Mapping[str, CAPAlert],
+) -> CAPAlert | None:
+    """The tracked alert a first sighting supersedes, or None.
+
+    Among the tracked alerts its references name, prefer one not already
+    claimed or still published, then one over the same area. With one
+    entity per region under a single identifier, the first match would pair
+    the new alert with whichever sibling happened to be listed first.
+    """
+    candidates = [
+        prev
+        for ref_id in alert.references or ()
+        for prev in prev_by_identifier.get(ref_id, ())
+    ]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda prev: (
+            prev.id in claimed or prev.id in incoming,
+            not _covers(alert, prev),
+        ),
     )
 
 

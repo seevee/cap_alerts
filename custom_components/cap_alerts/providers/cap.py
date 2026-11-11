@@ -198,6 +198,17 @@ def _parse_references(refs_text: str) -> list[tuple[str, str, str]]:
     return refs
 
 
+def reference_identifiers(value: Any) -> tuple[str, ...]:
+    """The CAP identifiers a ``references`` value names, in order.
+
+    Takes the string CAP defines, or a JSON list of them: a feed that wraps
+    other scalars in lists could wrap this one too, and a type error here
+    would fail the whole fetch rather than the one chain.
+    """
+    refs_text = " ".join(_json_texts(value))
+    return tuple(ref_id for _, ref_id, _ in _parse_references(refs_text))
+
+
 def _parse_info(info_el: Element, ns: str) -> CAPInfoDoc:
     """Parse a single CAP <info> element into a CAPInfoDoc."""
 

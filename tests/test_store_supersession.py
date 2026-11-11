@@ -240,3 +240,152 @@ def test_supersession_carries_the_predecessors_severity(hass, alert_factory):
     assert event_type == "incident_updated"
     assert payload["severity"] == "extreme"
     assert payload["previous_severity"] == "moderate"
+
+
+def _region(
+    alert_factory, alert_id, identifier, code, *, references=(), severity="Severe"
+):
+    """One region's entity of a MeteoAlarm message split per configured region."""
+    from custom_components.cap_alerts.model import geocodes_from
+
+    return alert_factory(
+        severity=severity,
+        id=alert_id,
+        identifier=identifier,
+        msg_type="Update" if references else "Alert",
+        provider="meteoalarm",
+        area_desc=f"Region {code}",
+        geocodes=geocodes_from({"EMMA_ID": [code]}),
+        references=references,
+    )
+
+
+def test_region_dropped_by_an_update_is_announced(hass, alert_factory):
+    """An Update covering fewer regions ends the sibling it dropped.
+
+    Region-picker mode turns one message into an entity per region, all under
+    one identifier. The Update keeps region A (same id) and drops B. B's
+    hazard has ended here, so it is removed with an event, not dropped
+    silently on the strength of its identifier being referenced.
+    """
+    from custom_components.cap_alerts.normalize import normalize_alerts
+
+    store = _store(hass, "meteoalarm")
+    store.process(
+        normalize_alerts(
+            [
+                _region(alert_factory, "eA", "M1", "A"),
+                _region(alert_factory, "eB", "M1", "B"),
+            ]
+        )
+    )
+    hass.bus.async_fire.reset_mock()
+
+    result = store.process(
+        normalize_alerts([_region(alert_factory, "eA", "M2", "A", references=("M1",))])
+    )
+
+    assert [a.id for a in result] == ["eA"]
+    removed = [p for t, p in _fired(hass) if t == "incident_removed"]
+    assert [p["incident_id"] for p in removed] == ["eB"]
+    assert removed[0]["phase"] == "cancel"
+
+
+def test_new_region_ids_pair_with_their_own_predecessor(hass, alert_factory):
+    """Each new per-region alert updates the sibling over the same region.
+
+    Pairing on identifier alone hands both successors the same predecessor:
+    the diff is then computed against the wrong region's record.
+    """
+    from custom_components.cap_alerts.normalize import normalize_alerts
+
+    store = _store(hass, "meteoalarm")
+    store.process(
+        normalize_alerts(
+            [
+                _region(alert_factory, "eA", "M1", "A", severity="Severe"),
+                _region(alert_factory, "eB", "M1", "B", severity="Moderate"),
+            ]
+        )
+    )
+    hass.bus.async_fire.reset_mock()
+
+    store.process(
+        normalize_alerts(
+            [
+                _region(
+                    alert_factory,
+                    "eA2",
+                    "M2",
+                    "A",
+                    references=("M1",),
+                    severity="Severe",
+                ),
+                _region(
+                    alert_factory,
+                    "eB2",
+                    "M2",
+                    "B",
+                    references=("M1",),
+                    severity="Moderate",
+                ),
+            ]
+        )
+    )
+
+    fired = _fired(hass)
+    assert [t for t, _ in fired] == ["incident_updated", "incident_updated"]
+    previous = {p["incident_id"]: p.get("previous_severity") for _, p in fired}
+    assert previous == {"eA2": "severe", "eB2": "moderate"}
+
+
+def test_update_naming_several_predecessors_ends_none_of_them(hass, alert_factory):
+    """AEMET names two earlier messages for the same zone in one Update.
+
+    The hazard carries on in the successor, so neither predecessor is
+    announced as ended: one is taken over, the other is covered.
+    """
+    from custom_components.cap_alerts.normalize import normalize_alerts
+
+    store = _store(hass, "meteoalarm")
+    store.process(
+        normalize_alerts(
+            [
+                _region(alert_factory, "p1", "PRP1", "Z"),
+                _region(alert_factory, "p2", "PRP2", "Z"),
+            ]
+        )
+    )
+    hass.bus.async_fire.reset_mock()
+
+    result = store.process(
+        normalize_alerts(
+            [_region(alert_factory, "s", "S", "Z", references=("PRP1", "PRP2"))]
+        )
+    )
+
+    assert [a.id for a in result] == ["s"]
+    assert [t for t, _ in _fired(hass)] == ["incident_updated"]
+
+
+def test_revision_moved_off_the_user_is_announced(hass, alert_factory):
+    """A revision the caller filtered out still ends the alert it replaces.
+
+    ECCC's ingest reports such revisions through ``superseded_identifiers``.
+    Nothing here carries the hazard on, so the predecessor is removed with an
+    event rather than vanishing.
+    """
+    from custom_components.cap_alerts.normalize import normalize_alerts
+
+    store = _store(hass, "eccc")
+    store.process(
+        normalize_alerts([alert_factory(id="k1", identifier="id-A", provider="eccc")])
+    )
+    hass.bus.async_fire.reset_mock()
+
+    result = store.process([], superseded_identifiers=frozenset({"id-A"}))
+
+    assert result == []
+    fired = _fired(hass)
+    assert [t for t, _ in fired] == ["incident_removed"]
+    assert fired[0][1]["incident_id"] == "k1"
