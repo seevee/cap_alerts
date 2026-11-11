@@ -198,6 +198,11 @@ def _parse_references(refs_text: str) -> list[tuple[str, str, str]]:
     return refs
 
 
+def reference_identifiers(refs_text: str) -> tuple[str, ...]:
+    """The CAP identifiers a ``<references>`` string names, in order."""
+    return tuple(ref_id for _, ref_id, _ in _parse_references(refs_text))
+
+
 def _parse_info(info_el: Element, ns: str) -> CAPInfoDoc:
     """Parse a single CAP <info> element into a CAPInfoDoc."""
 

@@ -1,0 +1,101 @@
+{
+  "warnings": [
+    {
+      "alert": {
+        "identifier": "2.49.0.0.620.0.PT.261110212300.PO-10-6288",
+        "incidents": "Update",
+        "info": [
+          {
+            "area": [
+              {
+                "areaDesc": "Lisboa",
+                "geocode": [
+                  {
+                    "value": "PT016",
+                    "valueName": "EMMA_ID"
+                  }
+                ]
+              }
+            ],
+            "category": [
+              "Met"
+            ],
+            "certainty": "Likely",
+            "description": "Precipitação por vezes forte e persistente.",
+            "effective": "2026-11-10T21:23:00+00:00",
+            "event": "Aviso Laranja Precipitação",
+            "expires": "2026-11-11T09:00:00+00:00",
+            "headline": "Aviso Laranja Precipitação para Lisboa",
+            "language": "pt-PT",
+            "onset": "2026-11-11T00:00:00+00:00",
+            "parameter": [
+              {
+                "value": "3; orange; Severe",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "10; Rain",
+                "valueName": "awareness_type"
+              }
+            ],
+            "responseType": [
+              "None"
+            ],
+            "senderName": "Instituto Português do Mar e da Atmosfera",
+            "severity": "Severe",
+            "urgency": "Expected",
+            "web": "https://www.ipma.pt/pt/otempo/prev-sam/"
+          },
+          {
+            "area": [
+              {
+                "areaDesc": "Lisboa",
+                "geocode": [
+                  {
+                    "value": "PT016",
+                    "valueName": "EMMA_ID"
+                  }
+                ]
+              }
+            ],
+            "category": [
+              "Met"
+            ],
+            "certainty": "Likely",
+            "description": "Persistent rainfall, sometimes heavy.",
+            "effective": "2026-11-10T21:23:00+00:00",
+            "event": "Orange Rain Warning",
+            "expires": "2026-11-11T09:00:00+00:00",
+            "headline": "Orange Rain Warning for Lisboa",
+            "language": "en-GB",
+            "onset": "2026-11-11T00:00:00+00:00",
+            "parameter": [
+              {
+                "value": "3; orange; Severe",
+                "valueName": "awareness_level"
+              },
+              {
+                "value": "10; Rain",
+                "valueName": "awareness_type"
+              }
+            ],
+            "responseType": [
+              "None"
+            ],
+            "senderName": "Instituto Português do Mar e da Atmosfera",
+            "severity": "Severe",
+            "urgency": "Expected",
+            "web": "https://www.ipma.pt/en/otempo/prev-sam/"
+          }
+        ],
+        "msgType": "Update",
+        "references": "https://www.ipma.pt,2.49.0.0.620.0.PT.261110163001.PO-10-6279,2026-11-10T16:30:01+00:00",
+        "scope": "Public",
+        "sender": "https://www.ipma.pt",
+        "sent": "2026-11-10T21:23:00+00:00",
+        "status": "Actual"
+      },
+      "uuid": "f3023a18-ce39-47da-a709-9f64ffec65fc"
+    }
+  ]
+}
