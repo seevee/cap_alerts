@@ -63,6 +63,14 @@ def test_update_carries_the_identifier_it_references(successor):
     assert alert.references == (_PREDECESSOR,)
 
 
+def test_references_as_a_list_parse_the_same(successor):
+    """Every feed serves a string today; a list must not fail the fetch."""
+    warning = copy.deepcopy(successor)
+    warning["alert"]["references"] = [warning["alert"]["references"]]
+    (alert,) = _alerts(warning)
+    assert alert.references == (_PREDECESSOR,)
+
+
 def test_new_alert_carries_no_references(predecessor):
     (alert,) = _alerts(predecessor)
     assert alert.references == ()

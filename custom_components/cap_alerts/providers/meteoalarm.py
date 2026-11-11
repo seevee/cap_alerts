@@ -571,7 +571,7 @@ def _warning_to_alert(
         sent=sent,
         # Without the chain the store can't tell an Update replaced the message
         # it names, and retains that one as stale until its own expiry.
-        references=reference_identifiers(alert.get("references") or ""),
+        references=reference_identifiers(alert.get("references")),
         effective="",
         onset=onset,
         expires=_info_text(primary, "expires"),
