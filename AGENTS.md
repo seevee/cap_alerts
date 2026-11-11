@@ -220,6 +220,14 @@ startup evidence page (#358) is built from it. It needs
 `homeassistant.setup: info` and `custom_components.cap_alerts.coordinator:
 debug` in the logger config for that boot.
 
+`scripts/capture_hero.js` photographs the README hero's three panels from a
+running instance (device page, Add trigger list, an editor sidebar held only in
+memory; nothing is saved), and `scripts/compose_hero.py` builds
+`docs/img/hero-*` from them. Capture needs Playwright, taken from the card
+repo's `node_modules` by default, and `HA_TOKEN`; it fails if any trigger row
+renders without its icon. Pick an English entry with three or more live alerts
+(#395).
+
 `scripts/feed_vocab_probe.py` (stdlib only) diffs each provider's live feed
 vocabulary against `scripts/feed_vocab_baseline.json`; a scheduled workflow
 runs it daily and files anything new as a `provider-drift` issue. See
