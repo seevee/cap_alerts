@@ -212,7 +212,9 @@ def _atom(cap_url: str) -> str:
     )
 
 
-async def test_cancelled_entry_does_not_cancel_a_shared_fetch(hass, aioclient_mock):
+async def test_cancelled_entry_does_not_cancel_a_shared_fetch(
+    hass, aioclient_mock, monkeypatch
+):
     """Owner, one waiter cancelled, one waiter kept: the kept one gets the body.
 
     Three entries because two cannot show it: a cancelled owner settles the
@@ -248,11 +250,28 @@ async def test_cancelled_entry_does_not_cancel_a_shared_fetch(hass, aioclient_mo
     aioclient_mock.get(_FEED, text=_atom(second))
     aioclient_mock.get(second, side_effect=_held)
 
+    # Count arrivals at the shared cache, so each poll is known to be there
+    # before the next starts. A fixed number of loop yields is not enough since
+    # #381 put the Atom parse on the executor: a poll that had not arrived yet
+    # could reach the cache after its sibling, swapping owner and waiter.
+    cache = hass.data[DOMAIN]["cap_content_cache"]
+    arrived: list[str] = []
+    real_get_or_fetch = cache.get_or_fetch
+
+    async def _counted(session, url, **kwargs):
+        if url == second:
+            arrived.append(url)
+        return await real_get_or_fetch(session, url, **kwargs)
+
+    monkeypatch.setattr(cache, "get_or_fetch", _counted)
+
     tasks = []
-    for entry in (owner, cancelled, kept):
+    for n, entry in enumerate((owner, cancelled, kept), start=1):
         tasks.append(asyncio.create_task(entry.runtime_data.async_refresh()))
-        for _ in range(20):  # let this poll reach the cache before the next starts
-            await asyncio.sleep(0)
+        async with asyncio.timeout(10):
+            while len(arrived) < n:
+                await asyncio.sleep(0.01)
+        await asyncio.sleep(0)  # into the fetch, or onto the shared future
     tasks[1].cancel()
     await asyncio.sleep(0)
     gate.set()
