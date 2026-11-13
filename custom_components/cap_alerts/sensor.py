@@ -91,7 +91,11 @@ async def async_setup_entry(
 
     @callback
     def _sync_alert_entities() -> None:
-        alerts_by_id = coordinator.data or {}
+        # No fetch has landed yet: at boot the platform loads before the first
+        # one (#404), and "no data" says nothing about which alerts are gone.
+        alerts_by_id = coordinator.data
+        if alerts_by_id is None:
+            return
         current_ids = set(alerts_by_id)
         tracked_ids = set(tracked)
 
@@ -148,6 +152,16 @@ class _CAPAlertsEntity(CoordinatorEntity[AlertsDataUpdateCoordinator], SensorEnt
     @property
     def device_info(self) -> DeviceInfo:
         return self.coordinator.device_info
+
+    @property
+    def available(self) -> bool:
+        """Unavailable until the entry's first fetch lands (issue #404).
+
+        At boot the platforms load before that fetch, and an entity reading no
+        data would otherwise pass through ``unknown`` (or a count of 0) on the
+        way to its real state, a change a state automation could act on.
+        """
+        return super().available and self.coordinator.data is not None
 
 
 class CountSensor(_CAPAlertsEntity):

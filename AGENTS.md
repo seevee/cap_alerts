@@ -149,7 +149,10 @@ custom_components/cap_alerts/
   `async_create_entry` directly
 - `entry.runtime_data` (typed as `CAPAlertsConfigEntry`) instead of
   `hass.data[DOMAIN]` dict
-- `async_config_entry_first_refresh()` for proper startup error handling
+- First fetch by core state (#404): on a running instance
+  `async_config_entry_first_refresh()` blocks setup, so a bad scope fails as
+  `ConfigEntryNotReady`; at boot it runs as an entry background task, so no
+  source holds Home Assistant's startup
 - Normalization happens at the integration level (severity, zones, phase), not
   in the card
 
