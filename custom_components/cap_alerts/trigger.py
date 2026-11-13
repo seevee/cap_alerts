@@ -21,17 +21,11 @@ has no previous state. The store already tells a first sighting from an
 escalation from a restart re-validation, and says so on the bus, so the
 triggers take the store's word. Core's calendar triggers are the precedent,
 a target plus an options schema the integration owns.
-
-The target tracker's ``async_setup`` is a coroutine on current releases and a
-plain method on the 2026.4.3 floor, and the floor's ``async_attach_runner``
-takes one argument where later releases pass two. Both are handled here so
-one file runs on every release the integration supports.
 """
 
 from __future__ import annotations
 
 import abc
-import inspect
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from functools import partial
@@ -53,7 +47,12 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
 )
 from homeassistant.helpers.target import TargetEntityChangeTracker, TargetSelection
-from homeassistant.helpers.trigger import Trigger, TriggerActionRunner, TriggerConfig
+from homeassistant.helpers.trigger import (
+    Trigger,
+    TriggerActionRunner,
+    TriggerConfig,
+    TriggerNotTriggeredReporter,
+)
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
@@ -170,11 +169,7 @@ def _alert_entities(entities: set[str]) -> set[str]:
 
 
 class _AlertTracker(TargetEntityChangeTracker):
-    """Keep a target's alert entities current for a listener to act on.
-
-    The tracker's ``async_setup`` is a coroutine on current core and a plain
-    method on the 2026.4.3 floor, so it is awaited only when it needs to be.
-    """
+    """Keep a target's alert entities current for a listener to act on."""
 
     def __init__(
         self,
@@ -188,9 +183,7 @@ class _AlertTracker(TargetEntityChangeTracker):
 
     async def async_setup(self) -> CALLBACK_TYPE:
         """Track the target and subscribe; returns the unsubscribe."""
-        setup = super().async_setup()
-        if inspect.isawaitable(setup):
-            await setup
+        await super().async_setup()
         self._subscribe()
         return self._unsubscribe
 
@@ -385,7 +378,9 @@ class _TargetedTrigger(Trigger):
         """The tracker that fires ``run_action`` for this trigger."""
 
     async def async_attach_runner(
-        self, run_action: TriggerActionRunner, did_not_trigger: Any = None
+        self,
+        run_action: TriggerActionRunner,
+        did_not_trigger: TriggerNotTriggeredReporter | None = None,
     ) -> CALLBACK_TYPE:
         target_selection = TargetSelection(self._target)
         if not target_selection.has_any_target:

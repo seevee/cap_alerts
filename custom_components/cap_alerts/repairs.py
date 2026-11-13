@@ -14,9 +14,13 @@ streaming toggle) or refreshes it in place (``feed_source``, read per fetch).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from homeassistant.components.repairs import ConfirmRepairFlow, RepairsFlow
+from homeassistant.components.repairs import (
+    ConfirmRepairFlow,
+    RepairsFlow,
+    RepairsFlowResult,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -28,11 +32,6 @@ from .const import (
     ISSUE_ECCC_STREAMING_OFF,
 )
 from .schema import vol
-
-if TYPE_CHECKING:
-    # Annotation-only, and only exported since core 2026.6.0. Importing it at
-    # runtime breaks the repair flows on the declared HACS floor.
-    from homeassistant.components.repairs import RepairsFlowResult
 
 # What Submit writes, per issue stem.
 _FIXES: dict[str, tuple[str, Any]] = {

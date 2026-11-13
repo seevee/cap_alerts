@@ -85,7 +85,7 @@ async def test_a_boot_removal_and_arrival_fire_after_start_in_order(
     # device, area or label trigger reads the same registry (#361). A release
     # inside the started dispatch delivered it after the removal applied. A
     # ``@callback`` like the trigger's own handler: a plain function is run
-    # off the loop and races the removal, which the floor release loses.
+    # off the loop and races the removal, which core 2026.4 lost.
     registered_on_delivery: list[bool] = []
 
     @callback
