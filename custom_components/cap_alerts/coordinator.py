@@ -269,7 +269,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             fire=self._async_fire_event,
             lookup_entity_id=alert_entity_lookup(hass, entry.entry_id, provider.name),
             # Read here rather than borrowed from the sensor platform, which
-            # hydrates only after the first refresh has already run.
+            # on a running instance hydrates only after the first refresh.
             known_at_boot=known_alert_entities(hass, entry.entry_id, provider.name),
             defer_until_registered=True,
         )
@@ -301,6 +301,9 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # ``last_update_success_time`` to tell which came last.
         self.last_update_failure_time: datetime | None = None
         self.last_update_failure: str | None = None
+        # Failed fetches before the first success, for the short retry that
+        # stands in for a failed setup's (issue #404).
+        self._first_fetch_failures = 0
         # Guard a single warning per failure streak when a tracker or
         # country-source entity can't be resolved, so the per-poll resolution
         # doesn't spam the log.
@@ -796,9 +799,27 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             # Assistant's. The message is passed through untouched, so
             # ``last_update_failure`` and the log read as the provider wrote
             # them.
-            raise UpdateFailed(str(err)) from err
+            raise UpdateFailed(
+                str(err), retry_after=self._first_fetch_retry_after()
+            ) from err
         self.last_update_success_time = datetime.now(timezone.utc)
         return data
+
+    def _first_fetch_retry_after(self) -> float | None:
+        """A short retry while the entry has never had data (issue #404).
+
+        A first fetch run in the background at boot has no failed setup to
+        retry it, so it would otherwise wait a full poll interval. This keeps
+        the retry core gives a failed setup, 5 s doubling to 80 s, capped at
+        the poll interval. Once any fetch has landed, the poll cadence owns it.
+        """
+        if self.data is not None:
+            return None
+        delay = 5.0 * 2 ** min(self._first_fetch_failures, 4)
+        self._first_fetch_failures += 1
+        if self.update_interval is not None:
+            delay = min(delay, self.update_interval.total_seconds())
+        return delay
 
     async def _fetch(
         self, config: Mapping[str, Any], options: Mapping[str, Any]

@@ -44,10 +44,14 @@ NEW_CAP_URL = "https://cap.example/arrival.cap"
 
 
 async def _boot(hass: HomeAssistant, entry) -> None:
-    """Set the entry up the way a restart does: before Home Assistant has started."""
+    """Set the entry up the way a restart does: before Home Assistant has started.
+
+    The first fetch runs as a background task at boot (#404); these cases
+    want it landed before the start, so the wait includes background tasks.
+    """
     hass.set_state(CoreState.starting)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
 
 async def _start(hass: HomeAssistant) -> None:

@@ -31,7 +31,7 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import CoreState, Event, HomeAssistant, callback
 from homeassistant.helpers.instance_id import async_get as async_get_instance_id
 
 from .const import (
@@ -120,17 +120,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) ->
         restore_store=AlertRestoreStore(hass, entry.entry_id),
     )
     # Restore first, so the first refresh reconciles against the saved set
-    # (issue #350). A failed first fetch still raises ConfigEntryNotReady as
-    # before; the retry rebuilds the coordinator and restores again.
+    # (issue #350).
     await coordinator.async_restore()
-    await coordinator.async_config_entry_first_refresh()
+    # Core leaves "starting" only once every entry's setup returns, so at boot
+    # the first fetch runs in the background rather than holding the banner
+    # for the slowest source (issue #404). Added or reloaded on a running
+    # instance, it still blocks: a bad scope then fails as ConfigEntryNotReady
+    # where the user can see it, and the retry restores again.
+    booting = hass.state is not CoreState.running
+    if not booting:
+        await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    # Start the provider's push ingest (no-op for a polling entry). The first
-    # refresh above already seeded the active set from the backfill, so the
-    # stream only needs to carry live updates + reconnect gaps.
-    await coordinator.async_start_stream()
+    # The push ingest (a no-op for a polling entry) starts once a first
+    # refresh has seeded the active set from the backfill, so the stream only
+    # carries live updates and reconnect gaps.
+    if booting:
+        _async_first_refresh_in_background(hass, entry, coordinator)
+    else:
+        await coordinator.async_start_stream()
     entry.async_on_unload(coordinator.async_stop_stream)
     # One immediate write at unload and at shutdown, so the restored
     # ``confirmed_at`` is the last reconciliation rather than the last change.
@@ -146,6 +155,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) ->
     )
     entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
     return True
+
+
+@callback
+def _async_first_refresh_in_background(
+    hass: HomeAssistant,
+    entry: CAPAlertsConfigEntry,
+    coordinator: AlertsDataUpdateCoordinator,
+) -> None:
+    """Run the boot-time first fetch as an entry task, and start the stream after it.
+
+    A failed fetch leaves the entities unavailable and retries on the short
+    backoff the coordinator applies until it has data. The stream waits for
+    whichever fetch lands first, not just this one.
+    """
+    if coordinator.streaming:
+        started = False
+
+        @callback
+        def _start_stream_once_seeded() -> None:
+            nonlocal started
+            if started or coordinator.data is None:
+                return
+            started = True
+            entry.async_create_background_task(
+                hass,
+                coordinator.async_start_stream(),
+                f"{DOMAIN} stream start {entry.entry_id}",
+            )
+
+        entry.async_on_unload(coordinator.async_add_listener(_start_stream_once_seeded))
+    entry.async_create_background_task(
+        hass, coordinator.async_refresh(), f"{DOMAIN} first refresh {entry.entry_id}"
+    )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) -> bool:
