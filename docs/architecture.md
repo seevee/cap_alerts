@@ -108,6 +108,25 @@ Each coordinator callback computes full `to_add` / `to_remove` sets from `set(co
 
 Registry entries hydrated at startup are seeded into a `_grace_ids` set. On the first sync, any grace ID not yet present in `coordinator.data` is exempted from removal. After that first sync, `_grace_ids` is cleared unconditionally — on the next poll, any still-absent alert is removed through the normal path. This tolerates the RFC §2.5 scenario where HA restarts in the window between an upstream cancellation and the coordinator observing it, at a cost of up to one extra `scan_interval` of lingering entities in genuinely-cleared cases.
 
+### First fetch at boot (issue #404)
+
+Core leaves `starting` only once every entry's setup returns, so a first fetch
+inside setup held the startup banner for the slowest source (WMO China took
+49.6 s on the dev box). At boot, setup now restores, loads the platforms and
+returns; the fetch runs as an entry background task. Added or reloaded on a
+running instance, the first fetch still blocks, so a bad scope fails as
+`ConfigEntryNotReady` where the user sees it.
+
+Until that fetch lands, `coordinator.data` is `None`, and four things follow
+from it. The sensors read unavailable rather than `unknown` or a count of 0, so
+a boot still goes unavailable → real state with no stop between. The entity
+sync does nothing, since no data says nothing about which alerts are gone. A
+failed fetch retries on core's failed-setup backoff (5 s doubling to 80 s,
+capped at the poll interval) through `UpdateFailed(retry_after=...)`, instead
+of waiting a full interval. The ECCC stream starts on the first fetch that
+lands, because that fetch seeds the active set. Events it fires before
+`homeassistant_started` are still held for the armed automations (#361).
+
 ---
 
 ## The two halves (issue #216)
