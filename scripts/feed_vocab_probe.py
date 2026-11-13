@@ -291,11 +291,12 @@ _NWS_PARAMETER_KEYS = [
     "windThreat",
 ]
 
-# MeteoAlarm CAP Profile v2.0 §2.2.17: awareness_type codes 1–13 and
-# awareness_level codes 1–4. Tracked as the bare code, because the label
-# half of ``"10; Rain"`` is spelled per member service and already varies in
-# case on the live hub.
-_METEOALARM_AWARENESS_TYPE_CODES = [str(n) for n in range(1, 14)]
+# MeteoAlarm CAP Profile v2.0 §2.2.17: awareness_type codes 1–15 and
+# awareness_level codes 1–4, the table the icon map in meteoalarm_conventions.py
+# pins. The profile skips 11, but the baseline is never pruned. Tracked as the
+# bare code, because the label half of ``"10; Rain"`` is spelled per member
+# service and already varies in case on the live hub.
+_METEOALARM_AWARENESS_TYPE_CODES = [str(n) for n in range(1, 16)]
 _METEOALARM_AWARENESS_LEVEL_CODES = [str(n) for n in range(1, 5)]
 
 SPEC_VOCAB: dict[str, dict[str, list[str]]] = {
