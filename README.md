@@ -8,7 +8,7 @@ its own sensor. The state is a normalized severity, the attributes are the
 alert's [CAP 1.2](https://docs.oasis-open.org/emergency/cap/v1.2/CAP-v1.2.html)
 fields. An automation picks a location and a severity in the editor and fires
 when an alert is issued, escalates, ends or comes into effect. The events
-underneath are on the bus for anything else. Home Assistant 2026.4.3 or newer.
+underneath are on the bus for anything else. Home Assistant 2026.9.0 or newer.
 
 [![One entry's alert entities on its device page, the six CAP Alerts triggers in the automation editor, and one of them configured with a device as target and a severity floor](https://raw.githubusercontent.com/seevee/cap_alerts/main/docs/img/hero-adaptive.svg)](https://raw.githubusercontent.com/seevee/cap_alerts/main/docs/img/hero-light.webp)
 
@@ -77,7 +77,7 @@ second one, and a way to automate on it.
 
 ## Installation
 
-Requires Home Assistant 2026.4.3 or newer.
+Requires Home Assistant 2026.9.0 or newer.
 
 **HACS or the Marketplace.** CAP Alerts is in the HACS default store. From
 Home Assistant 2026.11 that store is built in as the Marketplace, so on

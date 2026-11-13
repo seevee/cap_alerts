@@ -192,9 +192,9 @@ async def test_hidden_rows_take_no_cycle_context(
     Logbook shows no rows for the count sensor (a state class) or an alert
     entity (a device class it takes as numeric), but still memoizes their
     writes as a context's first row, and listeners run in no promised order:
-    the floor release writes the count before the timestamp. So on a cycle
-    that only added alerts, where nothing fires before the writes, neither
-    takes the context, and the last-updated row reads as uncaused.
+    core 2026.4 wrote the count before the timestamp. So on a cycle that only
+    added alerts, where nothing fires before the writes, neither takes the
+    context, and the last-updated row reads as uncaused.
     """
     cap_a = "https://cap.example/a.cap"
     cap_b = "https://cap.example/b.cap"

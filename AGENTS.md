@@ -83,13 +83,13 @@ custom_components/cap_alerts/
   button.py         # RefreshButton: on-demand provider fetch (all providers); hands the press's context to the coordinator for that cycle
   logbook.py        # logbook platform (#310): describes the three incident events as Activity rows; discovered by filename, nothing in the manifest
   binary_sensor.py  # StreamConnectivitySensor: NAAD socket state (ECCC streaming only)
-  trigger.py        # automation triggers over the incident events (#280): incident_arrived / incident_updated / incident_escalated / incident_downgraded / incident_ended, a target plus a severity threshold, and the timed incident_started (#326: a timer per alert on onset with an offset; no expires twin, CAP expires is message validity); version-tolerant between the 2026.4.3 floor and current core
+  trigger.py        # automation triggers over the incident events (#280): incident_arrived / incident_updated / incident_escalated / incident_downgraded / incident_ended, a target plus a severity threshold, and the timed incident_started (#326: a timer per alert on onset with an offset; no expires twin, CAP expires is message validity)
   triggers.yaml     # the editor's description of each trigger (incident target, one select field); names and the select's options live under `triggers` and `selector` in strings.json
   icons.json        # the editor's icon for each trigger row (#394); entity icons stay in icons.py, they depend on the event type
   model.py          # CAPAlert dataclass + to_attributes()
   conventions.py    # the convention *mechanism*: what a row may declare (SourceConventions: marine prefixes, terminal tokens, severity/identity/keep/icon hooks, language + country resolution, explode/merge pipeline stages), shared timestamp + episode_id helpers, and the rows in force (register_source / conventions_for); no provider named here
   normalize.py      # shared normalization: severity, phase, state truncation
-  schema.py         # the schema library under one name: probatio (core 2026.9+, and what mypy sees), voluptuous on the 2026.4.3 floor
+  schema.py         # the schema library under one name: probatio, imported under the name `vol`
   payload.py        # attribute-payload budget: measures what the recorder measures, trims long-form text then redundant keys in priority order (#150)
   store.py          # alert store: inter-poll diffing, transition detection, event firing (incl. removal_reason) through a fire callable; no hass. Also the restart record codec (RECORD_FIELDS, record_from_alert / alert_from_record) and `restore()`, which seeds a saved record per live alert so the first reconciliation runs the steady-state rules on it (#350)
   restore.py        # AlertRestoreStore: one `.storage/cap_alerts.<entry_id>` file per entry holding each live alert's lifecycle fields (not content), written on set change + at unload/stop, removed with the entry (#350)
