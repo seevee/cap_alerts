@@ -40,7 +40,7 @@ from .const import (
     DEFAULT_TIMEOUT,
     DOMAIN,
     PLATFORMS,
-    USER_AGENT,
+    user_agent_for,
 )
 from .coordinator import AlertsDataUpdateCoordinator
 from .flows.common import compute_scope_key
@@ -96,8 +96,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: CAPAlertsConfigEntry) ->
     # the only thing that will say why, so it must not wait on a successful
     # setup (issue #163).
     async_sync_issues(hass, entry)
-    instance_id = await async_get_instance_id(hass)
-    user_agent = USER_AGENT.format(instance_id)
+    user_agent = user_agent_for(await async_get_instance_id(hass))
 
     domain_data = hass.data.setdefault(DOMAIN, {})
     if "geometry_store" not in domain_data:
