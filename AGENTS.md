@@ -222,7 +222,8 @@ release asset. `scripts/nws_zone_parity.py` (read-only, run with the project's
 virtualenv) checks that local resolution plus local matching returns the same
 alerts as `alerts/active?point=`, on points it picks from the day's live
 alerts to hit the cases that can go wrong; re-run it on days with real
-weather.
+weather. Its `scan` command shows where polygon warnings are in effect right
+now and how recent they are, and `run --storm` aims the check at those areas.
 
 `scripts/charset_probe.py` (stdlib only, read-only) decodes every feed and a
 sample of CAP bodies the way aiohttp's `resp.text()` does (header charset, else

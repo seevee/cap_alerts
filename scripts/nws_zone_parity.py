@@ -3,6 +3,8 @@
 
 A repeatable check for issue #316, meant to be re-run on days with real weather:
 
+    scripts/nws_zone_parity.py scan                                # where are polygon warnings now?
+    scripts/nws_zone_parity.py run   nws_zones.jsonl.gz --storm    # check where the storms are
     scripts/nws_zone_parity.py run   nws_zones.jsonl.gz            # pick points, then check them
     scripts/nws_zone_parity.py run   nws_zones.jsonl.gz OK TX KS   # or name the states
     scripts/nws_zone_parity.py pick  nws_zones.jsonl.gz            # only print the points
@@ -31,7 +33,33 @@ check is aimed at the cases that can go wrong. For each state it fetches
     IN_MARINE  inside a marine zone-only product's zone, at sea   point= returns it
 
 With no states named it takes the five busiest land areas and the two busiest
-marine areas from ``alerts/active/count``.
+marine areas from ``alerts/active/count``. Busiest is not the same as most
+useful: most active products are zone-only advisories, and the cases that
+exercise polygon matching need a polygon warning to be in effect. ``--storm``
+takes the areas from ``scan`` instead.
+
+``scan`` answers "is today worth a run, and where?". It reads the national
+``alerts/active`` list once, keeps the alerts that carry a polygon, and prints
+one row per area:
+
+    area  polygons  storm  last 3h  newest             events
+    TX           2      1        1  11-14 18:00 EST    Flood Warning, Severe Thunderstorm Warning
+    FL           3      0        0  11-14 10:14 EST    Flood Warning
+
+    polygons  active alerts in the area that carry a polygon
+    storm     of those, the storm-based warnings (tornado, severe thunderstorm,
+              flash flood, special marine, snow squall, extreme wind, dust
+              storm): short-lived, drawn around one storm, and the hardest
+              test of polygon matching
+    last 3h   issued within ``--hours`` (default 3): is anything new?
+    newest    when the most recent one was issued, in this machine's time zone
+
+Areas are ordered by storm-based count, then by recent, then by polygons. An
+alert that spans two states is counted in both. Storm-based warnings last
+about an hour, so run the check soon after a scan shows one. ``scan`` needs no
+dataset and sends no location; give it one anyway and it prints the ``run``
+command ready to paste. The same rows are available to other code through
+``polygon_activity``.
 
 Every point this script sends to NWS is one it generated inside a public alert
 area. ``check`` sends whatever points it is given: use public places, never a
@@ -44,12 +72,14 @@ network access to api.weather.gov. Nothing else.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import gzip
 import json
 import random
 import sys
 import time
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +125,21 @@ TYPE_TO_LAYER = {
     "fire": "fire",
     "marine": "marine",
 }
+
+# What NWS calls storm-based warnings: issued for one storm, with a polygon
+# drawn around its track, usually for under an hour.
+STORM_BASED_EVENTS = frozenset(
+    {
+        "Tornado Warning",
+        "Severe Thunderstorm Warning",
+        "Flash Flood Warning",
+        "Special Marine Warning",
+        "Snow Squall Warning",
+        "Extreme Wind Warning",
+        "Dust Storm Warning",
+    }
+)
+SCAN_HOURS = 3.0
 
 Point = tuple[float, float]  # lat, lon
 Feature = dict[str, Any]
@@ -365,6 +410,108 @@ def pick(zones: ZoneSet, states: list[str]) -> list[Chosen]:
     return chosen
 
 
+# ---------------------------------------------------------------------------
+# Where polygon warnings are in effect right now
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AreaActivity:
+    """The polygon alerts active in one area (a state or a marine area)."""
+
+    area: str  # UGC prefix: "TX", "GM"
+    polygons: int  # active alerts that carry a polygon
+    storm_based: int  # of those, the ones in STORM_BASED_EVENTS
+    recent: int  # of those, the ones issued within the window
+    newest: dt.datetime  # when the most recent one was issued
+    events: tuple[str, ...]  # distinct event names, sorted
+
+
+def polygon_activity(
+    features: list[Feature], now: dt.datetime, hours: float = SCAN_HOURS
+) -> list[AreaActivity]:
+    """Summarise an ``alerts/active`` feature list by area, most stormy first.
+
+    Only alerts with a polygon count. An alert whose UGC codes span several
+    areas is counted in each. ``now`` must be timezone-aware; it is what
+    ``recent`` is measured from, and passing it in keeps this free of the
+    clock and the network so it can be used, and tested, on a saved response.
+    """
+    window = dt.timedelta(hours=hours)
+    found: dict[str, dict[str, Any]] = {}
+    for feature in features:
+        if not feature.get("geometry"):
+            continue
+        properties = feature["properties"]
+        sent = dt.datetime.fromisoformat(properties["sent"])
+        event = properties["event"]
+        codes = properties.get("geocode", {}).get("UGC", [])
+        for area in {code[:2] for code in codes}:
+            row = found.setdefault(
+                area,
+                {
+                    "polygons": 0,
+                    "storm": 0,
+                    "recent": 0,
+                    "newest": sent,
+                    "events": set(),
+                },
+            )
+            row["polygons"] += 1
+            row["storm"] += event in STORM_BASED_EVENTS
+            row["recent"] += now - sent <= window
+            row["newest"] = max(row["newest"], sent)
+            row["events"].add(event)
+    rows = [
+        AreaActivity(
+            area,
+            r["polygons"],
+            r["storm"],
+            r["recent"],
+            r["newest"],
+            tuple(sorted(r["events"])),
+        )
+        for area, r in found.items()
+    ]
+    return sorted(rows, key=lambda r: (-r.storm_based, -r.recent, -r.polygons, r.area))
+
+
+def scan(hours: float = SCAN_HOURS) -> list[AreaActivity]:
+    """Fetch the national active list and print where polygon alerts are in effect."""
+    now = dt.datetime.now(dt.UTC)
+    features = get(f"{API}/alerts/active")["features"]
+    rows = polygon_activity(features, now, hours)
+    with_polygon = sum(1 for f in features if f.get("geometry"))
+    print(
+        f"{len(features)} active alerts, {with_polygon} with polygons, "
+        f"checked {now.astimezone():%Y-%m-%d %H:%M %Z}\n"
+    )
+    if rows:
+        recent_title = f"last {hours:g}h"
+        print(
+            f"{'area':<5}{'polygons':>9}{'storm':>7}{recent_title:>9}  {'newest':<18} events"
+        )
+    for row in rows:
+        print(
+            f"{row.area:<5}{row.polygons:>9}{row.storm_based:>7}{row.recent:>9}  "
+            f"{row.newest.astimezone():%m-%d %H:%M %Z}".ljust(51)
+            + ", ".join(row.events)[:70]
+        )
+    if any(row.storm_based for row in rows):
+        print("\nstorm-based warnings are in effect")
+    elif rows:
+        print("\nno storm-based warnings right now; the polygons are flood or similar")
+    else:
+        print("\nno polygon alerts are active")
+    return rows
+
+
+def storm_areas(rows: list[AreaActivity], limit: int = 5) -> list[str]:
+    """The areas with storm-based warnings; failing that, the ones with any polygon."""
+    stormy = [row.area for row in rows if row.storm_based]
+    return (stormy or [row.area for row in rows])[:limit]
+
+
 def busiest_areas() -> list[str]:
     """The five busiest land areas and the two busiest marine areas right now."""
     areas = get(f"{API}/alerts/active/count").get("areas", {})
@@ -388,6 +535,16 @@ def print_chosen(chosen: list[Chosen]) -> None:
     )
 
 
+def _invocation() -> str:
+    """How this script was started, so a printed command can be pasted back as it is."""
+    interpreter = Path(sys.executable)
+    try:
+        interpreter = interpreter.relative_to(Path.cwd())
+    except ValueError:
+        pass
+    return f"{interpreter} {sys.argv[0]}"
+
+
 def _point(text: str) -> Point:
     lat, lon = (float(value) for value in text.split(","))
     return lat, lon
@@ -407,10 +564,37 @@ def main() -> int:
         sub.add_argument(
             "states", nargs="*", help="two-letter areas; default: the busiest now"
         )
+        sub.add_argument(
+            "--storm",
+            action="store_true",
+            help="with no areas named, use the ones where scan finds polygon warnings",
+        )
+    sub = commands.add_parser(
+        "scan", help="show where polygon warnings are in effect now"
+    )
+    sub.add_argument(
+        "dataset",
+        nargs="?",
+        help="optional; only used to print a ready-to-paste run command",
+    )
+    sub.add_argument(
+        "--hours",
+        type=float,
+        default=SCAN_HOURS,
+        help=f"how far back counts as recent (default {SCAN_HOURS:g})",
+    )
     sub = commands.add_parser("check", help="check the given points")
     sub.add_argument("dataset")
     sub.add_argument("points", nargs="+", type=_point, metavar="LAT,LON")
     args = parser.parse_args()
+
+    if args.command == "scan":
+        areas = storm_areas(scan(args.hours))
+        if areas:
+            print(
+                f"run:\n  {_invocation()} run {args.dataset or 'DATASET'} {' '.join(areas)}"
+            )
+        return 0
 
     zones = load_dataset(args.dataset)
     print(
@@ -418,7 +602,14 @@ def main() -> int:
     )
     if args.command == "check":
         return 1 if check(zones, args.points) else 0
-    chosen = pick(zones, [s.upper() for s in args.states] or busiest_areas())
+    states = [s.upper() for s in args.states]
+    if not states and args.storm:
+        states = storm_areas(scan())
+        if not states:
+            print(
+                "no polygon alerts to aim at; using the busiest areas", file=sys.stderr
+            )
+    chosen = pick(zones, states or busiest_areas())
     print_chosen(chosen)
     if args.command == "pick":
         return 0
