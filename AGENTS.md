@@ -216,7 +216,8 @@ public zone and county shapefiles into the dataset `providers/nws_zones.py`
 reads (#316). The same inputs always give the same bytes: nothing from the
 clock reaches the output, and each source is recorded with its SHA-256.
 `--if-changed <manifest>` skips the build when the inputs and settings match
-an earlier manifest. The dataset is not committed; it is published as a
+an earlier manifest, and refuses to write a dataset whose zone counts moved
+more than `--max-count-change` percent from it. The dataset is not committed; it is published as a
 release asset. `scripts/nws_zone_parity.py` (read-only, run with the project's
 virtualenv) checks that local resolution plus local matching returns the same
 alerts as `alerts/active?point=`, on points it picks from the day's live

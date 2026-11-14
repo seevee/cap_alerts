@@ -40,7 +40,14 @@ SHA-256 of the uncompressed dataset; it is the readable record of a build.
 
 ``--if-changed <manifest>`` hashes the inputs, compares the resulting
 ``build_id`` with the one in an earlier manifest, and stops before reading a
-single shapefile when they match: no change at NWS, no build.
+single shapefile when they match: no change at NWS, no build. When they
+differ it builds, then compares the zone count of each layer with that
+manifest and refuses to write anything if one moved more than
+``--max-count-change`` percent (default 5): that is a source file that went
+missing or stopped parsing, far more often than NWS redrawing the map.
+
+With ``--gzip`` the manifest also records the size and SHA-256 of the ``.gz``
+itself, since that is the file that gets published.
 
 The NWS release pages list each file's MD5, so that is recorded too, for
 checking a download against the page. SHA-256 is what identifies a source here.
@@ -231,6 +238,28 @@ def gzip_bytes(blob: bytes) -> bytes:
     return header + deflate.compress(blob) + deflate.flush() + trailer
 
 
+def count_changes(
+    previous: dict[str, int], current: dict[str, int], limit_pct: float
+) -> list[str]:
+    """Layers whose zone count moved more than ``limit_pct`` percent since the last build.
+
+    A dataset that lost a layer, or a third of its zones, is almost never NWS
+    redrawing the map. It is a source file that was not fetched, or one whose
+    attribute names changed so that no code could be read from its records.
+    Either builds without an error and ships places that resolve to nothing.
+    A layer that appears or disappears counts as a 100% change.
+    """
+    problems = []
+    for layer in sorted(set(previous) | set(current)):
+        before, after = previous.get(layer, 0), current.get(layer, 0)
+        change = 100.0 if before == 0 else abs(after - before) * 100.0 / before
+        if change > limit_pct:
+            problems.append(
+                f"{layer}: {before} -> {after} zones ({change:.1f}% change)"
+            )
+    return problems
+
+
 # Bump when a change to this script would alter the output for the same inputs
 # and parameters, so that ``build_id`` moves with it. 1 was the first dataset
 # (2026-10-22), which carried a build time; 2 removed it.
@@ -294,6 +323,14 @@ def main() -> None:
         default=None,
         help="skip the build when the inputs and parameters match this earlier manifest",
     )
+    ap.add_argument(
+        "--max-count-change",
+        type=float,
+        default=5.0,
+        metavar="PCT",
+        help="with --if-changed: refuse to write when any layer's zone count moved more "
+        "than this many percent from that manifest (default 5)",
+    )
     a = ap.parse_args()
 
     tail = (
@@ -319,9 +356,12 @@ def main() -> None:
         for zp in zips
     ]
     build_id = build_id_of(params, hashed)
+    baseline: dict[str, int] = {}
     if a.if_changed and os.path.exists(a.if_changed):
         with open(a.if_changed, encoding="utf-8") as f:
-            previous = json.load(f).get("build_id")
+            earlier = json.load(f)
+        previous = earlier.get("build_id")
+        baseline = earlier.get("zones") or {}
         if previous == build_id:
             print(
                 f"unchanged: build_id {build_id} matches {a.if_changed}; nothing built",
@@ -420,18 +460,29 @@ def main() -> None:
             file=sys.stderr,
         )
         doc["meta"]["fire_aliases"] = aliased
+    per_layer: dict[str, int] = {}
+    for z in doc["zones"]:
+        per_layer[z["layer"]] = per_layer.get(z["layer"], 0) + 1
+    # Before anything is written: a build that fails this check leaves no file behind.
+    if baseline:
+        problems = count_changes(baseline, per_layer, a.max_count_change)
+        if problems:
+            print(
+                f"refused: zone counts moved more than {a.max_count_change:g}% "
+                f"from {a.if_changed}; nothing written",
+                file=sys.stderr,
+            )
+            for problem in problems:
+                print(f"  {problem}", file=sys.stderr)
+            print(
+                "  if NWS really changed this much, rerun with a larger --max-count-change",
+                file=sys.stderr,
+            )
+            sys.exit(2)
     blob = dataset_bytes(doc["meta"], doc["zones"])
     with open(a.out, "wb") as f:
         f.write(blob)
     msg = f"{a.out}: {len(doc['zones'])} zones, {len(blob) / 1e6:.2f} MB"
-    if a.gzip:
-        gz = gzip_bytes(blob)
-        with open(a.out + ".gz", "wb") as f:
-            f.write(gz)
-        msg += f", {len(gz) / 1e6:.2f} MB gzipped"
-    per_layer: dict[str, int] = {}
-    for z in doc["zones"]:
-        per_layer[z["layer"]] = per_layer.get(z["layer"], 0) + 1
     manifest = {
         **doc["meta"],
         "params": params,
@@ -440,6 +491,14 @@ def main() -> None:
         "content_bytes": len(blob),
         "content_sha256": hashlib.sha256(blob).hexdigest(),
     }
+    if a.gzip:
+        gz = gzip_bytes(blob)
+        with open(a.out + ".gz", "wb") as f:
+            f.write(gz)
+        msg += f", {len(gz) / 1e6:.2f} MB gzipped"
+        # The .gz is the file that gets published, so its own hash is the one to pin or quote.
+        manifest["gzip_bytes"] = len(gz)
+        manifest["gzip_sha256"] = hashlib.sha256(gz).hexdigest()
     manifest_path = a.manifest or a.out + ".manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
