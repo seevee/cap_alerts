@@ -118,6 +118,7 @@ custom_components/cap_alerts/
     au.py                 # Australian state feeds (NSW RFS, QFD, WA DFES, TasALERT): one EDXL-DE document per state → CAP-AU alerts; AlertLevel tier drives severity, marker circles → points, expires dropped (regeneration TTL)
     geosphere.py          # GeoSphere Austria Warn API: one getWarningsForCoords per poll → the municipality's warnings (GeoJSON, not CAP); identity is warnid; geometry reprojected
     austria_lambert.py    # EPSG:31287 (MGI / Austria Lambert) → WGS84 without pyproj: LCC 2SP inverse + EPSG:1618 Helmert, nesting-preserving coordinate walker
+    nws_zones.py          # local NWS zone resolver (#316), stdlib only, no HA imports: ZoneSet.from_lines reads the line-per-zone dataset (header counts, end-of-file line, SHA-256; refuses a partial file), nearby zones for the request, containing zones with the land-sea rule for matching, tracker hysteresis
     twc.py                # U.S. Tsunami Warning Centers: a region's two product slots on tsunami.gov (revalidated) → each one's latest CAP bulletin; identity is product + incident, identifier/references product-qualified (PTWC reuses them across products), Tsunami Cancellation ends
   manifest.json
   strings.json      # every user-facing string: flow steps, options, errors, repairs, triggers; translations/en.json mirrors it exactly (test_translation_keys_in_sync)
@@ -209,6 +210,18 @@ body-level filters.
 product slot and reports the bulletin each holds, identifier collisions across
 slots, and conditional-GET support; `--discover` brute-forces the slot space,
 since a slot 404s until its product is first issued (#298).
+
+`scripts/build_zone_dataset.py` (needs `pyshp`, build-time only) turns NWS's
+public zone and county shapefiles into the dataset `providers/nws_zones.py`
+reads (#316). The same inputs always give the same bytes: nothing from the
+clock reaches the output, and each source is recorded with its SHA-256.
+`--if-changed <manifest>` skips the build when the inputs and settings match
+an earlier manifest. The dataset is not committed; it is published as a
+release asset. `scripts/nws_zone_parity.py` (read-only, run with the project's
+virtualenv) checks that local resolution plus local matching returns the same
+alerts as `alerts/active?point=`, on points it picks from the day's live
+alerts to hit the cases that can go wrong; re-run it on days with real
+weather.
 
 `scripts/charset_probe.py` (stdlib only, read-only) decodes every feed and a
 sample of CAP bodies the way aiohttp's `resp.text()` does (header charset, else
