@@ -27,6 +27,12 @@ _BBK_DWD_GROUP_ICONS: dict[str, str] = {
     "SNOWFALL": "mdi:snowflake",
     "ICE": "mdi:snowflake-melt",
     "GLAZE": "mdi:snowflake-melt",
+    # A "MARKANTE GLÄTTE" warning carries both of these and neither ICE nor
+    # GLAZE, and its English event ("significant icy surfaces") matches no
+    # needle (#415). The parser keeps the last GROUP of a document, so both
+    # are mapped.
+    "SLIPPERINESS": "mdi:snowflake-melt",
+    "BLACK_ICE": "mdi:snowflake-melt",
     "FROST": "mdi:snowflake-thermometer",
     "THAW": "mdi:snowflake-melt",
     "FOG": "mdi:weather-fog",
