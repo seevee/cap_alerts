@@ -3,9 +3,9 @@
 | | |
 | :-- | :-- |
 | Supports | RFC §1.5, §1.6, §6.1 |
-| Source | Home Assistant Discord: [a channel conversation of 2026-04-05](https://discord.com/channels/330944238910963714/554842238073700352/1490502926366412870) on a first-integration PR; [the thread "Mealie Image Proxy", opened 2026-05-11](https://discord.com/channels/330944238910963714/1503359432300433508/1503408294235078696), on [home-assistant/core#166202](https://github.com/home-assistant/core/pull/166202); the PR itself; a client search for "dynamic entity" across the server |
-| Sample | 2 Discord threads and 1 PR, 2026-04-05 to 2026-05-24; 6 search hits, 2024-12-26 to 2026-09-30 |
-| Observed | 2026-10-27, read in a signed-in Discord client |
+| Source | Home Assistant Discord: [a channel conversation of 2026-04-05](https://discord.com/channels/330944238910963714/554842238073700352/1490502926366412870) on a first-integration PR; [the thread "Mealie Image Proxy", opened 2026-05-11](https://discord.com/channels/330944238910963714/1503359432300433508/1503408294235078696), on [home-assistant/core#166202](https://github.com/home-assistant/core/pull/166202); the PR itself; a client search for "dynamic entity" across the server; [architecture#1360](https://github.com/home-assistant/architecture/discussions/1360) |
+| Sample | 2 Discord threads and 1 PR, 2026-04-05 to 2026-05-24; 6 search hits, 2024-12-26 to 2026-09-30; 1 architecture discussion |
+| Observed | 2026-10-27, read in a signed-in Discord client; architecture#1360 fetched 2026-11-15 |
 | Reproduce | Open the permalinks in a Discord client signed in to the Home Assistant server. `timeout 30 gh api repos/home-assistant/core/issues/166202/comments` for the PR comment. No script re-derives a Discord conversation |
 
 Chat is paraphrased here and linked, not quoted. Speakers are named by role.
@@ -46,6 +46,18 @@ to verify, and a boolean would land as a `sensor` rather than a
 `binary_sensor`. The advice was to start with a few named sensors. The author
 agreed to a fixed set.
 
+## The one ruling on entity count
+
+[architecture#1360](https://github.com/home-assistant/architecture/discussions/1360)
+proposed a forecast entity beside each sensor that has a forecast. On
+2026-10-14 an organization member
+[reported on the thread](https://github.com/home-assistant/architecture/discussions/1360#discussioncomment-18925587)
+that "the forecast entity model has been ruled out as an architecture
+candidate": a custom integration creating one for every compatible sensor
+"could almost double the number of entities per HA instance". The proposal
+had been to the architecture meeting, and a core member had written that he
+would "be happy with this and get it into `nordpool`".
+
 ## Outside core
 
 Six search hits state a position on creating entities. Four are one
@@ -63,6 +75,14 @@ whose single review closed the ECCC attribute PR
 reviewer's practice on two threads, stated as an opinion with no ADR or
 quality-scale rule behind it. That is the §1.6 point, applied to the binding
 rather than the payload.
+
+The #1360 ruling is the first core decision on entity count this page can
+cite, and it went against the entity. Its case is not this one. A forecast entity per sensor is
+permanent and scales with the registry. An incident entity exists while its
+alert does, and §2.5 measures the set per entry scope. But the concern named
+is what a custom integration could do to an instance's entity count, and a
+country-wide alert scope is a fair example of it. §2 should expect that
+objection first.
 
 The thread also draws the line. Per-list and per-calendar entities passed
 without objection. What was refused is a set whose size the content decides

@@ -178,7 +178,7 @@ window without depending on the GeoRSS index, which omitted live alerts in
 every sample taken from 2026-07-30 until the gap closed on 2026-10-02.
 
 What stays open is **cold start**. Setup and the periodic resync still go
-through the GeoRSS feed, so the `_fetch_one_feed` truncation guard and the
+through the GeoRSS feed, so the `_download_feed` truncation guard and the
 partial-feed tolerance below still matter, and an alert the alertready index
 omitted before setup is only recovered if it is still in the heartbeat's
 last-ten window. The repository cannot enumerate (directory paths 404, the
@@ -186,16 +186,16 @@ filename encodes a `sent` you only learn from an index), and the one source
 that can — `alertsarchive.pelmorex.com`, a `POST datepicker=` HTML listing —
 sits on the domain the NAAD decoupling exists to move off, with no successor
 staged. Persisting the live doc set across restarts is the fallback design if
-the archive goes with the sunset; it has to bound what it writes, since
-nothing in the integration persists today and `GeometryStore` is kept
-unpersisted over SD-card write amplification.
+the archive goes with the sunset; it has to bound what it writes, since the
+only thing persisted today is each live alert's lifecycle fields (#350) and
+`GeometryStore` is kept unpersisted over SD-card write amplification.
 
 ---
 
 ## Remove the pelmorex NAAD host (cleanup)
 
 **When:** after the legacy `rss.naad-adna.pelmorex.com` host retires. Pelmorex
-announced ~late Sept 2026; the host still served on 2026-10-27.
+announced ~late Sept 2026; the host still served on 2026-11-15.
 
 The GeoRSS host union (#38) fetches both NAAD hosts and unions their entries
 because alertready persistently dropped live alerts pelmorex carried, while
@@ -221,7 +221,7 @@ streaming-off repair stays, since the thin index is the reason it exists).
 
 ## Partial-feed tolerance (authoritative vs. best-effort diffing)
 
-The ECCC feed guard (`eccc.py::_fetch_one_feed`) is all-or-nothing: a body that
+The ECCC feed guard (`eccc.py::_download_feed`) is all-or-nothing: a body that
 doesn't arrive complete (non-empty, ending in `</feed>`) is discarded and the
 poll fails. This is deliberately **fail-closed**: `AlertStore.process` keeps a
 tracked alert *absent* from a poll only until its published expiry, and ends
@@ -235,8 +235,9 @@ alert entities are deleted) at the cost of the poll going stale.
 
 The limitation this leaves: a partial feed still contains valid, parseable
 entries, and on a **cold start / backfill** there is no prior snapshot to fall
-back to — a persistent truncation yields an empty integration
-(`ConfigEntryNotReady`), genuinely withholding alerts that *did* arrive.
+back to — a persistent truncation yields an empty integration (a failed first
+fetch: retried in the background at boot since #404, `ConfigEntryNotReady` on
+a running instance), genuinely withholding alerts that *did* arrive.
 
 **Proposed** — make the diff **state-aware** rather than always-authoritative,
 by threading a "feed completeness" signal from the provider into the store:
@@ -278,6 +279,6 @@ QLD and TAS sit still for long stretches. The shared helper now exists:
 `providers/revalidate.py` (`FeedValidators` + `fetch_feed_text`, issue #304)
 revalidates WMO's index feeds and the TWC product slots and replays the body
 on 304. AU would be its third caller; ECCC still carries its own copy inside
-its retry loop, and
+its retry loop (shared by its entries since #420), and
 could move over once the truncation guard is folded in. Not urgent: aiohttp
 negotiates gzip, which takes NSW to 65 KB on the wire.
