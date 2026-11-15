@@ -6,9 +6,10 @@ import asyncio
 import hashlib
 import logging
 import re
+import weakref
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any
 from xml.etree.ElementTree import Element
@@ -1093,43 +1094,88 @@ def _select_region_infos(
 # ---------------------------------------------------------------------------
 
 
-def _parse_feed(text: str) -> Element:
-    """Parse a NAAD Atom feed; run in the executor (#373, a 6 MB feed on a Pi)."""
-    return ET.fromstring(text)
+@dataclass(frozen=True, slots=True)
+class _FeedEntry:
+    """What the pre-filter reads off one Atom entry, with no scope applied.
+
+    Read once per feed and shared by every entry that fetches meanwhile
+    (``_SharedFeeds``), so nothing here may be mutated.
+    """
+
+    cats: Mapping[str, str]
+    summary: str
+    polygons: list[list[list[float]]]
+    cap_url: str
+    web_url: str
+    atom_id: str
+    title: str
+    oid: str
+    polygon: list[list[float]] | None
+
+
+def _parse_feed(text: str) -> list[_FeedEntry]:
+    """Parse a NAAD Atom feed into its entries; run in the executor (#373).
+
+    The cost is the GeoRSS polygons: a busy national feed carries ~12,600 of
+    them, ~310,000 vertices, parsed to floats for every entry. Measured
+    2026-11-02 on a Raspberry Pi CM4: ~0.95 s per host for the polygons and
+    ~0.27 s for the XML parse, ~2.4 s per poll on the event loop for the
+    default two-host union, before it moved off the loop.
+
+    None of it depends on an entry's scope, so it is done here, once per
+    download, and not in each entry's pre-filter (#420): four pre-filters
+    parsing the same polygons in four threads took 3.4 s on the dev box
+    against 0.44 s for one, and at boot that is what they did.
+    """
+    root = ET.fromstring(text)
+    entries: list[_FeedEntry] = []
+    for entry in root.findall(f"{{{NS_ATOM}}}entry"):
+        cap_url, web_url = _pick_cap_link(entry)
+        entries.append(
+            _FeedEntry(
+                cats=_parse_categories(entry),
+                summary=entry.findtext(f"{{{NS_ATOM}}}summary", ""),
+                polygons=_parse_georss_polygons(entry),
+                cap_url=cap_url,
+                web_url=web_url,
+                atom_id=entry.findtext(f"{{{NS_ATOM}}}id", ""),
+                title=entry.findtext(f"{{{NS_ATOM}}}title", ""),
+                oid=_entry_oid(entry),
+                polygon=_parse_georss_polygon(entry),
+            )
+        )
+    return entries
 
 
 def _prefilter_entries(
-    entries: Sequence[Element],
+    entries: Sequence[_FeedEntry],
     province: str,
     gps_lat: float | None,
     gps_lon: float | None,
 ) -> list[tuple[str, dict[str, Any], str]]:
     """The envelope pre-filter: ``(cap_url, atom_metadata, web_url)`` per survivor.
 
-    Pure and CPU-bound, so ``_collect`` runs it in the executor (#373). The
-    cost is the GeoRSS polygons: a busy national feed carries ~12,600 of them,
-    ~310,000 vertices, parsed to floats for every entry. Measured 2026-11-02
-    on a Raspberry Pi CM4: ~0.95 s per host for this loop and ~0.27 s for the
-    feed parse, ~2.4 s per poll on the event loop for the default two-host
-    union, before it moved off the loop.
+    Pure and CPU-bound, so ``_collect`` runs it in the executor (#373): a
+    bbox or point-in-polygon test per entry over polygons ``_parse_feed``
+    already read.
     """
     survivors: list[tuple[str, dict[str, Any], str]] = []
     seen: set[str] = set()
     for entry in entries:
-        cats = _parse_categories(entry)
+        cats = entry.cats
 
         if cats.get("status", "") != "Actual":
             continue
 
         area_desc = cats.get("areaDesc", "")
-        summary = entry.findtext(f"{{{NS_ATOM}}}summary", "")
+        summary = entry.summary
         if not area_desc and summary and summary.startswith("Area:"):
             area_desc = summary[5:].strip()
 
         geocode = cats.get("geocode", "")
         language = cats.get("language", "en-CA")
 
-        polygons = _parse_georss_polygons(entry)
+        polygons = entry.polygons
         if province:
             # The alertready.ca envelope no longer carries a "geocode"
             # category, so province can only be confirmed from the CAP body
@@ -1142,31 +1188,64 @@ def _prefilter_entries(
         elif not _point_in_polygons(gps_lat, gps_lon, polygons):  # type: ignore[arg-type]
             continue
 
-        cap_url, web_url = _pick_cap_link(entry)
-        atom_id = entry.findtext(f"{{{NS_ATOM}}}id", "")
-        atom_title = entry.findtext(f"{{{NS_ATOM}}}title", "")
-
         atom_metadata: dict[str, Any] = {
-            "atom_id": atom_id,
+            "atom_id": entry.atom_id,
             "language": language,
             "area_desc": area_desc,
             "geocode": geocode,
             "event": cats.get("event", ""),
-            "title": atom_title,
+            "title": entry.title,
             "severity": cats.get("severity", ""),
             "urgency": cats.get("urgency", ""),
             "certainty": cats.get("certainty", ""),
             "msg_type": cats.get("msgType", ""),
             "status": cats.get("status", ""),
-            "polygon": _parse_georss_polygon(entry),
+            "polygon": entry.polygon,
         }
         # (b') Cross-host dedup on survivors: first host in union order wins.
-        oid = _entry_oid(entry)
-        if oid in seen:
+        if entry.oid in seen:
             continue
-        seen.add(oid)
-        survivors.append((cap_url, atom_metadata, web_url))
+        seen.add(entry.oid)
+        survivors.append((entry.cap_url, atom_metadata, entry.web_url))
     return survivors
+
+
+@dataclass
+class _SharedFeeds:
+    """What the ECCC entries on one HTTP session share about the NAAD indexes.
+
+    The index is national: every entry reads the same document from the same
+    host and differs only in what it keeps afterwards. Each entry has its own
+    provider, so before #420 each downloaded and parsed both hosts itself. At
+    boot the fetches start together, and four entries pulling a 4.2 MB index
+    at once took 3 to 11 s to read it, against 2 to 3 s for one request alone
+    (dev box, 2026-11-15). That was half of a busy province's 23 to 25 s cold
+    fetch, under a 30 s timeout.
+    """
+
+    # Conditional-GET state, keyed by feed source id: the (ETag, body) of the
+    # last feed that parsed, so a 304 revalidation can replay the body through
+    # the normal parse path. The raw text is cached rather than the parsed
+    # tree because the tree is ~3× larger resident (measured 19 MB against the
+    # 5.9 MB live feed) and a national feed rarely goes a whole poll interval
+    # unchanged — the win is skipping the download.
+    conditional: dict[str, tuple[str, str]] = field(default_factory=dict)
+    # The fetch of a feed URL that is running now. An entry that asks while it
+    # runs waits for its parsed entries; one that asks afterwards revalidates.
+    inflight: dict[str, asyncio.Future[list[_FeedEntry]]] = field(default_factory=dict)
+
+
+# Keyed by session, weakly: Home Assistant hands every entry the same shared
+# session, so this is one state per instance with nothing to wire through the
+# provider protocol and nothing to clean up at unload.
+_FEEDS_BY_SESSION: weakref.WeakKeyDictionary[aiohttp.ClientSession, _SharedFeeds] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _shared_feeds(session: aiohttp.ClientSession) -> _SharedFeeds:
+    """The feed state every ECCC provider using ``session`` shares."""
+    return _FEEDS_BY_SESSION.setdefault(session, _SharedFeeds())
 
 
 class ECCCProvider:
@@ -1177,13 +1256,6 @@ class ECCCProvider:
         # is in a failure streak so the union logs one warning per streak, reset
         # on that host's next success.
         self._feed_warned: dict[str, bool] = {}
-        # Conditional-GET state, keyed by feed source id: the (ETag, body) of
-        # the last feed that parsed, so a 304 revalidation can replay the body
-        # through the normal parse path. The raw text is cached rather than the
-        # parsed tree because the tree is ~3× larger resident (measured 19 MB
-        # against the 5.9 MB live feed) and a national feed rarely goes a whole
-        # poll interval unchanged — the win is skipping the download.
-        self._feed_conditional: dict[str, tuple[str, str]] = {}
 
     @property
     def name(self) -> str:
@@ -1408,6 +1480,9 @@ class ECCCProvider:
         survivors = await loop.run_in_executor(
             None, _prefilter_entries, entries, province, gps_lat, gps_lon
         )
+        # Every polygon in both feeds, as floats: not held through the body
+        # fetch.
+        del entries
 
         if not survivors:
             return []
@@ -1441,7 +1516,7 @@ class ECCCProvider:
 
     async def _fetch_feed_entries(
         self, session: aiohttp.ClientSession, options: Mapping[str, Any]
-    ) -> list[Element]:
+    ) -> list[_FeedEntry]:
         """Fetch the configured NAAD host(s) and return their Atom entries.
 
         Hosts (``resolve_feed_urls``) are fetched in ``NAAD_FEED_UNION_ORDER``
@@ -1464,11 +1539,11 @@ class ECCCProvider:
         all-hosts failure raises ``ProviderError``, naming each host and its error.
         """
         sources = resolve_feed_urls(options)
-        entries: list[Element] = []
+        entries: list[_FeedEntry] = []
         failures: list[str] = []
         for source_id, url in sources:
             try:
-                root = await self._fetch_one_feed(session, source_id, url)
+                parsed = await self._fetch_one_feed(session, source_id, url)
             except Exception as err:  # noqa: BLE001 — one host down must not sink the union
                 failures.append(f"{source_id} ({url}): {err}")
                 # A pinned single host needs no warning here: its failure is the
@@ -1483,7 +1558,7 @@ class ECCCProvider:
                     self._feed_warned[source_id] = True
                 continue
             self._feed_warned[source_id] = False
-            entries.extend(root.findall(f"{{{NS_ATOM}}}entry"))
+            entries.extend(parsed)
 
         if len(failures) == len(sources):
             raise ProviderError("ECCC: all NAAD hosts failed: " + "; ".join(failures))
@@ -1491,7 +1566,52 @@ class ECCCProvider:
 
     async def _fetch_one_feed(
         self, session: aiohttp.ClientSession, source_id: str, url: str
-    ) -> Element:
+    ) -> list[_FeedEntry]:
+        """One NAAD Atom feed, parsed; shared with any entry asking meanwhile.
+
+        The first caller downloads and parses (``_download_feed``). A caller
+        that arrives while that runs gets the same entries, or the same error,
+        and makes no request (#420). The wait is shielded, so a waiter's
+        cancellation leaves the download alone. The download itself runs in
+        its first caller: if that entry is cancelled (its poll timeout, an
+        unload), the waiters fail this host for this cycle and retry like any
+        other feed failure, which keeps the fetch inside a coordinator's own
+        timeout with no task left behind.
+        """
+        feeds = _shared_feeds(session)
+        running = feeds.inflight.get(url)
+        if running is not None:
+            return await asyncio.shield(running)
+
+        fut: asyncio.Future[list[_FeedEntry]] = (
+            asyncio.get_running_loop().create_future()
+        )
+        feeds.inflight[url] = fut
+        try:
+            entries = await self._download_feed(session, feeds, source_id, url)
+        except BaseException as err:
+            fut.set_exception(
+                err
+                if isinstance(err, Exception)
+                else ProviderError(f"ECCC: shared fetch of {source_id} was cancelled")
+            )
+            # Waiters re-raise it; retrieved here so a fetch nobody waited on
+            # does not log "exception was never retrieved".
+            fut.exception()
+            raise
+        else:
+            fut.set_result(entries)
+            return entries
+        finally:
+            feeds.inflight.pop(url, None)
+
+    async def _download_feed(
+        self,
+        session: aiohttp.ClientSession,
+        feeds: _SharedFeeds,
+        source_id: str,
+        url: str,
+    ) -> list[_FeedEntry]:
         """Fetch and parse one NAAD Atom feed, guarding against truncated downloads.
 
         Conditional GET: when a previous poll stored this host's ``ETag``, the
@@ -1509,7 +1629,7 @@ class ECCCProvider:
         a bounded number of times before surfacing ``ProviderError`` (retried by
         the coordinator next poll).
         """
-        cached = self._feed_conditional.get(source_id)
+        cached = feeds.conditional.get(source_id)
         headers = {"If-None-Match": cached[0]} if cached else None
         last_error = "no attempts made"
         for attempt in range(1, _FEED_FETCH_ATTEMPTS + 1):
@@ -1535,15 +1655,15 @@ class ECCCProvider:
                 pass  # last_error says why; retried below like a truncation
             elif text.rstrip().endswith("</feed>"):
                 try:
-                    root = await asyncio.get_running_loop().run_in_executor(
+                    entries = await asyncio.get_running_loop().run_in_executor(
                         None, _parse_feed, text
                     )
                 except (ET.ParseError, DefusedXmlException) as err:
                     last_error = f"failed to parse Atom feed: {err}"
                 else:
                     if etag:
-                        self._feed_conditional[source_id] = (etag, text)
-                    return root
+                        feeds.conditional[source_id] = (etag, text)
+                    return entries
             else:
                 last_error = (
                     f"truncated feed response ({len(text)} bytes, missing </feed>)"
