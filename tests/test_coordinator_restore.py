@@ -35,6 +35,7 @@ from custom_components.cap_alerts.const import (
 )
 from custom_components.cap_alerts.coordinator import AlertsDataUpdateCoordinator
 from custom_components.cap_alerts.store import RECORD_FIELDS
+from tests.test_trigger import _arm as _arm_trigger
 
 FEED = "https://rss.alertready.ca/"
 CAP_URL = "https://cap.example/restore.cap"
@@ -244,6 +245,30 @@ async def test_restart_announces_a_severity_that_moved_while_down(
     assert updated["changed_fields"] == ["severity_normalized"]
     assert updated["previous_severity"] == "moderate"
     assert updated["severity"] == "severe"
+
+
+@pytest.mark.asyncio
+async def test_an_escalation_while_down_fires_the_escalated_trigger(
+    hass, aioclient_mock, enable_custom_integrations, hass_storage
+):
+    """The README's claim, end to end: the saved severity is what it crossed from."""
+    entry, _ = await _setup_with_saved_alert(hass, aioclient_mock)
+    (entity_id,) = _alert_entity_ids(hass, entry)
+    await _unload(hass, entry)
+    fired = await _arm_trigger(
+        hass, "incident_escalated", {"entity_id": entity_id}, "severe"
+    )
+    _serve_alert(
+        aioclient_mock, severity="Severe", cap_url="https://cap.example/restore-2.cap"
+    )
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    (event,) = fired
+    assert event.data["entity_id"] == entity_id
+    assert event.data["previous"] == "moderate"
+    assert event.data["severity"] == "severe"
 
 
 @pytest.mark.asyncio

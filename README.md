@@ -265,9 +265,15 @@ revision moves the time, and fires once per value. An onset already past when
 the alert is first seen does not fire. Australian state and GDACS alerts
 publish no onset, so on those it never fires. There is no "about to expire"
 trigger on purpose: CAP `expires` is the message's validity, not the hazard's
-end, and ECCC and WMO extend it on nearly every revision. An alert Home Assistant already knew at startup fires
-nothing on re-validation, and an escalation that happened while it was down
-is missed (#281).
+end, and ECCC and WMO extend it on nearly every revision.
+
+An alert Home Assistant already knew at startup fires nothing when the first
+fetch confirms it unchanged. One that changed while Home Assistant was down is
+announced a few seconds after start: a severity that moved fires the updated
+trigger and the escalated or downgraded one, and an alert that ended fires the
+ended trigger, by the same rules as between two polls. Text that changed in
+that time is not announced, since the restart record keeps lifecycle fields
+and no alert text.
 
 ## Events
 
