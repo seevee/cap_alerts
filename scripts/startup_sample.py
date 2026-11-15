@@ -39,8 +39,12 @@ SETUP = re.compile(r"^(\S+ \S+) .*\[homeassistant\.setup\] Setting up cap_alerts
 
 def stamp(text: str) -> datetime:
     # Log times are local and only ever subtracted from each other, so the
-    # zone cancels; UTC just makes the value aware.
-    return datetime.strptime(text, "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=timezone.utc)
+    # zone cancels; UTC just makes the value aware. Core 2026.11 writes the
+    # UTC offset after the milliseconds (``...56.312+00:00``), older logs stop
+    # at them, so only the first 23 characters are read.
+    return datetime.strptime(text[:23], "%Y-%m-%d %H:%M:%S.%f").replace(
+        tzinfo=timezone.utc
+    )
 
 
 def main() -> int:
