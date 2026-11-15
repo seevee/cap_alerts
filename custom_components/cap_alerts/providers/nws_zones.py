@@ -21,10 +21,11 @@ import json
 from array import array
 from collections.abc import Iterable
 from dataclasses import dataclass
-from math import asin, cos, radians, sin, sqrt
+from math import asin, cos, pi, radians, sin, sqrt
 from typing import Any
 
 EARTH_RADIUS_KM = 6371.0088
+KM_PER_DEGREE = EARTH_RADIUS_KM * pi / 180.0  # along a meridian
 
 # The dataset layout this module reads (see ``ZoneSet.from_lines``).
 DATASET_FORMAT = 2
@@ -205,6 +206,8 @@ class ZoneSet:
         *,
         sources: Iterable[dict[str, Any]] = (),
         epsilon_deg: float = 0.0,
+        tail_epsilon_deg: float | None = None,
+        tail_states: Iterable[str] = (),
     ) -> None:
         self._zones: tuple[Zone, ...] = tuple(zones)
         self._index: dict[tuple[str, str], Zone] = {
@@ -212,7 +215,12 @@ class ZoneSet:
         }
         # One entry per shapefile the dataset was built from: file, md5, layer.
         self.sources: tuple[dict[str, Any], ...] = tuple(sources)
+        # How far simplification was allowed to move a boundary, in degrees:
+        # ``epsilon_deg`` everywhere, ``tail_epsilon_deg`` for codes that begin
+        # with one of ``tail_states`` (Alaska, whose zones are far larger).
         self.epsilon_deg = epsilon_deg
+        self.tail_epsilon_deg = tail_epsilon_deg
+        self.tail_states: frozenset[str] = frozenset(tail_states)
 
     # -- construction ----------------------------------------------------
 
@@ -301,9 +309,29 @@ class ZoneSet:
             build.finish(),
             sources=meta.get("sources", ()),
             epsilon_deg=float(meta.get("epsilon_deg", 0.0)),
+            tail_epsilon_deg=meta.get("tail_epsilon_deg"),
+            tail_states=meta.get("tail_states") or (),
         )
 
     # -- introspection ---------------------------------------------------
+
+    def tolerance_km(self, code: str) -> float:
+        """How far the stored boundary of zone ``code`` may lie from the true one.
+
+        Each ring was simplified alone, so two neighbours can each pull their
+        shared border toward themselves and leave a sliver that neither
+        contains. A point in such a sliver is at most this far from the zone
+        it really belongs to. Taken along a meridian, the longer of the two
+        directions a degree can be measured in, so it is never too small.
+        """
+        tail = self.tail_epsilon_deg is not None and code[:2] in self.tail_states
+        degrees = self.tail_epsilon_deg if tail else self.epsilon_deg
+        return (degrees or 0.0) * KM_PER_DEGREE
+
+    @property
+    def max_tolerance_km(self) -> float:
+        """The largest ``tolerance_km`` any zone in the set can have."""
+        return max(self.epsilon_deg, self.tail_epsilon_deg or 0.0) * KM_PER_DEGREE
 
     def __len__(self) -> int:
         return len(self._zones)

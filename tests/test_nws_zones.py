@@ -259,6 +259,40 @@ def test_another_layout_is_refused(first):
 
 
 # ---------------------------------------------------------------------------
+# The tolerances the dataset was simplified with
+# ---------------------------------------------------------------------------
+
+
+def test_tolerance_is_the_simplification_tolerance_in_kilometres(zones):
+    """0.005 degrees along a meridian. Matching uses it to close slivers."""
+    assert zones.tolerance_km("NYZ072") == pytest.approx(0.556, abs=0.001)
+    assert zones.max_tolerance_km == pytest.approx(0.556, abs=0.001)
+
+
+def test_the_coarser_tolerance_applies_to_the_states_the_manifest_names():
+    doc = {
+        "meta": {"epsilon_deg": 0.005, "tail_epsilon_deg": 0.02, "tail_states": ["AK"]},
+        "zones": [_zone("NYZ072", "forecast", _NY)],
+    }
+    for loaded in (ZoneSet.from_json(json.dumps(doc)), ZoneSet.from_lines(_lines(doc))):
+        assert loaded.tolerance_km("AKZ787") == pytest.approx(2.224, abs=0.001)
+        assert loaded.tolerance_km("AKC016") == pytest.approx(2.224, abs=0.001)
+        # Alaska's marine zones carry the PK prefix and were not coarsened.
+        assert loaded.tolerance_km("PKZ767") == pytest.approx(0.556, abs=0.001)
+        assert loaded.tolerance_km("NYZ072") == pytest.approx(0.556, abs=0.001)
+        assert loaded.max_tolerance_km == pytest.approx(2.224, abs=0.001)
+
+
+def test_a_dataset_that_records_no_tolerance_has_none():
+    loaded = ZoneSet.from_json(
+        json.dumps({"zones": [_zone("NYZ072", "forecast", _NY)]})
+    )
+    assert loaded.tolerance_km("NYZ072") == 0.0
+    assert loaded.tolerance_km("AKZ787") == 0.0
+    assert loaded.max_tolerance_km == 0.0
+
+
+# ---------------------------------------------------------------------------
 # Geometry primitives
 # ---------------------------------------------------------------------------
 
