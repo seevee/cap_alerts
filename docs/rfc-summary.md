@@ -34,7 +34,8 @@ states what that takes without assuming a binding:
 | 10 | Readable by a dashboard | A subscribed read path that cards can use |
 
 The pattern core review currently prefers, a count entity plus an action that
-returns the alert bodies, gives a dashboard no such path (§1.6).
+returns the alert bodies, is a call each card makes for itself, not such a
+path (§1.6).
 
 **The binding.** One entity per active incident, created and removed with it
 (§2). It starts as a `sensor` with an `incident` device class, served by an

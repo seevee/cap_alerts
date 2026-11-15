@@ -113,7 +113,9 @@ GeoSphere also measures what the pattern delivers in a release. HA 2026.10
 ships the sensors from #178474 and no action: `warning_sensor_attributes` on
 core `dev` carries one warning per bucket and a docstring saying "The full
 warning payload is intentionally not exposed on sensor entities." The action
-that was to carry the bodies exists only on the author's fork. A municipality
+that was to carry the bodies was a fork branch then, and is open as
+[core#191542](https://github.com/home-assistant/core/pull/191542) since
+2026-11-09. A municipality
 under an orange thunderstorm warning and a yellow rain warning at once exposes
 one of them to the state machine, which is the limit reported against the
 companion card as weather_alerts_card#342.
@@ -129,11 +131,15 @@ companion card as weather_alerts_card#342.
   `get_recommended_actions`, `get_affected_areas`). One `get_details` shipped.
 - Quotes are trimmed to the sentence that carries the point. Follow the
   permalinks for the surrounding paragraph.
-- The GeoSphere action is a fork branch, not a PR. Its response shape
+- The first quote in the table is the author's own and is wrong as worded: a
+  card can call an action and show what it returns, outside its render
+  ([evidence](an-action-response-reaches-a-card-only-by-a-call-of-its-own.md)).
+  The second question is the one that stands.
+- The GeoSphere action was a fork branch when read. Its response shape
   (`active_warnings` and `advance_warnings` lists with `warning_id`,
   `change_id`, `course_id`, `type`, `level`, `start`, `end`, `text`,
   `impacts`, `recommendations`, `meteo_text`, `update_reason`) was read from
-  that branch on 2026-10-11 and may change before anything is filed.
+  that branch on 2026-10-11 and may differ in the PR filed since.
 - The GeoSphere thread never raised the dashboard question. It is evidence
   that the convention is applied by code owners without a rule, not evidence
   of the question going unanswered; that remains #164481.
