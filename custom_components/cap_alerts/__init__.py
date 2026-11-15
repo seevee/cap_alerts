@@ -166,7 +166,9 @@ def _async_first_refresh_in_background(
 
     A failed fetch leaves the entities unavailable and retries on the short
     backoff the coordinator applies until it has data. The stream waits for
-    whichever fetch lands first, not just this one.
+    whichever fetch lands first, not just this one. A tracker or
+    country-entity entry fetches once those resolve, so normal boot ordering is
+    not a failure.
     """
     if coordinator.streaming:
         started = False
@@ -184,8 +186,13 @@ def _async_first_refresh_in_background(
             )
 
         entry.async_on_unload(coordinator.async_add_listener(_start_stream_once_seeded))
+
+    async def _first_refresh() -> None:
+        await coordinator.async_wait_for_scope_entities()
+        await coordinator.async_refresh()
+
     entry.async_create_background_task(
-        hass, coordinator.async_refresh(), f"{DOMAIN} first refresh {entry.entry_id}"
+        hass, _first_refresh(), f"{DOMAIN} first refresh {entry.entry_id}"
     )
 
 
