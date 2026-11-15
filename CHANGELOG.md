@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.2 (2026-11-15)
+
+### Fixed
+- Carry CAP references so an Update supersedes (#408)
+
+### Documentation
+- Recapture the hero on an English entry, with trigger icons (#407) (closes #395)
+
+### Internal
+- Accept MeteoAlarm awareness_type 14 (#409) (#410)
+
 ## 0.8.1 (2026-11-11)
 
 ### Fixed
