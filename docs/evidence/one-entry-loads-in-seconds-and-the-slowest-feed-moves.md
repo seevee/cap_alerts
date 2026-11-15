@@ -4,7 +4,7 @@
 | :-- | :-- |
 | Supports | RFC §2.5 |
 | Source | the dev instance's `home-assistant.log` at three restarts, with `homeassistant.setup: info` and `custom_components.cap_alerts.coordinator: debug`; `integration/setup_info` over the WebSocket; Home Assistant 2026.10.4, cap_alerts 0.8.0-rc.2 and rc.3 |
-| Sample | 27 config entries across all ten providers, each read as one household's install. Three boots: 2026-11-01 17:53Z, 2026-11-02 07:04Z and 17:01Z |
+| Sample | 27 config entries across all nine providers, each read as one household's install. Three boots: 2026-11-01 17:53Z, 2026-11-02 07:04Z and 17:01Z |
 | Observed | 2026-11-01 to 2026-11-02 |
 | Reproduce | `scripts/startup_sample.py <home-assistant.log>` for any boot logged at those levels; `setup_info` from the WebSocket. The figures here are one-time captures |
 
@@ -63,5 +63,12 @@ would quote, and it measures the domain's `async_setup` only, before any entry.
 - Every ECCC poll parsed its feeds and pre-filtered their envelopes on the event
   loop in these releases (#373), which can hold other entries' setup back by up
   to about a second here. The per-entry times include it.
+- These boots predate three changes, all after 0.8.2. The first fetch now runs
+  in the background at boot (#404), so `setup_info` no longer contains it and
+  the first-fetch column is the figure that carries over. A tracker entry
+  waits for its tracker (#419) and no longer fails a first attempt. The ECCC
+  entries share one index download and parse (#420): on 2026-11-15 the two
+  province entries, then at 9 and 84 documents, went from 14 to 18 s and 23
+  to 25 s to 9 to 11 s and 17 to 20 s.
 - "Alerts at boot 3" is the count a few seconds after the boot, read as the
   fan-out each entry created, not a measured first-reconciliation figure.
