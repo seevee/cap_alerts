@@ -30,6 +30,14 @@ from custom_components.cap_alerts.const import DOMAIN
 from tests.test_activity_context import _bare_coordinator
 from tests.test_coordinator_restore import FEED, _atom
 from tests.test_coordinator_streaming import _count_id, _install_fake_stream
+from tests.test_mobile_lifecycle import (
+    COUNTRY,
+    LJUBLJANA,
+    SI_FEED,
+    SI_PAYLOAD,
+    TRACKER,
+)
+from tests.test_mobile_lifecycle import _setup_entry as _setup_tracker_entry
 
 
 def _entry(hass: HomeAssistant, **options) -> MockConfigEntry:
@@ -104,6 +112,29 @@ async def test_a_failed_boot_fetch_loads_the_entry_and_retries_soon(
     await hass.async_block_till_done(wait_background_tasks=True)
 
     assert hass.states.get(_count_id(hass, entry)).state == "0"
+
+
+@pytest.mark.asyncio
+async def test_a_tracker_with_no_location_at_boot_is_retried_soon(
+    hass, aioclient_mock, enable_custom_integrations
+):
+    # A tracker restores after this entry does, so the boot fetch finds no
+    # location. That failure never reaches the provider, and it has to get
+    # the same short retry a failed fetch does.
+    aioclient_mock.get(SI_FEED, json=SI_PAYLOAD)
+    hass.states.async_set(COUNTRY, "Slovenia")
+    hass.set_state(CoreState.starting)
+    entry = await _setup_tracker_entry(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get(_count_id(hass, entry)).state == STATE_UNAVAILABLE
+
+    hass.states.async_set(TRACKER, "not_home", LJUBLJANA)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=6))
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert hass.states.get(_count_id(hass, entry)).state == "1"
 
 
 @pytest.mark.asyncio

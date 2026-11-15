@@ -783,7 +783,15 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
             raise
 
     async def _async_fetch_data(self) -> dict[str, CAPAlert]:
-        config, options = self._resolve_config()
+        try:
+            config, options = self._resolve_config()
+        except UpdateFailed as err:
+            # A tracker restores a moment after this entry at boot, so its
+            # first fetch usually finds no location. Without the short retry
+            # that entry would sit unavailable for a whole poll interval.
+            raise UpdateFailed(
+                str(err), retry_after=self._first_fetch_retry_after()
+            ) from err
 
         # Under real-time ingestion the periodic tick is the safety-resync
         # backfill, not the primary ingestion path (the ingest pushes as
