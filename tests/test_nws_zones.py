@@ -23,8 +23,11 @@ import sys
 from array import array
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from custom_components.cap_alerts.providers import nws_zones
 from custom_components.cap_alerts.providers.nws_zones import (
@@ -37,6 +40,9 @@ from custom_components.cap_alerts.providers.nws_zones import (
     needs_recompute,
     point_in_rings,
 )
+
+settings.register_profile("cap_alerts", deadline=None)
+settings.load_profile("cap_alerts")
 
 Ring = list[list[float]]
 
@@ -256,6 +262,310 @@ def test_a_line_that_is_not_json_is_refused():
 def test_another_layout_is_refused(first):
     with pytest.raises(ZoneDataError, match="not a format 2 zone dataset"):
         ZoneSet.from_lines([first])
+
+
+# ---------------------------------------------------------------------------
+# A hostile or malformed file
+#
+# The file is only parsed after its hash has matched a published dataset, but
+# the parser does not rely on that. Everything below assumes the bytes could
+# be anything, and asks for two things: a bad file is refused, and the only
+# exception that ever leaves the parser is ZoneDataError.
+# ---------------------------------------------------------------------------
+
+_GOOD = _zone("NYZ072", "forecast", _NY)
+
+
+def _one(record: Any, **meta: Any) -> list[bytes]:
+    """A dataset holding ``record`` as its only zone line."""
+    return _lines({"meta": meta, "zones": [record]})
+
+
+def _changed(**fields: Any) -> dict[str, Any]:
+    return {**_GOOD, **fields}
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        "a string",
+        ["a", "list"],
+        42,
+        None,
+        {},
+        _changed(code=7),
+        _changed(code="NYZ72"),
+        _changed(code="nyz072"),
+        _changed(code="NYZ072; DROP"),
+        _changed(code="../../etc"),
+        _changed(layer="bogus"),
+        _changed(layer=None),
+        _changed(rings=None),
+        _changed(rings=[]),
+        _changed(rings="rings"),
+        _changed(rings=[[[0, 0], [1, 1]]]),
+        _changed(rings=[[[0, 0], [1, 1], [2]]]),
+        _changed(rings=[[[0, 0, 0], [1, 1, 1], [2, 2, 2]]]),
+        _changed(rings=[[0, 0, 1, 1, 2, 2]]),
+        _changed(rings=[[["a", "b"], [1, 1], [2, 2]]]),
+        _changed(rings=[[[True, False], [1, 1], [2, 2]]]),
+        _changed(rings=[[[None, 0], [1, 1], [2, 2]]]),
+        _changed(rings=[[[-181.0, 40.0], [-74.0, 40.0], [-74.0, 41.0]]]),
+        _changed(rings=[[[-74.0, 91.0], [-74.0, 40.0], [-73.0, 41.0]]]),
+        _changed(rings=[[[1e39, 40.0], [-74.0, 40.0], [-73.0, 41.0]]]),
+        _changed(bbox=None),
+        _changed(bbox=[-74.1, 40.7, -73.9]),
+        _changed(bbox=[-74.1, 40.7, -73.9, 40.9, 0]),
+        _changed(bbox=["a", 40.7, -73.9, 40.9]),
+        _changed(bbox=[True, 40.7, -73.9, 40.9]),
+        _changed(bbox=[-999.0, 40.7, -73.9, 40.9]),
+        {"code": "NYZ072", "layer": "fire", "alias": "county"},
+        {"code": "NYZ072", "layer": "forecast", "alias": "forecast"},
+        {"code": "NYZ072", "layer": "fire", "alias": "forecast"},  # nothing to alias
+    ],
+)
+def test_a_malformed_zone_record_is_refused(record):
+    with pytest.raises(ZoneDataError):
+        ZoneSet.from_lines(_one(record))
+
+
+def test_a_bounding_box_that_hides_its_zone_is_refused():
+    """The box decides whether a zone is looked at; a small one would hide it."""
+    with pytest.raises(ZoneDataError, match="bbox does not match"):
+        ZoneSet.from_lines(_one(_changed(bbox=[-74.05, 40.75, -74.0, 40.8])))
+
+
+def test_a_bounding_box_larger_than_its_zone_is_refused():
+    with pytest.raises(ZoneDataError, match="bbox does not match"):
+        ZoneSet.from_lines(_one(_changed(bbox=[-180.0, -90.0, 180.0, 90.0])))
+
+
+def test_the_same_zone_twice_is_refused():
+    with pytest.raises(ZoneDataError, match="appears twice"):
+        ZoneSet.from_lines(_lines({"zones": [_GOOD, _GOOD]}))
+
+
+@pytest.mark.parametrize("literal", [b"NaN", b"Infinity", b"-Infinity"])
+def test_not_a_number_and_infinity_are_refused(literal):
+    """json accepts them by default; a NaN coordinate breaks every comparison."""
+    lines = _one(_GOOD)
+    lines[1] = lines[1].replace(b"-74.1", literal, 1)
+    with pytest.raises(ZoneDataError):
+        ZoneSet.from_lines(_resealed(lines))
+
+
+@pytest.mark.parametrize("literal", [b"NaN", b"Infinity", b"1e999", b"-1e999"])
+def test_a_coordinate_that_is_not_finite_is_refused(literal):
+    """1e999 is valid JSON and parses to infinity without any special literal."""
+    lines = _one(_GOOD)
+    planted = lines[1].replace(b'"rings": [[[-74.1', b'"rings": [[[' + literal, 1)
+    assert planted != lines[1]
+    lines[1] = planted
+    with pytest.raises(ZoneDataError):
+        ZoneSet.from_lines(_resealed(lines))
+
+
+def _resealed(lines: list[bytes]) -> list[bytes]:
+    """Recompute the end-of-file checksum, so only the planted fault is wrong."""
+    body = lines[:-1]
+    footer = json.loads(lines[-1])
+    footer["sha256"] = hashlib.sha256(b"".join(body)).hexdigest()
+    return [*body, json.dumps(footer).encode() + b"\n"]
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        {"zones": "1"},
+        {"zones": True},
+        {"zones": 1.0},
+        {"zones": -1},
+        {"zones": 10**9},
+        {"lines": "3"},
+        {"lines": 4},  # not zones plus two
+        {"meta": []},
+        {"meta": "meta"},
+    ],
+)
+def test_a_malformed_header_is_refused(header):
+    with pytest.raises(ZoneDataError):
+        ZoneSet.from_lines(_lines({"zones": [_GOOD]}, header=header))
+
+
+@pytest.mark.parametrize(
+    "meta",
+    [
+        {"epsilon_deg": "0.005"},
+        {"epsilon_deg": True},
+        {"epsilon_deg": -0.005},
+        {"epsilon_deg": 50.0},  # would widen every zone by 5,500 km
+        {"tail_epsilon_deg": 50.0},
+        {"tail_epsilon_deg": "0.02"},
+        {"tail_states": "AK"},
+        {"tail_states": ["Alaska"]},
+        {"tail_states": [7]},
+        {"tail_states": ["AK"] * 100},
+        {"sources": "z_16ap26.zip"},
+        {"sources": ["z_16ap26.zip"]},
+        {"sources": [{}] * 100},
+    ],
+)
+def test_a_malformed_manifest_is_refused(meta):
+    for attempt in (
+        lambda: ZoneSet.from_lines(_one(_GOOD, **meta)),
+        lambda: ZoneSet.from_json(json.dumps({"meta": meta, "zones": [_GOOD]})),
+    ):
+        with pytest.raises(ZoneDataError):
+            attempt()
+
+
+@pytest.mark.parametrize("checksum", [None, 7, "", "xyz", "0" * 63, "G" * 64])
+def test_an_end_line_without_a_real_checksum_is_refused(checksum):
+    with pytest.raises(ZoneDataError):
+        ZoneSet.from_lines(_lines(footer={"sha256": checksum}))
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        b"[" * 200_000
+        + b"]" * 200_000
+        + b"\n",  # nesting deep enough to exhaust the stack
+        b'{"code": ' + b"9" * 10_000 + b"}\n",  # an integer too long to convert
+        b"\xff\xfe not utf-8\n",
+        b'{"code": "NYZ072"\n',
+        b"[]\n",
+        b"7\n",
+        b'"eof"\n',
+    ],
+    ids=[
+        "deep-nesting",
+        "huge-integer",
+        "bad-utf8",
+        "cut-off",
+        "a-list",
+        "a-number",
+        "a-string",
+    ],
+)
+def test_a_line_that_is_not_a_zone_record_is_refused(line):
+    lines = _lines()
+    lines[2] = line
+    with pytest.raises(ZoneDataError):
+        ZoneSet.from_lines(lines)
+
+
+def test_a_line_over_the_length_ceiling_is_refused_unparsed(monkeypatch):
+    monkeypatch.setattr(nws_zones, "MAX_LINE_BYTES", 400)
+    lines = _lines()
+    assert len(lines[0]) < 400
+    lines[1] = b'{"padding": "' + b"x" * 1000 + b'"}\n'
+    with (
+        patch.object(nws_zones.json, "loads", wraps=json.loads) as parse,
+        pytest.raises(ZoneDataError, match="longer than 400 bytes"),
+    ):
+        ZoneSet.from_lines(lines)
+    assert parse.call_count == 1  # the header only
+
+
+def test_a_dataset_over_the_size_ceiling_is_refused(monkeypatch):
+    monkeypatch.setattr(nws_zones, "MAX_DATASET_BYTES", 300)
+    with pytest.raises(ZoneDataError, match="larger than 300 bytes"):
+        ZoneSet.from_lines(_lines())
+
+
+def test_more_zones_than_the_ceiling_is_refused(monkeypatch):
+    monkeypatch.setattr(nws_zones, "MAX_ZONES", 3)
+    with pytest.raises(ZoneDataError, match="header zones"):
+        ZoneSet.from_lines(_lines())
+    # The single-document layout has no header to declare a count up front.
+    with pytest.raises(ZoneDataError, match="more than 3 zones"):
+        ZoneSet.from_json(json.dumps(_DOC))
+
+
+def test_more_vertices_than_the_ceiling_is_refused(monkeypatch):
+    monkeypatch.setattr(nws_zones, "MAX_VERTICES", 10)
+    with pytest.raises(ZoneDataError, match="more than 10 vertices"):
+        ZoneSet.from_lines(_lines())
+
+
+def test_more_rings_in_a_zone_than_the_ceiling_is_refused(monkeypatch):
+    monkeypatch.setattr(nws_zones, "MAX_RINGS_PER_ZONE", 1)
+    with pytest.raises(ZoneDataError, match="too many"):
+        ZoneSet.from_lines(_one(_zone("NYZ072", "forecast", _NY, _NJ)))
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "[]",
+        "7",
+        '{"zones": 7}',
+        '{"zones": [7]}',
+        '{"meta": 7, "zones": []}',
+        "{",
+        "NaN",
+    ],
+)
+def test_the_single_document_reader_refuses_the_same_things(document):
+    with pytest.raises(ZoneDataError):
+        ZoneSet.from_json(document)
+
+
+@given(data=st.data())
+def test_no_damage_to_a_good_file_gets_past_as_anything_but_a_refusal(data):
+    """Flip, drop or insert bytes anywhere; the checksum is recomputed each time.
+
+    Recomputing it matters: otherwise the checksum would catch every change
+    and nothing behind it would be exercised. Whatever the damage, the file
+    either still loads or is refused with ZoneDataError. No other exception,
+    whatever the bytes.
+    """
+    lines = _lines()
+    index = data.draw(st.integers(0, len(lines) - 2))
+    line = bytearray(lines[index])
+    for _ in range(data.draw(st.integers(1, 4))):
+        position = data.draw(st.integers(0, len(line) - 1))
+        action = data.draw(st.sampled_from(["flip", "drop", "insert"]))
+        if action == "flip":
+            line[position] = data.draw(st.integers(0, 255))
+        elif action == "drop":
+            del line[position]
+        else:
+            line.insert(position, data.draw(st.integers(0, 255)))
+        if not line:
+            line = bytearray(b"\n")
+    lines[index] = bytes(line)
+    try:
+        ZoneSet.from_lines(_resealed(lines))
+    except ZoneDataError:
+        pass
+
+
+_JSON = st.recursive(
+    st.none()
+    | st.booleans()
+    | st.integers(-(10**6), 10**6)
+    | st.floats(allow_nan=False, allow_infinity=False, width=32)
+    | st.text(max_size=8),
+    lambda inner: (
+        st.lists(inner, max_size=4)
+        | st.dictionaries(
+            st.sampled_from(["code", "layer", "bbox", "rings", "alias", "x"]),
+            inner,
+            max_size=5,
+        )
+    ),
+    max_leaves=12,
+)
+
+
+@given(record=_JSON)
+def test_any_json_value_as_a_zone_record_loads_or_is_refused(record):
+    try:
+        ZoneSet.from_lines(_one(record))
+    except ZoneDataError:
+        pass
 
 
 # ---------------------------------------------------------------------------

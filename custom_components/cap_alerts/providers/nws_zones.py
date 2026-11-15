@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from array import array
 from collections.abc import Iterable
 from dataclasses import dataclass
-from math import asin, cos, pi, radians, sin, sqrt
+from math import asin, cos, isfinite, pi, radians, sin, sqrt
 from typing import Any
 
 EARTH_RADIUS_KM = 6371.0088
@@ -30,9 +31,70 @@ KM_PER_DEGREE = EARTH_RADIUS_KM * pi / 180.0  # along a meridian
 # The dataset layout this module reads (see ``ZoneSet.from_lines``).
 DATASET_FORMAT = 2
 
+# Ceilings on what a dataset may contain. The file is trusted only after its
+# hash has been checked, but the parser does not lean on that: it assumes the
+# bytes could be anything, and refuses whatever does not look like a zone
+# dataset of plausible size. Each ceiling is several times the real figure
+# (April 2026: 11.6 MB, 11,634 zones, 549,545 vertices, longest line 48 kB,
+# at most 88 rings in a zone), so a genuine dataset has room to grow and a
+# hostile one cannot ask for unbounded memory or time.
+MAX_DATASET_BYTES = 64 * 1024 * 1024  # uncompressed
+MAX_LINE_BYTES = 1024 * 1024
+MAX_ZONES = 100_000
+MAX_VERTICES = 4_000_000
+MAX_RINGS_PER_ZONE = 2_000
+MAX_SOURCES = 32
+MAX_TAIL_STATES = 60
+# Simplification tolerance, in degrees. Matching widens every zone by this
+# much, so a dataset claiming a huge one would make every zone match every
+# point. A tenth of a degree is 11 km, five times the coarsest in use.
+MAX_EPSILON_DEG = 0.1
+
+LAYERS = frozenset({"forecast", "county", "fire", "marine"})
+_CODE = re.compile(r"[A-Z]{2}[CZ][0-9]{3}")
+_STATE = re.compile(r"[A-Z]{2}")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
 
 class ZoneDataError(ValueError):
     """The dataset is cut short, damaged, or not in the layout this module reads."""
+
+
+def _reject_constant(name: str) -> float:
+    # ``json`` accepts NaN and Infinity unless told otherwise. A NaN coordinate
+    # compares false against everything and would quietly break containment.
+    raise ZoneDataError(f"{name} is not a number a dataset may contain")
+
+
+def _parse(line: bytes | str, where: str) -> Any:
+    """One JSON value, or ``ZoneDataError``. Never any other exception."""
+    try:
+        return json.loads(line, parse_constant=_reject_constant)
+    except ZoneDataError:
+        raise
+    except (ValueError, RecursionError) as err:
+        # ValueError covers malformed JSON, bad UTF-8 and integers too long to
+        # convert; RecursionError is what deeply nested brackets produce.
+        raise ZoneDataError(f"{where} is not JSON") from err
+
+
+def _number(value: Any, low: float, high: float, what: str) -> float:
+    """A finite real number within ``low..high``. Booleans are not numbers here."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ZoneDataError(f"{what} is not a number")
+    number = float(value)
+    if not isfinite(number) or not low <= number <= high:
+        raise ZoneDataError(f"{what} is out of range")
+    return number
+
+
+def _count(value: Any, ceiling: int, what: str) -> int:
+    """A whole number from 0 to ``ceiling``."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ZoneDataError(f"{what} is not a whole number")
+    if not 0 <= value <= ceiling:
+        raise ZoneDataError(f"{what} is out of range")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,43 +220,142 @@ def bbox_distance_km(
 
 
 class _ZoneBuilder:
-    """Turns dataset records into zones one at a time.
+    """Turns dataset records into zones one at a time, checking each as it goes.
 
     Each record's coordinate lists become a compact array as soon as the
     record arrives and are then dropped, so reading a file line by line never
     holds more than one zone in its parsed form. Collecting the records first
     and converting them afterwards put the whole file in memory as Python
     lists, and the peak was the same 100 MB as parsing a single document.
+
+    Nothing is taken on trust. Every field is checked for type and range, the
+    counts are held under the module's ceilings, and the stored bounding box
+    must be exactly the extent of the rings: the box is what decides whether
+    a zone is even looked at, so a wrong one would hide the zone.
     """
 
     def __init__(self) -> None:
         self.count = 0
+        self._vertices = 0
         self._zones: list[Zone] = []
         self._by_key: dict[tuple[str, str], Zone] = {}
-        self._aliases: list[tuple[str, str, str]] = []
+        self._seen: set[tuple[str, str]] = set()
+        self._aliases: list[tuple[str, str]] = []
 
-    def add(self, record: dict[str, Any]) -> None:
+    def add(self, record: Any) -> None:
+        if not isinstance(record, dict):
+            raise ZoneDataError("a zone record is not an object")
         self.count += 1
-        code, layer = record["code"], record["layer"]
+        if self.count > MAX_ZONES:
+            raise ZoneDataError(f"more than {MAX_ZONES} zones")
+        code, layer = record.get("code"), record.get("layer")
+        if not isinstance(code, str) or not _CODE.fullmatch(code):
+            raise ZoneDataError("a zone code is not of the form AAZ999")
+        if not isinstance(layer, str) or layer not in LAYERS:
+            raise ZoneDataError(f"{code}: unknown layer")
+        if (layer, code) in self._seen:
+            raise ZoneDataError(f"{layer} {code} appears twice")
+        self._seen.add((layer, code))
         # A fire zone identical to the forecast zone of the same code. It can
         # come before that zone in the file, so it waits for the end.
         if "alias" in record:
-            self._aliases.append((code, layer, record["alias"]))
+            if record["alias"] != "forecast" or layer != "fire":
+                raise ZoneDataError(
+                    f"{code}: only a fire zone may alias a forecast zone"
+                )
+            self._aliases.append((code, layer))
             return
-        rings = tuple(
-            array("f", (c for pt in ring for c in pt)) for ring in record["rings"]
-        )
-        x0, y0, x1, y1 = record["bbox"]
-        zone = Zone(code, layer, (x0, y0, x1, y1), rings)
+        rings = self._rings(code, record.get("rings"))
+        bbox = self._bbox(code, record.get("bbox"), rings)
+        zone = Zone(code, layer, bbox, rings)
         self._zones.append(zone)
         self._by_key[(layer, code)] = zone
 
+    def _rings(self, code: str, value: Any) -> tuple[array[float], ...]:
+        if not isinstance(value, list) or not 1 <= len(value) <= MAX_RINGS_PER_ZONE:
+            raise ZoneDataError(f"{code}: rings missing, empty or too many")
+        rings = []
+        for ring in value:
+            if not isinstance(ring, list) or len(ring) < 3:
+                raise ZoneDataError(f"{code}: a ring has fewer than three points")
+            self._vertices += len(ring)
+            if self._vertices > MAX_VERTICES:
+                raise ZoneDataError(f"more than {MAX_VERTICES} vertices")
+            # Checked a ring at a time with builtins, not a point at a time:
+            # half a million points pass through here on every load.
+            if not all(type(point) is list and len(point) == 2 for point in ring):
+                raise ZoneDataError(f"{code}: a point is not a [lon, lat] pair")
+            lons = [point[0] for point in ring]
+            lats = [point[1] for point in ring]
+            # ``type(...) in``, not ``isinstance``: True and False are ints.
+            if not all(type(v) in (float, int) for v in lons + lats):
+                raise ZoneDataError(f"{code}: a coordinate is not a number")
+            if min(lons) < -180.0 or max(lons) > 180.0:
+                raise ZoneDataError(f"{code}: a longitude is out of range")
+            if min(lats) < -90.0 or max(lats) > 90.0:
+                raise ZoneDataError(f"{code}: a latitude is out of range")
+            flat = array("f", (v for point in ring for v in point))
+            rings.append(flat)
+        return tuple(rings)
+
+    @staticmethod
+    def _bbox(
+        code: str, value: Any, rings: tuple[array[float], ...]
+    ) -> tuple[float, float, float, float]:
+        if not isinstance(value, list) or len(value) != 4:
+            raise ZoneDataError(f"{code}: bbox is not four numbers")
+        x0 = _number(value[0], -180.0, 180.0, f"{code}: bbox")
+        y0 = _number(value[1], -90.0, 90.0, f"{code}: bbox")
+        x1 = _number(value[2], -180.0, 180.0, f"{code}: bbox")
+        y1 = _number(value[3], -90.0, 90.0, f"{code}: bbox")
+        lons = [v for ring in rings for v in ring[0::2]]
+        lats = [v for ring in rings for v in ring[1::2]]
+        extent = (min(lons), min(lats), max(lons), max(lats))
+        # The rings are held as float32, so compare at that precision.
+        stored = tuple(array("f", (x0, y0, x1, y1)))
+        if stored != extent:
+            raise ZoneDataError(f"{code}: bbox does not match the extent of its rings")
+        return (x0, y0, x1, y1)
+
     def finish(self) -> list[Zone]:
-        for code, layer, alias in self._aliases:
-            src = self._by_key[(alias, code)]
+        for code, layer in self._aliases:
+            src = self._by_key.get(("forecast", code))
+            if src is None:
+                raise ZoneDataError(
+                    f"{layer} {code} aliases a forecast zone that is absent"
+                )
             # The same array objects, no copy.
             self._zones.append(Zone(code, layer, src.bbox, src.rings))
         return self._zones
+
+
+def _tolerances(meta: Any) -> tuple[float, float | None, frozenset[str]]:
+    """The simplification tolerances a dataset declares, checked and bounded."""
+    epsilon = _number(meta.get("epsilon_deg", 0.0), 0.0, MAX_EPSILON_DEG, "epsilon_deg")
+    tail = meta.get("tail_epsilon_deg")
+    tail_epsilon = (
+        None
+        if tail is None
+        else _number(tail, 0.0, MAX_EPSILON_DEG, "tail_epsilon_deg")
+    )
+    states = meta.get("tail_states") or []
+    if not isinstance(states, list) or len(states) > MAX_TAIL_STATES:
+        raise ZoneDataError("tail_states is not a short list")
+    for state in states:
+        if not isinstance(state, str) or not _STATE.fullmatch(state):
+            raise ZoneDataError(
+                "tail_states holds something that is not a state prefix"
+            )
+    return epsilon, tail_epsilon, frozenset(states)
+
+
+def _sources(meta: Any) -> tuple[dict[str, Any], ...]:
+    sources = meta.get("sources") or []
+    if not isinstance(sources, list) or len(sources) > MAX_SOURCES:
+        raise ZoneDataError("sources is not a short list")
+    if not all(isinstance(source, dict) for source in sources):
+        raise ZoneDataError("a source entry is not an object")
+    return tuple(sources)
 
 
 class ZoneSet:
@@ -245,6 +406,14 @@ class ZoneSet:
         or anything after the last line raises :class:`ZoneDataError`; a
         partial set is never returned.
 
+        Beyond that, nothing in the file is taken on trust. Every line is
+        held to a length ceiling and the whole to a size ceiling as it is
+        read; every field is checked for type and range (codes, layers,
+        coordinates, counts, the declared tolerances); NaN and Infinity are
+        refused; each stored bounding box must equal the extent of its rings;
+        no zone may appear twice; and whatever is wrong, the only exception
+        that leaves this method is :class:`ZoneDataError`.
+
         Pass an open binary file (``gzip.open(path, "rb")``). Do this in an
         executor: it is CPU-bound for a few hundred milliseconds.
         """
@@ -253,24 +422,26 @@ class ZoneSet:
         header: dict[str, Any] | None = None
         footer: dict[str, Any] | None = None
         seen = 0
+        size = 0
         for line in lines:
+            # Sizes first, before the line is looked at: these two ceilings are
+            # what bound the memory and time a hostile file can demand.
+            if len(line) > MAX_LINE_BYTES:
+                raise ZoneDataError(f"a line is longer than {MAX_LINE_BYTES} bytes")
+            size += len(line)
+            if size > MAX_DATASET_BYTES:
+                raise ZoneDataError(
+                    f"the dataset is larger than {MAX_DATASET_BYTES} bytes"
+                )
             if not line.strip():
                 continue
             if footer is not None:
                 raise ZoneDataError("data after the end-of-file line")
             seen += 1
-            try:
-                record = json.loads(line)
-            except ValueError as err:
-                raise ZoneDataError(f"line {seen} is not JSON") from err
+            record = _parse(line, f"line {seen}")
             if header is None:
-                if (
-                    not isinstance(record, dict)
-                    or record.get("format") != DATASET_FORMAT
-                ):
-                    raise ZoneDataError(f"not a format {DATASET_FORMAT} zone dataset")
-                header = record
-            elif record.get("eof") is True:
+                header = cls._header(record)
+            elif isinstance(record, dict) and record.get("eof") is True:
                 footer = record
                 continue
             else:
@@ -281,14 +452,32 @@ class ZoneSet:
         if footer is None:
             raise ZoneDataError("no end-of-file line: the dataset is cut short")
         for name, found in (("zones", build.count), ("lines", seen)):
-            if not header.get(name) == footer.get(name) == found:
+            if not header[name] == footer.get(name) == found:
                 raise ZoneDataError(
-                    f"{name}: header says {header.get(name)}, "
-                    f"end-of-file line says {footer.get(name)}, found {found}"
+                    f"{name}: header says {header[name]}, "
+                    f"end-of-file line says {footer.get(name)!r}, found {found}"
                 )
-        if footer.get("sha256") != digest.hexdigest():
+        checksum = footer.get("sha256")
+        if not isinstance(checksum, str) or not _SHA256.fullmatch(checksum):
+            raise ZoneDataError("the end-of-file line carries no SHA-256")
+        if checksum != digest.hexdigest():
             raise ZoneDataError("checksum mismatch: the dataset is damaged")
-        return cls._built(build, header.get("meta", {}))
+        return cls._built(build, header["meta"])
+
+    @staticmethod
+    def _header(record: Any) -> dict[str, Any]:
+        """The first line, checked: the format, both counts and the manifest."""
+        if not isinstance(record, dict) or record.get("format") != DATASET_FORMAT:
+            raise ZoneDataError(f"not a format {DATASET_FORMAT} zone dataset")
+        zones = _count(record.get("zones"), MAX_ZONES, "header zones")
+        lines = _count(record.get("lines"), MAX_ZONES + 2, "header lines")
+        # One line per zone, plus this one and the end-of-file line.
+        if lines != zones + 2:
+            raise ZoneDataError("header lines is not zones plus two")
+        meta = record.get("meta", {})
+        if not isinstance(meta, dict):
+            raise ZoneDataError("header meta is not an object")
+        return {"zones": zones, "lines": lines, "meta": meta}
 
     @classmethod
     def from_json(cls, data: str | bytes) -> ZoneSet:
@@ -296,21 +485,30 @@ class ZoneSet:
 
         The first builds were written this way. Kept for the parity scripts
         and for reading those files; the shipped dataset uses ``from_lines``.
+        It parses the whole document at once, so it has none of the size
+        ceilings ``from_lines`` enforces while reading, and is not for a file
+        that arrived over a network. Every record still gets the same checks.
         """
-        doc = json.loads(data)
+        doc = _parse(data, "the document")
+        if not isinstance(doc, dict) or not isinstance(doc.get("zones"), list):
+            raise ZoneDataError("not a zone dataset document")
+        meta = doc.get("meta", {})
+        if not isinstance(meta, dict):
+            raise ZoneDataError("meta is not an object")
         build = _ZoneBuilder()
         for record in doc["zones"]:
             build.add(record)
-        return cls._built(build, doc.get("meta", {}))
+        return cls._built(build, meta)
 
     @classmethod
     def _built(cls, build: _ZoneBuilder, meta: dict[str, Any]) -> ZoneSet:
+        epsilon, tail_epsilon, tail_states = _tolerances(meta)
         return cls(
             build.finish(),
-            sources=meta.get("sources", ()),
-            epsilon_deg=float(meta.get("epsilon_deg", 0.0)),
-            tail_epsilon_deg=meta.get("tail_epsilon_deg"),
-            tail_states=meta.get("tail_states") or (),
+            sources=_sources(meta),
+            epsilon_deg=epsilon,
+            tail_epsilon_deg=tail_epsilon,
+            tail_states=tail_states,
         )
 
     # -- introspection ---------------------------------------------------
