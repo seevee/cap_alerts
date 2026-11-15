@@ -17,6 +17,7 @@ from homeassistant.core import Context, CoreState, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -455,15 +456,7 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         # configured" path surface UpdateFailed.
         if CONF_COUNTRY_ENTITY in config and conventions.country_code is not None:
             entity_id = config[CONF_COUNTRY_ENTITY]
-            state = self.hass.states.get(entity_id)
-            value: str | None = None
-            if state is not None and state.state not in (
-                "",
-                "unknown",
-                "unavailable",
-            ):
-                attr = config.get(CONF_COUNTRY_ATTRIBUTE)
-                value = state.attributes.get(attr) if attr else state.state
+            value = self._country_entity_value(config)
             code = conventions.country_code(value)
             if code is None:
                 if not self._country_resolve_warned:
@@ -828,6 +821,67 @@ class AlertsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, CAPAlert]]):
         if self.update_interval is not None:
             delay = min(delay, self.update_interval.total_seconds())
         return delay
+
+    def _country_entity_value(self, config: Mapping[str, Any]) -> str | None:
+        """What the entry's country-source entity reports, ``None`` if nothing."""
+        state = self.hass.states.get(config[CONF_COUNTRY_ENTITY])
+        if state is None or state.state in ("", "unknown", "unavailable"):
+            return None
+        attr = config.get(CONF_COUNTRY_ATTRIBUTE)
+        value: str | None = state.attributes.get(attr) if attr else state.state
+        return value
+
+    def _scope_entities_resolve(self) -> bool:
+        """Whether the tracker and country entities the scope reads resolve."""
+        config = self.config_entry.data
+        if CONF_TRACKER_ENTITY in config and (
+            _resolve_tracker_gps(self.hass.states.get(config[CONF_TRACKER_ENTITY]))
+            is None
+        ):
+            return False
+        country_code = conventions_for(config.get(CONF_PROVIDER, "")).country_code
+        if CONF_COUNTRY_ENTITY in config and country_code is not None:
+            return country_code(self._country_entity_value(config)) is not None
+        return True
+
+    async def async_wait_for_scope_entities(self) -> None:
+        """Hold a boot-time first fetch until the entities its scope reads resolve.
+
+        A tracker or country sensor restores a moment after this entry at
+        boot. Fetching before it has would fail, and core reports that as an
+        error although nothing is wrong. Returns at once for an entry that
+        reads neither. Gives up once core has started: every integration has
+        set up by then, so an entity that still does not resolve will not,
+        and the fetch should say so.
+        """
+        if self._scope_entities_resolve():
+            return
+        config = self.config_entry.data
+        entity_ids = [
+            config[key]
+            for key in (CONF_TRACKER_ENTITY, CONF_COUNTRY_ENTITY)
+            if key in config
+        ]
+        done = asyncio.Event()
+
+        @callback
+        def _changed(_event: object) -> None:
+            if self._scope_entities_resolve():
+                done.set()
+
+        @callback
+        def _started(_hass: HomeAssistant) -> None:
+            done.set()
+
+        unsubs = (
+            async_track_state_change_event(self.hass, entity_ids, _changed),
+            async_at_started(self.hass, _started),
+        )
+        try:
+            await done.wait()
+        finally:
+            for unsub in unsubs:
+                unsub()
 
     async def _fetch(
         self, config: Mapping[str, Any], options: Mapping[str, Any]

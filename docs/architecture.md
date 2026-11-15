@@ -127,6 +127,12 @@ of waiting a full interval. The ECCC stream starts on the first fetch that
 lands, because that fetch seeds the active set. Events it fires before
 `homeassistant_started` are still held for the armed automations (#361).
 
+An entry whose scope reads a tracker or a country entity holds that fetch
+until both resolve. They restore a moment after the entry does, and fetching
+before then would log an error for what is only boot ordering. The wait ends
+when core has started: every integration has set up by then, so an entity that
+still does not resolve fails the fetch the usual way.
+
 ---
 
 ## The two halves (issue #216)
