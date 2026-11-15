@@ -1,10 +1,10 @@
-# The frontend has no way to read an action result
+# An action response reaches a card only by a call of its own, and a declarative surface not at all
 
 | | |
 | :-- | :-- |
 | Supports | RFC §1.6, §8.1 |
-| Source | [home-assistant/discussions#655](https://github.com/orgs/home-assistant/discussions/655), [architecture#1357](https://github.com/home-assistant/architecture/discussions/1357), [architecture#1360](https://github.com/home-assistant/architecture/discussions/1360), `homeassistant/components/weather/websocket_api.py` in Home Assistant 2026.10.4 |
-| Sample | 3 discussions and 1 source file |
+| Source | [home-assistant/discussions#655](https://github.com/orgs/home-assistant/discussions/655), [architecture#1357](https://github.com/home-assistant/architecture/discussions/1357), [architecture#1360](https://github.com/home-assistant/architecture/discussions/1360), `homeassistant/components/weather/websocket_api.py` in Home Assistant 2026.10.4, two dashboard cards that read NINA through its action |
+| Sample | 3 discussions, 1 source file, 2 cards |
 | Observed | 2026-11-15 (discussions fetched with `gh api graphql`, replies included; file read from `.venv`). First read 2026-10-02 |
 | Reproduce | `grep -n subscribe_forecast .venv/lib/python*/site-packages/homeassistant/components/weather/websocket_api.py` |
 
@@ -33,7 +33,28 @@
 | 2026-09-10 | @MartinHjelmare, #1360 | "A forecast isn't the same as a schedule. If we try to squeeze other features into the same box built for a specific feature, the result is rarely good." | [comment](https://github.com/home-assistant/architecture/discussions/1360#discussioncomment-18383074) |
 | 2026-10-14 | @Markus98, #1360 | "The forecast entity model has been ruled out as an architecture candidate." A custom integration creating a forecast entity for every compatible sensor "could almost double the number of entities per HA instance". "Alternative approaches for the architecture are being explored." | [comment](https://github.com/home-assistant/architecture/discussions/1360#discussioncomment-18925587) |
 
-The weather precedent, in the installed core:
+## Two cards make the call themselves
+
+Home Assistant 2026.11 left the NINA warning slot with `id` alone and put the
+text behind `nina.get_details`. Two cards followed it there.
+
+| Card | Since | How it reads the bodies |
+| :-- | :-- | :-- |
+| [lovelace-nina-dwd-card](https://github.com/timmaurice/lovelace-nina-dwd-card) | [1.7.1](https://github.com/timmaurice/lovelace-nina-dwd-card/releases/tag/1.7.1), 2026-09-24 | `hass.callService('nina', 'get_details', …)` with a response, once per warning, attributes as the fallback |
+| `weather_alerts_card` | [#409](https://github.com/seevee/weather_alerts_card/pull/409), merged 2026-11-15 | one `call_service` websocket message with `return_response: true` for every slot, from `updated()`, never from render |
+
+Both key their cache on the slot's `id`, the one attribute the integration
+kept, and both retry a failed call after five minutes. From the second card's
+`src/action-details.ts`:
+
+```
+//   - `requestActionDetails` is the only thing that fetches. Call it from
+//     `updated()`, never from render (render purity).
+//   - A slot is asked once per warning. A failure is retried after
+//     ACTION_RETRY_MS, never on the next state push.
+```
+
+## The weather precedent, in the installed core
 
 ```
 $ ls .venv/lib/python*/site-packages/homeassistant/components/weather/websocket_api.py
@@ -47,15 +68,20 @@ $ grep -n subscribe_forecast .venv/lib/python*/site-packages/homeassistant/compo
 
 ## Reading
 
-A request from August 2025 to surface an action result on a dashboard has no
-answer, and the one core reply says the state machine is the only read path.
-The same reply says an attribute for it runs against the direction of
-development. Both halves are §1.6's problem: bodies are leaving attributes,
-and what replaces them is a call each card has to make for itself. A custom
-card can do that outside its render, and `weather_alerts_card` does for NINA
-since [#409](https://github.com/seevee/weather_alerts_card/pull/409). A stock
-card, a template or a state trigger cannot, and the card has to work out for
-itself when to ask again.
+A custom card can read an action response. Two do, for NINA, and the earlier
+one shipped a month before the attributes went. So "cards cannot" is wrong,
+and this page said it until 2026-11-15.
+
+What the two cards show is the cost. Each wrote its own fetch, cache, retry
+and fallback for one integration's action. Each needed a change signal and
+found one only because the slot kept its `id`; a bare count would not have
+given it. A stock card, a template, `auto-entities` or a state trigger has
+no way to make the call at all.
+
+The #655 request is the same gap from the automation side. It has had no
+answer since August 2025, and the one core reply says the state machine is the
+only read path for a stored result, and that an attribute for it runs against
+the direction of development.
 
 The forecast proposals name that gap in their first paragraph, and #1360 pairs
 its action with a websocket command. Weather already did:
@@ -74,6 +100,11 @@ problem with one mechanism, and for §8.1's point that a generic list is the
 wrong box for a warning.
 
 ## Caveats
+
+- The first card's call was read from its source at the 1.7.1 tag and its
+  release notes, not run. The second was run against Home Assistant 2026.11.1.
+- Core ECCC's `get_alerts` and the open GeoSphere `get_warnings` PR have no
+  card reading them that this page knows of.
 
 - Discussion bodies are editable. #1357 was last edited 2026-03-15 and #1360
   on 2026-07-21. The quotes are from the text as of 2026-11-15.
