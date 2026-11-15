@@ -197,6 +197,8 @@ def test_gdacs_events(alert_factory, event, expected):
         ("THUNDERSTORM", "mdi:weather-lightning"),
         ("HEAT", "mdi:weather-sunny-alert"),
         ("GLAZE", "mdi:snowflake-melt"),
+        ("SLIPPERINESS", "mdi:snowflake-melt"),
+        ("BLACK_ICE", "mdi:snowflake-melt"),
         ("uv", "mdi:weather-sunny-alert"),
     ],
 )

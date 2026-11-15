@@ -324,6 +324,8 @@ SPEC_VOCAB: dict[str, dict[str, list[str]]] = {
             "SNOWFALL",
             "ICE",
             "GLAZE",
+            "SLIPPERINESS",
+            "BLACK_ICE",
             "FROST",
             "THAW",
             "FOG",

@@ -340,6 +340,7 @@
    "status"
   ],
   "values.GROUP": [
+   "BLACK_ICE",
    "FOG",
    "FROST",
    "GLAZE",
@@ -347,6 +348,7 @@
    "HEAT",
    "ICE",
    "RAIN",
+   "SLIPPERINESS",
    "SNOWFALL",
    "THAW",
    "THUNDERSTORM",
