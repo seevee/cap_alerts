@@ -29,10 +29,10 @@ from ..const import (
     CONF_TRACKER_ENTITY,
     CONFIG_FLOW_TIMEOUT,
     DEFAULT_WMO_FEED_SOURCE,
-    USER_AGENT,
     WMO_FEED_SOURCES,
     WMO_LANGUAGES,
     WMO_SOURCE_NAMES,
+    user_agent_for,
 )
 from ..providers.wmo import (
     async_any_feed_available,
@@ -157,7 +157,7 @@ async def async_validate_options(
         else async_any_feed_available
     )
     source_id = str(entry.data.get(CONF_SOURCE_ID, "") or "").strip()
-    user_agent = USER_AGENT.format(await async_get_instance_id(hass))
+    user_agent = user_agent_for(await async_get_instance_id(hass))
     try:
         async with asyncio.timeout(CONFIG_FLOW_TIMEOUT):
             available = await check(

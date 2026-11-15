@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import timedelta
 
 DOMAIN = "cap_alerts"
@@ -28,8 +29,29 @@ EVENT_INCIDENT_REMOVED = "incident_removed"
 REMOVAL_REASON_SUPERSEDED = "superseded"
 REMOVAL_REASON_ENDED = "ended"
 
-# User-Agent for API requests — {0} is replaced with the HA instance ID
-USER_AGENT = "HomeAssistant-CAPAlerts/{0}"
+# User-Agent for API requests. {0} is the per-install token ``user_agent_for``
+# derives from the HA instance ID, never the ID itself (issue #317). The URL is
+# the contact a provider can follow back to this project.
+USER_AGENT = "HomeAssistant-CAPAlerts/{0} (+https://github.com/seevee/cap_alerts)"
+
+# Hashed in front of the instance ID. It sits in a public repository, so it is
+# not a secret and hides nothing from someone who already holds the ID. What it
+# gives is domain separation: this project's token differs from any other
+# project's hash of the same ID. The one-way direction, token to ID, comes from
+# SHA-256 alone.
+USER_AGENT_TOKEN_SALT = f"{DOMAIN}:"
+USER_AGENT_TOKEN_LENGTH = 12
+
+
+def user_agent_for(instance_id: str) -> str:
+    """The User-Agent one installation sends: stable per install, not its ID.
+
+    The token stays per-install on purpose, so a provider can still tell one
+    misbehaving installation from the rest and block only that one.
+    """
+    digest = hashlib.sha256(f"{USER_AGENT_TOKEN_SALT}{instance_id}".encode())
+    return USER_AGENT.format(digest.hexdigest()[:USER_AGENT_TOKEN_LENGTH])
+
 
 # Home Assistant's two "no home set" sentinels, for GPS prefill (issue #128).
 #

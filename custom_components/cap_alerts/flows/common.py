@@ -35,8 +35,8 @@ from ..const import (
     HA_ONBOARDING_LATITUDE,
     HA_ONBOARDING_LONGITUDE,
     METEOALARM_COUNTRY_NAMES,
-    USER_AGENT,
     WMO_SOURCE_NAMES,
+    user_agent_for,
 )
 from ..providers import get_provider
 from ..schema import vol
@@ -139,7 +139,7 @@ class ScopedEntryFlowMixin(ConfigFlow):
 
     async def _async_user_agent(self) -> str:
         """The User-Agent the coordinator sends, for requests made from a flow."""
-        return USER_AGENT.format(await async_get_instance_id(self.hass))
+        return user_agent_for(await async_get_instance_id(self.hass))
 
     @callback
     def _abort_if_scope_configured(self, key: str, allow: str | None = None) -> None:
