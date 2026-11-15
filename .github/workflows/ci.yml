@@ -82,8 +82,8 @@ jobs:
     # requirements*.txt in the root as one manifest and drags both
     # homeassistant pins to a single version (#262). Raise these with hacs.json.
     env:
-      HA_FLOOR: "2026.4.3"
-      PHCC_FLOOR: "0.13.324"
+      HA_FLOOR: "2026.9.0"
+      PHCC_FLOOR: "0.13.363"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

@@ -238,12 +238,12 @@ class LastUpdatedSensor(_CAPAlertsEntity, RestoreSensor):
         numeric, so both are continuous to it and get no rows. Logbook names
         the first row it saw with a context as the cause of the rest, hidden
         rows included, and listeners run in no order Home Assistant promises
-        (the floor release writes the count before this sensor), so a hidden
-        write must not take the context either: it could be the origin this
-        row is traced to. Set right before the write rather than when the
-        cycle began, since Home Assistant honours a context set on an entity
-        within the last 5 s and a slow fetch takes longer. The first write on
-        being added takes none; logbook never shows it.
+        (core 2026.4 wrote the count before this sensor), so a hidden write
+        must not take the context either: it could be the origin this row is
+        traced to. Set right before the write rather than when the cycle
+        began, since Home Assistant honours a context set on an entity within
+        the last 5 s and a slow fetch takes longer. The first write on being
+        added takes none; logbook never shows it.
         """
         self.async_set_context(self.coordinator.cycle_context)
         super()._handle_coordinator_update()
