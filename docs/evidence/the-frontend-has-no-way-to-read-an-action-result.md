@@ -50,8 +50,12 @@ $ grep -n subscribe_forecast .venv/lib/python*/site-packages/homeassistant/compo
 A request from August 2025 to surface an action result on a dashboard has no
 answer, and the one core reply says the state machine is the only read path.
 The same reply says an attribute for it runs against the direction of
-development. Both halves are §1.6's problem: bodies are leaving attributes and
-nothing a card can read has replaced them.
+development. Both halves are §1.6's problem: bodies are leaving attributes,
+and what replaces them is a call each card has to make for itself. A custom
+card can do that outside its render, and `weather_alerts_card` does for NINA
+since [#409](https://github.com/seevee/weather_alerts_card/pull/409). A stock
+card, a template or a state trigger cannot, and the card has to work out for
+itself when to ask again.
 
 The forecast proposals name that gap in their first paragraph, and #1360 pairs
 its action with a websocket command. Weather already did:
