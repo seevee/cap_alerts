@@ -1,4 +1,4 @@
-# RFC: The `incident` Integration for Home Assistant Core
+# RFC: A First-Class Incident for Home Assistant Core
 
 **Status:** Public working draft, not yet submitted. Please don't submit it to the Home Assistant Architecture repository. The maintainer will, after a stable release of the reference implementation has soaked on an install base beyond the custom-repository one it has today, which HACS default listing is meant to provide. The soak is defined in [`docs/roadmap.md`](docs/roadmap.md#rfc-submission-waits-on-a-soak-beyond-the-custom-repository-install-base).
 
@@ -8,9 +8,9 @@
 
 **Audience:** Home Assistant Core developers and the Architecture Working Group, plus weather-alert integration maintainers.
 
-**Reading this document.** This file is the proposal: requirements, the recommended binding, the contract, the path. [`docs/rfc-summary.md`](docs/rfc-summary.md) is the one-page version. The evidence lives in [`docs/evidence/`](docs/evidence/README.md), one page per finding, each naming the section it supports and how it reproduces, and the *reference implementation* is the [`cap_alerts`](README.md) custom integration. A claim is marked *shipped* only where running code backs it. Dates are UTC.
+**Reading this document.** This file is the proposal: requirements, the contract, the reference binding, the path. [`docs/rfc-summary.md`](docs/rfc-summary.md) is the one-page version. The evidence lives in [`docs/evidence/`](docs/evidence/README.md), one page per finding, each naming the section it supports and how it reproduces, and the *reference implementation* is the [`cap_alerts`](README.md) custom integration. A claim is marked *shipped* only where running code backs it. Dates are UTC.
 
-**What is being proposed.** Two things, and they are separable. The first is an **abstraction**: a first-class incident, a normalized and lifecycle-aware representation of an externally sourced structured event, with stable identity across provider revisions, one severity vocabulary, an event contract and a bounded payload. The second is a **binding**: how that abstraction attaches to Home Assistant's runtime. This RFC recommends one entity per active incident: first a `sensor` marked by an `incident` device class and served by an `incident` system integration, later an `incident` entity domain if that proves too little. §1.4 states the abstraction's requirements without assuming a binding, §1.5 lists four candidates, §2 specifies the entity binding and §5 stages it. A reviewer who accepts the first and rejects the second has not rejected the proposal.
+**What is being proposed.** Two things, and they are separable. The first is an **abstraction**: a first-class incident, a normalized and lifecycle-aware representation of an externally sourced structured event, with stable identity across provider revisions, one severity vocabulary, an event contract and a bounded payload. The second is a **binding**: how that abstraction attaches to Home Assistant's runtime. The abstraction is the ask. §1.4 states its requirements without assuming a binding, and requirement 10, a read path a dashboard can subscribe to, is the one core has not settled. The binding is the evidence. The reference implementation runs one entity per active incident, a `sensor` marked by an `incident` device class, and §2 specifies it with what it cost. §1.5 lists four candidates and §5 stages the entity one. A reviewer who accepts the first and picks another binding has not rejected the proposal.
 
 ---
 
@@ -28,7 +28,7 @@ Two separate bounds fix it. One incident per storage unit makes the recorder foo
 
 Most integrations treat each API response as independent. When a provider updates a message, the update often arrives under a different URI. A naïve integration retires the old entity and creates a new one, breaking history mid-event. The `nws` code owner met this in [home-assistant/core#37415](https://github.com/home-assistant/core/pull/37415): "it is common that one alert will replace another".
 
-The reference implementation holds identity steady with provider-specific keys, and the point is how many it needed. Seven providers use six strategies, and three providers use more than one, chosen per message:
+The reference implementation holds identity steady with provider-specific keys, and the point is how many it needed. Nine providers, and three use more than one key, chosen per message:
 
 | Provider | Identity key | Why |
 | :-- | :-- | :-- |
@@ -38,6 +38,8 @@ The reference implementation holds identity steady with provider-specific keys, 
 | WMO SWIC | `sha256(<identifier>)` | The identifier is stable across Update and Cancel |
 | GDACS | `sha256(eventtype:eventid)` | The identifier embeds an episode counter that increments per update |
 | BBK / NINA | `sha256(<identifier>)`, one per revision | Each revision names its predecessor in `<references>`, so the chain collapses to its leaf |
+| GeoSphere Austria | `sha256(warnid)` | Not CAP; `warnid` holds across revisions while `chgid` counts them |
+| U.S. Tsunami Warning Centers | product + `<incidents>` | One center writes the same identifier on every product for an event |
 | Australia | `<incidents>` + event code; area description for Queensland warnings; identifier for WA | Two agencies re-mint the identifier per update; Queensland re-mints the warning id too and names no predecessor |
 
 No single CAP field is reliably the identity. It is a per-sender property, not even a per-provider one. The core model therefore requires only that an integration supply *some* stable hash, and leaves the derivation to the provider layer (§5). The per-provider record: [identity is a per-sender property](docs/evidence/identity-is-a-per-sender-property.md).
@@ -61,13 +63,13 @@ The failures in §1.1 to §1.3 imply requirements that hold whatever the binding
 9. **Ingest-mode neutrality.** The model holds for polling and for a pushed stream, and does not assume a poll interval exists.
 10. **Readable by a dashboard.** Core presentation data, and changes to it, are available through a subscribed, contract-stable read path that both declarative and custom dashboard consumers can use. For an entity binding that is the state machine. Externalized payloads stay reachable through a frontend-native path, with subscribed state carrying the handle and the change signal (§2.4). A mechanism that serves the incident body only through an action with response data does not provide that path (§1.6). So does a frontend that fetches CAP itself and reaches neither the recorder nor an automation (§3.8).
 
-Requirements 8 and 9 came out of field-testing the reference implementation. Requirement 10 was added after core review steered two integrations, across four PRs, to the action-response pattern (§8.1). It is neutral about storage and deliberate about the consumer surface.
+Requirements 8 and 9 came out of field-testing the reference implementation. Requirement 10 was added after core review steered two integrations, across four PRs, to the action-response pattern (§8.1).
 
 ### 1.5 Candidate Bindings
 
 Four mechanisms can satisfy §1.4. They differ only in how the incident binds to HA's runtime; the data model, events and geometry API are the same in each.
 
-| | `sensor` device class and an `incident` system integration (recommended first, §2) | `incident` entity domain (the later step, §5) | Static entity pool (§6.1) | `incident_registry` (§3.6) |
+| | `sensor` device class and an `incident` system integration (the reference implementation, §2) | `incident` entity domain (the later step, §5) | Static entity pool (§6.1) | `incident_registry` (§3.6) |
 | :-- | :-- | :-- | :-- | :-- |
 | An incident is | a `sensor` entity, created and removed with it | the same entity in its own domain | a slot that fills and drains | a registry record, no entity |
 | Recorder, state triggers, entity cards | inherited | inherited | inherited | rebuilt |
@@ -79,10 +81,7 @@ Four mechanisms can satisfy §1.4. They differ only in how the incident binds to
 | Entity ids for today's users | stay | change | change | go away |
 | What core adds | a device class and the integration | a domain and its frontend | a domain, its frontend and slot allocation | a registry with its own UI, triggers and history |
 
-The first column is the pattern core's `motion` and `door` integrations already use. It is recommended first because it is the smallest change that proves the contract, it moves nobody's entity ids, and a custom integration can field-test it today ([evidence](docs/evidence/core-accepts-a-custom-incident-device-class.md)).
-
-A reviewer can accept §1.4 in full and prefer a different binding. Only rejecting §1.4 defeats the proposal.
-
+The first column is what the reference implementation runs, the pattern core's `motion` and `door` integrations use. It is the only one a custom integration can field-test today ([evidence](docs/evidence/core-accepts-a-custom-incident-device-class.md)), hence §2. That is evidence, not a ranking. Core's record leans the other way: review steered three integrations' alert bodies toward actions (§1.6), and the one ruling on entity count went against the entity, a permanent one per sensor (§8.1, [evidence](docs/evidence/an-entity-count-that-follows-the-data-is-the-contested-case.md)).
 ### 1.6 The Excluded Mechanism: Action With Response Data
 
 Core review currently prefers a different model: a thin entity, usually a count, plus an action with `SupportsResponse` that returns the alert bodies on demand. It is not listed above because an action is a call, not the subscribed read path requirement 10 asks for.
@@ -93,13 +92,13 @@ What it withholds is everything around the call. A custom card can make it: two 
 
 The convention is unwritten: no ADR, quality-scale rule or developer-docs statement recommends actions over attributes, and the written guidance points at more entities ([evidence](docs/evidence/the-written-attribute-guidance-points-at-entities.md)), so a requirement like 10 has nowhere to be raised. Core has answered the frontend half once: when forecasts left `weather.*` attributes for `weather.get_forecasts`, the same migration shipped `weather/subscribe_forecast` beside it. [architecture#1357](https://github.com/home-assistant/architecture/discussions/1357) and [#1360](https://github.com/home-assistant/architecture/discussions/1360) proposed a forecast contract for sensors, naming the same gap; #1360's entity model was ruled out on entity count, its read path still open. Evidence: [core review moved alert bodies into actions](docs/evidence/core-review-moved-alert-bodies-into-actions.md) and [a card reads an action only by its own call](docs/evidence/an-action-response-reaches-a-card-only-by-a-call-of-its-own.md).
 
-**The hybrid is already here, for one field.** A thin subscribed record with the heavy payload behind a call is how §2.4 handles geometry: state carries `bbox` and a handle, the polygon is fetched on demand. Text is not split that way because text is what a card renders by default, a template reads and a state trigger compares; a handle in its place puts the body back behind a call for every declarative consumer. The line falls on weight, not kind: geometry out, the alternate-language copy spent first (§7.2), the primary text in state. A `todo`-shaped list with a subscribe command would meet requirement 10 and nothing else, a list having no per-item identity, triggers or history (§8.1). The conclusion is not that attributes are the right home for incident bodies forever, only that requirement 10 is a requirement, an action alone does not meet it, and an incident integration is where it gets a first-class answer, as `weather` already has.
+**The hybrid is already here, for one field.** A thin subscribed record with the heavy payload behind a call is how §2.4 handles geometry: state carries `bbox` and a handle, the polygon is fetched on demand. Text is not split that way because text is what a card renders by default, a template reads and a state trigger compares; a handle in its place puts the body back behind a call for every declarative consumer. The line falls on weight, not kind: geometry out, the alternate-language copy spent first (§7.2), the primary text in state. A `todo`-shaped list with a subscribe command would meet requirement 10 and nothing else, a list having no per-item identity, triggers or history (§8.1). The conclusion is not that attributes are the right home for incident bodies forever. Requirement 10 is a requirement, an action alone does not meet it, and `weather` already has its answer. If core's forecast work lands a subscribed read path for sensors, incidents should share it.
 
 ---
 
-## 2. Recommended Implementation: One Entity per Incident
+## 2. The Reference Binding: One Entity per Incident
 
-This section binds the §1.4 requirements onto HA's entity model. Where it says "the entity", a reviewer preferring another binding can read "the slot" or "the registry record". An incident entity is a `sensor` with the `incident` device class in the first stage and an `incident.*` entity if the domain follows (§5). The contract is the same in both, and the ids below are the first stage's.
+This section binds the §1.4 requirements onto HA's entity model. Most of it is contract and holds under any binding. The ids, the registry cleanup and the restart mechanics are the entity's own. Where it says "the entity", a reviewer preferring another binding can read "the slot" or "the registry record". An incident entity is a `sensor` with the `incident` device class in the first stage and an `incident.*` entity if the domain follows (§5). The contract is the same in both, and the ids below are the first stage's.
 
 ### 2.1 Entity Model
 
@@ -254,7 +253,7 @@ There is no count of consecutive misses: a count assumes rounds, which requireme
 
 **The reference implementation delivers the first two.** Each entry keeps a `.storage/` file with, per live incident, its identity, event, area, severity, phase and expiry, written on change and at shutdown (§5). The store seeds those as `stale`, and the first reconciliation applies the rules above: a live one fires nothing, an absent one is retained to its expiry or removed with its severity and area. Ids the file does not know seed from the registry: live fires nothing, unknown live fires `incident_created`, and a known id is removed only when a second fetch-backed reconciliation still lacks it, since a stream rebuild a minute after boot cannot recover what the seed missed; that removal carries the id and the event name alone. A record already terminal on the first fetch is old news and fires nothing.
 
-**Why the churn is deliberate.** Holding incidents only in memory fails the power-blip case. Persisting CAP to `.storage/` every poll wears the SD card §2.4 protects. The cost is registry traffic at incident boundaries, batched, and it follows the entry's scope: a point or zone entry wrote the registry at most twice a day over a quiet ten days, a busy state feed about a hundred times. The cost that does not scale down is core's, in two files. The registry keeps a deleted-entity record for every removal and purges it only after the config entry is gone, so every save rewrites a file that only grows ([evidence](docs/evidence/registry-churn-follows-scope-and-every-removal-leaves-a-tombstone.md)). `RestoreEntity` keeps a removed entity's last state for seven days and rewrites them all every fifteen minutes, about 1 MB a write on a busy state feed, most of it ended alerts ([evidence](docs/evidence/restoreentity-keeps-a-removed-alert-for-seven-days.md)). This proposal asks core to drop both records at removal for entities whose platform declares them transient. Against the usual objection, lost customizations, the policy: an incident's entity id and registry row belong to the platform, and a user's reference survives through `unique_id` for the incident's life, no longer.
+**Why the churn is deliberate.** Holding incidents only in memory fails the power-blip case. Persisting CAP to `.storage/` every poll wears the SD card §2.4 protects. The cost is registry traffic at incident boundaries, batched, and it follows the entry's scope: a point or zone entry wrote the registry at most twice a day over a quiet ten days, a busy state feed about a hundred times. The cost that does not scale down is core's, in two files. The registry keeps a deleted-entity record for every removal and purges it only after the config entry is gone, so every save rewrites a file that only grows ([evidence](docs/evidence/registry-churn-follows-scope-and-every-removal-leaves-a-tombstone.md)). `RestoreEntity` keeps a removed entity's last state for seven days and rewrites them all every fifteen minutes, about 1 MB a write on a busy state feed, most of it ended alerts ([evidence](docs/evidence/restoreentity-keeps-a-removed-alert-for-seven-days.md)). An entity binding needs core to drop both records at removal for entities whose platform declares them transient. Against the usual objection, lost customizations, the policy: an incident's entity id and registry row belong to the platform, and a user's reference survives through `unique_id` for the incident's life, no longer.
 
 At any moment, registered incident entities correspond one to one with active incidents.
 
@@ -350,7 +349,7 @@ Without it `incident` absorbs `binary_sensor` responsibilities and every "is thi
 
 ## 5. Implementation Path
 
-Each stage is reviewable alone, and the first is the smallest change that proves the contract.
+This is the path if core takes the entity binding. Stages 3 to 6 hold under any. Each stage is reviewable alone, and the first is the smallest change that proves the contract.
 
 1. **The contract, under `sensor`.** An `incident` system integration provides `IncidentEntity`, the triggers and conditions, and the three events. `sensor` gains an `incident` device class with the severity vocabulary and its state translations. The provider-independent half ports with its conformance tests: schema, severity vocabulary, lifecycle and phase semantics, event contract. CAP parsing, profile interpretation and per-source conventions stay in the integrations. Core owning a CAP parser would make it the maintainer of every national profile's quirks.
 2. **The purge rule (§2.5)**, deferred on purpose. Outside review wanted it in stage 1: a device class without core-owned purge semantics trains the ecosystem on a string core does not own. Stage 1 without it is the smaller review, and the soak measures the cost it defers, the tombstone and the seven-day restore hold, before stage 2 asks. A generic transient-entity declaration if another platform wants one; dropped if the cost measures small.
@@ -500,7 +499,7 @@ attributes:
   icon: mdi:phone-alert
 ```
 
-`category: Infra` lets a card filter this from weather without matching on `event`, and the severity scale is doing real work: a 911 outage is `Extreme` on the same scale as a tornado.
+`category: Infra` lets a card filter this from weather without matching on `event`.
 
 ### 7.2 Attribute Size Budget
 
@@ -579,7 +578,6 @@ A signalled termination arrives on a *present* record and resolves on the `updat
 
 ### 8.3 Complementary Projects
 
-- Built-in `alert` and Alert2: internal monitoring and notification UX, complementary (§3.1, §3.2).
 - `weather_alerts_card`: the companion card.
 - [`ha-alert-card`](https://github.com/DTekNO/ha-alert-card) (@DTekNO): the first consumer of the entity contract outside this project (§5).
 - [`weather-radar-card`](https://github.com/jpettitt/weather-radar-card): the working frontend-only example and where its boundary falls (§3.8).
@@ -599,8 +597,8 @@ Thanks to the maintainers of `nws_alerts`, Environment Canada, Alert2, MeteoAlar
 
 ## 9. Conclusion
 
-The proposal has two parts. The first is that Home Assistant needs a first-class incident abstraction: normalized severity, identity stable across revisions, a lifecycle that trusts neither `msgType` nor a single missed observation, an event contract, and a payload bounded in both dimensions. §1.4 states that case without reference to a binding, each requirement backed by observed provider behavior. That is the claim this RFC most wants tested.
+The proposal has two parts. The first is that Home Assistant needs a first-class incident abstraction. §1.4 states that case without reference to a binding, each requirement backed by observed provider behavior. That is the claim this RFC most wants tested, and requirement 10 is the part core has left open.
 
-The second is that one entity per incident is the right binding, starting under `sensor` with a device class, because entities inherit the recorder, the trigger editor, `RestoreEntity` and the card ecosystem. The cost is §2.5's churn. The case is good and not conclusive; §1.5 lists the alternatives, and the contract ports to each. A reviewer who accepts the abstraction and rejects the binding has moved the discussion to where it should be.
+The second is a binding. The reference implementation runs one entity per incident under `sensor`, because entities inherit the recorder, the trigger editor and the card ecosystem. The cost is §2.5's churn, and core's one ruling on entity count went the other way. §2 is a measured instance, not the answer. §1.5 lists the alternatives, and the contract ports to each.
 
-I invite collaboration on any part of this, and disagreement on the second part most of all.
+I invite collaboration on any part of this, and on the read path most of all.

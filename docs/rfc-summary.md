@@ -37,18 +37,19 @@ The pattern core review currently prefers, a count entity plus an action that
 returns the alert bodies, is a call each card makes for itself, not such a
 path (§1.6).
 
-**The binding.** One entity per active incident, created and removed with it
-(§2). It starts as a `sensor` with an `incident` device class, served by an
-`incident` system integration, and moves to its own domain only on one of
-three named triggers (§5). State is the normalized severity, three lifecycle
-events share one payload (§2.3), and geometry is fetched on demand through a
-handle (§2.4). Absence is not termination: an incident missing from the feed but
-still inside its published expiry is kept and marked stale (§2.5). Entities
-inherit the recorder, the trigger editor and the card ecosystem. The cost is
-batched registry churn, plus two records core keeps of every removed entity
-(§2.5). The alternatives are an `incident` domain from the start, a
-static entity pool and a dedicated registry (§1.5), and the contract ports
-unchanged to each.
+**The binding.** The reference implementation runs one entity per active
+incident, created and removed with it (§2). It is a `sensor` with an `incident`
+device class, served by an `incident` system integration, and moves to its own
+domain only on one of three named triggers (§5). State is the normalized
+severity, three lifecycle events share one payload (§2.3), and geometry is
+fetched on demand through a handle (§2.4). Absence is not termination: an
+incident missing from the feed but still inside its published expiry is kept
+and marked stale (§2.5). Entities inherit the recorder, the trigger editor and
+the card ecosystem. The cost is batched registry churn, plus two records core
+keeps of every removed entity (§2.5). The alternatives are an `incident` domain
+from the start, a static entity pool and a dedicated registry, and the contract
+ports unchanged to each. The entity binding is the one with measurements, not a
+ranking: core's one ruling on entity count went against the entity (§1.5).
 
 ## What runs today, and the gap
 
@@ -60,5 +61,5 @@ specified and not (§5).
 
 ## What I'm asking for
 
-Test the requirements in §1.4 first, then argue with the binding. An issue on
-this repository is the place for either.
+Test the requirements in §1.4 first, requirement 10 most of all, then argue
+with the binding. An issue on this repository is the place for either.
