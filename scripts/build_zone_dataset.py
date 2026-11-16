@@ -62,6 +62,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -147,30 +148,217 @@ def simplify_ring(ring, eps: float, decimals: int) -> list[list[float]] | None:
     return [list(p) for p in out] if len(out) >= 3 else None
 
 
+# How many times the tolerance is halved for an outline that collapses. Twelve
+# halvings of 0.005 degrees is about 14 cm, far below the rounding, so a ring
+# that still collapses has fewer than three distinct points and is kept as
+# its bounding box instead.
+MAX_REFINEMENTS = 12
+
+
+def ring_area(ring) -> float:
+    """Signed shoelace area in square degrees; the sign is the winding direction."""
+    points = list(ring)
+    return (
+        sum(
+            x0 * y1 - x1 * y0
+            for (x0, y0), (x1, y1) in zip(points, points[1:] + points[:1])
+        )
+        / 2.0
+    )
+
+
+def refine_ring(ring, eps: float, decimals: int) -> list[list[float]] | None:
+    """Simplify an outline that collapsed, at the coarsest tolerance it survives.
+
+    A ring collapses when every vertex lies within the tolerance of the line
+    between its two farthest points. That is true of a small island, and it is
+    equally true of a long thin one: a barrier island 12 km long and under a
+    kilometre wide vanished whole. The place stays on the map either way, so
+    it has to stay in the dataset, or a point on it matches no zone. Halving
+    the tolerance until three points survive keeps the outline as coarse as it
+    can be while still existing.
+    """
+    finer = eps
+    for _ in range(MAX_REFINEMENTS):
+        finer /= 2.0
+        kept = simplify_ring(ring, finer, decimals)
+        if kept:
+            return kept
+    return None
+
+
+def box_ring(ring, decimals: int) -> list[list[float]] | None:
+    """The extent of a ring too thin to survive rounding, as a four-point box.
+
+    A sliver narrower than one rounding step has fewer than three distinct
+    points however finely it is simplified. Its extent, padded by one step on
+    each side, keeps the place in the dataset. The box is at most a step
+    (about 11 m) larger than the sliver all round, which is the safe
+    direction: a little too much zone, never none.
+    """
+    points = list(ring)
+    if not points:
+        return None
+    step = 10.0**-decimals
+    west = max(-180.0, round(min(p[0] for p in points) - step, decimals))
+    east = min(180.0, round(max(p[0] for p in points) + step, decimals))
+    south = max(-90.0, round(min(p[1] for p in points) - step, decimals))
+    north = min(90.0, round(max(p[1] for p in points) + step, decimals))
+    return [[west, south], [east, south], [east, north], [west, north]]
+
+
+def point_in_rings(x: float, y: float, rings) -> bool:
+    """Even-odd containment, the rule the resolver applies to the built dataset."""
+    inside = False
+    for ring in rings:
+        j = len(ring) - 1
+        for i in range(len(ring)):
+            xi, yi = ring[i]
+            xj, yj = ring[j]
+            if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+                inside = not inside
+            j = i
+    return inside
+
+
+def ring_is_covered(ring, rings) -> bool:
+    """Whether every vertex of ``ring`` already lies inside the zone ``rings`` make.
+
+    Containment is even-odd, so a ring added inside a zone does not add to it:
+    it cuts a hole. An island in a pond is the case. The pond is a hole too
+    small to keep, so the zone is solid there, and the island's place is
+    already in the zone. Keeping the island's outline as well would take it
+    back out.
+    """
+    points = list(ring)
+    return (
+        bool(rings)
+        and bool(points)
+        and all(point_in_rings(x, y, rings) for x, y in points)
+    )
+
+
+def add_rings(zones: dict, layer: str, code: str, rings: list) -> int:
+    """Add rings to a zone, creating it if need be. Returns 1 for a new zone."""
+    zone = zones.get((layer, code))
+    if zone:
+        zone["rings"].extend(rings)
+        zone["bbox"] = bbox_of(zone["rings"])
+        return 0
+    zones[(layer, code)] = {
+        "code": code,
+        "layer": layer,
+        "bbox": bbox_of(rings),
+        "rings": list(rings),
+    }
+    return 1
+
+
 def bbox_of(rings):
     xs = [p[0] for r in rings for p in r]
     ys = [p[1] for r in rings for p in r]
     return [min(xs), min(ys), max(xs), max(ys)]
 
 
+# A zone or county shapefile is tens of megabytes, a few hundred unpacked.
+MAX_SOURCE_BYTES = 4 * 1024**3
+_POLYGON_TYPES = frozenset({5, 15, 25})  # POLYGON, POLYGONZ, POLYGONM
+_SHAPEFILE_PARTS = (".shp", ".shx", ".dbf", ".prj", ".cpg")
+# A UGC zone code: two letters, C for a county or Z for a zone, three digits.
+_CODE = re.compile(r"[A-Z]{2}[CZ][0-9]{3}")
+
+
 def read_zip(path: str):
+    """Yield ``(layer, code, rings)`` for every record of the shapefile in ``path``.
+
+    Refuses, with the reason, an archive that is not one polygon shapefile in
+    longitude and latitude: unpacking to an absurd size, holding no ``.shp``
+    or more than one, projected, of another shape type, or with a different
+    number of records than shapes. Each of those would otherwise be read as
+    something it is not, and the dataset built from it would look fine.
+    """
     layer = layer_of(path)
+    name = os.path.basename(path)
     with tempfile.TemporaryDirectory() as td:
         with zipfile.ZipFile(path) as z:
-            z.extractall(td)
-        shps = [
-            os.path.join(r, f)
-            for r, _, fs in os.walk(td)
-            for f in fs
-            if f.lower().endswith(".shp")
-        ]
-        if not shps:
-            raise SystemExit(f"no .shp inside {path}")
+            infos = z.infolist()
+            unpacked = sum(info.file_size for info in infos)
+            if unpacked > MAX_SOURCE_BYTES:
+                raise SystemExit(
+                    f"{name}: unpacks to {unpacked} bytes, more than {MAX_SOURCE_BYTES}"
+                )
+            parts = [i for i in infos if i.filename.lower().endswith(_SHAPEFILE_PARTS)]
+            for info in parts:
+                z.extract(info, td)
+        found = sorted(os.path.join(r, f) for r, _, fs in os.walk(td) for f in fs)
+        shps = [f for f in found if f.lower().endswith(".shp")]
+        if len(shps) != 1:
+            raise SystemExit(f"{name}: expected one .shp inside, found {len(shps)}")
+        for prj in (f for f in found if f.lower().endswith(".prj")):
+            with open(prj, encoding="utf-8", errors="replace") as f:
+                if "PROJCS" in f.read().upper():
+                    raise SystemExit(
+                        f"{name}: is in a projected coordinate system; the "
+                        "builder needs longitude and latitude"
+                    )
         sf = shapefile.Reader(shps[0])
-        for rec, shp in zip(sf.records(), sf.shapes()):
+        if sf.shapeType not in _POLYGON_TYPES:
+            raise SystemExit(
+                f"{name}: holds shapes of type {sf.shapeType}, not polygons"
+            )
+        records, shapes = sf.records(), sf.shapes()
+        if len(records) != len(shapes):
+            raise SystemExit(f"{name}: {len(records)} records but {len(shapes)} shapes")
+        for rec, shp in zip(records, shapes):
             parts = list(shp.parts) + [len(shp.points)]
             rings = [shp.points[parts[i] : parts[i + 1]] for i in range(len(parts) - 1)]
-            yield layer, code_of(layer, rec.as_dict()), rings
+            try:
+                code = code_of(layer, rec.as_dict())
+            except KeyError as err:
+                raise SystemExit(
+                    f"{name}: has no {err} field to read a zone code from"
+                ) from err
+            yield layer, code, rings
+
+
+def code_problem(layer: str, code: str | None) -> str | None:
+    """Why ``code`` cannot be the code of a zone on ``layer``, or ``None``."""
+    if not code:
+        return "has no zone code"
+    if not _CODE.fullmatch(code):
+        return f"has the code {code!r}, which is not of the form AAZ999"
+    wanted = "C" if layer == "county" else "Z"
+    if code[2] != wanted:
+        return f"has the code {code!r}, which is not a {layer} code"
+    return None
+
+
+def ring_problem(ring, decimals: int) -> str | None:
+    """Why ``ring`` cannot be an outline in longitude and latitude, or ``None``.
+
+    Judged on the coordinates as they will be stored, rounded to ``decimals``
+    places. NWS's own files carry values a hair past the edge of the map,
+    such as a longitude of -180.00000001 on a zone that ends at the
+    antimeridian. Those round to the edge and are fine. A value that is still
+    off the map after rounding is not a longitude or a latitude at all.
+    """
+    points = list(ring)
+    if not points:
+        return None
+    west = round(min(p[0] for p in points), decimals)
+    east = round(max(p[0] for p in points), decimals)
+    south = round(min(p[1] for p in points), decimals)
+    north = round(max(p[1] for p in points), decimals)
+    if west < -180.0 or east > 180.0 or south < -90.0 or north > 90.0:
+        return (
+            "has coordinates that are not longitude and latitude "
+            f"(longitude {west} to {east}, latitude {south} to {north})"
+        )
+    if east - west > 180.0:
+        # A ring drawn across the antimeridian. NWS splits such zones in two;
+        # one that is not split would be simplified straight across the map.
+        return f"spans more than 180 degrees of longitude ({west} to {east})"
+    return None
 
 
 def _hash_of(path: str, algorithm: str) -> str:
@@ -262,8 +450,9 @@ def count_changes(
 
 # Bump when a change to this script would alter the output for the same inputs
 # and parameters, so that ``build_id`` moves with it. 1 was the first dataset
-# (2026-10-22), which carried a build time; 2 removed it.
-BUILDER_REVISION = 2
+# (2026-10-22), which carried a build time; 2 removed it; 3 keeps an outline
+# that collapses at the stated tolerance instead of dropping it.
+BUILDER_REVISION = 3
 FORMAT = 2
 _LAYER_ORDER = {"forecast": 0, "county": 1, "fire": 2, "marine": 3}
 
@@ -324,6 +513,20 @@ def main() -> None:
         help="skip the build when the inputs and parameters match this earlier manifest",
     )
     ap.add_argument(
+        "--allow-unusual-source",
+        action="store_true",
+        help="write the dataset even if a record has no usable zone code, has "
+        "coordinates that are not longitude and latitude, crosses the "
+        "antimeridian, or names a zone another file of the same layer already "
+        "named (default: refuse, exit 2). Such records are left out",
+    )
+    ap.add_argument(
+        "--allow-absent",
+        action="store_true",
+        help="write the dataset even if a zone named in a source file has no "
+        "outline in it (default: refuse, exit 2)",
+    )
+    ap.add_argument(
         "--max-count-change",
         type=float,
         default=5.0,
@@ -376,36 +579,100 @@ def main() -> None:
     sources = []
     # Manifest only: adding it to ``meta`` would change the dataset's bytes.
     dropped: dict[str, dict[str, int]] = {}
+    absent: dict[str, list[str]] = {}
+    problems: list[str] = []  # records that could not be used, and why
+    owner: dict[tuple[str, str], str] = {}  # which file named each zone
     for zp, entry in zip(zips, hashed):
         layer, n_rec, n_zone = layer_of(zp), 0, 0
-        # A ring smaller than the tolerance collapses and is dropped; a record
-        # whose every ring collapses is dropped whole. Counted, because a place
-        # inside one resolves to nothing.
-        lost_rings = lost_records = 0
+        # A ring smaller or thinner than the tolerance collapses. What becomes
+        # of it depends on where it lies:
+        #   wholly inside its zone as built
+        #                 dropped. If it is a hole (a pond), the zone becomes
+        #                 solid there, so a point in it matches where it did
+        #                 not before: the safe direction. If it is an outline,
+        #                 its place is in the zone already, and under even-odd
+        #                 containment keeping it would cut that place out.
+        #   anywhere else kept, at a finer tolerance or failing that as its
+        #                 bounding box, because a place inside one that is
+        #                 dropped resolves to nothing.
+        # So no place an outline covers is ever left out. All are counted.
+        lost_rings = lost_holes = covered = refined = boxed = odd_holes = 0
+        named = 0  # records that name a zone
+        codes: set[str] = set()  # the zones this file names
+        placed: set[int] = set()  # records whose place is in the dataset
+        pending: list[tuple[int, str, float, list, bool]] = []
+        source = os.path.basename(zp)
         for layer, code, rings in read_zip(zp):
             n_rec += 1
-            if not code:
+            fault = code_problem(layer, code) or next(
+                (found for r in rings if (found := ring_problem(r, a.decimals))), None
+            )
+            if fault is None and owner.setdefault((layer, code), source) != source:
+                fault = f"names {code}, which {owner[(layer, code)]} already named"
+            if fault is not None:
+                problems.append(f"{source} record {n_rec} {fault}")
                 continue
+            named += 1
+            codes.add(code)
             eps = a.tail_eps if (a.tail_eps and code[:2] in tail) else a.eps
-            srings = [
-                s for s in (simplify_ring(r, eps, a.decimals) for r in rings) if s
-            ]
-            lost_rings += len(rings) - len(srings)
-            if not srings:
-                lost_records += 1
+            # The largest ring's winding is the outline's; one wound the other
+            # way is, by the shapefile convention, a hole in it. That is only
+            # a label here. What is done with a ring that collapses is decided
+            # by where it lies, not by how it is wound.
+            areas = [ring_area(r) for r in rings]
+            outline = max(areas, key=abs, default=0.0)
+            srings = []
+            for ring, area in zip(rings, areas):
+                kept = simplify_ring(ring, eps, a.decimals)
+                if kept is not None:
+                    srings.append(kept)
+                else:
+                    pending.append((n_rec, code, eps, ring, area * outline < 0.0))
+            if srings:
+                placed.add(n_rec)
+                n_zone += add_rings(zones, layer, code, srings)
+        # The collapsing rings wait until every ring that survives on its own
+        # is in place, so each is judged against its whole zone, whichever
+        # record that zone's other rings came from.
+        built = {key: len(z["rings"]) for key, z in zones.items() if key[0] == layer}
+        for record, code, eps, ring, wound_as_hole in pending:
+            zone = zones.get((layer, code))
+            solid = zone["rings"][: built.get((layer, code), 0)] if zone else []
+            if ring_is_covered(ring, solid):
+                # Its place is in the zone as built. Dropping a pond makes the
+                # zone solid there; dropping an outline changes nothing.
+                if wound_as_hole:
+                    lost_holes += 1
+                else:
+                    covered += 1
+                placed.add(record)
                 continue
-            z = zones.get((layer, code))
-            if z:
-                z["rings"].extend(srings)
-                z["bbox"] = bbox_of(z["rings"])
+            kept = refine_ring(ring, eps, a.decimals)
+            if kept is not None:
+                refined += 1
             else:
-                zones[(layer, code)] = {
-                    "code": code,
-                    "layer": layer,
-                    "bbox": bbox_of(srings),
-                    "rings": srings,
-                }
-                n_zone += 1
+                kept = box_ring(ring, a.decimals)
+                if kept is None:
+                    lost_rings += 1  # a ring with no points at all
+                    continue
+                boxed += 1
+            # Wound as a hole, yet not wholly inside its zone as built. Most
+            # often a real hole that straddles the simplified outline, such as
+            # an island at the edge of a marine zone; it could also be an
+            # outline the source wound the wrong way. Kept either way: where
+            # it overlaps the zone it still cuts its hole, and where it does
+            # not, the zone gains a little, which is the safe direction.
+            # Counted, so a change in the number is visible.
+            odd_holes += wound_as_hole
+            placed.add(record)
+            n_zone += add_rings(zones, layer, code, [kept])
+        lost_records = named - len(placed)
+        # Every zone the file names must be in the dataset with an outline. A
+        # zone that is not there cannot match anything, and nothing downstream
+        # can tell that it is missing: the dataset is the only list there is.
+        missing = sorted(code for code in codes if (layer, code) not in zones)
+        if missing:
+            absent[os.path.basename(zp)] = missing
         sources.append(
             {
                 **entry,
@@ -416,12 +683,56 @@ def main() -> None:
                 "zones": n_zone,
             }
         )
-        dropped[os.path.basename(zp)] = {"rings": lost_rings, "records": lost_records}
+        dropped[os.path.basename(zp)] = {
+            "rings": lost_rings,
+            "holes": lost_holes,
+            "records": lost_records,
+            "codes": len(codes),
+            "codes_absent": len(missing),
+            "hole_wound_kept": odd_holes,
+            "already_inside": covered,
+            "kept_finer": refined,
+            "kept_as_box": boxed,
+        }
         print(
             f"{os.path.basename(zp)}: {n_rec} records -> {n_zone} zones ({layer}); "
-            f"dropped {lost_rings} collapsed rings, {lost_records} whole records",
+            f"kept {refined} collapsing outlines at a finer tolerance and {boxed} "
+            f"as a box; dropped {lost_holes} holes, {covered} outlines already "
+            f"inside their zone, {lost_rings} empty rings, {lost_records} whole records; "
+            f"{odd_holes} wound as holes but kept; "
+            f"{len(codes) - len(missing)} of {len(codes)} named zones present",
             file=sys.stderr,
         )
+
+    if problems:
+        print(f"error: {len(problems)} record(s) could not be used:", file=sys.stderr)
+        for line in problems[:20]:
+            print(f"  {line}", file=sys.stderr)
+        if len(problems) > 20:
+            print(f"  ... and {len(problems) - 20} more", file=sys.stderr)
+        if not a.allow_unusual_source:
+            print(
+                "  nothing written. If the source really is like this, rerun with\n"
+                "  --allow-unusual-source and those records are left out",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+    if absent:
+        for name, missing in absent.items():
+            shown = " ".join(missing[:20]) + (" ..." if len(missing) > 20 else "")
+            print(
+                f"error: {name} names {len(missing)} zone(s) with no outline in "
+                f"the dataset: {shown}",
+                file=sys.stderr,
+            )
+        if not a.allow_absent:
+            print(
+                "  nothing written. A zone that is absent matches nothing. If the\n"
+                "  source really carries a zone with no geometry, rerun with --allow-absent",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
     doc = {
         "meta": {
