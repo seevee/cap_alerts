@@ -195,14 +195,19 @@ only thing persisted today is each live alert's lifecycle fields (#350) and
 ## Remove the pelmorex NAAD host (cleanup)
 
 **When:** after the legacy `rss.naad-adna.pelmorex.com` host retires. Pelmorex
-announced ~late Sept 2026; the host still served on 2026-11-15.
+announced ~late Sept 2026; the host still served on 2026-11-16. Not before:
+both hosts stay in `auto` until then (#427).
 
 The GeoRSS host union (#38) fetches both NAAD hosts and unions their entries
 because alertready persistently dropped live alerts pelmorex carried, while
 pelmorex retains a shorter window. Sampling from 2026-07-30 found a gap in
 every sample until 2026-10-02, when it closed (five one-sample blips in the
-2,447 samples since), so the union now guards against a regression rather
-than covering a known gap.
+2,447 samples to 2026-10-27), so the union now guards against a regression
+rather than covering a known gap. The regression has happened once: on
+2026-11-06 alertready answered 200 for five hours (13:07Z to 18:07Z) without
+taking a new alert, and 27 Actual/Public alerts, three of them Severe, were
+on pelmorex alone until it caught up. A polling entry on alertready alone
+would have been up to five hours late on those.
 
 Until then the sunset repairs (#163, `issues.py`) cover the two configurations
 that depend on the host: streaming off, and `feed_source: pelmorex`. Each gets
@@ -212,8 +217,11 @@ Once pelmorex is gone it will simply fail every poll, which the union tolerates.
 Removing it means: drop `NAAD_FEED_PELMOREX` and the `pelmorex` value from
 `NAAD_FEED_HOSTS` / `NAAD_FEED_UNION_ORDER` in `providers/eccc.py`, drop
 `pelmorex` from the `CONF_FEED_SOURCE` selector in `flows/eccc.py` (leaving
-`auto` = alertready-only), and update the `feed_source` strings. If alertready's
-gap has reopened by then, escalate before removing. Dropping the
+`auto` = alertready-only), and update the `feed_source` strings. Before
+removing anything, re-run the sampler summary (`scripts/naad_feed_diff.py
+--summary`) over the weeks up to the retirement: if alertready's gap has
+reopened or it has stalled again, escalate first, since nothing will be
+covering for it afterwards. Dropping the
 `pelmorex` value retires `ISSUE_ECCC_FEED_SOURCE_PELMOREX` with it (the
 streaming-off repair stays, since the thin index is the reason it exists).
 

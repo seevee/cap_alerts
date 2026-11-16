@@ -106,10 +106,14 @@ CONFIG_FLOW_TIMEOUT = 10  # seconds
 # keeps a shorter (~13.5 h) window. The alertready gap closed on 2026-10-02: of
 # 2,447 samples from then to 2026-10-27, five alerts were missing from it, each
 # for one sample only. So the union now guards against a regression rather
-# than covering a known gap. The named values ("alertready" / "pelmorex") pin a
+# than covering a known gap, and the regression has happened once: on
+# 2026-11-06, 13:07Z to 18:07Z, alertready answered 200 but took no new alerts.
+# 27 Actual/Public alerts (three Severe) were on the legacy host alone until it
+# caught up at 18:22Z (issue #427). Both hosts stay in "auto" for as long as the
+# legacy one serves. The named values ("alertready" / "pelmorex") pin a
 # single host as an escape hatch. An absent option means "auto" so existing
 # entries need no reconfiguring. Pelmorex announced its host's sunset for ~late
-# Sept 2026 and it still served on 2026-10-27; removing it is a cleanup task,
+# Sept 2026 and it still served on 2026-11-16; removing it is a cleanup task,
 # not an outage (a failing host is skipped as long as the other succeeds).
 DEFAULT_FEED_SOURCE = "auto"
 
