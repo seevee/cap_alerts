@@ -22,7 +22,7 @@ import re
 from array import array
 from collections.abc import Iterable
 from dataclasses import dataclass
-from math import asin, cos, isfinite, pi, radians, sin, sqrt
+from math import asin, cos, pi, radians, sin, sqrt
 from typing import Any
 
 EARTH_RADIUS_KM = 6371.0088
@@ -82,10 +82,12 @@ def _number(value: Any, low: float, high: float, what: str) -> float:
     """A finite real number within ``low..high``. Booleans are not numbers here."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ZoneDataError(f"{what} is not a number")
-    number = float(value)
-    if not isfinite(number) or not low <= number <= high:
+    # Compared before it is converted: an integer of a few hundred digits is
+    # valid JSON, and ``float()`` raises OverflowError on it. NaN and the
+    # infinities fail the comparison too.
+    if not low <= value <= high:
         raise ZoneDataError(f"{what} is out of range")
-    return number
+    return float(value)
 
 
 def _count(value: Any, ceiling: int, what: str) -> int:
@@ -315,7 +317,10 @@ class _ZoneBuilder:
         stored = tuple(array("f", (x0, y0, x1, y1)))
         if stored != extent:
             raise ZoneDataError(f"{code}: bbox does not match the extent of its rings")
-        return (x0, y0, x1, y1)
+        # The float32 values, the ones the rings hold. The float64 originals
+        # can sit a fraction of a metre inside the ring's own extreme vertex,
+        # and the box is what prunes a zone before its rings are looked at.
+        return (stored[0], stored[1], stored[2], stored[3])
 
     def finish(self) -> list[Zone]:
         for code, layer in self._aliases:
@@ -374,6 +379,7 @@ class ZoneSet:
         self._index: dict[tuple[str, str], Zone] = {
             (z.layer, z.code): z for z in self._zones
         }
+        self._layers: frozenset[str] = frozenset(z.layer for z in self._zones)
         # One entry per shapefile the dataset was built from: file, md5, layer.
         self.sources: tuple[dict[str, Any], ...] = tuple(sources)
         # How far simplification was allowed to move a boundary, in degrees:
@@ -535,7 +541,7 @@ class ZoneSet:
         return len(self._zones)
 
     def layers(self) -> set[str]:
-        return {z.layer for z in self._zones}
+        return set(self._layers)
 
     def get(self, layer: str, code: str) -> Zone | None:
         """One zone by layer and code, or None."""
@@ -617,6 +623,10 @@ class ZoneSet:
         zone as well as a marine zone. A point inside a county is on land and gets the
         land layers; a point in no county is at sea and gets the marine layer only.
         """
+        if land_sea_rule and "county" not in self._layers:
+            # Without counties every point would read as at sea and lose its
+            # land zones, with nothing to say why.
+            raise ValueError("the land-sea rule needs a dataset with the county layer")
         wanted = set(layers)
         # The county layer decides land versus sea, so it is consulted even
         # when the caller did not ask for county codes back.

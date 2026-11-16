@@ -374,8 +374,14 @@ def main() -> None:
         tuple[str, str], dict
     ] = {}  # (layer, code): fire and forecast share the "Z" code space
     sources = []
+    # Manifest only: adding it to ``meta`` would change the dataset's bytes.
+    dropped: dict[str, dict[str, int]] = {}
     for zp, entry in zip(zips, hashed):
         layer, n_rec, n_zone = layer_of(zp), 0, 0
+        # A ring smaller than the tolerance collapses and is dropped; a record
+        # whose every ring collapses is dropped whole. Counted, because a place
+        # inside one resolves to nothing.
+        lost_rings = lost_records = 0
         for layer, code, rings in read_zip(zp):
             n_rec += 1
             if not code:
@@ -384,7 +390,9 @@ def main() -> None:
             srings = [
                 s for s in (simplify_ring(r, eps, a.decimals) for r in rings) if s
             ]
+            lost_rings += len(rings) - len(srings)
             if not srings:
+                lost_records += 1
                 continue
             z = zones.get((layer, code))
             if z:
@@ -408,8 +416,10 @@ def main() -> None:
                 "zones": n_zone,
             }
         )
+        dropped[os.path.basename(zp)] = {"rings": lost_rings, "records": lost_records}
         print(
-            f"{os.path.basename(zp)}: {n_rec} records -> {n_zone} zones ({layer})",
+            f"{os.path.basename(zp)}: {n_rec} records -> {n_zone} zones ({layer}); "
+            f"dropped {lost_rings} collapsed rings, {lost_records} whole records",
             file=sys.stderr,
         )
 
@@ -490,6 +500,7 @@ def main() -> None:
         "zone_count": len(doc["zones"]),
         "content_bytes": len(blob),
         "content_sha256": hashlib.sha256(blob).hexdigest(),
+        "dropped": dropped,
     }
     if a.gzip:
         gz = gzip_bytes(blob)

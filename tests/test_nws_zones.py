@@ -133,7 +133,14 @@ def test_rings_are_flat_float_arrays(zones):
     assert isinstance(ring, array)
     assert ring.typecode == "f"
     assert len(ring) == 8  # four vertices, lon then lat
-    assert zone.bbox == (-74.1, 40.7, -73.9, 40.9)
+    # Held at the precision of the rings, so the box is exactly their extent.
+    assert zone.bbox == tuple(array("f", (-74.1, 40.7, -73.9, 40.9)))
+    assert zone.bbox == (
+        min(ring[0::2]),
+        min(ring[1::2]),
+        max(ring[0::2]),
+        max(ring[1::2]),
+    )
 
 
 def test_an_aliased_fire_zone_shares_the_forecast_zone_arrays(zones):
@@ -319,6 +326,7 @@ def _changed(**fields: Any) -> dict[str, Any]:
         _changed(bbox=["a", 40.7, -73.9, 40.9]),
         _changed(bbox=[True, 40.7, -73.9, 40.9]),
         _changed(bbox=[-999.0, 40.7, -73.9, 40.9]),
+        _changed(bbox=[10**400, 40.7, -73.9, 40.9]),  # too large for float()
         {"code": "NYZ072", "layer": "fire", "alias": "county"},
         {"code": "NYZ072", "layer": "forecast", "alias": "forecast"},
         {"code": "NYZ072", "layer": "fire", "alias": "forecast"},  # nothing to alias
@@ -400,6 +408,8 @@ def test_a_malformed_header_is_refused(header):
         {"epsilon_deg": -0.005},
         {"epsilon_deg": 50.0},  # would widen every zone by 5,500 km
         {"tail_epsilon_deg": 50.0},
+        {"epsilon_deg": 10**400},  # valid JSON, too large for float()
+        {"tail_epsilon_deg": -(10**400)},
         {"tail_epsilon_deg": "0.02"},
         {"tail_states": "AK"},
         {"tail_states": ["Alaska"]},
@@ -752,6 +762,23 @@ def test_containing_nothing_far_from_every_zone(zones):
     assert zones.containing(10.0, 10.0) == []
 
 
+def test_land_sea_rule_refuses_a_set_without_counties():
+    """No county layer would make every land point read as at sea."""
+    no_counties = ZoneSet.from_json(json.dumps(_ALEUTIAN))
+    with pytest.raises(ValueError, match="county layer"):
+        no_counties.containing(51.0, 178.0)
+
+
+def test_a_point_on_a_zone_s_extreme_vertex_is_not_pruned_by_its_box():
+    """40.9 as float32 lies just north of 40.9 as float64."""
+    loaded = ZoneSet.from_lines(_one(_GOOD))
+    zone = loaded.get("forecast", "NYZ072")
+    assert zone is not None
+    north = max(zone.rings[0][1::2])
+    assert north > 40.9
+    assert bbox_distance_km(north, -74.0, zone.bbox) == 0.0
+
+
 # ---------------------------------------------------------------------------
 # The antimeridian
 # ---------------------------------------------------------------------------
@@ -779,14 +806,15 @@ def test_a_zone_split_at_the_antimeridian_contains_points_on_both_sides():
     zone = split.get("marine", "PKZ785")
     assert zone is not None
     assert zone.bbox[2] - zone.bbox[0] > 180.0
-    assert _pairs(split.containing(51.0, -178.0)) == {("marine", "PKZ785")}
-    assert _pairs(split.containing(51.0, 178.0)) == {("marine", "PKZ785")}
+    for lon in (-178.0, 178.0):
+        hits = split.containing(51.0, lon, land_sea_rule=False)
+        assert _pairs(hits) == {("marine", "PKZ785")}
 
 
 def test_a_split_zone_still_excludes_points_between_its_parts():
     split = ZoneSet.from_json(json.dumps(_ALEUTIAN))
-    assert split.containing(51.0, 0.0) == []
-    assert split.containing(51.0, -170.0) == []
+    assert split.containing(51.0, 0.0, land_sea_rule=False) == []
+    assert split.containing(51.0, -170.0, land_sea_rule=False) == []
     assert split.resolve(51.0, 0.0, radius_km=50.0) == []
 
 
