@@ -142,10 +142,11 @@ the alert.
 Turning streaming off falls back to GeoRSS polling on the scan interval.
 
 **Deprecation.** The legacy NAAD GeoRSS host (`pelmorex`) was announced to
-retire in late September 2026, and still served on 2026-11-15. The surviving
+retire in late September 2026, and still served on 2026-11-16. The surviving
 host used to omit some live alerts, and a polling entry misses whatever its
-feed leaves out. That gap closed on 2026-10-02, but `auto` keeps reading both hosts while both
-answer, in case it returns. Two configurations raise a repair under
+feed leaves out. That gap closed on 2026-10-02, but the host then went five
+hours without taking a new alert on 2026-11-06, so `auto` keeps reading both
+hosts while both answer. Two configurations raise a repair under
 Settings → Repairs:
 
 - Streaming off. Submitting the repair turns streaming back on. Ignore it if
