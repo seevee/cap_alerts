@@ -280,7 +280,14 @@ def read_zip(path: str):
     layer = layer_of(path)
     name = os.path.basename(path)
     with tempfile.TemporaryDirectory() as td:
-        with zipfile.ZipFile(path) as z:
+        try:
+            archive = zipfile.ZipFile(path)
+        except zipfile.BadZipFile as err:
+            # What a failed download leaves behind: an error page, or half a file.
+            raise SystemExit(f"{name}: is not a zip archive") from err
+        except OSError as err:
+            raise SystemExit(f"{name}: cannot be opened: {err}") from err
+        with archive as z:
             infos = z.infolist()
             unpacked = sum(info.file_size for info in infos)
             if unpacked > MAX_SOURCE_BYTES:
@@ -301,12 +308,17 @@ def read_zip(path: str):
                         f"{name}: is in a projected coordinate system; the "
                         "builder needs longitude and latitude"
                     )
-        sf = shapefile.Reader(shps[0])
+        try:
+            sf = shapefile.Reader(shps[0])
+            records, shapes = sf.records(), sf.shapes()
+        except Exception as err:
+            raise SystemExit(
+                f"{name}: cannot be read as a shapefile: {type(err).__name__}: {err}"
+            ) from err
         if sf.shapeType not in _POLYGON_TYPES:
             raise SystemExit(
                 f"{name}: holds shapes of type {sf.shapeType}, not polygons"
             )
-        records, shapes = sf.records(), sf.shapes()
         if len(records) != len(shapes):
             raise SystemExit(f"{name}: {len(records)} records but {len(shapes)} shapes")
         for rec, shp in zip(records, shapes):
@@ -535,6 +547,14 @@ def main() -> None:
         "than this many percent from that manifest (default 5)",
     )
     a = ap.parse_args()
+
+    # Every input is looked at before any work is done, so a bad download is
+    # named in one line and not found halfway through.
+    for zp in a.zips:
+        if not os.path.isfile(zp):
+            raise SystemExit(f"{os.path.basename(zp)}: cannot be opened: no such file")
+        if not zipfile.is_zipfile(zp):
+            raise SystemExit(f"{os.path.basename(zp)}: is not a zip archive")
 
     tail = (
         {t.strip().upper() for t in a.tail_states.split(",") if t.strip()}

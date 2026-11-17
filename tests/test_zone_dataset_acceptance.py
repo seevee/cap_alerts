@@ -87,14 +87,28 @@ def _build(out: Path, zips: list[Path]) -> subprocess.CompletedProcess[str]:
 
 @pytest.fixture(scope="module")
 def zips() -> list[Path]:
+    """The shapefiles of one release: one of each kind, and no others."""
     pytest.importorskip("shapefile", reason="pyshp builds the zone dataset")
     folder = Path(_SOURCES)
-    found = [path for pattern in _PATTERNS for path in sorted(folder.glob(pattern))]
-    names = {path.name[:2] for path in found}
-    assert {"z_", "c_"} <= names, (
-        f"{folder} needs at least a forecast-zone file (z_*.zip) and a county "
-        f"file (c_*.zip); found {[path.name for path in found]}"
-    )
+    found: list[Path] = []
+    for pattern in _PATTERNS:
+        matches = sorted(folder.glob(pattern))
+        if len(matches) > 1:
+            pytest.fail(
+                f"{folder} holds more than one {pattern}: "
+                f"{', '.join(path.name for path in matches)}. A release is built "
+                "from one of each kind; point CAP_ALERTS_ZONE_SOURCES at a "
+                "directory holding only that release's files.",
+                pytrace=False,
+            )
+        found.extend(matches)
+    kinds = {path.name[:2] for path in found}
+    if not {"z_", "c_"} <= kinds:
+        pytest.fail(
+            f"{folder} needs at least a forecast-zone file (z_*.zip) and a county "
+            f"file (c_*.zip); found {[path.name for path in found] or 'nothing'}",
+            pytrace=False,
+        )
     return found
 
 
@@ -102,7 +116,8 @@ def zips() -> list[Path]:
 def build(zips, tmp_path_factory) -> dict[str, Any]:
     out = tmp_path_factory.mktemp("zone-dataset") / "nws_zones.jsonl"
     done = _build(out, zips)
-    assert done.returncode == 0, f"the build failed:\n{done.stderr}"
+    if done.returncode != 0:
+        pytest.fail(f"the build failed:\n{done.stderr[-2000:]}", pytrace=False)
     return {
         "dataset": Path(f"{out}.gz"),
         "manifest": json.loads(Path(f"{out}.manifest.json").read_text()),

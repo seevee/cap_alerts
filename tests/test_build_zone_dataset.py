@@ -462,6 +462,37 @@ def test_a_code_of_the_wrong_kind_for_its_layer_stops_the_build(tmp_path):
     assert "which is not a marine code" in _refused(tmp_path, zips).stderr
 
 
+def test_a_file_that_is_not_a_zip_is_refused_by_name(tmp_path):
+    """What a failed download leaves behind: an error page saved under the
+    right name. The build says which file, without a traceback."""
+    src = tmp_path / "src"
+    zips = _sources(src, [MAINLAND])
+    page = src / "fz16ap26.zip"
+    page.write_text("<html><body>503 Service Unavailable</body></html>")
+    done = _refused(tmp_path, [*zips, page])
+    assert "fz16ap26.zip: is not a zip archive" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
+def test_a_file_that_is_missing_is_refused_by_name(tmp_path):
+    zips = _sources(tmp_path / "src", [MAINLAND])
+    done = _refused(tmp_path, [*zips, tmp_path / "src" / "mz16ap26.zip"])
+    assert "mz16ap26.zip: cannot be opened" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
+def test_an_archive_whose_shapefile_is_damaged_is_refused_by_name(tmp_path):
+    src = tmp_path / "src"
+    zips = _sources(src, [MAINLAND])
+    damaged = src / "fz16ap26.zip"
+    with zipfile.ZipFile(damaged, "w") as archive:
+        for extension in ("shp", "shx", "dbf"):
+            archive.writestr(f"fz16ap26.{extension}", b"not a shapefile at all")
+    done = _refused(tmp_path, [*zips, damaged])
+    assert "fz16ap26.zip: cannot be read as a shapefile" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
 def test_a_projected_shapefile_is_refused(tmp_path):
     projected = 'PROJCS["NAD_1983_Albers",GEOGCS["GCS_North_American_1983"]]'
     src = tmp_path / "src"
