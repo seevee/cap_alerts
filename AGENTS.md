@@ -217,8 +217,30 @@ reads (#316). The same inputs always give the same bytes: nothing from the
 clock reaches the output, and each source is recorded with its SHA-256.
 `--if-changed <manifest>` skips the build when the inputs and settings match
 an earlier manifest, and refuses to write a dataset whose zone counts moved
-more than `--max-count-change` percent from it. The dataset is not committed; it is published as a
-release asset. `scripts/nws_zone_parity.py` (read-only, run with the project's
+more than `--max-count-change` percent from it. It keeps every place an
+outline covers: a ring that collapses under simplification is dropped only if
+it lies wholly inside its zone as built (a pond, or an outline already
+covered), and is otherwise kept at a finer tolerance. It refuses to write,
+exit 2, when a zone a shapefile names has no outline (`--allow-absent`
+overrides), or when a record has no usable zone code, has coordinates that are
+not longitude and latitude, crosses the antimeridian, or names a zone another
+file of the same layer already named (`--allow-unusual-source` overrides and
+leaves those records out). It refuses outright an archive that is not one
+polygon shapefile in longitude and latitude. The dataset is not committed; it
+is published as a release asset. `scripts/check_zone_dataset.py` (needs
+`pyshp`, read-only) is the check to run between building and publishing. It
+reads the shapefiles again and asks ten questions of the dataset, each listed
+at the top of the script: that it loads, has its layers, records its
+tolerance, sits under half of every ceiling the reader enforces, matches its
+manifest, holds every named zone, has left no place out of its zone, kept a
+sample of original vertices within tolerance, has no zone at under half or
+over twice its area, and gives every forecast and fire outline a county
+within tolerance. It exits 1 if any fails. `tests/test_build_zone_dataset.py`
+holds both scripts to all of that on small made-up shapefiles (skipped without
+`pyshp`); `tests/test_zone_dataset_acceptance.py` runs the ten questions, one
+test each, on NWS's real shapefiles when `CAP_ALERTS_ZONE_SOURCES` names the
+directory holding them, which is what a release workflow should do before it
+publishes (skipped otherwise). `scripts/nws_zone_parity.py` (read-only, run with the project's
 virtualenv) checks that local resolution plus local matching returns the same
 alerts as `alerts/active?point=`, on points it picks from the day's live
 alerts to hit the cases that can go wrong; re-run it on days with real
