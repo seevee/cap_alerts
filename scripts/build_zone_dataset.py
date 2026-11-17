@@ -60,7 +60,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
+import io
 import json
+import math
 import os
 import re
 import struct
@@ -68,11 +71,79 @@ import sys
 import tempfile
 import zipfile
 import zlib
+from pathlib import Path
 
 try:
     import shapefile  # pyshp
 except ImportError:
     sys.exit("pyshp is required:  pip install pyshp   (or apt install python3-pyshp)")
+
+
+_READER = (
+    Path(__file__).resolve().parent.parent
+    / "custom_components"
+    / "cap_alerts"
+    / "providers"
+    / "nws_zones.py"
+)
+# The reader's ceilings on a tolerance and on rounding, restated so that an
+# argument outside them is refused before any work is done.
+MAX_EPSILON_DEG = 0.1
+MAX_DECIMALS = 9
+
+
+def reader_refusal(blob: bytes) -> str | None:
+    """Why the integration's reader would refuse ``blob``, or ``None`` if it loads.
+
+    The reader is the judge of what a dataset is. It enforces ceilings and
+    field rules the builder does not restate, so the only sure way to know a
+    build is usable is to load it the way the integration will. Loaded by
+    file path: the module is stdlib only, and the package around it imports
+    Home Assistant, which a machine that only builds datasets need not have.
+    """
+    reader = sys.modules.get("_cap_alerts_nws_zones")
+    if reader is None:
+        spec = importlib.util.spec_from_file_location("_cap_alerts_nws_zones", _READER)
+        if spec is None or spec.loader is None:
+            return f"the reader could not be loaded from {_READER}"
+        reader = importlib.util.module_from_spec(spec)
+        sys.modules["_cap_alerts_nws_zones"] = reader
+        try:
+            spec.loader.exec_module(reader)
+        except OSError as err:
+            del sys.modules["_cap_alerts_nws_zones"]
+            return f"the reader could not be loaded from {_READER}: {err}"
+    try:
+        reader.ZoneSet.from_lines(io.BytesIO(blob))
+    except ValueError as err:
+        return str(err)
+    return None
+
+
+def write_atomically(path: str, data: bytes) -> None:
+    """Write ``data`` to ``path`` so that ``path`` is never half written.
+
+    Written beside its destination, flushed to disk, read back and compared,
+    and only then renamed into place. A build that is killed or runs out of
+    disk leaves the old file, or none, never a short one under the real name.
+    """
+    partial = f"{path}.partial"
+    try:
+        with open(partial, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        with open(partial, "rb") as f:
+            if f.read() != data:
+                raise SystemExit(
+                    f"{path}: what was written does not read back the same"
+                )
+        os.replace(partial, path)
+    except OSError as err:
+        raise SystemExit(f"{path}: cannot be written: {err}") from err
+    finally:
+        if os.path.exists(partial):
+            os.unlink(partial)
 
 
 def layer_of(filename: str) -> str:
@@ -309,7 +380,10 @@ def read_zip(path: str):
                         "builder needs longitude and latitude"
                     )
         try:
-            sf = shapefile.Reader(shps[0])
+            # Names in a file can hold bytes that are not valid text in its
+            # stated encoding. The builder reads only the code fields, so a
+            # bad byte in a place name must not stop it.
+            sf = shapefile.Reader(shps[0], encodingErrors="replace")
             records, shapes = sf.records(), sf.shapes()
         except Exception as err:
             raise SystemExit(
@@ -357,6 +431,9 @@ def ring_problem(ring, decimals: int) -> str | None:
     points = list(ring)
     if not points:
         return None
+    if not all(math.isfinite(p[0]) and math.isfinite(p[1]) for p in points):
+        # NaN compares false with everything, so no range test would catch it.
+        return "has a coordinate that is not a number"
     west = round(min(p[0] for p in points), decimals)
     east = round(max(p[0] for p in points), decimals)
     south = round(min(p[1] for p in points), decimals)
@@ -548,13 +625,45 @@ def main() -> None:
     )
     a = ap.parse_args()
 
+    # Arguments the reader would refuse in the finished file are refused here.
+    for name, value in (("--eps", a.eps), ("--tail-eps", a.tail_eps)):
+        if value is not None and not (
+            math.isfinite(value) and 0.0 <= value <= MAX_EPSILON_DEG
+        ):
+            ap.error(
+                f"{name} must be between 0 and {MAX_EPSILON_DEG} degrees, not {value}"
+            )
+    if not 0 <= a.decimals <= MAX_DECIMALS:
+        ap.error(f"--decimals must be between 0 and {MAX_DECIMALS}, not {a.decimals}")
+    if not (math.isfinite(a.max_count_change) and a.max_count_change >= 0.0):
+        ap.error(f"--max-count-change must be 0 or more, not {a.max_count_change}")
+
     # Every input is looked at before any work is done, so a bad download is
     # named in one line and not found halfway through.
+    kinds: dict[str, str] = {}
     for zp in a.zips:
+        name = os.path.basename(zp)
         if not os.path.isfile(zp):
-            raise SystemExit(f"{os.path.basename(zp)}: cannot be opened: no such file")
+            raise SystemExit(f"{name}: cannot be opened: no such file")
         if not zipfile.is_zipfile(zp):
-            raise SystemExit(f"{os.path.basename(zp)}: is not a zip archive")
+            raise SystemExit(f"{name}: is not a zip archive")
+        layer_of(zp)  # exits, naming the file, if its name says nothing
+        # One file of each kind. Two forecast-zone files, or the same file
+        # named twice, would add each zone's rings to themselves, and under
+        # even-odd containment a ring added twice cancels itself out.
+        kind = name[:2].lower()
+        if kind in kinds:
+            raise SystemExit(
+                f"{name}: is a second {layer_of(zp)} file of its kind; "
+                f"{kinds[kind]} was already given"
+            )
+        kinds[kind] = name
+    for target in (a.out, a.manifest or a.out + ".manifest.json"):
+        folder = os.path.dirname(os.path.abspath(target))
+        if not os.path.isdir(folder):
+            raise SystemExit(f"{target}: its directory does not exist")
+        if not os.access(folder, os.W_OK):
+            raise SystemExit(f"{target}: its directory cannot be written to")
 
     tail = (
         {t.strip().upper() for t in a.tail_states.split(",") if t.strip()}
@@ -581,10 +690,32 @@ def main() -> None:
     build_id = build_id_of(params, hashed)
     baseline: dict[str, int] = {}
     if a.if_changed and os.path.exists(a.if_changed):
-        with open(a.if_changed, encoding="utf-8") as f:
-            earlier = json.load(f)
-        previous = earlier.get("build_id")
-        baseline = earlier.get("zones") or {}
+        # The comparison with the last build is a safety check. A manifest
+        # that cannot be read must stop the build, not quietly switch it off.
+        try:
+            with open(a.if_changed, encoding="utf-8") as f:
+                earlier = json.load(f)
+        except (OSError, ValueError) as err:
+            raise SystemExit(
+                f"{a.if_changed}: cannot be read as a manifest: {err}"
+            ) from err
+        previous = earlier.get("build_id") if isinstance(earlier, dict) else None
+        baseline = earlier.get("zones") if isinstance(earlier, dict) else None
+        if not (
+            isinstance(previous, str)
+            and isinstance(baseline, dict)
+            and baseline
+            and all(
+                isinstance(layer, str)
+                and isinstance(count, int)
+                and not isinstance(count, bool)
+                for layer, count in baseline.items()
+            )
+        ):
+            raise SystemExit(
+                f"{a.if_changed}: is not a manifest this script wrote "
+                "(no build_id, or no zone count per layer)"
+            )
         if previous == build_id:
             print(
                 f"unchanged: build_id {build_id} matches {a.if_changed}; nothing built",
@@ -821,8 +952,17 @@ def main() -> None:
             )
             sys.exit(2)
     blob = dataset_bytes(doc["meta"], doc["zones"])
-    with open(a.out, "wb") as f:
-        f.write(blob)
+    # Before anything is written: the file is loaded the way the integration
+    # will load it. A dataset the reader refuses is not a dataset.
+    refusal = reader_refusal(blob)
+    if refusal is not None:
+        print(
+            f"error: the integration's reader refuses this dataset: {refusal}\n"
+            "  nothing written",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    write_atomically(a.out, blob)
     msg = f"{a.out}: {len(doc['zones'])} zones, {len(blob) / 1e6:.2f} MB"
     manifest = {
         **doc["meta"],
@@ -835,16 +975,19 @@ def main() -> None:
     }
     if a.gzip:
         gz = gzip_bytes(blob)
-        with open(a.out + ".gz", "wb") as f:
-            f.write(gz)
+        if zlib.decompress(gz, 31) != blob:  # pragma: no cover - a failing zlib
+            raise SystemExit(f"{a.out}.gz: does not decompress to the dataset")
+        write_atomically(a.out + ".gz", gz)
         msg += f", {len(gz) / 1e6:.2f} MB gzipped"
         # The .gz is the file that gets published, so its own hash is the one to pin or quote.
         manifest["gzip_bytes"] = len(gz)
         manifest["gzip_sha256"] = hashlib.sha256(gz).hexdigest()
     manifest_path = a.manifest or a.out + ".manifest.json"
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, sort_keys=True)
-        f.write("\n")
+    # Last, so that a manifest on disk means the files it describes are there.
+    write_atomically(
+        manifest_path,
+        (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+    )
     print(f"{msg}; build_id {build_id}; manifest {manifest_path}", file=sys.stderr)
 
 

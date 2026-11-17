@@ -225,8 +225,15 @@ exit 2, when a zone a shapefile names has no outline (`--allow-absent`
 overrides), or when a record has no usable zone code, has coordinates that are
 not longitude and latitude, crosses the antimeridian, or names a zone another
 file of the same layer already named (`--allow-unusual-source` overrides and
-leaves those records out). It refuses outright an archive that is not one
-polygon shapefile in longitude and latitude. The dataset is not committed; it
+leaves those records out). It refuses outright, in one line naming the file,
+an input that is missing, is not a zip, is not one readable polygon shapefile
+in longitude and latitude, or is a second file of a kind already given; an
+argument the reader would refuse in the finished file; an output directory
+that does not exist; and an `--if-changed` manifest it cannot read. Before
+writing anything it loads what it built through `providers/nws_zones.py`, the
+way the integration will, and refuses a dataset the reader refuses. Each
+output is written beside its destination, read back, and renamed into place,
+the manifest last. The dataset is not committed; it
 is published as a release asset. `scripts/check_zone_dataset.py` (needs
 `pyshp`, read-only) is the check to run between building and publishing. It
 reads the shapefiles again and asks ten questions of the dataset, each listed

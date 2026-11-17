@@ -58,6 +58,7 @@ import math
 import os
 import sys
 import time
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -220,8 +221,13 @@ def check_file(findings: list[Finding], dataset: str, zips: list[str]) -> Any | 
     resolver, builder = _modules()
     try:
         zones = load_dataset(dataset)
-    except (OSError, ValueError) as err:
-        findings.append(Finding("1. loads", False, f"{dataset} does not load: {err}"))
+    except (OSError, ValueError, EOFError, zlib.error) as err:
+        # A gzip file cut short raises EOFError, and a damaged one zlib.error;
+        # neither is an OSError or a ValueError.
+        reason = str(err) or type(err).__name__
+        findings.append(
+            Finding("1. loads", False, f"{dataset} does not load: {reason}")
+        )
         return None
     findings.append(Finding("1. loads", True, f"{len(zones)} zones"))
 
@@ -266,17 +272,24 @@ def check_file(findings: list[Finding], dataset: str, zips: list[str]) -> Any | 
     plain = str(dataset).removesuffix(".gz")
     manifest_path = Path(plain + ".manifest.json")
     if manifest_path.exists() and str(dataset).endswith(".gz"):
-        manifest = json.loads(manifest_path.read_text())
         digest = hashlib.sha256(Path(dataset).read_bytes()).hexdigest()
         wrong = []
-        if manifest.get("gzip_sha256") != digest:
-            wrong.append(
-                f"hash is {digest}, manifest says {manifest.get('gzip_sha256')}"
-            )
-        if manifest.get("zone_count") != len(zones):
-            wrong.append(
-                f"{len(zones)} zones, manifest says {manifest.get('zone_count')}"
-            )
+        manifest: Any = None
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as err:
+            wrong.append(f"{manifest_path.name} cannot be read: {err}")
+        else:
+            if not isinstance(manifest, dict):
+                wrong.append(f"{manifest_path.name} is not a manifest")
+            elif manifest.get("gzip_sha256") != digest:
+                wrong.append(
+                    f"hash is {digest}, manifest says {manifest.get('gzip_sha256')}"
+                )
+            elif manifest.get("zone_count") != len(zones):
+                wrong.append(
+                    f"{len(zones)} zones, manifest says {manifest.get('zone_count')}"
+                )
         detail = "; ".join(wrong) or f"sha256 {digest[:16]}..., {len(zones)} zones"
         findings.append(Finding("5. manifest agrees", not wrong, detail))
     else:
@@ -313,6 +326,8 @@ def survey_file(zones: Any, path: str) -> FileSurvey:
         for ring, area in zip(rings, areas, strict=True):
             result.rings += 1
             points = list(ring)
+            if not points:
+                continue  # a part with no points covers no place
             if zone is not None:
                 # Question 8: a sample of this ring's own vertices.
                 for lon, lat in points[:1] + points[SAMPLE_EVERY::SAMPLE_EVERY]:
@@ -524,9 +539,14 @@ def main(argv: list[str] | None = None) -> int:
     findings: list[Finding] = []
     zones = check_file(findings, dataset, zips)
     if zones is not None:
-        results = [survey_file(zones, path) for path in zips]
-        report(results)
-        findings.extend(judge(results))
+        try:
+            results = [survey_file(zones, path) for path in zips]
+        except SystemExit as err:
+            # The builder's own refusal of a source it cannot read, by name.
+            findings.append(Finding("sources readable", False, str(err)))
+        else:
+            report(results)
+            findings.extend(judge(results))
     print()
     for finding in findings:
         print(

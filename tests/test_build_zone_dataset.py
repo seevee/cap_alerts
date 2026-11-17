@@ -543,6 +543,155 @@ def test_a_shapefile_without_the_field_its_codes_come_from_is_refused(tmp_path):
     assert "has no 'ZONE' field" in _refused(tmp_path, zips).stderr
 
 
+def test_a_coordinate_that_is_not_a_number_stops_the_build(tmp_path):
+    """NaN compares false with everything, so no range test would catch it."""
+    nan = float("nan")
+    broken = [(-73.5, 40.5), (nan, 40.6), (-73.4, 40.6), (-73.5, 40.5)]
+    zips = _sources(tmp_path / "src", [MAINLAND], more=[(("NY", "099"), [broken])])
+    done = _refused(tmp_path, zips)
+    assert done.returncode == 2
+    assert "has a coordinate that is not a number" in done.stderr
+
+
+def test_bad_text_in_a_field_the_builder_never_reads_does_not_stop_it(tmp_path):
+    """Place names can hold bytes that are not valid text. Only codes are read."""
+    src = tmp_path / "src"
+    work = src / "raw"
+    work.mkdir(parents=True)
+    writer = shapefile.Writer(str(work / "z_16ap26"), encoding="latin-1")
+    for field in ("STATE", "ZONE", "NAME"):
+        writer.field(field, "C", 30)
+    writer.poly([list(MAINLAND)])
+    writer.record("NY", "072", "Do\xf1a Ana / Mayag\xfcez")
+    writer.close()
+    forecast = src / "z_16ap26.zip"
+    with zipfile.ZipFile(forecast, "w") as archive:
+        for extension in ("shp", "shx", "dbf"):
+            archive.write(work / f"z_16ap26.{extension}", f"z_16ap26.{extension}")
+    out = tmp_path / "zones.jsonl"
+    done = _build(out, [forecast])
+    assert done.returncode == 0, done.stderr
+    with gzip.open(f"{out}.gz", "rb") as lines:
+        assert ZoneSet.from_lines(lines).get("forecast", "NYZ072") is not None
+
+
+@pytest.mark.parametrize(
+    ("arguments", "said"),
+    [
+        (["--eps", "nan"], "--eps must be between 0 and 0.1"),
+        (["--eps=-1"], "--eps must be between 0 and 0.1"),
+        (["--eps", "5"], "--eps must be between 0 and 0.1"),
+        (["--tail-eps", "nan"], "--tail-eps must be between 0 and 0.1"),
+        (["--tail-eps=-0.02"], "--tail-eps must be between 0 and 0.1"),
+        (["--decimals=-3"], "--decimals must be between 0 and 9"),
+        (["--decimals", "40"], "--decimals must be between 0 and 9"),
+        (["--max-count-change", "nan"], "--max-count-change must be 0 or more"),
+        (["--max-count-change=-5"], "--max-count-change must be 0 or more"),
+    ],
+    ids=lambda v: " ".join(v) if isinstance(v, list) else None,
+)
+def test_an_argument_the_reader_would_refuse_in_the_file_is_refused_first(
+    tmp_path, arguments, said
+):
+    """Each of these used to build a dataset the integration could not load."""
+    done = _refused(tmp_path, _sources(tmp_path / "src", [MAINLAND]), *arguments)
+    assert said in done.stderr
+    assert "Traceback" not in done.stderr
+
+
+def test_the_same_file_given_twice_is_refused(tmp_path):
+    """Each zone's rings would be added to themselves, and under even-odd
+    containment a ring added twice cancels itself out."""
+    zips = _sources(tmp_path / "src", [MAINLAND])
+    done = _refused(tmp_path, [*zips, zips[0]])
+    assert "z_16ap26.zip: is a second forecast file of its kind" in done.stderr
+
+
+def test_two_files_of_one_kind_are_refused_naming_both(tmp_path):
+    src = tmp_path / "src"
+    zips = _sources(src, [MAINLAND])
+    older = _zip(src, "z_03mr26", ["STATE", "ZONE"], [(("NY", "072"), [MAINLAND])])
+    done = _refused(tmp_path, [*zips, older])
+    assert "is a second forecast file of its kind" in done.stderr
+    assert "z_03mr26.zip" in done.stderr
+    assert "z_16ap26.zip" in done.stderr
+
+
+def test_a_file_whose_name_says_nothing_about_its_layer_is_refused(tmp_path):
+    src = tmp_path / "src"
+    zips = _sources(src, [MAINLAND])
+    odd = _zip(src, "zones", ["STATE", "ZONE"], [(("NY", "072"), [MAINLAND])])
+    done = _refused(tmp_path, [*zips, odd])
+    assert "cannot tell the layer from the filename" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
+def test_an_output_directory_that_does_not_exist_is_refused(tmp_path):
+    zips = _sources(tmp_path / "src", [MAINLAND])
+    done = _build(tmp_path / "no" / "such" / "zones.jsonl", zips)
+    assert done.returncode != 0
+    assert "its directory does not exist" in done.stderr
+    assert "Traceback" not in done.stderr
+    assert not (tmp_path / "no").exists()
+
+
+@pytest.mark.parametrize(
+    ("content", "said"),
+    [
+        (b"\x8a\xae not json at all", "cannot be read as a manifest"),
+        (b"", "cannot be read as a manifest"),
+        (b"[1, 2, 3]", "is not a manifest this script wrote"),
+        (b'{"build_id": "abc"}', "is not a manifest this script wrote"),
+        (
+            b'{"build_id": "abc", "zones": {"forecast": "many"}}',
+            "is not a manifest this script wrote",
+        ),
+    ],
+    ids=["bytes", "empty", "a-list", "no-counts", "counts-not-numbers"],
+)
+def test_an_earlier_manifest_that_cannot_be_read_stops_the_build(
+    tmp_path, content, said
+):
+    """The comparison with the last build is a safety check. A manifest that
+    cannot be read must stop the build, not quietly switch the check off."""
+    earlier = tmp_path / "earlier.json"
+    earlier.write_bytes(content)
+    zips = _sources(tmp_path / "src", [MAINLAND])
+    out = tmp_path / "out"
+    out.mkdir()
+    done = _build(out / "zones.jsonl", zips, "--if-changed", str(earlier))
+    assert done.returncode != 0
+    assert said in done.stderr
+    assert "Traceback" not in done.stderr
+    assert not list(out.iterdir())
+
+
+def test_a_dataset_the_reader_would_refuse_is_never_written(tmp_path):
+    """Keeping every islet means a zone can hold a great many rings, and the
+    reader has a ceiling. The builder loads what it built, the way the
+    integration will, before it writes anything."""
+    islets = [
+        _outline(
+            -73.0 + 0.01 * (n % 100),
+            39.0 + 0.01 * (n // 100),
+            -72.9988 + 0.01 * (n % 100),
+            39.0009 + 0.01 * (n // 100),
+        )
+        for n in range(2_500)
+    ]
+    zips = _sources(tmp_path / "src", [MAINLAND, *islets])
+    done = _refused(tmp_path, zips)
+    assert done.returncode == 2
+    assert "the integration's reader refuses this dataset" in done.stderr
+    assert "nothing written" in done.stderr
+
+
+def test_a_finished_build_leaves_no_partial_files(tmp_path):
+    _zones, _manifest, _zips, dataset = _built(tmp_path, [MAINLAND])
+    names = sorted(path.name for path in dataset.parent.iterdir() if path.is_file())
+    assert names == ["zones.jsonl", "zones.jsonl.gz", "zones.jsonl.manifest.json"]
+
+
 # ---------------------------------------------------------------------------
 # The check a workflow runs before publishing: ten questions
 # ---------------------------------------------------------------------------
@@ -714,6 +863,63 @@ def test_the_check_fails_land_that_has_no_county(tmp_path, capsys):
     code, verdicts = _verdict(capsys, Path(f"{out}.gz"), zips)
     assert code == 1
     assert _failed(verdicts) == {"10"}
+
+
+def test_the_check_reports_a_dataset_cut_short_without_a_traceback(tmp_path, capsys):
+    """A gzip file cut short raises EOFError, which is not an OSError."""
+    _zones, _manifest, zips, dataset = _built(tmp_path, [MAINLAND])
+    whole = dataset.read_bytes()
+    dataset.write_bytes(whole[: len(whole) // 2])
+    code, verdicts = _verdict(capsys, dataset, zips)
+    assert code == 1
+    assert _failed(verdicts) == {"1"}
+
+
+def test_the_check_reports_a_damaged_dataset_without_a_traceback(tmp_path, capsys):
+    """And a damaged one raises zlib.error, which is neither."""
+    _zones, _manifest, zips, dataset = _built(tmp_path, [MAINLAND])
+    damaged = bytearray(dataset.read_bytes())
+    for position in range(20, len(damaged) - 8, 7):
+        damaged[position] ^= 0xFF
+    dataset.write_bytes(bytes(damaged))
+    code, verdicts = _verdict(capsys, dataset, zips)
+    assert code == 1
+    assert _failed(verdicts) == {"1"}
+
+
+@pytest.mark.parametrize("content", [b"\x8a\xae not json", b"", b"[1, 2]", b"{}"])
+def test_the_check_fails_a_manifest_it_cannot_read(tmp_path, capsys, content):
+    _zones, _manifest, zips, dataset = _built(tmp_path, [MAINLAND])
+    Path(str(dataset)[:-3] + ".manifest.json").write_bytes(content)
+    code, verdicts = _verdict(capsys, dataset, zips)
+    assert code == 1
+    assert _failed(verdicts) == {"5"}
+
+
+def test_the_check_fails_a_source_it_cannot_read_by_name(tmp_path, capsys):
+    _zones, _manifest, zips, dataset = _built(tmp_path, [MAINLAND])
+    zips[1].write_text("<html>503 Service Unavailable</html>")
+    code = check.main([str(dataset), *map(str, zips)])
+    printed = capsys.readouterr().out
+    assert code == 1
+    assert "FAIL  sources readable" in printed
+    assert "c_16ap26.zip: is not a zip archive" in printed
+
+
+def test_the_check_copes_with_a_part_that_has_no_points(tmp_path, monkeypatch):
+    """A damaged shapefile can hold a part with no points, or with one. The
+    shapefile writer will not make one, so the reader is stood in for."""
+    zones, _manifest, zips, _dataset = _built(tmp_path, [MAINLAND])
+    _resolver, builder = check._modules()
+
+    def odd_parts(path):
+        yield "forecast", "NYZ072", [list(MAINLAND), [], [(-73.5, 40.5)]]
+
+    monkeypatch.setattr(builder, "read_zip", odd_parts)
+    result = check.survey_file(zones, str(zips[0]))
+    assert result.rings == 3
+    assert result.groups["lost"] == 1  # the lone point lies far from the zone
+    assert result.groups["no zone"] == 0
 
 
 def test_the_check_run_with_nothing_to_check_explains_itself(capsys):
