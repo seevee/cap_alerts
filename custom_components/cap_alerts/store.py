@@ -26,6 +26,7 @@ CHANGED_FIELDS_ALLOWLIST: tuple[str, ...] = (
     "severity_normalized",
     "phase",
     "expires",
+    "ends",
     "area_desc",
 )
 

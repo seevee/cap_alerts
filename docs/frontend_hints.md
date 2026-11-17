@@ -107,7 +107,22 @@ the guaranteed set defensively.
 | Attribute | Type | Notes |
 | :-- | :-- | :-- |
 | `sent`, `effective`, `onset`, `expires` | `str` | ISO 8601, as received. Only `sent` is always present. |
-| `ends` | `str` | Present only when the provider distinguishes it from `expires`. |
+| `ends` | `str` | Present only when the provider distinguishes it from `expires`: NWS (`ends`) and ECCC (`Event_End_Time`). |
+
+`expires` and `ends` are two clocks. `expires` is when the *message* lapses,
+which is all CAP 1.2 defines. `ends` is when the *hazard* is forecast to end,
+for the sources that say so separately. Neither order is guaranteed: ECCC
+publishes bulletins that lapse a day before the event ends and bulletins that
+outlive it by two hours. To draw an alert's end, take the later of the two.
+
+Where there is no `ends`, `expires` is the only end on offer, and what it means
+is the source's choice. Most issuers put the hazard's end in it (DWD, most of
+MeteoAlarm); some put a fixed lifetime (MeteoAlarm Netherlands: `sent` plus 24
+hours; the U.S. tsunami centers: `sent` plus one hour). An `expires` at or
+before `onset` is not safe to read as "ends before it starts" *or* as "still
+coming": MeteoAlarm Switzerland sends a superseded message that way,
+Météo-France a zero-length marker. Show it as the feed sent it. The integration
+retires an alert on `expires` either way.
 
 An alert with `onset` in the future is **upcoming**, not active — this is the
 split the count sensor exposes. Cards showing a "now" view should honour it.

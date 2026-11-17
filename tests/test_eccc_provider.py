@@ -3046,6 +3046,32 @@ def test_reporter_body_reproduces_the_reported_alert_id():
     assert (alert.language, alert.language_alt) == ("en-CA", "fr-CA")
 
 
+def test_event_end_time_is_published_as_ends():
+    """``ends`` is the hazard's forecast end, ``expires`` the bulletin's lapse.
+
+    This storm's event ends an hour before its bulletin lapses. A consumer
+    needs both to know the difference, so the parameter is surfaced as ``ends``
+    and ``expires`` is left as the feed sent it.
+    """
+    doc = _real_doc("eccc_cap_cam_1104140223_alert.xml")
+    (alert,) = _gps_build([doc], _REPORTER_IN_THREAT)
+    assert alert.ends == "2026-08-22T22:15:00.000Z"
+    assert alert.expires == "2026-08-22T23:14:50-00:00"
+    assert alert.to_attributes()["ends"] == "2026-08-22T22:15:00.000Z"
+
+
+def test_no_event_end_time_leaves_ends_unset():
+    """A document without the parameter publishes no ``ends`` attribute."""
+    doc = _real_doc("eccc_cap_en_sps.xml")
+    alerts = build_alerts_from_cap_docs(
+        [doc], province="", gps_lat=None, gps_lon=None, preferred_lang="en-CA"
+    )
+    assert alerts
+    for alert in alerts:
+        assert alert.ends is None
+        assert "ends" not in alert.to_attributes()
+
+
 def test_reporter_body_zone_only_point_builds_nothing():
     """The issue #172 report itself: inside a legacy zone, outside the threat."""
     doc = _real_doc("eccc_cap_cam_1104140223_alert.xml")

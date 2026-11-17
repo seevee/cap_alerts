@@ -90,6 +90,29 @@ def test_headline_change_shows_headline_in_changed_fields(hass, alert_factory):
     assert "phase" not in payload["changed_fields"]
 
 
+def test_moved_hazard_end_shows_ends_in_changed_fields(hass, alert_factory):
+    """A revision that only moves the hazard end is still a revision.
+
+    ECCC republished a statement with the same text and a hazard start six
+    hours later (2026-11-17); the end can move the same way, and ``expires``
+    need not move with it.
+    """
+    from custom_components.cap_alerts.normalize import normalize_alerts
+
+    store = _store(hass, "eccc")
+    first = normalize_alerts([alert_factory(id="a", ends="2099-01-01T06:00:00Z")])
+    store.process(first)
+    hass.bus.async_fire.reset_mock()
+
+    second = normalize_alerts([alert_factory(id="a", ends="2099-01-01T18:00:00Z")])
+    store.process(second)
+
+    fired = _fired(hass)
+    assert len(fired) == 1
+    _, payload = fired[0]
+    assert payload["changed_fields"] == ["ends"]
+
+
 def test_removed_alert_fires_removed_event(hass, alert_factory):
     from custom_components.cap_alerts import store as store_mod
     from custom_components.cap_alerts.conventions import (
