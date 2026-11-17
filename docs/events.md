@@ -18,7 +18,7 @@ Event names match the RFC §2.3 `incident_*` contract.
 | `severity` | `str` | §2.3 | Normalized: `extreme` / `severe` / `moderate` / `minor` / `unknown`. |
 | `phase` | `str` | §2.3 | Current phase: `new` / `update` / `cancel` / `expired`. On `incident_removed`, carries the terminal phase. |
 | `phase_changed` | `bool` | §2.3 | `True` on first sighting, or when `phase` differs from the previous poll. |
-| `changed_fields` | `list[str]` | §2.3 | Allowlisted fields that changed since the previous poll: `headline`, `description`, `instruction`, `severity_normalized`, `phase`, `expires`, `area_desc`. Empty on creation and on silent-disappearance removal. |
+| `changed_fields` | `list[str]` | §2.3 | Allowlisted fields that changed since the previous poll: `headline`, `description`, `instruction`, `severity_normalized`, `phase`, `expires`, `ends`, `area_desc`. Empty on creation and on silent-disappearance removal. |
 | `entity_id` | `str` | §2.3 | Present whenever the alert has an entity: `incident_created` and `incident_updated` fire once it is registered. Omitted only on an `incident_removed` for an alert that never had one (first sighting already terminal). See *`entity_id` is always there* below. |
 | `entry_id` | `str` | extension | Config entry id. Useful when a Home Assistant install has multiple CAP Alerts entries (e.g. two NWS zones). Not in the RFC. |
 | `area_desc` | `str` | extension | Human-readable area description, denormalized onto the event for convenience. Not in the RFC. |

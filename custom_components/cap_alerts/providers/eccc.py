@@ -456,6 +456,16 @@ def _location_status(info: CAPInfoDoc) -> str:
     return ""
 
 
+def _event_end(info: CAPInfoDoc) -> str | None:
+    """Return when the hazard itself is forecast to end, or ``None``.
+
+    This is ``ends`` on the alert: ECCC's ``Event_End_Time`` parameter, as
+    received. ``<expires>`` is a different clock, see
+    ``_EVENT_END_TIME_PARAM_KEY``.
+    """
+    return info.parameters.get(_EVENT_END_TIME_PARAM_KEY, "").strip() or None
+
+
 def _is_terminal_info(info: CAPInfoDoc) -> bool:
     """Whether this area group has ended.
 
@@ -545,6 +555,17 @@ _ALERT_LOCATION_STATUS_PARAM_KEYS: tuple[str, ...] = (
     "layer:EC-MSC-SMC:1.1:Alert_Location_Status",
     "layer:EC-MSC-SMC:1.0:Alert_Location_Status",
 )
+
+# When the hazard is forecast to end. ECCC's ``<expires>`` is when the bulletin
+# lapses, and the two are unrelated clocks: on 2026-11-16 a blizzard warning
+# expired at 16:07Z with its event ending 02:00Z the next day, and a freezing
+# drizzle advisory expired at 17:00Z two hours *after* its event end. A special
+# weather statement can lapse before its ``<onset>``, so a consumer reading
+# ``expires`` as the end sees the alert finish before it starts. 26 of that
+# day's 34 Datamart documents carried the parameter; the 8 without were
+# one-hour ending notices with no ``<onset>`` either. Only the v1.1 layer has
+# been seen to publish it.
+_EVENT_END_TIME_PARAM_KEY = "layer:EC-MSC-SMC:1.1:Event_End_Time"
 
 # Values meaning the alert has reached end-of-life *for that area group*:
 # "ended" is a natural expiry, "cancelled" a forecaster stopping it early,
@@ -822,6 +843,7 @@ def _build_alert_from_cap(
         effective=info.effective,
         onset=info.onset,
         expires=info.expires,
+        ends=_event_end(info),
         headline=info.headline,
         description=info.description,
         instruction=info.instruction or None,
