@@ -603,6 +603,41 @@ def test_the_coarser_tolerance_applies_to_the_states_the_manifest_names():
         assert loaded.max_tolerance_km == pytest.approx(2.224, abs=0.001)
 
 
+def test_tolerance_includes_one_step_of_the_stored_rounding():
+    """Vertices are rounded after simplifying, which moves a boundary a step more."""
+    doc = {
+        "meta": {"epsilon_deg": 0.005, "decimals": 4},
+        "zones": [_zone("NYZ072", "forecast", _NY)],
+    }
+    for loaded in (ZoneSet.from_json(json.dumps(doc)), ZoneSet.from_lines(_lines(doc))):
+        assert loaded.rounding_deg == pytest.approx(0.0001)
+        assert loaded.tolerance_km("NYZ072") == pytest.approx(
+            0.0051 * 111.195, abs=0.001
+        )
+        assert loaded.max_tolerance_km == pytest.approx(0.0051 * 111.195, abs=0.001)
+
+
+def test_rounding_alone_gives_no_tolerance():
+    """Only a dataset that records a tolerance has a band at all."""
+    loaded = ZoneSet.from_json(
+        json.dumps(
+            {"meta": {"decimals": 4}, "zones": [_zone("NYZ072", "forecast", _NY)]}
+        )
+    )
+    assert loaded.tolerance_km("NYZ072") == 0.0
+    assert loaded.max_tolerance_km == 0.0
+
+
+@pytest.mark.parametrize("decimals", ["4", 4.0, True, -1, 10, [4]])
+def test_a_malformed_rounding_is_refused(decimals):
+    doc = {
+        "meta": {"epsilon_deg": 0.005, "decimals": decimals},
+        "zones": [_zone("NYZ072", "forecast", _NY)],
+    }
+    with pytest.raises(ZoneDataError):
+        ZoneSet.from_json(json.dumps(doc))
+
+
 def test_a_dataset_that_records_no_tolerance_has_none():
     loaded = ZoneSet.from_json(
         json.dumps({"zones": [_zone("NYZ072", "forecast", _NY)]})

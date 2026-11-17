@@ -334,6 +334,19 @@ class _ZoneBuilder:
         return self._zones
 
 
+def _rounding(meta: Any) -> float:
+    """One step of the rounding the stored coordinates were given, in degrees.
+
+    The builder rounds every vertex to ``decimals`` places after simplifying,
+    which can move a boundary a little further than the simplification
+    tolerance alone allows. Zero when the dataset does not say.
+    """
+    decimals = meta.get("decimals")
+    if decimals is None:
+        return 0.0
+    return 10.0 ** -_count(decimals, 9, "decimals")
+
+
 def _tolerances(meta: Any) -> tuple[float, float | None, frozenset[str]]:
     """The simplification tolerances a dataset declares, checked and bounded."""
     epsilon = _number(meta.get("epsilon_deg", 0.0), 0.0, MAX_EPSILON_DEG, "epsilon_deg")
@@ -374,6 +387,7 @@ class ZoneSet:
         epsilon_deg: float = 0.0,
         tail_epsilon_deg: float | None = None,
         tail_states: Iterable[str] = (),
+        rounding_deg: float = 0.0,
     ) -> None:
         self._zones: tuple[Zone, ...] = tuple(zones)
         self._index: dict[tuple[str, str], Zone] = {
@@ -387,6 +401,8 @@ class ZoneSet:
         # with one of ``tail_states`` (Alaska, whose zones are far larger).
         self.epsilon_deg = epsilon_deg
         self.tail_epsilon_deg = tail_epsilon_deg
+        # One step of the rounding applied to stored vertices, in degrees.
+        self.rounding_deg = rounding_deg
         self.tail_states: frozenset[str] = frozenset(tail_states)
 
     # -- construction ----------------------------------------------------
@@ -515,6 +531,7 @@ class ZoneSet:
             epsilon_deg=epsilon,
             tail_epsilon_deg=tail_epsilon,
             tail_states=tail_states,
+            rounding_deg=_rounding(meta),
         )
 
     # -- introspection ---------------------------------------------------
@@ -530,12 +547,24 @@ class ZoneSet:
         """
         tail = self.tail_epsilon_deg is not None and code[:2] in self.tail_states
         degrees = self.tail_epsilon_deg if tail else self.epsilon_deg
-        return (degrees or 0.0) * KM_PER_DEGREE
+        return self._with_rounding(degrees or 0.0) * KM_PER_DEGREE
+
+    def _with_rounding(self, degrees: float) -> float:
+        """A tolerance plus one step of the stored rounding.
+
+        Simplification keeps every original vertex within the tolerance of
+        the simplified line, and the vertices of that line are then rounded
+        and stored at reduced precision, which moves it by up to a step more.
+        Without the step the bound would be the simplification's, not the
+        file's. A dataset that records no tolerance has none.
+        """
+        return degrees + self.rounding_deg if degrees > 0.0 else 0.0
 
     @property
     def max_tolerance_km(self) -> float:
         """The largest ``tolerance_km`` any zone in the set can have."""
-        return max(self.epsilon_deg, self.tail_epsilon_deg or 0.0) * KM_PER_DEGREE
+        largest = max(self.epsilon_deg, self.tail_epsilon_deg or 0.0)
+        return self._with_rounding(largest) * KM_PER_DEGREE
 
     def __len__(self) -> int:
         return len(self._zones)
