@@ -79,6 +79,8 @@ SLIVER = _outline(-73.7000, 40.8500, -73.6993, 40.85003)  # 60 m long, 3 m wide
 POND = _hole(-74.0020, 40.7990, -73.9990, 40.8020)  # 250 m across, inside the mainland
 POND_ISLAND = _outline(-74.0008, 40.8002, -74.0002, 40.8008)  # 50 m, inside the pond
 TINY_ZONE = _outline(-73.5000, 40.5000, -73.4988, 40.5009)  # a whole zone, 100 m across
+# An islet 100 m across lying two thirds over the mainland's east edge at -73.900.
+ISLET_OVERLAPPING = _outline(-73.9008, 40.8000, -73.8996, 40.8009)
 
 _MIDDLE = {
     "mainland": (40.80, -74.05),
@@ -89,6 +91,8 @@ _MIDDLE = {
     "pond": (40.8015, -73.9995),  # in the pond, clear of its island
     "pond_island": (40.8005, -74.0005),
     "tiny_zone": (40.50045, -73.4994),
+    "overlap_shared": (40.80045, -73.9003),  # in the islet and in the mainland
+    "overlap_islet_only": (40.80045, -73.8998),  # in the islet, east of the mainland
 }
 
 
@@ -248,11 +252,7 @@ def test_a_zone_made_only_of_a_tiny_ring_is_in_the_dataset(tmp_path):
     zones, manifest, _zips, _gz = _built(
         tmp_path, [MAINLAND], more=[(("NY", "099"), [TINY_ZONE])]
     )
-    assert zones.get("forecast", "NYZ099") is not None
-    assert (
-        "NYZ099" in _zones_at(zones, "tiny_zone")
-        or zones.get("forecast", "NYZ099").rings
-    )
+    assert _zones_at(zones, "tiny_zone") == {"NYZ099", "NYC099"}
     assert manifest["dropped"]["z_16ap26.zip"]["codes"] == 2
     assert manifest["dropped"]["z_16ap26.zip"]["codes_absent"] == 0
     assert manifest["dropped"]["z_16ap26.zip"]["records"] == 0
@@ -314,6 +314,40 @@ def test_allow_absent_writes_the_dataset_and_still_says_what_is_missing(tmp_path
     assert "NYZ098" in done.stderr
     manifest = json.loads(Path(f"{out}.manifest.json").read_text())
     assert manifest["dropped"]["z_16ap26.zip"]["codes_absent"] == 1
+
+
+# ---------------------------------------------------------------------------
+# An outline that overlaps the rest of its own zone
+# ---------------------------------------------------------------------------
+
+
+def test_an_outline_overlapping_its_zone_cancels_there_and_the_band_covers_it(tmp_path):
+    """Pins a limit of the dataset, so that a change to it is a decision.
+
+    The islet is not wholly inside the mainland, so it is kept. A zone's rings
+    are stored as one even-odd set, so the strip the islet and the mainland
+    share is counted in neither: ``containing()`` does not find the zone
+    there. The strip is within the zone's tolerance of the zone, so banded
+    matching does. East of the mainland the islet counts as it should.
+    """
+    zones, manifest, zips, dataset = _built(tmp_path, [MAINLAND, ISLET_OVERLAPPING])
+    assert manifest["dropped"]["z_16ap26.zip"]["kept_finer"] == 1
+    assert len(zones.get("forecast", "NYZ072").rings) == 2
+
+    assert "NYZ072" in _zones_at(zones, "overlap_islet_only")
+    assert "NYZ072" not in _zones_at(zones, "overlap_shared")
+    lat, lon = _MIDDLE["overlap_shared"]
+    within = zones.resolve(
+        lat, lon, radius_km=zones.tolerance_km("NYZ072"), layers=("forecast",)
+    )
+    assert [hit.code for hit in within] == ["NYZ072"]
+
+    forecast = check.survey(str(dataset), [str(zips[0])])[0]
+    assert forecast.relation["overlapping"] == 1
+    assert forecast.overlapping_outlines == 1
+    assert forecast.overlapping_outlines_cancelled == 1
+    assert forecast.groups["lost"] == 0
+    assert forecast.ok  # within the band, so it is reported and not failed
 
 
 # ---------------------------------------------------------------------------
@@ -920,6 +954,178 @@ def test_the_check_copes_with_a_part_that_has_no_points(tmp_path, monkeypatch):
     assert result.rings == 3
     assert result.groups["lost"] == 1  # the lone point lies far from the zone
     assert result.groups["no zone"] == 0
+
+
+# ---------------------------------------------------------------------------
+# One copy of the integration's reader in a process
+# ---------------------------------------------------------------------------
+
+
+def _copies_of_the_reader() -> list[str]:
+    return sorted(
+        name
+        for name, module in list(sys.modules.items())
+        if (getattr(module, "__file__", None) or "").endswith("providers/nws_zones.py")
+    )
+
+
+def test_the_check_uses_the_integrations_reader_and_loads_no_second_copy(
+    tmp_path, capsys
+):
+    """AGENTS.md, Verification: no module loaded a second time by path.
+
+    Under pytest the integration is imported, so the check and the builder
+    must use that module and not load its file again beside it.
+    """
+    from custom_components.cap_alerts.providers import nws_zones
+
+    _zones, _manifest, zips, dataset = _built(tmp_path, [MAINLAND, ISLET_FAR])
+    assert check.main([str(dataset), *map(str, zips)]) == 0
+    capsys.readouterr()
+    reader, builder = check._modules()
+    assert reader is nws_zones
+    assert builder.load_reader() is nws_zones
+    assert builder.reader_refusal(b"not a dataset") is not None
+    assert _copies_of_the_reader() == [
+        "custom_components.cap_alerts.providers.nws_zones"
+    ]
+
+
+_WITHOUT_HOME_ASSISTANT = """
+import runpy, sys
+sys.modules["homeassistant"] = None  # any import of it now fails
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+"""
+
+
+def test_both_scripts_run_where_home_assistant_cannot_be_imported(tmp_path):
+    """A machine that only builds datasets has no Home Assistant. There the
+    reader is loaded from its file, which needs nothing but the standard library."""
+    zips = _sources(tmp_path / "src", [MAINLAND, ISLET_FAR])
+    out = tmp_path / "zones.jsonl"
+    alone = [sys.executable, "-c", _WITHOUT_HOME_ASSISTANT]
+    built = subprocess.run(
+        [*alone, str(_BUILDER), *map(str, zips), "--gzip", "-o", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert built.returncode == 0, built.stderr
+    checked = subprocess.run(
+        [
+            *alone,
+            str(_ROOT / "scripts" / "check_zone_dataset.py"),
+            f"{out}.gz",
+            *map(str, zips),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert "OK: all 10 checks passed" in checked.stdout
+
+
+# ---------------------------------------------------------------------------
+# The check reads what it needs from the dataset, and tests the whole ring
+# ---------------------------------------------------------------------------
+
+
+def _rewrite_header(dataset: Path, change: Any) -> None:
+    """Change the dataset's header and reseal it, as the builder would have."""
+    import hashlib
+
+    with gzip.open(dataset, "rb") as source:
+        lines = source.read().splitlines(keepends=True)
+    header = json.loads(lines[0])
+    change(header)
+    body = [json.dumps(header, separators=(",", ":")).encode() + b"\n", *lines[1:-1]]
+    end = json.loads(lines[-1])
+    end["sha256"] = hashlib.sha256(b"".join(body)).hexdigest()
+    with gzip.open(dataset, "wb") as target:
+        target.write(
+            b"".join(body) + json.dumps(end, separators=(",", ":")).encode() + b"\n"
+        )
+
+
+def test_the_check_reads_the_rounding_from_the_dataset(tmp_path, capsys):
+    """Which rings collapse depends on the rounding, so the check and the
+    builder must use the same one. This ring survives simplification at four
+    decimal places and collapses at three, where its corners round together.
+    The dataset was built at three, and the check must judge it at three."""
+    speck = _outline(-73.8000, 40.8000, -73.7994, 40.8004)  # 50 m across
+    zips = _sources(tmp_path / "src", [MAINLAND, speck])
+    out = tmp_path / "zones.jsonl"
+    assert _build(out, zips, "--eps", "0.0002", "--decimals", "3").returncode == 0
+    dataset = Path(f"{out}.gz")
+    with gzip.open(dataset, "rb") as lines:
+        assert check.decimals_of(ZoneSet.from_lines(lines)) == 3
+    manifest = json.loads(Path(f"{out}.manifest.json").read_text())
+    counts = manifest["dropped"]["z_16ap26.zip"]
+    assert counts["kept_finer"] + counts["kept_as_box"] == 1
+    forecast = check.survey(str(dataset), [str(zips[0])])[0]
+    assert forecast.collapsing == 1
+    code, verdicts = _verdict(capsys, dataset, zips)
+    assert code == 0, verdicts
+
+
+def test_the_check_fails_a_dataset_that_does_not_record_its_rounding(tmp_path, capsys):
+    _zones, _manifest, zips, dataset = _built(tmp_path, [MAINLAND])
+    _rewrite_header(dataset, lambda header: header["meta"].pop("decimals"))
+    Path(str(dataset)[:-3] + ".manifest.json").unlink()
+    code, verdicts = _verdict(capsys, dataset, zips)
+    assert code == 1
+    assert _failed(verdicts) == {"3"}
+
+
+def test_the_check_measures_land_against_its_own_tolerance_not_the_largest(
+    tmp_path, capsys
+):
+    """With Alaska's coarser tolerance in the dataset, the largest tolerance is
+    2.2 km. A New York outline 1.7 km from the nearest county is beyond its
+    own 0.57 km, and the land-sea rule would call it sea."""
+    src = tmp_path / "src"
+    county_elsewhere = _outline(-73.4800, 40.5000, -73.4788, 40.5009)  # 1.7 km east
+    zips = [
+        _zip(
+            src,
+            "z_16ap26",
+            ["STATE", "ZONE"],
+            [(("NY", "072"), [MAINLAND]), (("NY", "099"), [TINY_ZONE])],
+        ),
+        _zip(
+            src,
+            "c_16ap26",
+            ["STATE", "FIPS"],
+            [(("NY", "36061"), [MAINLAND]), (("NY", "36099"), [county_elsewhere])],
+        ),
+    ]
+    out = tmp_path / "zones.jsonl"
+    assert _build(out, zips, "--tail-eps", "0.02").returncode == 0
+    with gzip.open(f"{out}.gz", "rb") as lines:
+        zones = ZoneSet.from_lines(lines)
+    assert zones.max_tolerance_km > 2.0
+    assert zones.tolerance_km("NYZ099") < 1.0
+    code, verdicts = _verdict(capsys, Path(f"{out}.gz"), zips)
+    assert code == 1
+    assert _failed(verdicts) == {"10"}
+
+
+def test_the_check_tests_every_vertex_of_a_ring_that_collapses(tmp_path, capsys):
+    """A ring's middle and its first vertex can be in the zone while its far
+    end is not. The dataset here holds the western 5.5 km of an island 10 km
+    long: the island's first vertex and its middle are both on that piece,
+    and its east end is 4.6 km beyond it."""
+    piece = _outline(-73.8000, 40.7500, -73.7350, 40.7530)
+    _zones, _manifest, _zips, dataset = _built(tmp_path / "piece", [MAINLAND, piece])
+    sources = _sources(tmp_path / "whole", [MAINLAND, BARRIER_ISLAND])
+    code, verdicts = _verdict(capsys, dataset, sources)
+    assert code == 1
+    assert {"7", "8"} <= _failed(verdicts)
+    forecast = check.survey(str(dataset), [str(sources[0])])[0]
+    assert forecast.groups["lost"] == 1
+    assert len(forecast.stray) == 2  # the island's two eastern corners
 
 
 def test_the_check_run_with_nothing_to_check_explains_itself(capsys):

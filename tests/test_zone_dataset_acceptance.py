@@ -204,6 +204,15 @@ def test_the_builder_accounts_for_every_ring_that_collapses(build, checked):
             + counts["rings"]
         )
         assert handled == result.collapsing, result.name
+        # And the check, reading the shapefiles for itself, sorts them the
+        # same way: what lies wholly inside the rest of its zone is what the
+        # builder dropped, and everything else is what it kept.
+        dropped = counts["holes"] + counts["already_inside"]
+        kept = counts["kept_finer"] + counts["kept_as_box"]
+        assert dropped == result.relation["wholly inside"], result.name
+        assert kept == result.relation["overlapping"] + result.relation["separate"], (
+            result.name
+        )
 
 
 def test_building_it_again_gives_the_same_bytes(build, zips, tmp_path):

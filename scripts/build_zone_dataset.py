@@ -92,29 +92,51 @@ MAX_EPSILON_DEG = 0.1
 MAX_DECIMALS = 9
 
 
+# The integration's reader, under the name the integration imports it by.
+READER_MODULE = "custom_components.cap_alerts.providers.nws_zones"
+# And the name it is given when it has to be loaded from its file instead.
+STANDALONE_READER = "nws_zones_standalone"
+
+
+def load_reader():
+    """The integration's reader module: the loaded copy if there is one.
+
+    Wherever the integration has been imported, pytest included, the reader
+    is already in ``sys.modules`` and that copy is used, so the process holds
+    one. Loading the file again would make a second module object beside the
+    real one, with classes of its own (AGENTS.md, Verification; #137).
+
+    On a machine that only builds datasets nothing has imported the
+    integration, and importing its package would need Home Assistant. There
+    the file is loaded by path, once. The module is stdlib only.
+    """
+    loaded = sys.modules.get(READER_MODULE) or sys.modules.get(STANDALONE_READER)
+    if loaded is not None:
+        return loaded
+    spec = importlib.util.spec_from_file_location(STANDALONE_READER, _READER)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"the reader could not be loaded from {_READER}")
+    reader = importlib.util.module_from_spec(spec)
+    sys.modules[STANDALONE_READER] = reader
+    try:
+        spec.loader.exec_module(reader)
+    except OSError as err:
+        del sys.modules[STANDALONE_READER]
+        raise SystemExit(
+            f"the reader could not be loaded from {_READER}: {err}"
+        ) from err
+    return reader
+
+
 def reader_refusal(blob: bytes) -> str | None:
     """Why the integration's reader would refuse ``blob``, or ``None`` if it loads.
 
     The reader is the judge of what a dataset is. It enforces ceilings and
     field rules the builder does not restate, so the only sure way to know a
-    build is usable is to load it the way the integration will. Loaded by
-    file path: the module is stdlib only, and the package around it imports
-    Home Assistant, which a machine that only builds datasets need not have.
+    build is usable is to load it the way the integration will.
     """
-    reader = sys.modules.get("_cap_alerts_nws_zones")
-    if reader is None:
-        spec = importlib.util.spec_from_file_location("_cap_alerts_nws_zones", _READER)
-        if spec is None or spec.loader is None:
-            return f"the reader could not be loaded from {_READER}"
-        reader = importlib.util.module_from_spec(spec)
-        sys.modules["_cap_alerts_nws_zones"] = reader
-        try:
-            spec.loader.exec_module(reader)
-        except OSError as err:
-            del sys.modules["_cap_alerts_nws_zones"]
-            return f"the reader could not be loaded from {_READER}: {err}"
     try:
-        reader.ZoneSet.from_lines(io.BytesIO(blob))
+        load_reader().ZoneSet.from_lines(io.BytesIO(blob))
     except ValueError as err:
         return str(err)
     return None

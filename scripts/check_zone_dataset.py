@@ -17,8 +17,10 @@ the dataset as the integration would, and asks ten questions.
  1. **Does it load?** Through the reader the integration uses.
  2. **Are the layers there?** One for every kind of shapefile given, and the
     county layer, which the land-sea rule cannot work without.
- 3. **Does it record its tolerance?** Banded matching reads it from the file.
-    Without it there is no band and every sliver between zones is a gap.
+ 3. **Does it record its tolerance and its rounding?** Banded matching reads
+    the tolerance from the file; without it there is no band and every sliver
+    between zones is a gap. The rounding decides which rings collapse, so it
+    is read from the file too and never assumed.
  4. **Is there headroom?** The reader refuses a file over its ceilings (line
     length, size, zones, vertices, rings in a zone). A dataset more than
     halfway to any of them fails here, while there is still time to act.
@@ -28,16 +30,30 @@ the dataset as the integration would, and asks ten questions.
  7. **Is every place still in its zone?** Each ring that collapses at the
     stated tolerance is sorted by where its place ended up: ``inside`` the
     zone as built, within its tolerance ``band``, ``lost`` beyond it, or in
-    ``no zone``. Judged by geometry alone; how a ring is wound only labels it.
- 8. **Did simplification stay within its tolerance?** A sample of the
-    original vertices of every ring, each of which must be inside its zone as
-    built or within the zone's tolerance of it. This is the promise the band
-    rests on, checked directly.
+    ``no zone``. A ring is ``lost`` if its middle or any one of its vertices
+    is beyond the band. Judged by geometry alone; how a ring is wound only
+    labels it. ``inside`` and ``band`` are reported separately, because
+    within the band is not the same as inside: see the note on overlapping
+    outlines below.
+ 8. **Did simplification stay within its tolerance?** Original vertices,
+    each of which must be inside its zone as built or within the zone's
+    tolerance of it: every vertex of a ring that collapses, and a sample of
+    the vertices of a ring that survives. This is the promise the band rests
+    on, checked directly.
  9. **Are the areas plausible?** A zone of any size whose built area is under
     half or over twice its original has been mangled, whatever else passed.
 10. **Does every piece of land have a county?** The land-sea rule calls a
     point land only if a county is within tolerance. A forecast or fire zone
-    outline with none would read as open sea and lose its land products.
+    outline with no county within that zone's own tolerance would read as
+    open sea and lose its land products.
+
+It also reports, without judging, how each collapsing ring lies against the
+rest of its zone as that rest survives simplification: wholly inside it,
+overlapping it, or separate from it. An outline that overlaps the rest of its
+own zone is kept, and the dataset stores a zone's rings as one even-odd set,
+so the area the two share is counted in neither. ``containing()`` does not
+find the zone there; the band does. The report gives the number of such
+outlines and how many have their middle in the shared area.
 
 It exits 0 when all ten pass and 1 otherwise, having said which and why.
 It reads the shapefiles and the dataset; it writes nothing and contacts
@@ -65,15 +81,18 @@ from types import ModuleType
 from typing import Any
 
 _ROOT = Path(__file__).resolve().parent.parent
-DECIMALS = 4  # the builder's default rounding
 GROUPS = ("inside", "band", "lost", "no zone")
+# How a ring that collapses lies against the rest of its zone, as that rest
+# survives simplification.
+RELATIONS = ("wholly inside", "overlapping", "separate")
 BUCKETS = (
     (0.1, "under 100 m"),
     (0.5, "100 to 500 m"),
     (2.0, "0.5 to 2 km"),
     (1e9, "over 2 km"),
 )
-# Every ring's first vertex, and every SAMPLE_EVERY-th after it.
+# Of a ring that survives simplification: its first vertex and every
+# SAMPLE_EVERY-th after it. Of a ring that collapses: every vertex.
 SAMPLE_EVERY = 25
 # A dataset this far toward one of the reader's ceilings is a warning to act on.
 HEADROOM = 0.5
@@ -83,31 +102,58 @@ AREA_FLOOR_TOLERANCES = 10.0
 LAND_LAYERS = ("forecast", "fire")
 
 
-def _load(name: str, path: Path) -> ModuleType:
-    """Load one file as a module, without importing the package around it.
-
-    The resolver is stdlib only, but the integration's package imports Home
-    Assistant, which a machine that only builds datasets need not have.
-    """
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:  # pragma: no cover - a broken checkout
-        raise SystemExit(f"cannot load {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+BUILDER_MODULE = "build_zone_dataset"
 
 
 def _modules() -> tuple[ModuleType, ModuleType]:
-    """(the resolver, the builder), loaded by path."""
-    resolver = sys.modules.get("_cap_alerts_nws_zones") or _load(
-        "_cap_alerts_nws_zones",
-        _ROOT / "custom_components" / "cap_alerts" / "providers" / "nws_zones.py",
-    )
-    builder = sys.modules.get("_cap_alerts_build_zone_dataset") or _load(
-        "_cap_alerts_build_zone_dataset", _ROOT / "scripts" / "build_zone_dataset.py"
-    )
-    return resolver, builder
+    """(the reader, the builder).
+
+    The builder is a script and is loaded from its file. The reader is an
+    integration module, and the builder decides which copy to use: the one
+    the integration has already loaded if there is one, so that a process
+    never holds two, and otherwise the file itself, so that a machine without
+    Home Assistant can still build and check a dataset.
+    """
+    builder = sys.modules.get(BUILDER_MODULE)
+    if builder is None:
+        path = _ROOT / "scripts" / "build_zone_dataset.py"
+        spec = importlib.util.spec_from_file_location(BUILDER_MODULE, path)
+        if spec is None or spec.loader is None:  # pragma: no cover - a broken checkout
+            raise SystemExit(f"cannot load {path}")
+        builder = importlib.util.module_from_spec(spec)
+        sys.modules[BUILDER_MODULE] = builder
+        spec.loader.exec_module(builder)
+    return builder.load_reader(), builder
+
+
+def _boxed(rings: list) -> list[tuple[float, float, float, float, list]]:
+    """Each ring with its bounding box, so a point outside the box skips the ring."""
+    boxed = []
+    for ring in rings:
+        xs = [p[0] for p in ring]
+        ys = [p[1] for p in ring]
+        boxed.append((min(xs), max(xs), min(ys), max(ys), ring))
+    return boxed
+
+
+def _in_rest(x: float, y: float, boxed: list, point_in_rings: Any) -> bool:
+    """Even-odd containment of a point in the rest of a zone."""
+    near = [
+        ring
+        for west, east, south, north, ring in boxed
+        if west <= x <= east and south <= y <= north
+    ]
+    return bool(near) and point_in_rings(x, y, near)
+
+
+def decimals_of(zones: Any) -> int | None:
+    """The rounding the dataset says its coordinates were given, in decimal places.
+
+    Which rings collapse depends on it, so it is read from the dataset and
+    not assumed. ``None`` if the dataset does not record it.
+    """
+    step = zones.rounding_deg
+    return round(-math.log10(step)) if step > 0.0 else None
 
 
 @dataclass
@@ -128,6 +174,9 @@ class FileSurvey:
     records: int = 0
     rings: int = 0
     groups: collections.Counter[str] = field(default_factory=collections.Counter)
+    relation: collections.Counter[str] = field(default_factory=collections.Counter)
+    overlapping_outlines: int = 0
+    overlapping_outlines_cancelled: int = 0
     wound_as_hole: int = 0
     named: set[str] = field(default_factory=set)
     absent: set[str] = field(default_factory=set)
@@ -244,9 +293,14 @@ def check_file(findings: list[Finding], dataset: str, zips: list[str]) -> Any | 
     findings.append(
         Finding(
             "3. tolerance recorded",
-            zones.max_tolerance_km > 0.0,
+            zones.max_tolerance_km > 0.0 and decimals_of(zones) is not None,
             f"{zones.epsilon_deg} deg, {zones.tail_epsilon_deg} deg for "
-            f"{sorted(zones.tail_states)}; rounding {zones.rounding_deg} deg",
+            f"{sorted(zones.tail_states)}; rounding "
+            + (
+                f"{decimals_of(zones)} decimal places"
+                if decimals_of(zones) is not None
+                else "NOT RECORDED, so which rings collapse cannot be known"
+            ),
         )
     )
 
@@ -304,12 +358,38 @@ def check_file(findings: list[Finding], dataset: str, zips: list[str]) -> Any | 
 
 
 def survey_file(zones: Any, path: str) -> FileSurvey:
-    """Questions 6 to 10 for one shapefile."""
+    """Questions 6 to 10 for one shapefile.
+
+    The shapefile is read twice. The first reading finds which rings collapse
+    and collects, for each zone, the rings that survive simplification on
+    their own: the rest of the zone that a collapsing ring is judged against.
+    The second reading judges every ring against the dataset.
+    """
     resolver, builder = _modules()
     eps, tail_eps, tail = zones.epsilon_deg, zones.tail_epsilon_deg, zones.tail_states
+    # The dataset's own rounding decides which rings collapse. Without it the
+    # builder's default is used, and question 3 has already failed.
+    decimals = decimals_of(zones)
+    if decimals is None:
+        decimals = 4
     result = FileSurvey(os.path.basename(path), builder.layer_of(path))
     started = time.perf_counter()
+
+    solid: dict[str, list] = collections.defaultdict(list)
+    collapses: list[bool] = []
+    for _layer, code, rings in builder.read_zip(path):
+        if builder.code_problem(result.layer, code):
+            continue
+        ring_eps = tail_eps if (tail_eps and code[:2] in tail) else eps
+        for ring in rings:
+            kept = builder.simplify_ring(ring, ring_eps, decimals)
+            collapses.append(not kept)
+            if kept:
+                solid[code].append(kept)
+
     original_area: collections.Counter[str] = collections.Counter()
+    boxes: dict[str, list] = {}
+    ring_number = -1
     for _layer, code, rings in builder.read_zip(path):
         result.records += 1
         if builder.code_problem(result.layer, code):
@@ -318,19 +398,27 @@ def survey_file(zones: Any, path: str) -> FileSurvey:
         zone = zones.get(result.layer, code)
         if zone is None:
             result.absent.add(code)
-        ring_eps = tail_eps if (tail_eps and code[:2] in tail) else eps
         areas = [builder.ring_area(ring) for ring in rings]
         outline = max(areas, key=abs, default=0.0)
         original_area[code] += sum(areas)
         tolerance = zones.tolerance_km(code)
         for ring, area in zip(rings, areas, strict=True):
+            ring_number += 1
+            collapsing = collapses[ring_number]
             result.rings += 1
             points = list(ring)
             if not points:
                 continue  # a part with no points covers no place
+            # Question 8. Every vertex of a ring that collapses, since the
+            # ring as a whole is at stake; a sample of one that survives.
+            beyond = 0.0
             if zone is not None:
-                # Question 8: a sample of this ring's own vertices.
-                for lon, lat in points[:1] + points[SAMPLE_EVERY::SAMPLE_EVERY]:
+                chosen = (
+                    points
+                    if collapsing
+                    else points[:1] + points[SAMPLE_EVERY::SAMPLE_EVERY]
+                )
+                for lon, lat in chosen:
                     result.sampled += 1
                     near = resolver.distance_to_rings_km(
                         lat, lon, zone.rings, tolerance
@@ -342,54 +430,73 @@ def survey_file(zones: Any, path: str) -> FileSurvey:
                     away = resolver.distance_to_rings_km(
                         lat, lon, zone.rings, tolerance + 50.0
                     )
+                    beyond = max(beyond, away)
                     result.stray.append((away, code, round(lat, 3), round(lon, 3)))
-            if builder.simplify_ring(ring, ring_eps, DECIMALS):
+            if not collapsing:
                 continue
             # Question 7: a ring that collapses. Where did its place end up?
-            result.wound_as_hole += area * outline < 0.0
+            hole_wound = area * outline < 0.0
+            result.wound_as_hole += hole_wound
             lat, lon, size = _middle_and_size(points, resolver.KM_PER_DEGREE)
+            rest = boxes.get(code)
+            if rest is None:
+                rest = boxes[code] = _boxed(solid[code])
+            middle_in_rest = _in_rest(lon, lat, rest, builder.point_in_rings)
+            covered = [_in_rest(x, y, rest, builder.point_in_rings) for x, y in points]
+            if all(covered):
+                result.relation["wholly inside"] += 1
+            elif any(covered):
+                result.relation["overlapping"] += 1
+                if not hole_wound:
+                    # An outline lying partly over the rest of its own zone.
+                    # Both are kept, and under even-odd containment the part
+                    # they share belongs to neither.
+                    result.overlapping_outlines += 1
+                    result.overlapping_outlines_cancelled += middle_in_rest
+            else:
+                result.relation["separate"] += 1
             if zone is None:
                 result.groups["no zone"] += 1
-            elif resolver.point_in_rings(lat, lon, zone.rings):
-                result.groups["inside"] += 1
-            else:
+                continue
+            away = beyond
+            if not away and not resolver.point_in_rings(lat, lon, zone.rings):
                 away = resolver.distance_to_rings_km(
                     lat, lon, zone.rings, tolerance + 50.0
                 )
-                if away <= tolerance:
+                away = away if away > tolerance else 0.0
+                if not away:
                     result.groups["band"] += 1
-                else:
-                    result.groups["lost"] += 1
-                    result.lost_zones.add(code)
-                    label = next(label for limit, label in BUCKETS if size < limit)
-                    result.lost_sizes[label] += 1
-                    result.lost_areas[code[:2]] += 1
-                    result.worst.append(
-                        (size, away, code, round(lat, 2), round(lon, 2))
-                    )
+                    continue
+            if not away:
+                result.groups["inside"] += 1
+                continue
+            # The middle, or one of the ring's own vertices, is farther from
+            # the zone than the zone's tolerance.
+            result.groups["lost"] += 1
+            result.lost_zones.add(code)
+            label = next(label for limit, label in BUCKETS if size < limit)
+            result.lost_sizes[label] += 1
+            result.lost_areas[code[:2]] += 1
+            result.worst.append((size, away, code, round(lat, 2), round(lon, 2)))
 
     counties = "county" in zones.layers()
     for code in sorted(result.named - result.absent):
         zone = zones.get(result.layer, code)
+        tolerance = zones.tolerance_km(code)
         # Question 9: built area against original, for zones big enough to judge.
-        across = (
-            AREA_FLOOR_TOLERANCES * zones.tolerance_km(code) / resolver.KM_PER_DEGREE
-        )
+        across = AREA_FLOOR_TOLERANCES * tolerance / resolver.KM_PER_DEGREE
         before = abs(original_area[code])
         if before > across * across > 0.0:
             ratio = abs(sum(_flat_area(ring) for ring in zone.rings)) / before
             if not 0.5 <= ratio <= 2.0:
                 result.mangled.append((round(ratio, 3), code))
-        # Question 10: every outline of a land zone has a county within tolerance.
+        # Question 10: every outline of a land zone has a county within the
+        # zone's own tolerance, which is the distance the land-sea rule allows.
         if counties and result.layer in LAND_LAYERS:
             for ring in zone.rings:
                 lon, lat = ring[0], ring[1]
                 if not zones.resolve(
-                    lat,
-                    lon,
-                    radius_km=zones.max_tolerance_km,
-                    max_zones=1,
-                    layers=("county",),
+                    lat, lon, radius_km=tolerance, max_zones=1, layers=("county",)
                 ):
                     result.landless.append((code, round(lat, 2), round(lon, 2)))
                     break
@@ -492,6 +599,15 @@ def report(results: list[FileSurvey]) -> None:
             )
             print(f"    {group:<8} {result.groups[group]:>6}  {share:5.1f}%")
         print(f"    of those, wound as holes: {result.wound_as_hole}")
+        print(
+            "    against the rest of their zone: "
+            + ", ".join(f"{name} {result.relation[name]}" for name in RELATIONS)
+        )
+        print(
+            f"    outlines overlapping the rest of their zone: "
+            f"{result.overlapping_outlines}, of which the middle lies in the "
+            f"overlap: {result.overlapping_outlines_cancelled}"
+        )
         print(
             f"    original vertices sampled: {result.sampled}, "
             f"beyond tolerance: {len(result.stray)}"

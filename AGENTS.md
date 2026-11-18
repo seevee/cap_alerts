@@ -238,11 +238,19 @@ is published as a release asset. `scripts/check_zone_dataset.py` (needs
 `pyshp`, read-only) is the check to run between building and publishing. It
 reads the shapefiles again and asks ten questions of the dataset, each listed
 at the top of the script: that it loads, has its layers, records its
-tolerance, sits under half of every ceiling the reader enforces, matches its
-manifest, holds every named zone, has left no place out of its zone, kept a
-sample of original vertices within tolerance, has no zone at under half or
-over twice its area, and gives every forecast and fire outline a county
-within tolerance. It exits 1 if any fails. `tests/test_build_zone_dataset.py`
+tolerance and its rounding, sits under half of every ceiling the reader
+enforces, matches its manifest, holds every named zone, has left no place out
+of its zone, kept original vertices within tolerance (every vertex of a ring
+that collapses, a sample of the rest), has no zone at under half or over twice
+its area, and gives every forecast and fire outline a county within that
+zone's own tolerance. It exits 1 if any fails. It also reports how each
+collapsing ring lies against the rest of its zone, and how many outlines
+overlap it: a zone's rings are one even-odd set, so the area two of them
+share is in neither, and only the band finds the zone there. Both scripts use
+the integration's `nws_zones` module if the process has already loaded it,
+and load its file only where nothing has imported the integration, so that a
+process never holds two copies and a machine without Home Assistant can still
+build and check a dataset. `tests/test_build_zone_dataset.py`
 holds both scripts to all of that on small made-up shapefiles (skipped without
 `pyshp`); `tests/test_zone_dataset_acceptance.py` runs the ten questions, one
 test each, on NWS's real shapefiles when `CAP_ALERTS_ZONE_SOURCES` names the
