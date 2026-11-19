@@ -6,7 +6,7 @@
 Reads NWS's public zone, county (and optionally marine, fire) shapefiles,
 simplifies each ring with Douglas-Peucker, and writes one JSON object per line:
 
-    {"format": 2, "zones": 11634, "lines": 11636,
+    {"format": 2, "zones": 11651, "lines": 11653,
      "meta": {"build_id": "...", "source_date": "2026-04-16", "epsilon_deg": 0.005, "decimals": 4,
               "tail_epsilon_deg": 0.02, "tail_states": ["AK"],
               "sources": [{"file": "z_16ap26.zip", "layer": "forecast", "bytes": ..., "sha256": "...",
@@ -14,7 +14,7 @@ simplifies each ring with Douglas-Peucker, and writes one JSON object per line:
     {"code": "NYZ072", "layer": "forecast", "bbox": [lon_min, lat_min, lon_max, lat_max],
      "rings": [[[lon, lat], ...], ...]}
     ...one line per zone...
-    {"eof": true, "zones": 11634, "lines": 11636, "sha256": "<of every byte above this line>"}
+    {"eof": true, "zones": 11651, "lines": 11653, "sha256": "<of every byte above this line>"}
 
 Codes follow the alerts API's UGC form:
     forecast        : STATE + "Z" + ZONE        NY + Z + 072  -> NYZ072
@@ -53,7 +53,7 @@ The NWS release pages list each file's MD5, so that is recorded too, for
 checking a download against the page. SHA-256 is what identifies a source here.
 
 Measured on the 16 April 2026 release, four layers, epsilon 0.005 deg (0.02 for
-Alaska): 11,634 zones, 550 k vertices, 11.6 MB JSON, 3.1 MB gzipped.
+Alaska): 11,651 zones, 665 k vertices, 13.8 MB JSON, 3.66 MB gzipped.
 """
 
 from __future__ import annotations

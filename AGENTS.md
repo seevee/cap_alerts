@@ -213,54 +213,41 @@ since a slot 404s until its product is first issued (#298).
 
 `scripts/build_zone_dataset.py` (needs `pyshp`, build-time only) turns NWS's
 public zone and county shapefiles into the dataset `providers/nws_zones.py`
-reads (#316). The same inputs always give the same bytes: nothing from the
-clock reaches the output, and each source is recorded with its SHA-256.
-`--if-changed <manifest>` skips the build when the inputs and settings match
-an earlier manifest, and refuses to write a dataset whose zone counts moved
-more than `--max-count-change` percent from it. It keeps every place an
-outline covers: a ring that collapses under simplification is dropped only if
-it lies wholly inside its zone as built (a pond, or an outline already
-covered), and is otherwise kept at a finer tolerance. It refuses to write,
-exit 2, when a zone a shapefile names has no outline (`--allow-absent`
-overrides), or when a record has no usable zone code, has coordinates that are
-not longitude and latitude, crosses the antimeridian, or names a zone another
-file of the same layer already named (`--allow-unusual-source` overrides and
-leaves those records out). It refuses outright, in one line naming the file,
-an input that is missing, is not a zip, is not one readable polygon shapefile
-in longitude and latitude, or is a second file of a kind already given; an
-argument the reader would refuse in the finished file; an output directory
-that does not exist; and an `--if-changed` manifest it cannot read. Before
-writing anything it loads what it built through `providers/nws_zones.py`, the
-way the integration will, and refuses a dataset the reader refuses. Each
-output is written beside its destination, read back, and renamed into place,
-the manifest last. The dataset is not committed; it
-is published as a release asset. `scripts/check_zone_dataset.py` (needs
-`pyshp`, read-only) is the check to run between building and publishing. It
-reads the shapefiles again and asks ten questions of the dataset, each listed
-at the top of the script: that it loads, has its layers, records its
-tolerance and its rounding, sits under half of every ceiling the reader
-enforces, matches its manifest, holds every named zone, has left no place out
-of its zone, kept original vertices within tolerance (every vertex of a ring
-that collapses, a sample of the rest), has no zone at under half or over twice
-its area, and gives every forecast and fire outline a county within that
-zone's own tolerance. It exits 1 if any fails. It also reports how each
-collapsing ring lies against the rest of its zone, and how many outlines
-overlap it: a zone's rings are one even-odd set, so the area two of them
-share is in neither, and only the band finds the zone there. Both scripts use
-the integration's `nws_zones` module if the process has already loaded it,
-and load its file only where nothing has imported the integration, so that a
-process never holds two copies and a machine without Home Assistant can still
-build and check a dataset. `tests/test_build_zone_dataset.py`
-holds both scripts to all of that on small made-up shapefiles (skipped without
-`pyshp`); `tests/test_zone_dataset_acceptance.py` runs the ten questions, one
-test each, on NWS's real shapefiles when `CAP_ALERTS_ZONE_SOURCES` names the
-directory holding them, which is what a release workflow should do before it
-publishes (skipped otherwise). `scripts/nws_zone_parity.py` (read-only, run with the project's
-virtualenv) checks that local resolution plus local matching returns the same
-alerts as `alerts/active?point=`, on points it picks from the day's live
-alerts to hit the cases that can go wrong; re-run it on days with real
-weather. Its `scan` command shows where polygon warnings are in effect right
-now and how recent they are, and `run --storm` aims the check at those areas.
+reads (#316). The same inputs always give the same bytes, and a manifest
+written beside the dataset records each source's hashes and the settings. A
+release build adds `--tail-eps 0.02 --gzip` (Alaska is simplified more
+coarsely), which is what `tests/test_zone_dataset_acceptance.py` builds with.
+A ring that collapses under simplification is dropped only when it lies
+wholly inside its zone as built, and is otherwise kept at a finer tolerance:
+the first build dropped them all and left 12,323 places out. The builder
+refuses to write, exit 2, when a zone has no outline or a record cannot be
+placed (`--allow-absent` and `--allow-unusual-source` override), and when the
+reader refuses what it built. The dataset is not committed and nothing
+publishes it yet; #316 plans it as an asset on the code release that pins its
+hash.
+
+`scripts/check_zone_dataset.py` (needs `pyshp`, read-only) is the check to
+run between building and publishing. It reads the shapefiles again and asks
+ten questions of the dataset, listed at the top of the script, and exits 1 if
+any fails. It also reports how many outlines overlap the rest of their zone:
+a zone's rings are one even-odd set, so the area two of them share is in
+neither, and only the tolerance band finds the zone there.
+
+Both scripts use the integration's `nws_zones` module when the process has
+already imported it and load its file only where nothing has, so a process
+never holds two copies (the import rule under Verification) and a machine
+without Home Assistant can still build and check.
+`tests/test_build_zone_dataset.py` holds both scripts to this on small
+made-up shapefiles (skipped without `pyshp`).
+`tests/test_zone_dataset_acceptance.py` runs the ten questions on NWS's real
+shapefiles when `CAP_ALERTS_ZONE_SOURCES` names their directory; nothing sets
+it today, so those tests always skip.
+
+`scripts/nws_zone_parity.py` (read-only, run with the project's virtualenv)
+checks that local resolution plus local matching returns the same alerts as
+`alerts/active?point=`, on points it picks from the day's live alerts; re-run
+it on days with real weather. `scan` shows where polygon warnings are in
+effect, and `run --storm` aims the check at those areas.
 
 `scripts/charset_probe.py` (stdlib only, read-only) decodes every feed and a
 sample of CAP bodies the way aiohttp's `resp.text()` does (header charset, else
