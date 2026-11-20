@@ -118,6 +118,7 @@ custom_components/cap_alerts/
     au.py                 # Australian state feeds (NSW RFS, QFD, WA DFES, TasALERT): one EDXL-DE document per state → CAP-AU alerts; AlertLevel tier drives severity, marker circles → points, expires dropped (regeneration TTL)
     geosphere.py          # GeoSphere Austria Warn API: one getWarningsForCoords per poll → the municipality's warnings (GeoJSON, not CAP); identity is warnid; geometry reprojected
     austria_lambert.py    # EPSG:31287 (MGI / Austria Lambert) → WGS84 without pyproj: LCC 2SP inverse + EPSG:1618 Helmert, nesting-preserving coordinate walker
+    nws_zone_data.py      # the NWS zone dataset on disk (#316): one fixed path in .storage, loads only a file whose SHA-256 is in KNOWN_ZONE_DATA (every published dataset, so an older file survives an upgrade), read in the executor on first use and never at setup, one ZoneSet shared by the entries that hold it and dropped when the last lets go
     nws_zones.py          # local NWS zone resolver (#316), stdlib only, no HA imports: ZoneSet.from_lines reads the line-per-zone dataset (header counts, end-of-file line, SHA-256; refuses a partial file), nearby zones for the request, containing zones with the land-sea rule for matching, tracker hysteresis
     twc.py                # U.S. Tsunami Warning Centers: a region's two product slots on tsunami.gov (revalidated) → each one's latest CAP bulletin; identity is product + incident, identifier/references product-qualified (PTWC reuses them across products), Tsunami Cancellation ends
   manifest.json

@@ -21,6 +21,12 @@ nothing reported it. Beyond those ten: all four layers are present, no record
 was left out, the builder's own counts add up, and building twice gives the
 same bytes.
 
+The last three tests put the same file through the integration's own reader,
+``providers/nws_zone_data.py``, which is the route a Home Assistant install
+takes: that it loads from disk within the reader's ceilings, whether its hash
+is on the reader's list, and that no damaged copy of it is taken for anything
+but a refusal.
+
 Expect several minutes: the build runs twice, and the survey reads every ring
 of every shapefile.
 """
@@ -28,9 +34,11 @@ of every shapefile.
 from __future__ import annotations
 
 import gzip
+import hashlib
 import importlib.util
 import json
 import os
+import random
 import shlex
 import subprocess
 import sys
@@ -39,6 +47,7 @@ from typing import Any
 
 import pytest
 
+from custom_components.cap_alerts.providers import nws_zone_data
 from custom_components.cap_alerts.providers.nws_zones import MAX_DATASET_BYTES, ZoneSet
 
 _SOURCES = os.environ.get("CAP_ALERTS_ZONE_SOURCES", "")
@@ -223,3 +232,122 @@ def test_building_it_again_gives_the_same_bytes(build, zips, tmp_path):
         json.loads(Path(f"{again}.manifest.json").read_text())["build_id"]
         == (build["manifest"]["build_id"])
     )
+
+
+# ---------------------------------------------------------------------------
+# The integration's reader, on the real dataset
+# ---------------------------------------------------------------------------
+
+
+def test_the_reader_loads_the_built_dataset_from_disk(build, monkeypatch):
+    """The route an install takes: the file on disk, through every check the
+    reader makes, under the reader's own ceilings."""
+    stored = build["dataset"].read_bytes()
+    digest = hashlib.sha256(stored).hexdigest()
+    assert digest == build["manifest"]["gzip_sha256"]
+    monkeypatch.setitem(nws_zone_data.KNOWN_ZONE_DATA, digest, "this build")
+
+    zones, loaded = nws_zone_data.read_verified(build["dataset"])
+
+    assert loaded == digest
+    assert len(zones) == build["manifest"]["zone_count"]
+    assert set(zones.layers()) == {"county", "fire", "forecast", "marine"}
+    # Headroom: the file is under half of what the reader will read.
+    assert len(stored) * 2 <= nws_zone_data.MAX_ZONE_DATA_BYTES
+
+
+def test_the_built_dataset_is_on_the_readers_list(build):
+    """The reader loads only a file whose hash it lists.
+
+    For shapefiles of a release that is already listed, this proves that the
+    listed hash is what those shapefiles build, on this machine. For a new
+    release the hash cannot be listed yet, so the test skips and says which
+    hash to add when the dataset is published.
+    """
+    digest = build["manifest"]["gzip_sha256"]
+    if digest not in nws_zone_data.KNOWN_ZONE_DATA:
+        pytest.skip(
+            f"this build is not on the reader's list; add {digest} to "
+            "KNOWN_ZONE_DATA in providers/nws_zone_data.py when it is published"
+        )
+    zones, loaded = nws_zone_data.verify_zone_data(build["dataset"].read_bytes())
+    assert loaded == digest
+    assert len(zones) == build["manifest"]["zone_count"]
+
+
+class _EveryHash(dict[str, str]):
+    """A list that claims to hold every hash, to reach the checks behind it."""
+
+    def __contains__(self, key: object) -> bool:
+        return True
+
+    def __getitem__(self, key: str) -> str:
+        return "any"
+
+
+def _damage(data: bytes, rng: random.Random) -> bytes:
+    damaged = bytearray(data)
+    kind = rng.choice(("flip", "cut", "zero", "insert", "repeat", "swap"))
+    at = rng.randrange(len(damaged))
+    if kind == "flip":
+        for _ in range(rng.choice((1, 2, 8))):
+            damaged[rng.randrange(len(damaged))] ^= 1 << rng.randrange(8)
+    elif kind == "cut":
+        del damaged[at:]
+    elif kind == "zero":
+        run = rng.choice((1, 8, 64, 4096))
+        damaged[at : at + run] = bytes(len(damaged[at : at + run]))
+    elif kind == "insert":
+        damaged[at:at] = rng.randbytes(rng.choice((1, 16, 4096)))
+    elif kind == "repeat":
+        damaged += damaged[at:]
+    else:
+        other = rng.randrange(len(damaged))
+        damaged[at], damaged[other] = damaged[other], damaged[at]
+    return bytes(damaged)
+
+
+def test_no_damaged_copy_of_the_built_dataset_is_taken_for_anything_but_a_refusal(
+    build, monkeypatch
+):
+    """Damage the real file in 200 ways and give each copy to the reader.
+
+    First with the reader's real list: a copy that differs by one bit has a
+    different hash and must be refused as unrecognised, before anything is
+    decompressed. Then with a list that accepts every hash, which is the case
+    of a wrong entry on the list: every copy must load or be refused as
+    damaged, and nothing else may come out. 160 copies are damaged in the
+    compressed bytes and 40 in the text before it is compressed again.
+    """
+    stored = build["dataset"].read_bytes()
+    text = gzip.decompress(stored)
+    rng = random.Random(316)
+    copies = [_damage(stored, rng) for _ in range(160)]
+    copies += [gzip.compress(_damage(text, rng), mtime=0) for _ in range(40)]
+    copies += [b"", b"\x00", rng.randbytes(64), rng.randbytes(1_000_000)]
+
+    for copy in copies:
+        if copy == stored:
+            continue
+        with pytest.raises(nws_zone_data.ZoneDataUnavailableError) as refused:
+            nws_zone_data.verify_zone_data(copy)
+        assert refused.value.reason in (
+            nws_zone_data.REASON_UNRECOGNISED,
+            nws_zone_data.REASON_TOO_LARGE,
+        )
+
+    monkeypatch.setattr(nws_zone_data, "KNOWN_ZONE_DATA", _EveryHash())
+    outcomes = {"loaded": 0, "damaged": 0, "too_large": 0}
+    for copy in copies:
+        try:
+            nws_zone_data.verify_zone_data(copy)
+        except nws_zone_data.ZoneDataUnavailableError as refused:
+            assert refused.reason in (
+                nws_zone_data.REASON_DAMAGED,
+                nws_zone_data.REASON_TOO_LARGE,
+            ), refused.reason
+            outcomes[refused.reason] += 1
+        else:
+            outcomes["loaded"] += 1
+    # Most damage must be caught, or the test is not damaging anything.
+    assert outcomes["damaged"] >= len(copies) // 2, outcomes
