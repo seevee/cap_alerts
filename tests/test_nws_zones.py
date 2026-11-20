@@ -911,3 +911,163 @@ def test_zone_is_immutable(zones):
     assert isinstance(zone, Zone)
     with pytest.raises(AttributeError):
         zone.code = "NYZ073"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# The grid a lookup goes through
+# ---------------------------------------------------------------------------
+
+
+def _scattered() -> ZoneSet:
+    """Counties in four parts of the country, one zone that is very wide, one
+    split at the antimeridian, and one that touches it from the east."""
+    return ZoneSet.from_json(
+        json.dumps(
+            {
+                "meta": {"epsilon_deg": 0.005},
+                "zones": [
+                    _zone("NYC061", "county", _NY),
+                    _zone("CAC037", "county", _square(-118.9, 33.7, -117.6, 34.8)),
+                    _zone("FLC086", "county", _square(-80.9, 25.1, -80.1, 26.0)),
+                    _zone("AKC020", "county", _square(-150.5, 60.7, -148.9, 61.5)),
+                    # On a cell corner: its box ends exactly at 40 N, 100 W.
+                    _zone("KSC001", "county", _square(-101.0, 39.0, -100.0, 40.0)),
+                    # Forty degrees by thirty: more cells than the grid takes.
+                    _zone("PZZ900", "marine", _square(-170.0, 20.0, -130.0, 50.0)),
+                    # Two rings either side of 180, as NWS splits such a zone.
+                    _zone(
+                        "PKZ786",
+                        "marine",
+                        _square(172.0, 51.0, 180.0, 53.0),
+                        _square(-180.0, 51.0, -176.0, 53.0),
+                    ),
+                    # Wholly east of the line, reaching it.
+                    _zone("PKZ787", "marine", _square(-180.0, 54.0, -178.5, 55.0)),
+                    # Wholly west of the line, reaching it.
+                    _zone("PKZ785", "marine", _square(178.0, 48.0, 180.0, 49.0)),
+                ],
+            }
+        )
+    )
+
+
+def _scan_everything(zones: ZoneSet) -> Any:
+    """Make every lookup test every zone, as it did before the grid."""
+    return patch.object(ZoneSet, "_near", lambda self, lat, lon, radius_km: self._zones)
+
+
+def test_a_lookup_tests_the_zones_near_the_point_and_not_the_rest():
+    zones = _scattered()
+    near = list(zones._near(*_MANHATTAN, 16.0))
+    assert zones.get("county", "NYC061") in near
+    assert zones.get("county", "CAC037") not in near
+    assert zones.get("county", "FLC086") not in near
+    assert len(near) < len(zones)
+
+
+def test_a_zone_too_wide_for_the_grid_is_tested_on_every_lookup():
+    """Its box covers 1,200 cells. It is kept apart, and still found."""
+    zones = _scattered()
+    wide = {zones._zones[position].code for position in zones._wide}
+    assert wide == {"PZZ900", "PKZ786"}
+    assert _pairs(zones.containing(35.0, -150.0, land_sea_rule=False)) == {
+        ("marine", "PZZ900")
+    }
+
+
+def test_a_point_on_the_corner_of_a_cell_finds_the_zone_that_ends_there():
+    zones = _scattered()
+    assert [h.code for h in zones.resolve(40.0, -100.0, radius_km=0.0)] == ["KSC001"]
+    assert [h.code for h in zones.resolve(40.001, -99.999, radius_km=1.0)] == ["KSC001"]
+
+
+def test_a_lookup_reaches_across_the_antimeridian():
+    """A point just west of the line is a few kilometres from a zone whose box
+    lies wholly east of it, in a cell 359 columns away."""
+    zones = _scattered()
+    assert zones._zones.index(zones.get("marine", "PKZ787")) not in zones._wide
+    hits = zones.resolve(54.5, 179.95, radius_km=10.0)
+    assert [h.code for h in hits] == ["PKZ787"]
+    assert hits[0].distance_km < 4.0
+    # And the other way: from just east of the line to a zone that ends at it.
+    assert zones._zones.index(zones.get("marine", "PKZ785")) not in zones._wide
+    hits = zones.resolve(48.5, -179.99, radius_km=5.0)
+    assert [h.code for h in hits] == ["PKZ785"]
+    assert hits[0].distance_km < 1.0
+    # On the line itself, where the cell at 180 E and the cell at 180 W are
+    # one cell under two names.
+    # On the line itself, under either of its two names.
+    assert [h.code for h in zones.resolve(48.5, 180.0, radius_km=0.0)] == ["PKZ785"]
+    assert [h.code for h in zones.resolve(48.5, -180.0, radius_km=0.0)] == ["PKZ785"]
+
+
+@pytest.mark.parametrize(
+    ("lat", "lon", "radius_km"),
+    [
+        (90.0, 0.0, 16.0),  # at the pole a degree of longitude has no length
+        (89.9999, 20.0, 50.0),
+        (-90.0, 0.0, 5.0),
+        (40.0, -100.0, 25_000.0),  # further than anywhere is
+        (91.0, 0.0, 1.0),  # not a latitude; the scan decides, as before
+    ],
+)
+def test_near_a_pole_or_at_a_great_radius_every_zone_is_tested(lat, lon, radius_km):
+    zones = _scattered()
+    assert len(list(zones._near(lat, lon, radius_km))) == len(zones)
+
+
+@pytest.mark.parametrize(
+    ("lat", "lon", "radius_km"),
+    [
+        (40.8, float("nan"), 16.0),
+        (40.8, float("inf"), 16.0),
+        (40.8, float("-inf"), 0.0),
+        (float("nan"), -74.0, 16.0),
+        (float("inf"), -74.0, 1.0),
+        (40.8, -74.0, float("nan")),
+        (40.8, -74.0, float("inf")),
+        (40.8, -74.0, -5.0),
+        (40.8, 1e300, 5.0),
+    ],
+)
+def test_a_coordinate_that_is_not_a_number_is_handled_as_the_scan_handles_it(
+    lat, lon, radius_km
+):
+    """The grid must not add a way to fail. A longitude of NaN or infinity has
+    no cell, and looking one up raised where the scan returned nothing."""
+
+    def outcome(zones: ZoneSet) -> Any:
+        try:
+            return [h.code for h in zones.resolve(lat, lon, radius_km=radius_km)]
+        except (ValueError, OverflowError) as err:
+            return type(err).__name__
+
+    zones = _scattered()
+    through_the_grid = outcome(zones)
+    with _scan_everything(zones):
+        by_scanning = outcome(zones)
+    assert through_the_grid == by_scanning
+
+
+_ANYWHERE = st.one_of(
+    st.tuples(st.floats(24.0, 50.0), st.floats(-125.0, -66.0)),
+    st.tuples(st.floats(50.0, 62.0), st.floats(170.0, 180.0)),
+    st.tuples(st.floats(50.0, 62.0), st.floats(-180.0, -170.0)),
+    st.tuples(st.floats(-90.0, 90.0), st.floats(-180.0, 180.0)),
+    st.tuples(st.integers(20, 62).map(float), st.integers(-180, 180).map(float)),
+    st.sampled_from([_MANHATTAN, (34.2, -118.2), (25.5, -80.5), (61.0, -149.9)]),
+)
+_REACH = st.sampled_from([0.0, 0.6, 2.2, 16.0, 80.0, 400.0, 3000.0, 25_000.0])
+
+
+@given(point=_ANYWHERE, radius_km=_REACH)
+@settings(max_examples=300, deadline=None)
+def test_the_grid_never_changes_what_a_lookup_returns(point, radius_km):
+    """The grid is only a way to skip zones that cannot match. Whatever the
+    point and the radius, the result is what testing every zone gives."""
+    zones = _scattered()
+    lat, lon = point
+    through_the_grid = zones.resolve(lat, lon, radius_km=radius_km, max_zones=10_000)
+    with _scan_everything(zones):
+        by_scanning = zones.resolve(lat, lon, radius_km=radius_km, max_zones=10_000)
+    assert through_the_grid == by_scanning
