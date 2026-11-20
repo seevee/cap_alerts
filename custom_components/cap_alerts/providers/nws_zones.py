@@ -22,7 +22,7 @@ import re
 from array import array
 from collections.abc import Iterable
 from dataclasses import dataclass
-from math import asin, cos, pi, radians, sin, sqrt
+from math import asin, cos, degrees, floor, isfinite, pi, radians, sin, sqrt
 from typing import Any
 
 EARTH_RADIUS_KM = 6371.0088
@@ -377,6 +377,37 @@ def _sources(meta: Any) -> tuple[dict[str, Any], ...]:
     return tuple(sources)
 
 
+# A zone whose bounding box covers more one-degree cells than this is not
+# entered in the grid. It is kept in a short list that every lookup tests.
+_WIDE_CELLS = 256
+
+
+def _grid_of(
+    zones: tuple[Zone, ...],
+) -> tuple[dict[tuple[int, int], tuple[int, ...]], tuple[int, ...]]:
+    """Positions of the zones by one-degree cell, and of those too wide for it.
+
+    A cell is named by the floor of its west and south edges. A zone is
+    listed in every cell its bounding box touches. A box wider than 180
+    degrees is one that ``bbox_distance_km`` treats as bounding latitude only
+    (the zones split at the antimeridian), so it goes with the wide ones.
+    """
+    cells: dict[tuple[int, int], list[int]] = {}
+    wide: list[int] = []
+    for position, zone in enumerate(zones):
+        west, south, east, north = zone.bbox
+        columns = range(floor(west), floor(east) + 1)
+        rows = range(floor(south), floor(north) + 1)
+        if east - west > 180.0 or len(columns) * len(rows) > _WIDE_CELLS:
+            wide.append(position)
+            continue
+        for x in columns:
+            column = (x + 180) % 360 - 180
+            for y in rows:
+                cells.setdefault((column, y), []).append(position)
+    return {cell: tuple(found) for cell, found in cells.items()}, tuple(wide)
+
+
 class ZoneSet:
     """The national zone set, resident as compact arrays, with point/radius resolution."""
 
@@ -391,6 +422,7 @@ class ZoneSet:
         rounding_deg: float = 0.0,
     ) -> None:
         self._zones: tuple[Zone, ...] = tuple(zones)
+        self._grid, self._wide = _grid_of(self._zones)
         self._index: dict[tuple[str, str], Zone] = {
             (z.layer, z.code): z for z in self._zones
         }
@@ -591,6 +623,40 @@ class ZoneSet:
 
     # -- resolution ------------------------------------------------------
 
+    def _near(self, lat: float, lon: float, radius_km: float) -> Iterable[Zone]:
+        """The zones whose bounding box may be within ``radius_km`` of the point.
+
+        Every zone that ``bbox_distance_km`` would accept is among them, in
+        dataset order, so the caller's own tests give the result a scan of the
+        whole set would give. The grid only spares it most of the scan: a
+        lookup tests the few dozen zones in the cells around the point and not
+        all eleven thousand.
+
+        ``bbox_distance_km`` measures north-south distance along a meridian
+        and east-west distance at the point's own latitude, so a box of
+        ``reach`` degrees of latitude and ``reach / cos(lat)`` of longitude
+        around the point holds every bounding box it would accept. Near a
+        pole, or for a radius that wide, that box circles the globe and the
+        whole set is returned. It is also returned for a longitude that is
+        not a number, which has no cell: the scan then gives its usual
+        answer, where a cell lookup would raise.
+        """
+        scale = cos(radians(lat))
+        reach = degrees(radius_km / EARTH_RADIUS_KM) * (1.0 + 1e-9) + 1e-9
+        if not (
+            isfinite(lon) and reach < 90.0 and scale > 0.0 and reach < 179.0 * scale
+        ):
+            return self._zones
+        across = reach / scale
+        south, north = floor(lat - reach), floor(lat + reach)
+        west, east = floor(lon - across), floor(lon + across)
+        found: set[int] = set(self._wide)
+        for x in range(west, east + 1):
+            column = (x + 180) % 360 - 180
+            for y in range(south, north + 1):
+                found.update(self._grid.get((column, y), ()))
+        return [self._zones[position] for position in sorted(found)]
+
     def resolve(
         self,
         lat: float,
@@ -609,7 +675,7 @@ class ZoneSet:
         """
         wanted = set(layers)
         per_layer: dict[str, list[ZoneHit]] = {layer: [] for layer in wanted}
-        for z in self._zones:
+        for z in self._near(lat, lon, radius_km):
             if z.layer not in wanted:
                 continue
             if bbox_distance_km(lat, lon, z.bbox) > radius_km:
