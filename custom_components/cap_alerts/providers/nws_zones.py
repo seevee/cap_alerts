@@ -7,8 +7,8 @@ codes instead of sending ``point=lat,lon`` (issue #316).
 Data: a file produced by ``scripts/build_zone_dataset.py`` from NWS's public
 zone and county shapefiles, one zone per line (see ``ZoneSet.from_lines``). It
 is read once into a :class:`ZoneSet`, which keeps every ring as a flat
-``array('f')`` of ``lon, lat`` pairs: 4.4 MB resident for the national
-four-layer set at the default simplification, versus ~40 MB as lists of tuples.
+``array('f')`` of ``lon, lat`` pairs. For the national four-layer set the
+arrays come to 5.3 MB and the loaded set to about 16 MB in all.
 
 All distances are kilometres, as in Home Assistant core; convert for display
 at the config boundary only.
@@ -35,9 +35,10 @@ DATASET_FORMAT = 2
 # hash has been checked, but the parser does not lean on that: it assumes the
 # bytes could be anything, and refuses whatever does not look like a zone
 # dataset of plausible size. Each ceiling is several times the real figure
-# (April 2026: 11.6 MB, 11,634 zones, 549,545 vertices, longest line 48 kB,
-# at most 88 rings in a zone), so a genuine dataset has room to grow and a
+# (April 2026: 13.8 MB, 11,651 zones, 664,766 vertices, longest line 48 kB,
+# at most 439 rings in a zone), so a genuine dataset has room to grow and a
 # hostile one cannot ask for unbounded memory or time.
+# The check script holds a build to half of every ceiling.
 MAX_DATASET_BYTES = 64 * 1024 * 1024  # uncompressed
 MAX_LINE_BYTES = 1024 * 1024
 MAX_ZONES = 100_000
@@ -413,13 +414,14 @@ class ZoneSet:
 
         Three kinds of line, each one JSON object::
 
-            {"format": 2, "zones": 11634, "lines": 11636, "meta": {...}}     first
+            {"format": 2, "zones": 11651, "lines": 11653, "meta": {...}}     first
             {"code": "NYZ072", "layer": "forecast", "bbox": [...], "rings": [...]}
-            {"eof": true, "zones": 11634, "lines": 11636, "sha256": "..."}   last
+            {"eof": true, "zones": 11651, "lines": 11653, "sha256": "..."}   last
 
         One zone per line keeps the peak memory near the resident size: parsing
         the same data as a single document builds every coordinate pair as a
-        Python list first, 98 MB at the peak against 7 MB this way.
+        Python list first, 98 MB at the peak on the first build. Read this way,
+        the April build peaks at 18.8 MB against the 15.8 MB it holds.
 
         The price of lines is that a file cut short is still a run of valid
         lines. So the header says how many zones and lines to expect, and the
