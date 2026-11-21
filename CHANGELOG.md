@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.3 (2026-11-21)
+
+Released from `release/v0.8.x`, not main; both fixes are on main too.
+
+### Fixed
+- Offer a quiet location's device in the target picker (#441) (closes #440)
+- Share one ECCC index download and parse between entries (#421) (closes #420)
+
 ## 0.8.2 (2026-11-15)
 
 ### Fixed
