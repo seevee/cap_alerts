@@ -20,6 +20,7 @@ import pytest
 import yaml
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import trigger as trigger_helper
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import (
@@ -561,6 +562,40 @@ async def test_disarming_stops_the_listener(
 
 
 @pytest.mark.asyncio
+async def test_a_quiet_location_still_has_an_entity_the_target_matches(
+    hass, aioclient_mock, enable_custom_integrations
+):
+    """The editor offers a device only through an entity matching a filter (#440).
+
+    A location with no live alerts has no alert sensors, so the alert filter
+    alone left it out of the picker. Its Last updated sensor is there from
+    setup on and is the one sensor the second filter matches, so an entity
+    pick there is a single, findable row rather than every diagnostic.
+    """
+    aioclient_mock.get(FEED, text=_atom())
+    entry = await _setup_entry(hass)
+    assert _alert_entity_ids(hass, entry) == []
+
+    descriptions = await trigger_helper.async_get_all_descriptions(hass)
+    filters = descriptions[f"{DOMAIN}.incident_arrived"]["target"]["entity"]
+
+    def matches(entity: er.RegistryEntry, flt: dict) -> bool:
+        state = hass.states.get(entity.entity_id)
+        device_class = state.attributes.get("device_class") if state else None
+        return (
+            flt.get("integration", entity.platform) == entity.platform
+            and entity.domain in flt["domain"]
+            and device_class in flt["device_class"]
+        )
+
+    (device,) = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+    on_device = er.async_entries_for_device(er.async_get(hass), device.id)
+    matched = [e.entity_id for e in on_device if any(matches(e, f) for f in filters)]
+    assert len(matched) == 1
+    assert matched[0].endswith("_last_updated")
+
+
+@pytest.mark.asyncio
 async def test_the_editor_gets_the_incident_target_and_the_select(
     hass, aioclient_mock, enable_custom_integrations, caplog
 ):
@@ -572,7 +607,14 @@ async def test_the_editor_gets_the_incident_target_and_the_select(
     for key in TRIGGERS:
         description = descriptions[f"{DOMAIN}.{key}"]
         assert description["target"] == {
-            "entity": [{"domain": ["sensor"], "device_class": ["incident"]}]
+            "entity": [
+                {"domain": ["sensor"], "device_class": ["incident"]},
+                {
+                    "integration": DOMAIN,
+                    "domain": ["sensor"],
+                    "device_class": ["timestamp"],
+                },
+            ]
         }
         select = description["fields"]["threshold"]["selector"]["select"]
         assert select["options"] == list(THRESHOLD_RANK)
