@@ -893,6 +893,19 @@ async def test_bucket_test_status_dropped():
 
 
 @pytest.mark.asyncio
+async def test_bucket_test_status_kept_when_the_entry_opts_in():
+    """The option widens the body rule; status stays on the record (#438)."""
+    alerts = await _fetch(
+        WMOProvider(),
+        StubSession(_union_responses()),
+        "tl-dnmg-en",
+        {"include_test_messages": True},
+    )
+    (drill,) = [a for a in alerts if "2.49.0.1.508" in a.identifier]
+    assert drill.status == "Test"
+
+
+@pytest.mark.asyncio
 async def test_bucket_expired_body_dropped_before_store():
     """A first-sight expired alert would fire incident_removed; never hand it over."""
     alerts = await _fetch(WMOProvider(), StubSession(_union_responses()), "tl-dnmg-en")

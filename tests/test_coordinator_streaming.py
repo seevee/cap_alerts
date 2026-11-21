@@ -514,6 +514,28 @@ async def test_streamed_test_message_does_not_surface(
 
 
 @pytest.mark.asyncio
+async def test_streamed_drill_surfaces_when_the_entry_opts_in(
+    hass, aioclient_mock, enable_custom_integrations, monkeypatch
+):
+    """Test and Exercise are admitted to the live set; Draft never is (#438)."""
+    holder = _install_fake_stream(monkeypatch)
+    cap_a = "https://cap.example/a.cap"
+    aioclient_mock.get(FEED, text=_atom(cap_a))
+    aioclient_mock.get(cap_a, text=_cap_xml("urn:oid:A"))
+
+    entry = await _setup(hass, include_test_messages=True)
+    count_id = _count_id(hass, entry)
+    assert hass.states.get(count_id).state == "1"
+
+    for status in ("Test", "Exercise", "Draft"):
+        await holder["on_alert_doc"](
+            _cap_xml(f"urn:oid:{status}", event=f"{status} Warning", status=status)
+        )
+        await hass.async_block_till_done()
+    assert hass.states.get(count_id).state == "3"
+
+
+@pytest.mark.asyncio
 async def test_out_of_region_streamed_doc_is_not_retained(
     hass, aioclient_mock, enable_custom_integrations, monkeypatch
 ):

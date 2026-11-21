@@ -32,14 +32,19 @@ from ..const import (
 )
 from ..conventions import parse_instant
 from ..model import CAPAlert
-from . import IngestHost, ProviderError, ScopeUnresolvedError
+from . import (
+    IngestHost,
+    ProviderError,
+    ScopeUnresolvedError,
+    wants_test_messages,
+)
 from .cap import CAPDoc, parse_cap_alert
 from .eccc import (
     ECCCProvider,
+    admits_doc,
     build_alerts_from_cap_docs,
     config_gps,
     doc_matches_region,
-    is_actual,
 )
 from .naad_stream import NAADStreamClient
 
@@ -164,13 +169,14 @@ class NAADIngest:
     def _build_kwargs(
         self, config: Mapping[str, Any], options: Mapping[str, Any]
     ) -> dict[str, Any]:
-        """Region/language kwargs for build_alerts_from_cap_docs from resolved config."""
+        """Region, language and status kwargs for build_alerts_from_cap_docs."""
         gps_lat, gps_lon = config_gps(config)
         return {
             "province": config.get(CONF_PROVINCE, ""),
             "gps_lat": gps_lat,
             "gps_lon": gps_lon,
             "preferred_lang": options.get(CONF_LANGUAGE, "en-CA"),
+            "include_tests": wants_test_messages(options),
         }
 
     def _admit(
@@ -201,7 +207,7 @@ class NAADIngest:
         """
         kept: list[CAPDoc] = []
         for doc in docs:
-            if not is_actual(doc):
+            if not admits_doc(doc, include_tests=build_kwargs["include_tests"]):
                 continue
             if doc_matches_region(doc, **build_kwargs) or any(
                 ref_id in self._live_docs for _, ref_id, _ in doc.references

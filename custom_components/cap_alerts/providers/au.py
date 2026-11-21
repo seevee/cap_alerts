@@ -90,10 +90,16 @@ from ..const import (
 )
 from ..conventions import SourceConventions
 from ..model import CAPAlert, geocodes_from
-from . import ProviderError
+from . import ProviderError, wants_test_messages
 from .au_conventions import AU_ALERT_LEVEL_PARAMETER, au_alert_level
 from .au_conventions import CONVENTIONS as _CONVENTIONS
-from .cap import CAPDoc, CAPInfoDoc, cap_doc_from_element, select_info
+from .cap import (
+    CAPDoc,
+    CAPInfoDoc,
+    admits_status,
+    cap_doc_from_element,
+    select_info,
+)
 from .cap_content_cache import CAPContentCache
 from .geometry import geometry_from_shapes, points_from_circles
 
@@ -105,6 +111,15 @@ _LOGGER = logging.getLogger(__name__)
 AU_POINT_RADIUS_KM = 0.5
 
 _CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
+
+# States whose ``<status>`` does not mean what CAP says, so every message is
+# kept whatever it carries (#438). TasALERT stamps ``Test`` on real public
+# products: both Smoke Alerts on record are ``Test`` (Glenfern, Wayback
+# 2024-08-15; Dodges Ferry, 2026-09-20, sharing its ``<incidents>`` with an
+# ``Actual`` Bushfire Advice for the same fire), each with a public
+# alert.tas.gov.au page and no test wording, as was a police shark sighting
+# on 2026-09-24 (#238). Its ladder products (Advice, Flood) are ``Actual``.
+_STATUS_UNRELIABLE_STATES = frozenset({"TAS"})
 
 # Queensland's warning identifiers. ``WARN-n`` is a per-message counter that
 # re-mints on most updates (issue #116); the feed's other family
@@ -363,11 +378,18 @@ class AUProvider:
         if elements is None:
             raise ProviderError(f"AU {state}: feed is not well-formed XML")
 
+        include_tests = wants_test_messages(options)
         alerts: list[CAPAlert] = []
         for element in elements:
             doc = cap_doc_from_element(element)
             if not doc.identifier:
                 _LOGGER.warning("AU %s: alert with no identifier skipped", state)
+                continue
+            # Before the store matches references, so a drill cannot end or
+            # update a real alert (#438).
+            if state not in _STATUS_UNRELIABLE_STATES and not admits_status(
+                doc.status, include_tests=include_tests
+            ):
                 continue
             info = select_info(doc, "")
             alerts.append(_build_alert(state, doc, info, url))

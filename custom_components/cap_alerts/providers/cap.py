@@ -356,6 +356,33 @@ def cap_doc_from_element(root: Element) -> CAPDoc:
 
 
 # ---------------------------------------------------------------------------
+# Message status (issue #438)
+# ---------------------------------------------------------------------------
+
+# CAP 1.2 ``<status>`` values a recipient may be asked to act on. ``Test`` is
+# "to be disregarded by all recipients" and ``Exercise`` is for designated
+# participants only, so both are dropped unless the entry opts in. ``Draft``
+# is not actionable in any form and ``System`` is network traffic (NAAD's
+# heartbeats), so neither is ever admitted.
+_DRILL_STATUSES = frozenset({"Test", "Exercise"})
+
+
+def admits_status(status: str, *, include_tests: bool = False) -> bool:
+    """Whether a message with this CAP ``<status>`` should reach the store.
+
+    Every provider applies this at ingest, ahead of its own chain resolution
+    and of the store's reference matching, so a test message's
+    ``<references>`` can never end or update a real alert. Fails open on an
+    empty status: ``<status>`` is mandatory in CAP 1.2, so its absence means a
+    malformed document, and dropping a real alert over a parse quirk is the
+    worse error.
+    """
+    if not status or status == "Actual":
+        return True
+    return include_tests and status in _DRILL_STATUSES
+
+
+# ---------------------------------------------------------------------------
 # Lifecycle (revision chain resolution)
 # ---------------------------------------------------------------------------
 

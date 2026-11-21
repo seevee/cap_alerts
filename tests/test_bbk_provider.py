@@ -856,3 +856,64 @@ def test_gps_filter_fails_loud_on_point_only_geometry():
     points = [CAPAlert(id="p", geometry={"type": "Point", "coordinates": [1.0, 2.0]})]
     with pytest.raises(ProviderError, match="carry no polygons"):
         BBKProvider._filter_by_polygon(points, _IN_MOWAS)
+
+
+# ---------------------------------------------------------------------------
+# Message status (#438)
+# ---------------------------------------------------------------------------
+
+
+def _region_responses_with_status(status: str) -> dict[str, Any]:
+    responses = _region_responses()
+    key = _warning_url(_DWD_DASH_ID)
+    responses[key] = responses[key].replace(
+        '"status": "Actual"', f'"status": "{status}"'
+    )
+    return responses
+
+
+@pytest.mark.parametrize("status", ["Test", "Exercise", "Draft"])
+async def test_non_actual_document_is_dropped_by_default(status: str):
+    alerts, _ = await _fetch(
+        _region_responses_with_status(status), {CONF_ZONE_ID: _ARS}, {}
+    )
+    assert alerts == []
+
+
+async def test_exercise_document_is_kept_when_the_entry_opts_in():
+    alerts, _ = await _fetch(
+        _region_responses_with_status("Exercise"),
+        {CONF_ZONE_ID: _ARS},
+        {"include_test_messages": True},
+    )
+    (alert,) = alerts
+    assert alert.status == "Exercise"
+
+
+async def test_a_test_documents_references_cannot_hide_the_real_warning():
+    """Screened before chain resolution: a drill naming a live warning as its
+    predecessor must not drop that warning from the leaves (#438)."""
+    drill_id = "mow.DE-XX-DRILL-20260919-000"
+    dashboard = json.loads(_fixture("bbk_dashboard.json"))
+    dashboard.append({**dashboard[0], "id": drill_id})
+    real = json.loads(_fixture("bbk_warning_dwd_dashboard.json"))
+    drill = {
+        **real,
+        "identifier": drill_id,
+        "status": "Test",
+        "msgType": "Update",
+        "references": f"{real['sender']},{real['identifier']},{real['sent']}",
+    }
+    responses = _region_responses()
+    responses[BBK_DASHBOARD_URL.format(ars=_ARS)] = json.dumps(dashboard)
+    responses[_warning_url(drill_id)] = json.dumps(drill)
+    responses[_geojson_url(drill_id)] = _fixture("bbk_geojson_dwd_dashboard.geojson")
+
+    alerts, _ = await _fetch(responses, {CONF_ZONE_ID: _ARS}, {})
+    assert [a.identifier for a in alerts] == [_DWD_DASH_ID]
+
+    # Opted in, the drill is admitted and the chain rule applies as written.
+    alerts, _ = await _fetch(
+        responses, {CONF_ZONE_ID: _ARS}, {"include_test_messages": True}
+    )
+    assert [a.identifier for a in alerts] == [drill_id]

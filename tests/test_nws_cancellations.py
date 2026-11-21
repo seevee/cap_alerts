@@ -70,9 +70,14 @@ class _Pages:
         return [u for u in self.urls if "message_type=cancel" in u]
 
 
-async def _fetch(provider, pages, monkeypatch):
+async def _fetch(provider, pages, monkeypatch, options: dict[str, Any] | None = None):
     monkeypatch.setattr(provider, "_fetch_page", pages)
-    return await provider.async_fetch(None, CONFIG, {})
+    return await provider.async_fetch(None, CONFIG, options or {})
+
+
+def _with_status(feature: dict[str, Any], status: str) -> dict[str, Any]:
+    feature["properties"]["status"] = status
+    return feature
 
 
 @pytest.mark.asyncio
@@ -281,3 +286,53 @@ async def test_eligible_set_is_bounded(monkeypatch):
     )
 
     assert len(provider._tracked) == cap
+
+
+# ---------------------------------------------------------------------------
+# Test and Exercise products (#438)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["Test", "Exercise", "Draft", "System"])
+async def test_non_actual_products_are_dropped_by_default(monkeypatch, status: str):
+    provider = NWSProvider()
+    pages = _Pages(
+        active=_collection(
+            _with_status(_feature(tracking="0001"), "Actual"),
+            _with_status(_feature(tracking="0002"), status),
+        )
+    )
+    alerts = await _fetch(provider, pages, monkeypatch)
+    assert [a.status for a in alerts] == ["Actual"]
+
+
+@pytest.mark.asyncio
+async def test_drills_are_kept_when_the_entry_opts_in(monkeypatch):
+    provider = NWSProvider()
+    pages = _Pages(
+        active=_collection(
+            _with_status(_feature(tracking="0001"), "Test"),
+            _with_status(_feature(tracking="0002"), "Exercise"),
+            _with_status(_feature(tracking="0003"), "Draft"),
+        )
+    )
+    alerts = await _fetch(provider, pages, monkeypatch, {"include_test_messages": True})
+    # Status stays on the record, so a consumer can still tell them apart.
+    assert sorted(a.status for a in alerts) == ["Exercise", "Test"]
+
+
+@pytest.mark.asyncio
+async def test_a_test_cancellation_does_not_end_a_real_warning(monkeypatch):
+    """The cancel lookup is screened too, or a drill could end the real alert."""
+    provider = NWSProvider()
+    await _fetch(provider, _Pages(active=_collection(_feature())), monkeypatch)
+
+    pages = _Pages(
+        active=_collection(),
+        cancel=_collection(_with_status(_feature(msg_type="Cancel"), "Test")),
+    )
+    alerts = await _fetch(provider, pages, monkeypatch)
+
+    assert len(pages.cancel_urls) == 1
+    assert alerts == []

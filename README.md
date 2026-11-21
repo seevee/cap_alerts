@@ -129,6 +129,7 @@ Per provider:
 | Event types | GDACS | Which hazards to track. All by default. Applied before any geometry is fetched, so narrowing it also cuts fetch cost. |
 | Minimum alert level | GDACS, AU | GDACS: `Green`, `Orange` (default) or `Red`, on GDACS's own impact scale. The entity state derives from it too: Green → `minor`, Orange → `severe`, Red → `extreme`. AU: `All` (default), `Advice`, `Watch and Act` or `Emergency Warning` on the Australian Warning System; `All` also keeps the informational tiers below the ladder (planned burns, incidents with no warning). |
 | Exclude marine alerts | NWS, ECCC | Drop alerts carrying a marine zone code. Default off. |
+| Include test messages | All but GDACS and GeoSphere | Keep alerts the source marks `Test` or `Exercise`, for running an automation end to end against a scheduled drill. Default off: CAP says a test is to be disregarded by every recipient, so they are dropped before they can become entities or fire triggers. Drafts and system messages are always dropped. Tasmania is the exception and is always kept in full, since TasALERT marks real smoke alerts `Test`. The alert's `status` attribute tells them apart. |
 | Area codes (prefix match) | All but GDACS, BBK, AU and TWC | Keep only alerts whose area codes start with one of the listed prefixes (`13,37`). See [Area-code narrowing](#area-code-narrowing). |
 
 #### ECCC streaming

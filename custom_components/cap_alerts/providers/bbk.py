@@ -92,11 +92,12 @@ from ..const import (
 )
 from ..conventions import SourceConventions
 from ..model import CAPAlert, geocodes_from
-from . import ProviderError
+from . import ProviderError, wants_test_messages
 from .bbk_conventions import CONVENTIONS as _CONVENTIONS
 from .cap import (
     CAPDoc,
     CAPInfoDoc,
+    admits_status,
     cap_doc_from_json,
     resolve_chain_leaves,
     select_alt_info,
@@ -491,6 +492,9 @@ class BBKProvider:
         # (c) The documents.
         doc_urls = [BBK_WARNING_URL.format(warning_id=e.warning_id) for e in live]
         bodies = await asyncio.gather(*[_fetch_document(url) for url in doc_urls])
+        # Status is screened here, before (d), so a drill's <references>
+        # cannot drop the real warning it points at (#438).
+        include_tests = wants_test_messages(options)
         parsed: list[tuple[_IndexEntry, str, CAPDoc]] = []
         for entry, url, body in zip(live, doc_urls, bodies):
             if body is None:
@@ -503,6 +507,8 @@ class BBKProvider:
             doc = cap_doc_from_json(payload)
             if doc is None:
                 _LOGGER.warning("BBK: document is not a CAP alert: %s", url)
+                continue
+            if not admits_status(doc.status, include_tests=include_tests):
                 continue
             parsed.append((entry, url, doc))
 

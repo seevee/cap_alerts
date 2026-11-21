@@ -82,6 +82,8 @@ CONF_SCAN_INTERVAL = "scan_interval"
 CONF_TIMEOUT = "timeout"
 CONF_LANGUAGE = "language"
 CONF_EXCLUDE_MARINE = "exclude_marine"
+# Off by default: Test and Exercise messages are dropped at ingest (#438).
+CONF_INCLUDE_TEST_MESSAGES = "include_test_messages"
 CONF_STREAMING = "streaming"
 CONF_FEED_SOURCE = "feed_source"
 CONF_ALERT_LEVEL = "alert_level"

@@ -683,3 +683,38 @@ async def test_an_undecodable_feed_raises_a_provider_error():
                 b'<?xml version="1.0" encoding="ISO-8859-1"?><alert>Montr\xe9al</alert>',
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# Message status (#438)
+# ---------------------------------------------------------------------------
+
+
+def _nsw_with_first_status(status: str) -> str:
+    return _fixture("NSW").replace(
+        "<cap:status>Actual</cap:status>", f"<cap:status>{status}</cap:status>", 1
+    )
+
+
+@pytest.mark.parametrize("status", ["Test", "Exercise", "Draft"])
+async def test_nsw_drops_a_non_actual_message_by_default(status: str):
+    alerts, _ = await _fetch("NSW", body=_nsw_with_first_status(status))
+    assert len(alerts) == 2
+    assert {a.status for a in alerts} == {"Actual"}
+
+
+async def test_nsw_keeps_a_drill_when_the_entry_opts_in():
+    alerts, _ = await _fetch(
+        "NSW",
+        body=_nsw_with_first_status("Exercise"),
+        options={"include_test_messages": True},
+    )
+    assert len(alerts) == 3
+    assert sorted(a.status for a in alerts) == ["Actual", "Actual", "Exercise"]
+
+
+async def test_tas_keeps_test_stamped_products_without_the_option():
+    """TasALERT stamps Test on real Smoke Alerts; its status is not CAP's."""
+    alerts, _ = await _fetch("TAS", body=_fixture("TAS_TWO_PRODUCTS"))
+    smoke = _by_headline(alerts, "Bushfire Smoke Alert - Dodges Ferry")
+    assert smoke.status == "Test"

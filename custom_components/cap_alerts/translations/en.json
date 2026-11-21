@@ -642,6 +642,7 @@
           "streaming": "Real-time streaming",
           "feed_source": "Alert feed source",
           "exclude_marine": "Exclude marine alerts",
+          "include_test_messages": "Include test messages",
           "gdacs_event_types": "Event types",
           "alert_level": "Minimum alert level",
           "geocode_prefixes": "Area codes (prefix match)"
@@ -653,6 +654,7 @@
           "streaming": "Stream ECCC alerts over the NAAD real-time feed for near-instant updates (recommended). When off, alerts are polled from the GeoRSS feed on the polling interval. ECCC only.",
           "feed_source": "ECCC: which NAAD GeoRSS host(s) to fetch. 'auto' combines both feeds so no alert carried by only one is missed (recommended); Pelmorex has announced that the legacy host will retire, so pin a single host only to work around a specific feed issue. WMO: 'auto' reads the feed the weather service publishes itself and merges in the SWIC mirror where it still answers (recommended); SWIC retired the mirror for nearly every source in October 2026. 'mirror' or 'authority' reads one of them only. ECCC and WMO only.",
           "exclude_marine": "Hide alerts issued for marine/water zones (boating, open water). NWS and ECCC only.",
+          "include_test_messages": "Keep alerts the source marks as Test or Exercise. They are dropped by default, since CAP says a test is to be disregarded by every recipient. Turn this on to run an automation end to end against a scheduled drill. Drafts and system messages are always dropped. Not shown for GDACS and GeoSphere, which publish no test messages. Tasmania (TasALERT) is always kept in full, since it marks real smoke alerts as Test.",
           "gdacs_event_types": "Which GDACS hazards to track. Filtering happens before any alert is fetched, so narrowing this also cuts the fetch cost. Leave every type selected (the default) to track them all, including hazards GDACS adds later. GDACS only.",
           "alert_level": "GDACS: lowest alert level to fetch, Green (all), Orange, or Red, on GDACS's own impact scale; it decides which events are fetched, not how they are shown. Raise it to cut the volume of green earthquakes. Australia: lowest Australian Warning System tier to keep, All, Advice, Watch and Act or Emergency Warning; All also keeps the informational tiers below the ladder (planned burns, incidents with no warning). A warning with no tier at all, such as a WA hazmat warning, ranks by its own severity. GDACS and Australia only.",
           "geocode_prefixes": "Optional. Comma-separated area-code prefixes (e.g. 13,37). Keeps only alerts whose area codes start with one of them, on top of the location filter chosen at setup. Codes are hierarchical, so a shorter prefix covers a wider area (13 = Hebei, 1307 = Zhangjiakou). Matched against every code scheme the source publishes. Code lengths vary within a scheme, so pasting a full code may match nothing — prefer the leading digits. Leave empty to disable."

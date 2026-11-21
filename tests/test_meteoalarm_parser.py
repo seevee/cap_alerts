@@ -67,11 +67,13 @@ def feed_fr_green_markers() -> dict:
     )
 
 
-def _parse(feed: dict, preferred_prefix: str = "de"):
+def _parse(feed: dict, preferred_prefix: str = "de", *, include_tests: bool = False):
     """Run the provider's per-warning conversion across a JSON payload."""
     alerts = []
     for warning in feed["warnings"]:
-        alert = meteoalarm._warning_to_alert(warning, preferred_prefix)
+        alert = meteoalarm._warning_to_alert(
+            warning, preferred_prefix, include_tests=include_tests
+        )
         if alert is not None:
             alerts.append(alert)
     return alerts
@@ -260,6 +262,12 @@ def test_test_status_warning_filtered(feed_de):
     # Fixture includes a status="Test" warning; ensure it's not in the output.
     events = {a.event for a in _parse(feed_de)}
     assert "Test Hazard" not in events
+
+
+def test_test_status_warning_kept_when_the_entry_opts_in(feed_de):
+    alerts = _parse(feed_de, include_tests=True)
+    (drill,) = [a for a in alerts if a.event == "Test Hazard"]
+    assert drill.status == "Test"
 
 
 def test_area_desc_joined_across_areas(feed_de):
