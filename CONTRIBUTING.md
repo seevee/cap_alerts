@@ -126,6 +126,12 @@ filter or every past GA section splits into its alphas:
 git cliff --config cliff.toml --tag-pattern '^v[0-9]+\.[0-9]+\.[0-9]+$' --output CHANGELOG.md
 ```
 
+One exception: a patch released from a maintenance branch (`release/v0.8.x`,
+#437) is tagged off main, and git-cliff only sees tags in main's history. Its
+section is added to main's `CHANGELOG.md` by hand, and a regeneration drops
+it, so put it back after each GA cut: `git show v0.8.3:CHANGELOG.md` has the
+branch's own copy.
+
 Each entry is a commit subject, so a clean `type(scope): description` subject is
 what lands. Three things in the commit reach the notes beyond the subject:
 
