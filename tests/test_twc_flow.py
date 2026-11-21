@@ -14,6 +14,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.cap_alerts.const import (
+    CONF_INCLUDE_TEST_MESSAGES,
     CONF_PROVIDER,
     CONF_PROVINCE,
     CONF_SCAN_INTERVAL,
@@ -135,8 +136,14 @@ async def test_reconfigure_prefills_and_rewrites_the_region(
 
 
 @pytest.mark.asyncio
-async def test_options_are_the_polling_fields_alone(hass, enable_custom_integrations):
-    """No language, no marine toggle, no area-code narrowing (#298)."""
+async def test_options_are_the_polling_fields_and_the_test_toggle(
+    hass, enable_custom_integrations
+):
+    """No language, no marine toggle, no area-code narrowing (#298, #438)."""
     entry = _entry(hass, province="PR")
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert _field_names(result) == [CONF_SCAN_INTERVAL, "timeout"]
+    assert _field_names(result) == [
+        CONF_SCAN_INTERVAL,
+        "timeout",
+        CONF_INCLUDE_TEST_MESSAGES,
+    ]

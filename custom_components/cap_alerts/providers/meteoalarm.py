@@ -63,8 +63,9 @@ from ..const import (
 )
 from ..conventions import RegionEntry, SourceConventions, StageContext, row_for
 from ..model import CAPAlert, geocodes_from
-from . import ProviderError
+from . import ProviderError, wants_test_messages
 from .cap import (
+    admits_status,
     alternate_info_index,
     parse_cap_polygon_text,
     reference_identifiers,
@@ -523,19 +524,19 @@ def _primary_info(
 
 
 def _warning_to_alert(
-    warning: Mapping[str, Any], preferred_prefix: str
+    warning: Mapping[str, Any], preferred_prefix: str, *, include_tests: bool = False
 ) -> CAPAlert | None:
     """Convert one ``{"alert": ..., "uuid": ...}`` warning to a ``CAPAlert``.
 
     The id is the per-message identifier hash; a sender whose conventions mint
     their own identity gets it rewritten here, on the finished record.
 
-    Returns ``None`` for warnings filtered out (non-Actual status, missing
-    info blocks).
+    Returns ``None`` for warnings filtered out (a status ``admits_status``
+    refuses, missing info blocks).
     """
     alert = warning.get("alert") or {}
     status = alert.get("status") or ""
-    if status and status != "Actual":
+    if not admits_status(status, include_tests=include_tests):
         return None
 
     infos = alert.get("info") or []
@@ -767,6 +768,7 @@ class MeteoAlarmProvider:
             raise ProviderError("MeteoAlarm: feed missing 'warnings' array")
 
         preferred_prefix = _lang_prefix(options.get(CONF_LANGUAGE, "")) or "en"
+        include_tests = wants_test_messages(options)
 
         gps_loc = config.get(CONF_GPS_LOC)
         regions = config.get(CONF_REGIONS)
@@ -790,7 +792,9 @@ class MeteoAlarmProvider:
         for warning in warnings:
             if not isinstance(warning, dict):
                 continue
-            alert = _warning_to_alert(warning, preferred_prefix)
+            alert = _warning_to_alert(
+                warning, preferred_prefix, include_tests=include_tests
+            )
             if alert is None:
                 continue
             if wanted:

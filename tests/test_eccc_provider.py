@@ -2015,6 +2015,64 @@ def test_build_alerts_from_cap_docs_drops_non_actual(status: str):
     )
 
 
+@pytest.mark.parametrize(
+    ("status", "kept"),
+    [("Test", True), ("Exercise", True), ("Draft", False), ("System", False)],
+)
+def test_build_alerts_from_cap_docs_keeps_drills_when_opted_in(status: str, kept: bool):
+    """The option admits Test and Exercise only; heartbeats stay out (#438)."""
+    alerts = build_alerts_from_cap_docs(
+        [_doc_with_status(status)],
+        province="ON",
+        gps_lat=None,
+        gps_lon=None,
+        preferred_lang="en-CA",
+        include_tests=True,
+    )
+    assert [a.status for a in alerts] == ([status] if kept else [])
+
+
+def test_doc_matches_region_admits_a_drill_when_opted_in():
+    kwargs = {"gps_lat": None, "gps_lon": None, "preferred_lang": "en-CA"}
+    doc = _doc_with_status("Exercise")
+    assert doc_matches_region(doc, province="ON", **kwargs) is False
+    assert doc_matches_region(doc, province="ON", include_tests=True, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("status", "include_tests", "survives"),
+    [
+        ("Actual", False, True),
+        ("Test", False, False),
+        ("Test", True, True),
+        ("Draft", True, False),
+        # An entry with no status never got past the envelope, and still doesn't.
+        ("", True, False),
+    ],
+)
+def test_envelope_prefilter_screens_status(
+    status: str, include_tests: bool, survives: bool
+):
+    cats = {"geocode": "35", "language": "en-CA"}
+    if status:
+        cats["status"] = status
+    entry = _eccc_mod._FeedEntry(
+        cats=cats,
+        summary="Area: Ottawa",
+        polygons=[],
+        cap_url="https://example.invalid/a.cap",
+        web_url="",
+        atom_id="atom-1",
+        title="",
+        oid="urn:oid:1",
+        polygon=None,
+    )
+    survivors = _eccc_mod._prefilter_entries(
+        [entry], "ON", None, None, include_tests=include_tests
+    )
+    assert bool(survivors) is survives
+
+
 def test_build_alerts_from_cap_docs_keeps_actual():
     docs = [_doc_with_status("Actual")]
     assert (

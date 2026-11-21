@@ -62,6 +62,7 @@ from .const import (
     CONF_FEED_SOURCE,
     CONF_GEOCODE_PREFIXES,
     CONF_GPS_LOC,
+    CONF_INCLUDE_TEST_MESSAGES,
     CONF_LANGUAGE,
     CONF_PROVIDER,
     CONF_PROVINCE,
@@ -223,6 +224,7 @@ async def async_get_config_entry_diagnostics(
         "filters": {
             "exclude_marine": options.get(CONF_EXCLUDE_MARINE, False),
             "geocode_prefixes": list(options.get(CONF_GEOCODE_PREFIXES) or []),
+            "include_test_messages": options.get(CONF_INCLUDE_TEST_MESSAGES, False),
             "language": {
                 "configured": options.get(CONF_LANGUAGE, "auto"),
                 "resolved": resolved_options.get(CONF_LANGUAGE),

@@ -19,6 +19,7 @@ from custom_components.cap_alerts.const import (
     CONF_EXCLUDE_MARINE,
     CONF_GEOCODE_PREFIXES,
     CONF_GPS_LOC,
+    CONF_INCLUDE_TEST_MESSAGES,
     CONF_LANGUAGE,
     CONF_PROVIDER,
     CONF_SCAN_INTERVAL,
@@ -263,7 +264,12 @@ async def test_options_offer_language_and_nothing_provider_foreign(
     entry = _entry(hass, zone_id=_ARS)
     result = await hass.config_entries.options.async_init(entry.entry_id)
     names = _field_names(result)
-    assert names == [CONF_SCAN_INTERVAL, "timeout", CONF_LANGUAGE]
+    assert names == [
+        CONF_SCAN_INTERVAL,
+        "timeout",
+        CONF_LANGUAGE,
+        CONF_INCLUDE_TEST_MESSAGES,
+    ]
     assert CONF_EXCLUDE_MARINE not in names
     assert CONF_GEOCODE_PREFIXES not in names
     assert _default(result, CONF_LANGUAGE) == "auto"

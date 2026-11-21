@@ -347,7 +347,13 @@ RECONFIGURE: dict[str, list[tuple[dict, Expect]]] = {
 # Field order is asserted, not just membership: the options form renders in
 # schema order, so a reordered provider block is a user-visible change.
 OPTIONS_SCHEMA: dict[str, list[str]] = {
-    "nws": ["scan_interval", "timeout", "exclude_marine", "geocode_prefixes"],
+    "nws": [
+        "scan_interval",
+        "timeout",
+        "exclude_marine",
+        "include_test_messages",
+        "geocode_prefixes",
+    ],
     "eccc": [
         "scan_interval",
         "timeout",
@@ -355,15 +361,29 @@ OPTIONS_SCHEMA: dict[str, list[str]] = {
         "streaming",
         "feed_source",
         "exclude_marine",
+        "include_test_messages",
         "geocode_prefixes",
     ],
-    "meteoalarm": ["scan_interval", "timeout", "language", "geocode_prefixes"],
-    "wmo": ["scan_interval", "timeout", "language", "feed_source", "geocode_prefixes"],
+    "meteoalarm": [
+        "scan_interval",
+        "timeout",
+        "language",
+        "include_test_messages",
+        "geocode_prefixes",
+    ],
+    "wmo": [
+        "scan_interval",
+        "timeout",
+        "language",
+        "feed_source",
+        "include_test_messages",
+        "geocode_prefixes",
+    ],
     "gdacs": ["scan_interval", "timeout", "gdacs_event_types", "alert_level"],
-    "bbk": ["scan_interval", "timeout", "language"],
-    "au": ["scan_interval", "timeout", "alert_level"],
+    "bbk": ["scan_interval", "timeout", "language", "include_test_messages"],
+    "au": ["scan_interval", "timeout", "alert_level", "include_test_messages"],
     "geosphere": ["scan_interval", "timeout", "language", "geocode_prefixes"],
-    "twc": ["scan_interval", "timeout"],
+    "twc": ["scan_interval", "timeout", "include_test_messages"],
 }
 
 

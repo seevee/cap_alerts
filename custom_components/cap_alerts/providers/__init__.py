@@ -11,6 +11,7 @@ import aiohttp
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+from ..const import CONF_INCLUDE_TEST_MESSAGES
 from ..conventions import SourceConventions
 from ..model import CAPAlert
 from .cap_content_cache import CAPContentCache
@@ -27,6 +28,14 @@ PROVIDER_IDS: tuple[str, ...] = (
     "geosphere",
     "twc",
 )
+
+
+def wants_test_messages(options: Mapping[str, Any]) -> bool:
+    """Whether the entry opted in to Test and Exercise messages (#438).
+
+    The option every provider reads before applying ``cap.admits_status``.
+    """
+    return bool(options.get(CONF_INCLUDE_TEST_MESSAGES, False))
 
 
 class ProviderError(Exception):

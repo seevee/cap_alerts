@@ -27,6 +27,7 @@ from .const import (
     CONF_EXCLUDE_MARINE,
     CONF_GDACS_EVENT_TYPES,
     CONF_GEOCODE_PREFIXES,
+    CONF_INCLUDE_TEST_MESSAGES,
     CONF_PROVIDER,
     CONF_SCAN_INTERVAL,
     CONF_TIMEOUT,
@@ -53,6 +54,11 @@ _OPTIONS_SCHEMAS: dict[str, Callable[[ConfigEntry], OptionsSchema]] = {
     "au": au.options_schema,
     "geosphere": geosphere.options_schema,
 }
+
+# Providers whose records never carry a CAP status of their own: GDACS (RSS
+# items) and GeoSphere (GeoJSON) are built as ``Actual``, so the test-message
+# toggle (#438) has nothing to admit there. Every other provider gets it.
+_SYNTHETIC_STATUS_PROVIDERS = frozenset({"gdacs", "geosphere"})
 
 # Providers that check a submitted option against the network before it is
 # saved, called after the shared validators pass and before the entry is
@@ -197,6 +203,18 @@ class CAPAlertsOptionsFlowHandler(OptionsFlow):
                 vol.Optional(
                     CONF_EXCLUDE_MARINE,
                     default=self.config_entry.options.get(CONF_EXCLUDE_MARINE, False),
+                )
+            ] = bool
+
+        # Test and Exercise messages are dropped at ingest unless the entry opts
+        # in, for running an automation end to end against a scheduled drill.
+        if provider not in _SYNTHETIC_STATUS_PROVIDERS:
+            schema[
+                vol.Optional(
+                    CONF_INCLUDE_TEST_MESSAGES,
+                    default=self.config_entry.options.get(
+                        CONF_INCLUDE_TEST_MESSAGES, False
+                    ),
                 )
             ] = bool
 

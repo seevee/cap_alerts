@@ -247,6 +247,29 @@ Keeps providers testable without a running HA instance, and keeps the coordinato
 
 ECCC and WMO both carry standard CAP 1.2 documents inside different envelopes (Atom vs RSS), so the CAP body parser is factored into `providers/cap.py` — a provider-neutral module exposing the `CAPDoc` / `CAPInfoDoc` containers, `parse_cap_alert` (namespace-agnostic), and `resolve_chain_leaves`. It depends on nothing else in the package — providers import the parser, never each other — so a third CAP-based provider reuses it without touching ECCC. Envelope-specific concerns (Atom pre-filtering and bilingual merge in `eccc.py`, RSS link extraction and expiry pre-filter in `wmo.py`, event-name recovery) stay in their respective provider modules.
 
+### Message status (issue #438)
+
+CAP's `<status>` says whether a message is real. `Test` is to be disregarded by
+every recipient and `Exercise` is for designated participants only, so neither
+reaches a default entry. Every provider applies one rule, `cap.admits_status`,
+at ingest: `Actual` and an empty status pass (a missing one is a malformed
+document, and dropping a real alert over it is the worse error), `Test` and
+`Exercise` pass only when the entry sets `include_test_messages`, and `Draft`
+and `System` never do. The option is read through
+`providers.wants_test_messages`.
+
+Where the rule runs is the point. It sits ahead of every step that reads
+`<references>`: a provider's own chain resolution (`resolve_chain_leaves` in
+ECCC, WMO and BBK), NWS's re-issue merge and cancellation lookup, ECCC's stream
+admission, and the store's claim and supersession matching. A drill that names
+a live warning as its predecessor would otherwise end or replace it. With the
+option on, a drill is admitted and the chain rule applies to it as written.
+
+`status` stays on the record and the entity, so a consumer can still tell a
+drill apart when the option is on. GDACS and GeoSphere build every record as
+`Actual`, so the options form withholds the toggle there. The AU provider
+skips the rule for Tasmania, see *Australia*.
+
 ### Area geocodes
 
 `CAPAlert.geocodes` is the **complete** area-geocode surface for every provider: a
@@ -479,7 +502,7 @@ The mapped `<info>` is the region-matching block, preferring a non-terminal one 
 
 `last_update_success_time` is stamped only by the fetch-backed paths (the poll and either backfill), not inside `_apply`, so heartbeat rebuilds do not advance it. It reports when data was last fetched and feeds diagnostics. The "Last updated" sensor reports `last_change_time` instead (issue #323): stamped inside `_apply` on any path whose reconciliation fired or parked an incident event (the store's `transitions` count), so a heartbeat rebuild that issues or ends an alert advances it and a poll that changes nothing does not. The sensor is a `RestoreSensor` and seeds the coordinator from its saved state at boot, since the store starts empty.
 
-**What enters the live set**: the socket carries every alert in Canada, so streamed docs are screened by `doc_matches_region` (`_admit`) *before* insertion — otherwise the set, and the rebuild it feeds on every stream event, would be sized by national volume rather than by the configured region. A doc that fails the region test is still kept when it references an identifier already tracked, so an update or cancellation can supersede an alert we hold even if its revised geometry no longer covers the user. Non-`Actual` documents (`Test`, `Exercise`, `Draft`) are dropped in `build_alerts_from_cap_docs` — the GeoRSS path filters them on the Atom envelope before fetching a body, so the rule lives on the shared path where both sources hit it — and `_admit` applies `is_actual` up front as well, because the references escape bypasses `doc_matches_region` entirely and a heartbeat's `<references>` lists recent alert OIDs.
+**What enters the live set**: the socket carries every alert in Canada, so streamed docs are screened by `doc_matches_region` (`_admit`) *before* insertion — otherwise the set, and the rebuild it feeds on every stream event, would be sized by national volume rather than by the configured region. A doc that fails the region test is still kept when it references an identifier already tracked, so an update or cancellation can supersede an alert we hold even if its revised geometry no longer covers the user. Documents the status rule refuses (see *Message status*) are dropped in `build_alerts_from_cap_docs` — the GeoRSS path screens status on the Atom envelope before fetching a body, so the rule lives on the shared path where both sources hit it — and `_admit` applies `admits_doc` up front as well, because the references escape bypasses `doc_matches_region` entirely and a heartbeat's `<references>` lists recent alert OIDs. Heartbeats are `System`, which no option admits.
 
 **Availability (issue #16)**: only a *backfill* drives `last_update_success`. The periodic `_async_update_data` backfill raising `UpdateFailed` flips entities `unavailable`; a transient socket disconnect, or a stream-triggered reconnect backfill that fails, does **not** — the last-known active set is retained while the client reconnects, avoiding availability flapping. Stream pushes therefore go through `IngestHost.push` (assign `data`, notify listeners) rather than `async_set_updated_data`: the latter asserts `last_update_success`, letting a heartbeat mark entities available while the authoritative backfill is failing, *and* resets the refresh timer, which would let ~60 s heartbeats defer the 30-minute resync indefinitely so it never ran.
 
@@ -515,8 +538,8 @@ English block in another language when the document has one, else the first
 other-language block in document order (`cap.alternate_info_index`, shared
 with WMO, issue #154). Belgium publishes four languages and Denmark three, so
 "the next remaining block" handed a French reader Dutch and a Dane
-Greenlandic. Warnings whose `status` is set and not `Actual` are skipped at
-parse time.
+Greenlandic. Warnings the status rule refuses (see *Message status*) are
+skipped at parse time.
 
 A small equivalence table (`_LANG_EQUIVALENTS`) lets one prefix satisfy a
 request for another, an exact match still winning. It holds a single group,
@@ -786,7 +809,7 @@ page.
 | `warnings[].alert.identifier` | `identifier`; primary source for `id` (senders with no episode dialect) |
 | `warnings[].alert.sender` | `sender` |
 | `warnings[].alert.sent` | `sent` |
-| `warnings[].alert.status` | `status` (warnings with status ≠ `Actual` skipped) |
+| `warnings[].alert.status` | `status` (warnings the status rule refuses are skipped) |
 | `warnings[].alert.msgType` | `msg_type` |
 | `warnings[].alert.scope` | `scope` |
 | `alert.info[].language` | `language` (primary), `language_alt` (alt block) |
@@ -1226,6 +1249,7 @@ differences:
 | `geometry` | the fire-ground polygon(s) where published; else the marker point |
 | `points` | circles up to `AU_POINT_RADIUS_KM` (0.5): NSW `0`, WA `0.0`, QLD `0.5`. TAS's 10 km circle is an area and stays out |
 | `geocodes` | one constant ISO 3166-2 code per feed (`AU-NSW`); the convention row declares `publishes_geocodes=False` so prefix narrowing is withheld |
+| `status` | verbatim. NSW, QLD and WA are screened by the shared status rule (*Message status*). **TAS is not**: TasALERT stamps `Test` on real public products. Both Smoke Alerts on record carry it (Glenfern, Wayback snapshot 2024-08-15; Dodges Ferry, 2026-09-20, sharing its `<incidents>` with an `Actual` Bushfire Advice for the same fire), each with a public alert.tas.gov.au page and no test wording, as did a police shark sighting (#238). Its ladder products (Bushfire Advice, SES Flood Advice) are `Actual`. `_STATUS_UNRELIABLE_STATES` keeps every TAS message |
 
 **Severity** is the Australian Warning System tier, read by the `au`
 convention row (`au_alert_level_severity`): Emergency Warning → `extreme`,

@@ -55,8 +55,8 @@ import aiohttp
 from ..const import CONF_PROVINCE, TWC_BASE_URL, TWC_REGIONS, TWC_SLOT_URL
 from ..conventions import SourceConventions
 from ..model import CAPAlert, geocodes_from
-from . import ProviderError
-from .cap import CAPDoc, parse_cap_alert, select_info
+from . import ProviderError, wants_test_messages
+from .cap import CAPDoc, admits_status, parse_cap_alert, select_info
 from .cap_content_cache import CAPContentCache
 from .revalidate import FeedStatusError, FeedValidators, fetch_feed_text
 from .twc_conventions import CONVENTIONS as _CONVENTIONS
@@ -179,11 +179,16 @@ class TWCProvider:
             raise ProviderError(f"Tsunami: unknown region {region!r}")
         _label, slots = entry
 
+        include_tests = wants_test_messages(options)
         alerts: list[CAPAlert] = []
         for slot in slots:
             bulletin = await self._async_slot_bulletin(session, slot, user_agent)
-            if bulletin is not None:
-                url, doc = bulletin
+            if bulletin is None:
+                continue
+            url, doc = bulletin
+            # Before the store matches references, so a drill cannot end or
+            # update a real bulletin (#438).
+            if admits_status(doc.status, include_tests=include_tests):
                 alerts.append(_build_alert(slot, doc, url))
         return alerts
 

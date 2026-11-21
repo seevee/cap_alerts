@@ -17,7 +17,8 @@ from ..conventions import (
     is_marine_code,
 )
 from ..model import CAPAlert, geocodes_from
-from . import ProviderError
+from . import ProviderError, wants_test_messages
+from .cap import admits_status
 from .cap_content_cache import CAPContentCache
 from .nws_conventions import CONVENTIONS as _CONVENTIONS
 from .nws_conventions import NWS_MARINE_UGC_PREFIXES as _NWS_MARINE_UGC_PREFIXES
@@ -337,6 +338,14 @@ class NWSProvider:
             url = pagination.get("next")
             follows += 1
 
+        # Test and Exercise products go before the re-issue merge and the
+        # store's reference matching, so a drill cannot fold into, end, or
+        # update a real alert (#438).
+        include_tests = wants_test_messages(options)
+        alerts = [
+            a for a in alerts if admits_status(a.status, include_tests=include_tests)
+        ]
+
         # Runs after pagination completes, never per page: a product and the
         # re-issue superseding it can land on either side of a page boundary.
         ctx = StageContext(now=datetime.now(timezone.utc))
@@ -347,6 +356,11 @@ class NWSProvider:
         cancellations = await self._fetch_cancellations(
             session, config, active_ids, user_agent=user_agent
         )
+        cancellations = [
+            c
+            for c in cancellations
+            if admits_status(c.status, include_tests=include_tests)
+        ]
         cancelled_ids = {c.id for c in cancellations}
         now = datetime.now(timezone.utc)
         tracked = {a.id: a.expires for a in alerts}

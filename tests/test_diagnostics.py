@@ -374,6 +374,7 @@ async def test_reports_the_active_filters(hass):
 
     assert filters["exclude_marine"] is True
     assert filters["geocode_prefixes"] == ["OHZ", "OHC"]
+    assert filters["include_test_messages"] is False
 
 
 async def test_counts_split_active_from_upcoming(hass):

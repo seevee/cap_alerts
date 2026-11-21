@@ -54,10 +54,11 @@ from ..const import (
 )
 from ..conventions import SourceConventions, parse_instant
 from ..model import CAPAlert, geocodes_from
-from . import ProviderError
+from . import ProviderError, wants_test_messages
 from .cap import (
     CAPDoc,
     CAPInfoDoc,
+    admits_status,
     parse_cap_alert,
     resolve_chain_leaves,
     select_alt_info,
@@ -603,8 +604,8 @@ async def fetch_wmo_sources(
 # ---------------------------------------------------------------------------
 
 
-def _doc_is_live(doc: CAPDoc, now: datetime) -> bool:
-    """Whether a parsed document is an ``Actual`` alert not yet expired.
+def _doc_is_live(doc: CAPDoc, now: datetime, *, include_tests: bool = False) -> bool:
+    """Whether a parsed document passes the status rule and has not expired.
 
     The body-level counterpart of the envelope pre-filter, and the only
     filter the bucket and national feeds get: their envelopes carry no
@@ -614,8 +615,10 @@ def _doc_is_live(doc: CAPDoc, now: datetime) -> bool:
     (``store.py``), so an expired body must never reach the store. Fail-open
     on a missing or unparseable ``<expires>``: the body's own expiry is still
     read by normalization. Buddhist-Era years corrected as in ``_build_alert``.
+    Status is ``admits_status``'s rule, applied before the chain resolution
+    that follows (#438).
     """
-    if doc.status and doc.status != "Actual":
+    if not admits_status(doc.status, include_tests=include_tests):
         return False
     expiries: list[datetime] = []
     for info in doc.infos:
@@ -1009,6 +1012,7 @@ class WMOProvider:
         # authority's, so ``url`` does not depend on the mirror (issue #333).
         loop = asyncio.get_running_loop()
         now = _utcnow()
+        include_tests = wants_test_messages(options)
         parsed: list[tuple[str, CAPDoc]] = []
         seen_identifiers: set[str] = set()
         for cap_url, body in zip(cap_urls, bodies):
@@ -1024,7 +1028,7 @@ class WMOProvider:
                 if doc.identifier in seen_identifiers:
                     continue
                 seen_identifiers.add(doc.identifier)
-            if _doc_is_live(doc, now):
+            if _doc_is_live(doc, now, include_tests=include_tests):
                 parsed.append((cap_url, doc))
 
         # (e) Resolve revision chains within this poll.

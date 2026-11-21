@@ -29,11 +29,12 @@ from ..const import (
 )
 from ..conventions import SourceConventions, is_marine_code
 from ..model import GEOCODE_CLC, GEOCODE_SGC, CAPAlert, geocodes_from
-from . import IngestHost, ProviderError, PushIngest
+from . import IngestHost, ProviderError, PushIngest, wants_test_messages
 from .cap import (
     CAPAreaDoc,
     CAPDoc,
     CAPInfoDoc,
+    admits_status,
     language_matches,
     parse_cap_alert,
     resolve_chain_leaves,
@@ -903,22 +904,20 @@ def _merge_languages(variants: list[CAPAlert], preferred_lang: str) -> CAPAlert:
 # ---------------------------------------------------------------------------
 
 
-def is_actual(doc: CAPDoc) -> bool:
-    """Whether a CAP doc is a real alert rather than test/exercise traffic.
+def admits_doc(doc: CAPDoc, *, include_tests: bool = False) -> bool:
+    """Whether a CAP doc passes the shared status rule (``admits_status``).
 
-    The GeoRSS path drops non-``Actual`` entries on the Atom envelope before the
-    body is ever fetched, but the streaming feed carries the whole NAAD channel —
-    ``Test``, ``Exercise`` and ``Draft`` messages included — so the rule lives
-    here, on the one path both ingestion sources share. Fails open on an absent
-    status: ``<status>`` is mandatory in CAP 1.2, so its absence means a
-    malformed document, and dropping a real alert over a parse quirk is the
-    worse error.
+    The GeoRSS path screens status on the Atom envelope before the body is
+    ever fetched, but the streaming feed carries the whole NAAD channel —
+    ``Test``, ``Exercise``, ``Draft`` and ``System`` messages included — so
+    the rule is applied again here, on the one path both ingestion sources
+    share.
 
     Public because the coordinator's streaming admission needs it directly: its
     "references something we already track" escape bypasses ``doc_matches_region``
     entirely, so the status rule has to be applied ahead of that branch too.
     """
-    return not doc.status or doc.status == "Actual"
+    return admits_status(doc.status, include_tests=include_tests)
 
 
 def _info_matches_region(
@@ -969,6 +968,7 @@ def doc_matches_region(
     gps_lat: float | None,
     gps_lon: float | None,
     preferred_lang: str,
+    include_tests: bool = False,
 ) -> bool:
     """Whether a streamed CAP document is worth keeping for this configuration.
 
@@ -985,7 +985,7 @@ def doc_matches_region(
     alert ended and the entity lingers — issue #45 on the streaming path.
     Terminality is resolved later, in ``build_alerts_from_cap_docs``.
     """
-    if not is_actual(doc):
+    if not admits_doc(doc, include_tests=include_tests):
         return False
     return any(
         _info_matches_region(info, province, gps_lat, gps_lon) for info in doc.infos
@@ -1001,6 +1001,7 @@ def build_alerts_from_cap_docs(
     preferred_lang: str,
     atom_meta_by_id: Mapping[str, dict[str, Any]] | None = None,
     web_by_id: Mapping[str, str] | None = None,
+    include_tests: bool = False,
 ) -> list[CAPAlert]:
     """Build merged bilingual ``CAPAlert``s from parsed CAP documents.
 
@@ -1032,7 +1033,7 @@ def build_alerts_from_cap_docs(
     """
     # Screen test/exercise traffic before chain resolution, so a test message's
     # <references> cannot suppress the real alert it points at.
-    docs = [doc for doc in docs if is_actual(doc)]
+    docs = [doc for doc in docs if admits_doc(doc, include_tests=include_tests)]
     docs = _dedupe_by_identifier(docs)
     leaf_ids = {d.identifier for d in resolve_chain_leaves(docs)}
     groups: dict[str, list[CAPAlert]] = defaultdict(list)
@@ -1174,6 +1175,7 @@ def _prefilter_entries(
     province: str,
     gps_lat: float | None,
     gps_lon: float | None,
+    include_tests: bool = False,
 ) -> list[tuple[str, dict[str, Any], str]]:
     """The envelope pre-filter: ``(cap_url, atom_metadata, web_url)`` per survivor.
 
@@ -1186,7 +1188,10 @@ def _prefilter_entries(
     for entry in entries:
         cats = entry.cats
 
-        if cats.get("status", "") != "Actual":
+        # Stricter than the body rule, as it always was: an entry with no
+        # status is dropped before its body is fetched.
+        status = cats.get("status", "")
+        if not status or not admits_status(status, include_tests=include_tests):
             continue
 
         area_desc = cats.get("areaDesc", "")
@@ -1374,6 +1379,7 @@ class ECCCProvider:
             preferred_lang=preferred_lang,
             atom_meta_by_id=atom_meta_by_id,
             web_by_id=web_by_id,
+            include_tests=wants_test_messages(options),
         )
 
         # A survivor whose CAP body could not be fetched or parsed is skipped
@@ -1500,7 +1506,13 @@ class ECCCProvider:
         # (b) Pre-filter entries using the Atom envelope, off the loop (#373).
         loop = asyncio.get_running_loop()
         survivors = await loop.run_in_executor(
-            None, _prefilter_entries, entries, province, gps_lat, gps_lon
+            None,
+            _prefilter_entries,
+            entries,
+            province,
+            gps_lat,
+            gps_lon,
+            wants_test_messages(options),
         )
         # Every polygon in both feeds, as floats: not held through the body
         # fetch.

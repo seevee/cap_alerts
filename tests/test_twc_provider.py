@@ -88,11 +88,12 @@ async def _fetch(
     session: StubSession,
     region: str = "HI",
     provider: TWCProvider | None = None,
+    options: dict[str, Any] | None = None,
 ) -> list[CAPAlert]:
     return await (provider or TWCProvider()).async_fetch(
         session,  # type: ignore[arg-type]
         {CONF_PROVINCE: region},
-        {},
+        options or {},
         user_agent="test",
     )
 
@@ -347,3 +348,29 @@ async def test_shared_identifier_does_not_cross_products() -> None:
     by_id = {a.id: a for a in second}
     assert other.id in by_id
     assert by_id[other.id].stale is True
+
+
+# ---------------------------------------------------------------------------
+# Message status (#438)
+# ---------------------------------------------------------------------------
+
+
+def _hawaii_with_test_watch() -> dict[str, Any]:
+    watch = _fixture("twc_wehw40_watch.xml").replace(
+        "<status>Actual</status>", "<status>Test</status>"
+    )
+    return _hawaii(**{_cap_url(_HW40_DIR): watch})
+
+
+async def test_a_test_bulletin_is_dropped_by_default() -> None:
+    alerts = await _fetch(StubSession(_hawaii_with_test_watch()))
+    assert len(alerts) == 1
+    assert alerts[0].status == "Actual"
+
+
+async def test_a_test_bulletin_is_kept_when_the_entry_opts_in() -> None:
+    alerts = await _fetch(
+        StubSession(_hawaii_with_test_watch()),
+        options={"include_test_messages": True},
+    )
+    assert sorted(a.status for a in alerts) == ["Actual", "Test"]
