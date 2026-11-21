@@ -108,7 +108,7 @@ custom_components/cap_alerts/
     gps.py                # shared GPS-mode helpers: lat,lon parsing, ray-cast point-in-polygon, rings off a CAPAlert geometry
     <name>_conventions.py # one per provider: its SourceConventions row(s), the helpers the row references, its icon classifier, exposed as the CONVENTIONS mapping the provider declares
     nws.py                # NWS GeoJSON API — zone/GPS/tracker
-    eccc.py               # Environment Canada NAAD Atom feed (GeoRSS host union + CAP bodies)
+    eccc.py               # Environment Canada NAAD Atom feed (GeoRSS host union + CAP bodies); the index download and its parse are shared by the entries on a session (#420)
     eccc_ingest.py        # NAADIngest (PushIngest): the live document set, admission, heartbeat rebuilds, reconnect/resync backfill, repository recovery (#164)
     naad_stream.py        # NAAD TLS streaming transport: frame reassembly, heartbeats, watchdog, reconnect/backoff — no alert semantics
     meteoalarm.py         # MeteoAlarm (EUMETNET) per-country CAP JSON

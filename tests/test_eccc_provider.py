@@ -1054,7 +1054,168 @@ async def test_eccc_feed_truncated_response_retries_into_304(monkeypatch):
     assert [a.id for a in second] == [a.id for a in first]
     assert session.requested.count(feed_url) == 3
     # The cache still holds v1 — the truncated v2 response never replaced it.
-    assert provider._feed_conditional["alertready"][0] == '"v1"'
+    assert _eccc_mod._shared_feeds(session).conditional["alertready"][0] == '"v1"'
+
+
+# --- One index download shared by the entries on a session (#420) ---
+
+_FEED = "https://rss.alertready.ca/"
+_ON = ({"province": "ON"}, {"language": "en-CA", "feed_source": "alertready"})
+
+
+class _HeldFeedSession(StubSession):
+    """A StubSession whose GET of the feed waits until the test opens ``gate``."""
+
+    def __init__(self, responses: dict[str, Any]) -> None:
+        super().__init__(responses)
+        self.gate = asyncio.Event()
+        self.entered = asyncio.Event()
+
+    def get(self, url: str, **kwargs: Any) -> Any:
+        ctx = super().get(url, **kwargs)
+        return _HeldFeed(ctx, self) if url == _FEED else ctx
+
+
+class _HeldFeed:
+    def __init__(self, ctx: Any, session: _HeldFeedSession) -> None:
+        self._ctx = ctx
+        self._session = session
+
+    async def __aenter__(self) -> Any:
+        self._session.entered.set()
+        await self._session.gate.wait()
+        return await self._ctx.__aenter__()
+
+    async def __aexit__(self, *exc: object) -> Any:
+        return await self._ctx.__aexit__(*exc)
+
+
+async def _second_caller_waiting(
+    session: _HeldFeedSession, second: asyncio.Task
+) -> None:
+    """Let ``second`` run until it is parked on the first caller's download."""
+    await session.entered.wait()
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert not second.done()
+
+
+@pytest.mark.asyncio
+async def test_eccc_entries_fetching_together_share_one_feed_download(monkeypatch):
+    """Two entries whose fetches overlap make one feed request, parse it once,
+    and both get alerts."""
+    parses: list[int] = []
+    real_parse = _eccc_mod._parse_feed
+
+    def parse(text: str) -> Any:
+        parses.append(len(text))
+        return real_parse(text)
+
+    monkeypatch.setattr(_eccc_mod, "_parse_feed", parse)
+    session = _HeldFeedSession({_FEED: _atom_xml(), **_cap_responses()})
+    first = asyncio.create_task(ECCCProvider().async_fetch(session, *_ON))
+    await session.entered.wait()
+    second = asyncio.create_task(ECCCProvider().async_fetch(session, *_ON))
+    await _second_caller_waiting(session, second)
+    session.gate.set()
+
+    alerts_a, alerts_b = await asyncio.gather(first, second)
+
+    assert session.requested.count(_FEED) == 1
+    assert len(parses) == 1
+    assert [a.id for a in alerts_a] == [a.id for a in alerts_b]
+    assert len(alerts_a) == 1
+
+
+@pytest.mark.asyncio
+async def test_eccc_entry_fetching_later_revalidates_with_the_shared_etag():
+    """After the download ends, another entry's fetch is a conditional GET
+    against the validators the first one stored."""
+    session = StubSession(
+        {
+            _FEED: [(200, _atom_xml(), {"ETag": '"v1"'}), (304, "")],
+            **_cap_responses(),
+        }
+    )
+    first = await ECCCProvider().async_fetch(session, *_ON)
+    second = await ECCCProvider().async_fetch(session, *_ON)
+
+    assert [a.id for a in second] == [a.id for a in first]
+    assert _feed_request_headers(session, _FEED) == [None, {"If-None-Match": '"v1"'}]
+
+
+@pytest.mark.asyncio
+async def test_eccc_feed_state_is_not_shared_across_sessions():
+    """Another session is another Home Assistant instance: nothing carries over."""
+    responses = {_FEED: (200, _atom_xml(), {"ETag": '"v1"'}), **_cap_responses()}
+    one, two = StubSession(dict(responses)), StubSession(dict(responses))
+    await ECCCProvider().async_fetch(one, *_ON)
+    await ECCCProvider().async_fetch(two, *_ON)
+
+    assert _feed_request_headers(two, _FEED) == [None]
+
+
+@pytest.mark.asyncio
+async def test_eccc_shared_feed_failure_reaches_every_waiting_entry(monkeypatch):
+    """The waiter gets the downloader's error without spending its own attempts."""
+    monkeypatch.setattr(_eccc_mod, "_FEED_RETRY_BACKOFF_S", 0)
+    session = _HeldFeedSession({_FEED: _atom_xml()[: len(_atom_xml()) // 2]})
+    first = asyncio.create_task(ECCCProvider().async_fetch(session, *_ON))
+    await session.entered.wait()
+    second = asyncio.create_task(ECCCProvider().async_fetch(session, *_ON))
+    await _second_caller_waiting(session, second)
+    session.gate.set()
+
+    results = await asyncio.gather(first, second, return_exceptions=True)
+
+    for result in results:
+        assert isinstance(result, _eccc_mod.ProviderError)
+        assert "truncated feed response" in str(result)
+    assert session.requested.count(_FEED) == _eccc_mod._FEED_FETCH_ATTEMPTS
+    # Nothing left in flight: the next fetch asks the host again.
+    assert not _eccc_mod._shared_feeds(session).inflight
+
+
+@pytest.mark.asyncio
+async def test_eccc_cancelled_download_fails_the_waiter_and_clears_for_a_retry():
+    """The downloading entry is cancelled (its timeout, an unload): the entry
+    waiting on it fails this cycle, and its next fetch downloads for itself."""
+    session = _HeldFeedSession({_FEED: _atom_xml(), **_cap_responses()})
+    waiter = ECCCProvider()
+    first = asyncio.create_task(ECCCProvider().async_fetch(session, *_ON))
+    await session.entered.wait()
+    second = asyncio.create_task(waiter.async_fetch(session, *_ON))
+    await _second_caller_waiting(session, second)
+
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    with pytest.raises(_eccc_mod.ProviderError, match="was cancelled"):
+        # Bounded: an entry downloading for itself would sit on the held feed.
+        async with asyncio.timeout(2):
+            await second
+
+    session.gate.set()
+    alerts = await waiter.async_fetch(session, *_ON)
+    assert len(alerts) == 1
+    assert session.requested.count(_FEED) == 2
+
+
+@pytest.mark.asyncio
+async def test_eccc_cancelled_waiter_leaves_the_shared_download_running():
+    session = _HeldFeedSession({_FEED: _atom_xml(), **_cap_responses()})
+    first = asyncio.create_task(ECCCProvider().async_fetch(session, *_ON))
+    await session.entered.wait()
+    second = asyncio.create_task(ECCCProvider().async_fetch(session, *_ON))
+    await _second_caller_waiting(session, second)
+
+    second.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await second
+    session.gate.set()
+
+    assert len(await first) == 1
+    assert session.requested.count(_FEED) == 1
 
 
 def test_matches_province_sgc():
