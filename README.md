@@ -228,9 +228,12 @@ carry.
 
 The automation editor lists six triggers of the integration's own, each
 reading one of the [events](#events) below for the alerts of a chosen
-target. The target picker offers alert entities only, and a location's device
-covers alerts that don't exist yet. One field, the severity, sets the lowest
-rung that fires; it defaults to `severe`.
+target. Pick a location's device, which the picker offers whether or not it
+has alerts and which covers alerts that don't exist yet, or a single alert.
+The picker also lists each location's Last updated sensor, since that is what
+puts a quiet location's device on the list, but as a target on its own it
+never fires. One field, the severity, sets the lowest rung that fires; it
+defaults to `severe`.
 
 | Trigger | Fires on | With the severity at `severe` |
 | :-- | :-- | :-- |
