@@ -235,6 +235,18 @@ puts a quiet location's device on the list, but as a target on its own it
 never fires. One field, the severity, sets the lowest rung that fires; it
 defaults to `severe`.
 
+In the editor:
+
+1. Settings → Automations & scenes → Automations, and create a new
+   automation.
+2. Add trigger, search for "alert", and pick one of the six, Alert issued for
+   a notification on a new alert.
+3. Add target, scroll to the devices, and pick the location's device, CAP
+   Alerts NWS for an NWS entry.
+4. Set the severity.
+5. Add action, with whatever the alert should do, a notification through the
+   companion app for one.
+
 | Trigger | Fires on | With the severity at `severe` |
 | :-- | :-- | :-- |
 | Alert issued (`cap_alerts.incident_arrived`) | `incident_created` | a new alert at severe or extreme |
