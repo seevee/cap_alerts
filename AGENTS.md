@@ -258,8 +258,8 @@ request the local mode makes (zones around an apparent centre from
 `providers/nws_offset.py`, split when the list is long), places the alerts
 with the integration's own matching (`providers/nws_matching.py`), and
 compares those placed here with `point=`: `MATCH`, `MATCH+` (everything
-`point=` returned, plus alerts that only the tolerance band admitted) or
-`DIFFER`. Only `DIFFER` fails. `tests/test_nws_zone_parity.py` runs the
+`point=` returned, plus alerts that only the tolerance admitted: a zone
+within it, or a containing zone whose edge is within it) or `DIFFER`. Only `DIFFER` fails. `tests/test_nws_zone_parity.py` runs the
 check against a stand-in for the service, so the three verdicts and the
 splitting of a long request are tested without the network.
 

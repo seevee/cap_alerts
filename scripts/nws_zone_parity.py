@@ -34,9 +34,18 @@ between zones and, near a border, also admits the neighbouring zone. So there
 are three outcomes per point:
 
     MATCH    exactly what point= returned
-    MATCH+   everything point= returned, plus alerts only the band admitted
+    MATCH+   everything point= returned, plus alerts only the tolerance admitted
     DIFFER   something point= returned is missing, or an extra alert that
-             strict containment keeps as well
+             the tolerance does not explain
+
+The tolerance admits an extra alert in two ways, and both are its accepted
+cost. A zone the point is just outside counts through the band ("extra, from
+the band"). And a zone the dataset says contains the point may not contain it
+on the ground when its edge is within the tolerance: the shapes are simplified
+by that much, and the service decides on the shapes as surveyed ("extra, at a
+zone's edge"). A point 70 m inside the simplified outline of an island can be
+in the water. An extra alert is unexplained only when the point is inside the
+alert's polygon, or deeper inside one of its zones than the tolerance.
 
 It prints, per point, the zones that contain it, any the band added, how many
 zones were asked about in how many requests and how far away the apparent
@@ -209,6 +218,21 @@ def zone_alerts(codes: list[str]) -> tuple[list[Feature], int]:
     return list(found.values()), len(parts)
 
 
+def _well_inside(zones: ZoneSet, key: tuple[str, str], lat: float, lon: float) -> bool:
+    """Whether a zone that contains the point does so by more than its tolerance.
+
+    The dataset's shapes are simplified to within each zone's tolerance, so
+    nearer an edge than that the point may be on either side of the edge as
+    surveyed, which is the one the service decides on.
+    """
+    layer, code = key
+    zone = zones.get(layer, code)
+    if zone is None:
+        return False
+    tolerance = zones.tolerance_km(code)
+    return distance_to_rings_km(lat, lon, zone.rings, 2 * tolerance + 1.0) > tolerance
+
+
 def check(zones: ZoneSet, points: list[Point]) -> int:
     """Compare ``point=`` with the local decision for each point. Returns how many fail.
 
@@ -217,10 +241,12 @@ def check(zones: ZoneSet, points: list[Point]) -> int:
 
         MATCH    the local result is exactly what point= returned
         MATCH+   everything point= returned is there, and each extra alert
-                 was admitted only by the tolerance band (strict containment
-                 would not have kept it): the accepted cost of the band
-        DIFFER   an alert point= returned is missing, or an extra one that
-                 strict containment keeps too. Either is a real difference
+                 was admitted only by the tolerance: through the band, or
+                 through a zone whose edge is within the tolerance of the
+                 point. The accepted cost of simplified shapes
+        DIFFER   an alert point= returned is missing, or an extra one for a
+                 polygon the point is inside or a zone it is well inside.
+                 Either is a real difference
     """
     failing = 0
     for lat, lon in points:
@@ -237,6 +263,10 @@ def check(zones: ZoneSet, points: list[Point]) -> int:
         local = _ids([where.feature for where in placed if where.here])
         nearby = sum(not where.here for where in placed)
         local_strict = _ids(applicable_alerts(candidates, lat, lon, strict))
+        # The zones the point is inside by more than their tolerance. Only
+        # these contain it whatever the simplification did to their edges.
+        deep = frozenset(key for key in strict if _well_inside(zones, key, lat, lon))
+        local_deep = _ids(applicable_alerts(candidates, lat, lon, deep))
         wanted = _ids(reference)
         events = {
             f["properties"]["id"]: f["properties"]["event"]
@@ -244,7 +274,8 @@ def check(zones: ZoneSet, points: list[Point]) -> int:
         }
         missing = wanted - local
         extra = local - wanted
-        unexplained = extra & local_strict
+        unexplained = extra & local_deep
+        at_an_edge = (extra & local_strict) - unexplained
         if missing or unexplained:
             verdict = "DIFFER"
             failing += 1
@@ -255,6 +286,9 @@ def check(zones: ZoneSet, points: list[Point]) -> int:
         if counted != strict:
             added = sorted(f"{layer}:{code}" for layer, code in counted - strict)
             print(f"   within the band: {added}")
+        if deep != strict:
+            edged = sorted(f"{layer}:{code}" for layer, code in strict - deep)
+            print(f"   at the edge of: {edged}")
         print(
             f"   asked about {len(codes)} zones in {requests} request(s), from a "
             f"centre {haversine_km(lat, lon, *centre):.0f} km away"
@@ -267,8 +301,10 @@ def check(zones: ZoneSet, points: list[Point]) -> int:
         for alert_id in sorted(missing):
             print(f"     missing locally        : {events[alert_id]}  ({alert_id})")
         for alert_id in sorted(unexplained):
-            print(f"     extra, strict keeps it : {events[alert_id]}  ({alert_id})")
-        for alert_id in sorted(extra - unexplained):
+            print(f"     extra, well inside     : {events[alert_id]}  ({alert_id})")
+        for alert_id in sorted(at_an_edge):
+            print(f"     extra, at a zone's edge: {events[alert_id]}  ({alert_id})")
+        for alert_id in sorted(extra - unexplained - at_an_edge):
             print(f"     extra, from the band   : {events[alert_id]}  ({alert_id})")
         time.sleep(1)
     print(f"\n{len(points) - failing} of {len(points)} points match")

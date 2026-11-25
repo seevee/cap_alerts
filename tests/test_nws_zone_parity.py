@@ -248,6 +248,87 @@ def test_an_alert_placed_here_that_point_does_not_return_fails(
     assert "around" in out
 
 
+def _point_reply_without(service: Any, *left_out: str) -> Any:
+    """The service, with ``point=`` not returning the alerts named: what it
+    answers where its own shape of a zone does not reach the point."""
+    real_get = service.get
+
+    def get(url: str) -> dict[str, Any]:
+        reply = real_get(url)
+        if "point=" in url:
+            reply["features"] = [
+                alert
+                for alert in reply["features"]
+                if alert["properties"]["id"] not in left_out
+            ]
+        return reply
+
+    return get
+
+
+def test_an_extra_alert_for_a_zone_whose_edge_is_within_tolerance_is_a_match(
+    parity, monkeypatch, capsys, zones
+):
+    """Found on the coast of Santa Catalina Island on 25 November 2026: a
+    point 70 to 90 m inside the simplified outline of the island's zone,
+    where the service returned none of the island's advisories. The shapes
+    are simplified by up to the tolerance, so that near an edge the dataset
+    cannot say which side the point is on. Showing the alert there is the
+    tolerance's cost, as the band is, and not a difference."""
+    service = _Service(zones, _ALERTS)
+    monkeypatch.setattr(
+        parity, "get", _point_reply_without(service, "own-zone", "own-county")
+    )
+    monkeypatch.setattr(parity.time, "sleep", lambda _seconds: None)
+
+    failing = parity.check(zones, [_BAND_POINT])  # 150 m inside the edge
+
+    out = capsys.readouterr().out
+    assert failing == 0
+    assert "MATCH+\n" in out
+    assert "at the edge of: ['county:NYC065', 'forecast:NYZ065']" in out
+    assert "extra, at a zone's edge: Zone Product  (own-zone)" in out
+    assert "extra, at a zone's edge: Zone Product  (own-county)" in out
+    assert "extra, from the band   : Zone Product  (next-door)" in out
+    assert "well inside" not in out
+
+
+def test_an_extra_alert_for_a_zone_the_point_is_well_inside_still_fails(
+    parity, monkeypatch, capsys, zones
+):
+    """1.4 km from the nearest edge, the tolerance explains nothing."""
+    service = _Service(zones, _ALERTS)
+    monkeypatch.setattr(parity, "get", _point_reply_without(service, "own-zone"))
+    monkeypatch.setattr(parity.time, "sleep", lambda _seconds: None)
+
+    failing = parity.check(zones, [_POINT])
+
+    out = capsys.readouterr().out
+    assert failing == 1
+    assert "DIFFER\n" in out
+    assert "extra, well inside     : Zone Product  (own-zone)" in out
+    assert "at the edge of" not in out
+
+
+def test_an_extra_alert_whose_polygon_holds_the_point_fails_even_at_a_zone_s_edge(
+    parity, monkeypatch, capsys, zones
+):
+    """A polygon comes from the service as drawn. Nothing was simplified, so
+    being near the edge of a zone does not excuse it."""
+    at_the_edge = _polygon_alert(
+        "drawn", _square(-74.4990, 40.65, -74.40, 40.75), "NYC065"
+    )
+    service = _Service(zones, [*_ALERTS, at_the_edge])
+    monkeypatch.setattr(parity, "get", _point_reply_without(service, "drawn"))
+    monkeypatch.setattr(parity.time, "sleep", lambda _seconds: None)
+
+    failing = parity.check(zones, [_BAND_POINT])
+
+    out = capsys.readouterr().out
+    assert failing == 1
+    assert "extra, well inside     : Polygon Warning  (drawn)" in out
+
+
 def test_a_long_list_is_sent_in_parts_and_an_alert_in_two_parts_counts_once(
     parity, monkeypatch, capsys, zones
 ):
