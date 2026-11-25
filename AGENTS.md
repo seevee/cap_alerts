@@ -244,13 +244,24 @@ without Home Assistant can still build and check.
 made-up shapefiles (skipped without `pyshp`).
 `tests/test_zone_dataset_acceptance.py` runs the ten questions on NWS's real
 shapefiles when `CAP_ALERTS_ZONE_SOURCES` names their directory; nothing sets
-it today, so those tests always skip.
+it today, so those tests always skip. The same file holds the two checks of the
+local mode that need the real zones: that a request made from an apparent
+centre names every zone a position needs, and that a tracker's minimum hold
+shows nothing but the position's own alerts where zones are smaller than it.
 
 `scripts/nws_zone_parity.py` (read-only, run with the project's virtualenv)
 checks that local resolution plus local matching returns the same alerts as
 `alerts/active?point=`, on points it picks from the day's live alerts; re-run
 it on days with real weather. `scan` shows where polygon warnings are in
-effect, and `run --storm` aims the check at those areas.
+effect, and `run --storm` aims the check at those areas. It makes the
+request the local mode makes (zones around an apparent centre from
+`providers/nws_offset.py`, split when the list is long), places the alerts
+with the integration's own matching (`providers/nws_matching.py`), and
+compares those placed here with `point=`: `MATCH`, `MATCH+` (everything
+`point=` returned, plus alerts that only the tolerance band admitted) or
+`DIFFER`. Only `DIFFER` fails. `tests/test_nws_zone_parity.py` runs the
+check against a stand-in for the service, so the three verdicts and the
+splitting of a long request are tested without the network.
 
 `scripts/charset_probe.py` (stdlib only, read-only) decodes every feed and a
 sample of CAP bodies the way aiohttp's `resp.text()` does (header charset, else

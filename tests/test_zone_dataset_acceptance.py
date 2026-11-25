@@ -21,11 +21,16 @@ nothing reported it. Beyond those ten: all four layers are present, no record
 was left out, the builder's own counts add up, and building twice gives the
 same bytes.
 
-The last three tests put the same file through the integration's own reader,
+Three tests put the same file through the integration's own reader,
 ``providers/nws_zone_data.py``, which is the route a Home Assistant install
 takes: that it loads from disk within the reader's ceilings, whether its hash
 is on the reader's list, and that no damaged copy of it is taken for anything
 but a refusal.
+
+The last two are about the local mode (#316) and are here because only the
+real zones can answer them: that a request calculated from an apparent centre
+names every zone a position needs, and that the tracker's minimum hold shows
+nothing but the position's own alerts where zones are smaller than the hold.
 
 Expect several minutes: the build runs twice, and the survey reads every ring
 of every shapefile.
@@ -48,7 +53,23 @@ from typing import Any
 import pytest
 
 from custom_components.cap_alerts.providers import nws_zone_data
-from custom_components.cap_alerts.providers.nws_zones import MAX_DATASET_BYTES, ZoneSet
+from custom_components.cap_alerts.providers.nws_matching import (
+    matching_zones,
+    nearby_zones,
+    place_alerts,
+    request_codes,
+    split_codes,
+)
+from custom_components.cap_alerts.providers.nws_offset import (
+    TRACKER_MIN_HOLD_KM,
+    LockStore,
+    displaced,
+)
+from custom_components.cap_alerts.providers.nws_zones import (
+    MAX_DATASET_BYTES,
+    ZoneSet,
+    haversine_km,
+)
 
 _SOURCES = os.environ.get("CAP_ALERTS_ZONE_SOURCES", "")
 # The settings a release is built with. Alaska's zones are simplified more
@@ -351,3 +372,167 @@ def test_no_damaged_copy_of_the_built_dataset_is_taken_for_anything_but_a_refusa
             outcomes["loaded"] += 1
     # Most damage must be caught, or the test is not damaging anything.
     assert outcomes["damaged"] >= len(copies) // 2, outcomes
+
+
+# ---------------------------------------------------------------------------
+# The request and the placing of alerts, on the real zones (#316)
+# ---------------------------------------------------------------------------
+
+# Public places: three cities, the Front Range, the Nevada desert, Anchorage,
+# Miami, Honolulu, and the Aleutians at the antimeridian.
+_PLACES = (
+    (40.7128, -74.0060),
+    (35.7800, -78.6400),
+    (41.8800, -87.6300),
+    (39.7400, -104.9900),
+    (39.5000, -116.8000),
+    (61.2200, -149.9000),
+    (25.7600, -80.1900),
+    (21.3000, -157.8500),
+    (52.0000, 179.5000),
+)
+
+
+@pytest.fixture(scope="module")
+def real_zones(build) -> ZoneSet:
+    with gzip.open(build["dataset"], "rb") as lines:
+        return ZoneSet.from_lines(lines)
+
+
+def _needed(zones: ZoneSet, lat: float, lon: float, radius: float) -> set[str]:
+    """The codes that decide a position's alerts: within the radius, or
+    counting for the position through the tolerance band."""
+    near = {code for _layer, code in nearby_zones(zones, lat, lon, radius)}
+    return near | {code for _layer, code in matching_zones(zones, lat, lon)}
+
+
+def test_a_request_from_an_offset_centre_names_every_zone_the_position_needs(
+    real_zones,
+):
+    """The request is calculated around a centre 24 km or more from the
+    position, by a function that is never told the position. Wherever the
+    position is within its record's hold, every zone that decides its alerts
+    must be in the list. This is the property the whole local mode rests on,
+    on the real zones: the resolver measures in a flat projection, and it is
+    the margin in ``request_codes`` that keeps that from leaving a zone out."""
+    rnd = random.Random(316)
+    checked = 0
+    for radius, pct in (
+        (0.0, 50.0),
+        (16.0, 50.0),
+        (100.0, 50.0),
+        (161.0, 15.0),
+        (161.0, 50.0),
+    ):
+        for place in _PLACES:
+            store = LockStore(rng=random.Random(rnd.random()))
+            lock = store.lock_for(
+                *place,
+                radius_km=radius,
+                hysteresis_pct=pct,
+                today=1,
+                min_hold_km=TRACKER_MIN_HOLD_KM,
+            )
+            codes = request_codes(
+                real_zones, *lock.centre, lock.request_radius_km(radius)
+            )
+            asked = set(codes)
+            parts = split_codes(codes)
+            assert [code for part in parts for code in part] == codes
+            for _ in range(4):
+                lat, lon = displaced(
+                    *place, rnd.uniform(0.0, lock.hold_km), rnd.uniform(0, 360)
+                )
+                missing = _needed(real_zones, lat, lon, radius) - asked
+                assert not missing, (
+                    f"{sorted(missing)} needed at {lat:.4f},{lon:.4f} with radius "
+                    f"{radius:g} km, and not in the request made from "
+                    f"{lock.centre[0]:.4f},{lock.centre[1]:.4f}"
+                )
+                checked += 1
+    assert checked == 180
+
+
+def test_at_the_smallest_zones_a_small_radius_shows_the_position_s_alerts_and_no_others(
+    build, real_zones
+):
+    """Someone who wants their own zone only sets a radius of a kilometre or
+    none. The tracker's minimum hold is 8 km, longer than some zones are
+    wide. The hold must not change what is shown: with one alert for every
+    zone asked about, those placed are exactly the alerts of the zones the
+    true position needs, none farther than the radius, and those placed here
+    are exactly the zones that count for it."""
+    with gzip.open(build["dataset"], "rt", encoding="utf-8") as lines:
+        # Not every line is a shape: the header, the closing line, and the
+        # fire zones recorded as the same shape as a forecast zone.
+        records = [json.loads(line) for line in lines]
+    boxes = [record["bbox"] for record in records if "bbox" in record]
+    assert len(boxes) > 1000
+    across = sorted(
+        (haversine_km(south, west, north, east), (south + north) / 2, (west + east) / 2)
+        for west, south, east, north in boxes
+        if east - west < 180
+    )
+    assert across[0][0] < TRACKER_MIN_HOLD_KM  # some zones are smaller than the hold
+    rnd = random.Random(8)
+    layers = {
+        "forecast": "forecast",
+        "marine": "forecast",
+        "county": "county",
+        "fire": "fire",
+    }
+    checked = 0
+    for radius in (0.0, 1.0, 3.0):
+        for _size, lat0, lon0 in across[:25]:
+            store = LockStore(rng=random.Random(rnd.random()))
+            lock = store.lock_for(
+                lat0,
+                lon0,
+                radius_km=radius,
+                hysteresis_pct=1.0,
+                today=1,
+                min_hold_km=TRACKER_MIN_HOLD_KM,
+            )
+            assert lock.hold_km == TRACKER_MIN_HOLD_KM
+            reach = lock.request_radius_km(radius)
+            hits = real_zones.resolve(
+                *lock.centre, radius_km=reach, max_zones=len(real_zones)
+            )
+            alerts = [
+                {
+                    "geometry": None,
+                    "properties": {
+                        "id": f"{hit.layer}:{hit.code}",
+                        "affectedZones": [
+                            f"https://api.weather.gov/zones/{layers[hit.layer]}/{hit.code}"
+                        ],
+                    },
+                }
+                for hit in hits
+            ]
+            for _ in range(3):
+                lat, lon = displaced(
+                    lat0, lon0, rnd.uniform(0.0, 8.0), rnd.uniform(0, 360)
+                )
+                held = store.lock_for(
+                    lat,
+                    lon,
+                    radius_km=radius,
+                    hysteresis_pct=1.0,
+                    today=1,
+                    min_hold_km=TRACKER_MIN_HOLD_KM,
+                )
+                assert held == lock
+                counted = matching_zones(real_zones, lat, lon)
+                near = nearby_zones(real_zones, lat, lon, radius)
+                placed = place_alerts(real_zones, alerts, lat, lon, radius)
+                got = {where.feature["properties"]["id"] for where in placed}
+                assert got == {f"{layer}:{code}" for layer, code in counted | set(near)}
+                assert {
+                    where.feature["properties"]["id"] for where in placed if where.here
+                } == {f"{layer}:{code}" for layer, code in counted}
+                for where in placed:
+                    assert where.distance_km is not None
+                    assert where.distance_km <= radius
+                checked += 1
+    assert checked == 225
