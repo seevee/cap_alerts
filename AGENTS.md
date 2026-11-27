@@ -121,6 +121,8 @@ custom_components/cap_alerts/
     nws_zone_data.py      # the NWS zone dataset on disk (#316): one fixed path in .storage, loads only a file whose SHA-256 is in KNOWN_ZONE_DATA (every published dataset, so an older file survives an upgrade), read in the executor on first use and never at setup, one ZoneSet shared by the entries that hold it and dropped when the last lets go
     nws_zone_fetch.py     # puts the NWS zone dataset on disk (#316), only when asked, assuming the server is hostile: https and caller-allowed hosts only, redirects followed by hand, no transfer decompression, a size ceiling and a timeout, the exact dataset asked for by SHA-256 (an older published one is refused), verified before writing, written to a private .part file made new each time and renamed, then swapped in memory; every failure carries a reason and leaves the fixed path untouched; async_adopt_zone_data accepts a hand-supplied file through the same check. async_remove_zone_data deletes the file under the same lock and never raises. Nothing calls either yet
     nws_zones.py          # local NWS zone resolver (#316), stdlib only, no HA imports: ZoneSet.from_lines reads the line-per-zone dataset (header counts, end-of-file line, SHA-256; refuses a partial file), nearby zones for the request, containing zones with the land-sea rule for matching, tracker hysteresis
+    nws_offset.py         # where the NWS zone request is calculated from (#316), stdlib only, no HA imports: an apparent centre a random 15 to 35% of the radius (never from a range below 15 to 35 miles) from the true position, a request radius enlarged by the largest possible offset plus the hold distance, and lock records (point, hold radius, offset) so that ground covered before gives the request it gave before; at most 20,000 records, and remembering can be switched off; from_dict leaves out a stored record that could not have been made and keeps the rest, and salvage recovers every record still written whole in the text of a file that no longer reads as a document
+    nws_matching.py       # which NWS alerts are within the radius of a point, decided locally (#316), no HA imports: request_codes names every zone in the circle it is given (the enlarged circle around the apparent centre from nws_offset.py, never the true position) and split_codes divides a list too long for one request; place_alerts marks each alert in the reply as here (what point= would return: polygon alerts by exact containment, zone-only alerts through zones within each zone's simplification tolerance of the point, land-sea rule banded the same way) or nearby with its distance, and discards only what can be shown to lie beyond the radius; strict_zones reproduces point=
     twc.py                # U.S. Tsunami Warning Centers: a region's two product slots on tsunami.gov (revalidated) → each one's latest CAP bulletin; identity is product + incident, identifier/references product-qualified (PTWC reuses them across products), Tsunami Cancellation ends
   manifest.json
   strings.json      # every user-facing string: flow steps, options, errors, repairs, triggers; translations/en.json mirrors it exactly (test_translation_keys_in_sync)
@@ -243,13 +245,24 @@ without Home Assistant can still build and check.
 made-up shapefiles (skipped without `pyshp`).
 `tests/test_zone_dataset_acceptance.py` runs the ten questions on NWS's real
 shapefiles when `CAP_ALERTS_ZONE_SOURCES` names their directory; nothing sets
-it today, so those tests always skip.
+it today, so those tests always skip. The same file holds the two checks of the
+local mode that need the real zones: that a request made from an apparent
+centre names every zone a position needs, and that a tracker's minimum hold
+shows nothing but the position's own alerts where zones are smaller than it.
 
 `scripts/nws_zone_parity.py` (read-only, run with the project's virtualenv)
 checks that local resolution plus local matching returns the same alerts as
 `alerts/active?point=`, on points it picks from the day's live alerts; re-run
 it on days with real weather. `scan` shows where polygon warnings are in
-effect, and `run --storm` aims the check at those areas.
+effect, and `run --storm` aims the check at those areas. It makes the
+request the local mode makes (zones around an apparent centre from
+`providers/nws_offset.py`, split when the list is long), places the alerts
+with the integration's own matching (`providers/nws_matching.py`), and
+compares those placed here with `point=`: `MATCH`, `MATCH+` (everything
+`point=` returned, plus alerts that only the tolerance admitted: a zone
+within it, or a containing zone whose edge is within it) or `DIFFER`. Only `DIFFER` fails. `tests/test_nws_zone_parity.py` runs the
+check against a stand-in for the service, so the three verdicts and the
+splitting of a long request are tested without the network.
 
 `scripts/charset_probe.py` (stdlib only, read-only) decodes every feed and a
 sample of CAP bodies the way aiohttp's `resp.text()` does (header charset, else

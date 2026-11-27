@@ -13,13 +13,44 @@ A repeatable check for issue #316, meant to be re-run on days with real weather:
 ``check`` asks the API two things for each point and compares them:
 
     reference  GET alerts/active?point=lat,lon                    what NWS computes server-side
-    candidate  GET alerts/active?zone=<containing + nearby codes> what the local mode would send
-    local      keep a candidate alert only if
-                 - it has a polygon and the point is inside it, or
-                 - it has no polygon and one of its zones CONTAINS the point
+    candidate  GET alerts/active?zone=<every zone in the circle>  what the local mode sends
+    local      place each candidate alert relative to the point:
+                 here    - it has a polygon and the point is inside it, or
+                         - it has no polygon and one of its zones counts for the point
+                 nearby  - within the radius, with its distance
+               and compare the alerts placed here with the reference
 
-It prints, per point, the codes sent, both counts, and any alert present on
-only one side, and exits 1 if any point differs.
+The candidate request is the one the local mode makes: the zone list is
+calculated around an apparent centre some distance from the point
+(``providers/nws_offset.py``), over a circle enlarged to cover the radius
+around the point, and a list longer than one request may carry is split. So
+the check also shows that a request calculated away from the point still
+returns everything ``point=`` does.
+
+The local decision is the integration's own (``providers/nws_matching.py``),
+so this checks the code that ships, not a copy of it. Zone-only alerts are
+matched with a tolerance band, which closes the slivers simplification leaves
+between zones and, near a border, also admits the neighbouring zone. So there
+are three outcomes per point:
+
+    MATCH    exactly what point= returned
+    MATCH+   everything point= returned, plus alerts only the tolerance admitted
+    DIFFER   something point= returned is missing, or an extra alert that
+             the tolerance does not explain
+
+The tolerance admits an extra alert in two ways, and both are its accepted
+cost. A zone the point is just outside counts through the band ("extra, from
+the band"). And a zone the dataset says contains the point may not contain it
+on the ground when its edge is within the tolerance: the shapes are simplified
+by that much, and the service decides on the shapes as surveyed ("extra, at a
+zone's edge"). A point 70 m inside the simplified outline of an island can be
+in the water. An extra alert is unexplained only when the point is inside the
+alert's polygon, or deeper inside one of its zones than the tolerance.
+
+It prints, per point, the zones that contain it, any the band added, how many
+zones were asked about in how many requests and how far away the apparent
+centre was, the counts, and each alert present on only one side with the
+reason. It exits 1 if any point DIFFERs. MATCH+ is a pass.
 
 ``pick`` chooses the points from today's live alerts, by construction, so the
 check is aimed at the cases that can go wrong. For each state it fetches
@@ -31,6 +62,13 @@ check is aimed at the cases that can go wrong. For each state it fetches
     CTY_TRAP   in a county overlapping that zone, but lying in a
                different forecast zone with no product            point= must NOT return it
     IN_MARINE  inside a marine zone-only product's zone, at sea   point= returns it
+    BAND       on land just outside that product's zone, within   point= does NOT return it;
+               the zone's tolerance, in a zone with no product    local matching does (MATCH+)
+
+BAND is the one case built to differ. It sits where the tolerance band admits
+a neighbouring zone, so the expected outcome is MATCH+ with that product
+listed as "extra, from the band". It shows the band doing what it was chosen
+to do, and what that costs, on the day's real products.
 
 With no states named it takes the five busiest land areas and the two busiest
 marine areas from ``alerts/active/count``. Busiest is not the same as most
@@ -75,6 +113,7 @@ import argparse
 import datetime as dt
 import gzip
 import json
+import math
 import random
 import sys
 import time
@@ -86,45 +125,29 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from custom_components.cap_alerts.const import USER_AGENT
-from custom_components.cap_alerts.providers.gps import point_in_polygon
+from custom_components.cap_alerts.providers.nws_matching import (
+    MARINE_AREAS,
+    applicable_alerts,
+    in_alert_polygon,
+    matching_zones,
+    place_alerts,
+    request_codes,
+    split_codes,
+    strict_zones,
+)
+from custom_components.cap_alerts.providers.nws_offset import LockStore
 from custom_components.cap_alerts.providers.nws_zones import (
+    KM_PER_DEGREE,
     Zone,
     ZoneSet,
+    distance_to_rings_km,
+    haversine_km,
     point_in_rings,
 )
 
 API = "https://api.weather.gov"
-RADIUS_KM, MAX_ZONES = 16.0, 5
+RADIUS_KM, HYSTERESIS_PCT = 16.0, 50.0
 PER_CASE = 2
-
-# UGC prefixes of the marine areas. Their zone codes (ANZ338, LMZ846) are served
-# under the API's forecast type but live on the dataset's marine layer.
-MARINE_AREAS = frozenset(
-    {
-        "AM",
-        "AN",
-        "GM",
-        "LC",
-        "LE",
-        "LH",
-        "LM",
-        "LO",
-        "LS",
-        "PH",
-        "PK",
-        "PM",
-        "PS",
-        "PZ",
-        "SL",
-    }
-)
-TYPE_TO_LAYER = {
-    "forecast": "forecast",
-    "public": "forecast",
-    "county": "county",
-    "fire": "fire",
-    "marine": "marine",
-}
 
 # What NWS calls storm-based warnings: issued for one storm, with a polygon
 # drawn around its track, usually for under an hour.
@@ -167,7 +190,7 @@ def load_dataset(path: str) -> ZoneSet:
 
 
 # ---------------------------------------------------------------------------
-# Matching an alert to a point, the way the local mode would
+# Comparing the local decision with point=
 # ---------------------------------------------------------------------------
 
 
@@ -177,96 +200,115 @@ def _polygons(geometry: dict[str, Any]) -> list[list[list[list[float]]]]:
     return [geometry["coordinates"]]
 
 
-def in_geometry(lat: float, lon: float, geometry: dict[str, Any] | None) -> bool | None:
-    """Whether the point is inside an alert's polygon; None when it has none."""
-    if not geometry:
-        return None  # no polygon: decide by zone
-    for polygon in _polygons(geometry):  # ring 0 outer, the rest holes
-        if point_in_polygon(lat, lon, polygon[0]) and not any(
-            point_in_polygon(lat, lon, hole) for hole in polygon[1:]
-        ):
-            return True
-    return False
+def _ids(features: list[Feature]) -> set[str]:
+    return {feature["properties"]["id"] for feature in features}
 
 
-def layer_for(code: str, url_type: str) -> str:
-    """The dataset layer a zone code belongs to, given the type in its API URL."""
-    if code[:2] in MARINE_AREAS:
-        return "marine"
-    fallback = "county" if len(code) == 6 and code[2] == "C" else "forecast"
-    return TYPE_TO_LAYER.get(url_type, fallback)
+def zone_alerts(codes: list[str]) -> tuple[list[Feature], int]:
+    """The alerts for a list of zones, and how many requests it took.
 
-
-def affected(properties: dict[str, Any]) -> set[tuple[str, str]]:
-    """(layer, code) for each of an alert's zones.
-
-    Read from ``affectedZones`` URLs such as ``.../zones/fire/COZ240``, because
-    437 codes exist as both a fire and a forecast zone with different shapes
-    and the bare UGC cannot say which is meant. Bare UGC is the fallback.
+    A long list is split as the local mode splits it. An alert that names
+    zones in two parts comes back twice and is counted once, by its ID.
     """
-    found: set[tuple[str, str]] = set()
-    for url in properties.get("affectedZones", []):
-        parts = url.rstrip("/").split("/")
-        if len(parts) >= 2 and parts[-2] in TYPE_TO_LAYER:
-            found.add((layer_for(parts[-1], parts[-2]), parts[-1]))
-    if not found:
-        for code in properties.get("geocode", {}).get("UGC", []):
-            found.add((layer_for(code, ""), code))
-    return found
+    found: dict[str, Feature] = {}
+    parts = split_codes(codes)
+    for part in parts:
+        for feature in get(f"{API}/alerts/active?zone={','.join(part)}")["features"]:
+            found.setdefault(feature["properties"]["id"], feature)
+    return list(found.values()), len(parts)
 
 
-def local_filter(
-    lat: float, lon: float, features: list[Feature], containing: set[tuple[str, str]]
-) -> list[Feature]:
-    """The alerts that apply to the point. ``containing``: every zone that contains it."""
-    keep = []
-    for feature in features:
-        inside = in_geometry(lat, lon, feature.get("geometry"))
-        if inside is True or (
-            inside is None and affected(feature["properties"]) & containing
-        ):
-            keep.append(feature)
-    return keep
+def _well_inside(zones: ZoneSet, key: tuple[str, str], lat: float, lon: float) -> bool:
+    """Whether a zone that contains the point does so by more than its tolerance.
+
+    The dataset's shapes are simplified to within each zone's tolerance, so
+    nearer an edge than that the point may be on either side of the edge as
+    surveyed, which is the one the service decides on.
+    """
+    layer, code = key
+    zone = zones.get(layer, code)
+    if zone is None:
+        return False
+    tolerance = zones.tolerance_km(code)
+    return distance_to_rings_km(lat, lon, zone.rings, 2 * tolerance + 1.0) > tolerance
 
 
 def check(zones: ZoneSet, points: list[Point]) -> int:
-    """Compare ``point=`` with the local mode for each point. Returns how many differ."""
-    differing = 0
+    """Compare ``point=`` with the local decision for each point. Returns how many fail.
+
+    The decision under test is the integration's own, from
+    ``providers/nws_matching.py``. Three outcomes per point:
+
+        MATCH    the local result is exactly what point= returned
+        MATCH+   everything point= returned is there, and each extra alert
+                 was admitted only by the tolerance: through the band, or
+                 through a zone whose edge is within the tolerance of the
+                 point. The accepted cost of simplified shapes
+        DIFFER   an alert point= returned is missing, or an extra one for a
+                 polygon the point is inside or a zone it is well inside.
+                 Either is a real difference
+    """
+    failing = 0
     for lat, lon in points:
-        containing = {(h.layer, h.code) for h in zones.containing(lat, lon)}
-        nearby = zones.codes(lat, lon, radius_km=RADIUS_KM, max_zones=MAX_ZONES)
-        codes = list(dict.fromkeys(nearby + sorted(code for _, code in containing)))
-        reference = get(f"{API}/alerts/active?point={lat},{lon}")["features"]
-        candidates = (
-            get(f"{API}/alerts/active?zone={','.join(codes)}")["features"]
-            if codes
-            else []
+        strict = strict_zones(zones, lat, lon)
+        counted = matching_zones(zones, lat, lon)
+        lock = LockStore().lock_for(
+            lat, lon, radius_km=RADIUS_KM, hysteresis_pct=HYSTERESIS_PCT, today=0
         )
-        local = local_filter(lat, lon, candidates, containing)
+        centre = lock.centre
+        codes = request_codes(zones, *centre, lock.request_radius_km(RADIUS_KM))
+        reference = get(f"{API}/alerts/active?point={lat},{lon}")["features"]
+        candidates, requests = zone_alerts(codes)
+        placed = place_alerts(zones, candidates, lat, lon, RADIUS_KM)
+        local = _ids([where.feature for where in placed if where.here])
+        nearby = sum(not where.here for where in placed)
+        local_strict = _ids(applicable_alerts(candidates, lat, lon, strict))
+        # The zones the point is inside by more than their tolerance. Only
+        # these contain it whatever the simplification did to their edges.
+        deep = frozenset(key for key in strict if _well_inside(zones, key, lat, lon))
+        local_deep = _ids(applicable_alerts(candidates, lat, lon, deep))
+        wanted = _ids(reference)
         events = {
             f["properties"]["id"]: f["properties"]["event"]
             for f in reference + candidates
         }
-        reference_ids = {f["properties"]["id"] for f in reference}
-        local_ids = {f["properties"]["id"] for f in local}
-        same = reference_ids == local_ids
-        differing += not same
+        missing = wanted - local
+        extra = local - wanted
+        unexplained = extra & local_deep
+        at_an_edge = (extra & local_strict) - unexplained
+        if missing or unexplained:
+            verdict = "DIFFER"
+            failing += 1
+        else:
+            verdict = "MATCH+" if extra else "MATCH"
         print(f"== {lat},{lon}")
+        print(f"   containing: {sorted(f'{layer}:{code}' for layer, code in strict)}")
+        if counted != strict:
+            added = sorted(f"{layer}:{code}" for layer, code in counted - strict)
+            print(f"   within the band: {added}")
+        if deep != strict:
+            edged = sorted(f"{layer}:{code}" for layer, code in strict - deep)
+            print(f"   at the edge of: {edged}")
         print(
-            f"   containing: {sorted(f'{layer}:{code}' for layer, code in containing)}"
+            f"   asked about {len(codes)} zones in {requests} request(s), from a "
+            f"centre {haversine_km(lat, lon, *centre):.0f} km away"
         )
-        print(f"   sent ({len(codes)}): {','.join(codes)}")
         print(
-            f"   point= {len(reference_ids)}   zone= {len(candidates)}   "
-            f"local filter -> {len(local_ids)}   {'MATCH' if same else 'DIFFER'}"
+            f"   point= {len(wanted)}   zone= {len(candidates)}   "
+            f"here -> {len(local)} (strict {len(local_strict)})   "
+            f"nearby within {RADIUS_KM:g} km -> {nearby}   {verdict}"
         )
-        for alert_id in sorted(reference_ids - local_ids):
-            print(f"     missing locally : {events[alert_id]}  ({alert_id})")
-        for alert_id in sorted(local_ids - reference_ids):
-            print(f"     extra locally   : {events[alert_id]}  ({alert_id})")
+        for alert_id in sorted(missing):
+            print(f"     missing locally        : {events[alert_id]}  ({alert_id})")
+        for alert_id in sorted(unexplained):
+            print(f"     extra, well inside     : {events[alert_id]}  ({alert_id})")
+        for alert_id in sorted(at_an_edge):
+            print(f"     extra, at a zone's edge: {events[alert_id]}  ({alert_id})")
+        for alert_id in sorted(extra - unexplained - at_an_edge):
+            print(f"     extra, from the band   : {events[alert_id]}  ({alert_id})")
         time.sleep(1)
-    print(f"\n{len(points) - differing} of {len(points)} points match")
-    return differing
+    print(f"\n{len(points) - failing} of {len(points)} points match")
+    return failing
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +330,7 @@ def samples_in_zone(zone: Zone, n: int = 400, seed: int = 1) -> list[Point]:
     return out
 
 
-def samples_in_geometry(
+def samples_in_alert_polygon(
     geometry: dict[str, Any], n: int = 200, seed: int = 2
 ) -> list[Point]:
     """Random points inside an alert polygon, rejection-sampled over its bbox."""
@@ -299,7 +341,7 @@ def samples_in_geometry(
     out: list[Point] = []
     for _ in range(n * 20):
         lon, lat = rnd.uniform(x1, x2), rnd.uniform(y1, y2)
-        if in_geometry(lat, lon, geometry):
+        if in_alert_polygon(lat, lon, geometry):
             out.append((round(lat, 4), round(lon, 4)))
             if len(out) >= n:
                 break
@@ -341,6 +383,49 @@ def _county_trap(
     return None
 
 
+def _band_point(
+    zones: ZoneSet,
+    zone: Zone,
+    code: str,
+    quiet: set[str],
+    tries: int = 400,
+    seed: int = 5,
+) -> tuple[Point, str] | None:
+    """A land point just outside ``zone``, inside its tolerance band, in a quiet zone.
+
+    Walks out from random vertices of the zone's outline by a third to two
+    thirds of the tolerance. Kept only if it is strictly outside ``zone``, in
+    a county, and in a forecast zone with no zone-only product of its own, so
+    that the only reason for the product to apply there is the band.
+    """
+    tolerance = zones.tolerance_km(code)
+    if tolerance <= 0.0:
+        return None
+    rnd = random.Random(seed)
+    outline = zone.rings[0]
+    for _ in range(tries):
+        i = 2 * rnd.randrange(len(outline) // 2)
+        lon, lat = outline[i], outline[i + 1]
+        step, bearing = (
+            rnd.uniform(0.33, 0.67) * tolerance,
+            rnd.uniform(0.0, 2.0 * math.pi),
+        )
+        lat += step * math.cos(bearing) / KM_PER_DEGREE
+        lon += step * math.sin(bearing) / (KM_PER_DEGREE * math.cos(math.radians(lat)))
+        point = (round(lat, 4), round(lon, 4))
+        if point_in_rings(point[0], point[1], zone.rings):
+            continue
+        away = distance_to_rings_km(point[0], point[1], zone.rings, tolerance)
+        if away > 0.8 * tolerance or not on_land(zones, point):
+            continue
+        inside = [
+            h.code for h in zones.containing(point[0], point[1], layers=("forecast",))
+        ]
+        if inside and not set(inside) & quiet:
+            return point, f"in {inside[0]}, {away * 1000:.0f} m outside {code}"
+    return None
+
+
 def pick(zones: ZoneSet, states: list[str]) -> list[Chosen]:
     chosen: list[Chosen] = []
     for state in states:
@@ -355,7 +440,7 @@ def pick(zones: ZoneSet, states: list[str]) -> list[Chosen]:
         )
         for feature in with_polygon[:PER_CASE]:
             properties, geometry = feature["properties"], feature["geometry"]
-            inside = samples_in_geometry(geometry, 1)
+            inside = samples_in_alert_polygon(geometry, 1)
             if inside:
                 chosen.append(
                     ("IN_POLY", *inside[0], properties["event"], "inside the polygon")
@@ -367,7 +452,7 @@ def pick(zones: ZoneSet, states: list[str]) -> list[Chosen]:
                 outside = [
                     p
                     for p in samples_in_zone(zone, 300)
-                    if not in_geometry(p[0], p[1], geometry)
+                    if not in_alert_polygon(p[0], p[1], geometry)
                 ]
                 if outside:
                     note = f"in {county}, outside the polygon"
@@ -406,6 +491,9 @@ def pick(zones: ZoneSet, states: list[str]) -> list[Chosen]:
                 trap = _county_trap(zones, zone, code, active)
                 if trap:
                     chosen.append(("CTY_TRAP", *trap[0], properties["event"], trap[1]))
+                band = _band_point(zones, zone, code, active)
+                if band:
+                    chosen.append(("BAND", *band[0], properties["event"], band[1]))
                 break
     return chosen
 
