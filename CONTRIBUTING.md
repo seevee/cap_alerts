@@ -165,6 +165,14 @@ archive. That is what makes installs visible: GitHub counts asset downloads
 and never counts source archives. HACS reads `hacs.json` at the tag it installs,
 so releases from before the asset existed still install the old way.
 
+`publish.sh <version> --zone-data <file>` attaches a built NWS zone dataset
+as a second asset, `cap_alerts.nws_zones.jsonl.gz`, beside the zip and never
+inside it, so no install downloads it unasked. Pass it on the release that
+first lists the file's SHA-256 in `KNOWN_ZONE_DATA`
+(`providers/nws_zone_data.py`); the script refuses a file the tagged code does
+not list. Build it with `scripts/build_zone_dataset.py --tail-eps 0.02 --gzip`
+and run `scripts/check_zone_dataset.py` on it first.
+
 ## AI-Assisted Contributions
 
 AI coding assistants are welcome as tools, under two rules:

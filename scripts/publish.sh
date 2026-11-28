@@ -11,14 +11,20 @@ fi
 
 usage() {
   cat <<'USAGE'
-Usage: publish.sh <version>
+Usage: publish.sh <version> [--zone-data <file>]
 
 Creates a git tag and GitHub Release from main, with the HACS install asset
 (hacs.json "filename", built from the tagged tree) attached.
 
+--zone-data attaches a built NWS zone dataset (the .gz from
+build_zone_dataset.py --gzip) as a second asset, beside the zip and not inside
+it. Pass it on the release that first carries the file's SHA-256 in
+KNOWN_ZONE_DATA; the file is refused when the tagged code does not list it.
+
 Examples:
   ./scripts/publish.sh 0.3.0
   ./scripts/publish.sh 0.3.0-alpha.1
+  ./scripts/publish.sh 0.9.0-alpha.4 --zone-data plans/zone-dataset/out/cap_alerts.nws_zones.jsonl.gz
 USAGE
   exit 1
 }
@@ -27,6 +33,24 @@ USAGE
 
 VERSION=$1
 TAG="v$VERSION"
+shift
+
+ZONE_DATA=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --zone-data)
+      [[ $# -lt 2 ]] && usage
+      ZONE_DATA=$(realpath "$2")
+      shift 2
+      ;;
+    *) usage ;;
+  esac
+done
+
+if [ -n "$ZONE_DATA" ] && [ ! -f "$ZONE_DATA" ]; then
+  echo "Zone dataset not found: $ZONE_DATA" >&2
+  exit 1
+fi
 
 PRERELEASE=false
 if [[ "$VERSION" == *"-alpha"* || "$VERSION" == *"-beta"* || "$VERSION" == *"-rc"* ]]; then
@@ -37,6 +61,23 @@ echo "Publishing v$VERSION"
 
 git checkout main
 git pull origin main
+
+# The dataset goes out only with code that will load it. The reader accepts a
+# file by its SHA-256 alone (KNOWN_ZONE_DATA), so a file the tagged tree does
+# not list would be a download every install refuses. Checked before the tag
+# exists, so a wrong file leaves nothing to undo.
+ZONE_MODULE=custom_components/cap_alerts/providers/nws_zone_data.py
+# ZONE_DATA_FILENAME in that module: the name on disk and on the release.
+ZONE_ASSET_NAME=cap_alerts.nws_zones.jsonl.gz
+if [ -n "$ZONE_DATA" ]; then
+  ZONE_REF=$(git rev-parse -q --verify "$TAG^{commit}" || git rev-parse HEAD)
+  ZONE_SHA=$(sha256sum "$ZONE_DATA" | cut -d' ' -f1)
+  if ! git show "$ZONE_REF:$ZONE_MODULE" | grep -q "\"$ZONE_SHA\""; then
+    echo "Zone dataset SHA-256 $ZONE_SHA is not in KNOWN_ZONE_DATA at $ZONE_REF" >&2
+    exit 1
+  fi
+  echo "Zone dataset $ZONE_SHA is listed at $ZONE_REF, publishing as $ZONE_ASSET_NAME"
+fi
 
 if git rev-parse "$TAG" >/dev/null 2>&1; then
   echo "Tag $TAG already exists locally, skipping"
@@ -92,21 +133,33 @@ ASSET="$ASSET_DIR/$ASSET_NAME"
 git archive --format=zip -o "$ASSET" "$TAG:custom_components/cap_alerts"
 echo "Built $ASSET_NAME from $TAG ($(python -c "import sys, zipfile; print(len(zipfile.ZipFile(sys.argv[1]).namelist()))" "$ASSET") entries)"
 
+# The zone dataset rides the same release under its fixed name, whatever the
+# built file was called: the download URL the integration pins is tag + name.
+ASSETS=("$ASSET")
+if [ -n "$ZONE_DATA" ]; then
+  cp "$ZONE_DATA" "$ASSET_DIR/$ZONE_ASSET_NAME"
+  ASSETS+=("$ASSET_DIR/$ZONE_ASSET_NAME")
+fi
+
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Release $TAG already exists, skipping"
-  if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "$ASSET_NAME"; then
-    echo "Asset $ASSET_NAME already attached, skipping"
-  else
-    gh release upload "$TAG" "$ASSET"
-    echo "Asset $ASSET_NAME attached to $TAG"
-  fi
+  ATTACHED=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+  for FILE in "${ASSETS[@]}"; do
+    NAME=$(basename "$FILE")
+    if grep -qx "$NAME" <<<"$ATTACHED"; then
+      echo "Asset $NAME already attached, skipping"
+    else
+      gh release upload "$TAG" "$FILE"
+      echo "Asset $NAME attached to $TAG"
+    fi
+  done
 else
   gh release create "$TAG" \
     --title "$TAG" \
     --notes "$NOTES" \
     $([ "$PRERELEASE" = true ] && echo "--prerelease") \
-    "$ASSET"
-  echo "Release $TAG published with $ASSET_NAME"
+    "${ASSETS[@]}"
+  echo "Release $TAG published with $(basename -a "${ASSETS[@]}" | paste -sd' ')"
 fi
 
 rm -rf "$ASSET_DIR"
